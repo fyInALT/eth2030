@@ -373,17 +373,17 @@ All 65 strawmap items are COMPLETE with real cryptographic backends wired (BLS, 
 
 ## Development Stats
 
-This project was built with [Claude Code](https://claude.ai/code) (Claude Opus 4) over ~6 days:
+This project was built with [Claude Code](https://claude.ai/code) (Claude Opus 4/4.6) over ~8 days:
 
 | Metric | Value |
 |--------|-------|
-| Total tokens (billed) | 2.77 billion |
-| Total throughput | 6.07 billion |
-| Unique API calls | 26,798 |
-| Session files analyzed | 765 (8 main + 757 sub-agent) |
-| Output tokens | 653,646 |
-| Estimated API cost | ~$5,750 |
-| Cost per 1K LOC | ~$8.19 |
+| Total tokens (billed) | 3.42 billion |
+| Total throughput | 7.50 billion |
+| Unique API calls | 34,172 |
+| Session files analyzed | 966 (9 main + 957 sub-agent) |
+| Output tokens | 811,000 |
+| Estimated API cost | ~$7,100 |
+| Cost per 1K LOC | ~$10.19 |
 
 ## Contributing
 
