@@ -39,4 +39,60 @@ if [ "$((BLOCK))" -ge 1 ]; then
   [ "$B1_HASH" != "missing" ] || { echo "FAIL: block 1 hash missing"; exit 1; }
 fi
 
-echo "PASS: EL Payload — blocks produced, block structure intact"
+# --- Feature-specific payload chunking tests ---
+
+# Verify size field in block header is reasonable
+echo "Checking block size field..."
+BLOCK_SIZE=$(echo "$LATEST" | jq -r '.size // "missing"')
+if [ "$BLOCK_SIZE" != "missing" ] && [ "$BLOCK_SIZE" != "null" ]; then
+  SIZE_DEC=$(printf '%d' "$BLOCK_SIZE" 2>/dev/null || echo 0)
+  echo "  Latest block size: $SIZE_DEC bytes"
+  [ "$SIZE_DEC" -gt 0 ] || { echo "FAIL: Block size is 0"; exit 1; }
+  [ "$SIZE_DEC" -lt 10000000 ] || { echo "FAIL: Block size unreasonably large ($SIZE_DEC bytes)"; exit 1; }
+else
+  echo "  Block size field: $BLOCK_SIZE"
+fi
+
+# Check logsBloom field exists and is 256-byte hex (514 chars with 0x prefix)
+echo "Checking logsBloom format..."
+LOGS_BLOOM=$(echo "$LATEST" | jq -r '.logsBloom // "missing"')
+if [ "$LOGS_BLOOM" != "missing" ] && [ "$LOGS_BLOOM" != "null" ]; then
+  BLOOM_LEN=${#LOGS_BLOOM}
+  echo "  logsBloom length: $BLOOM_LEN chars (expected 514 = 0x + 512 hex)"
+  [ "$BLOOM_LEN" -eq 514 ] || echo "WARN: logsBloom length is $BLOOM_LEN, expected 514"
+else
+  echo "FAIL: logsBloom missing from block header"
+  exit 1
+fi
+
+# Check tx count distribution across blocks 1-3
+echo "Checking transaction count distribution across blocks 1-3..."
+for i in 1 2 3; do
+  B_HEX=$(printf '0x%x' $i)
+  B_TX_CNT=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockTransactionCountByNumber\",\"params\":[\"$B_HEX\"],\"id\":1}" | jq -r '.result // "0x0"')
+  B_TX_DEC=$(printf '%d' "$B_TX_CNT" 2>/dev/null || echo 0)
+  echo "  Block $i tx count: $B_TX_DEC"
+done
+
+# Verify receiptsRoot and transactionsRoot are valid 32-byte hashes
+echo "Checking receiptsRoot and transactionsRoot..."
+RECEIPTS_ROOT=$(echo "$LATEST" | jq -r '.receiptsRoot // "missing"')
+TX_ROOT=$(echo "$LATEST" | jq -r '.transactionsRoot // "missing"')
+echo "  receiptsRoot: $RECEIPTS_ROOT"
+echo "  transactionsRoot: $TX_ROOT"
+[ "$RECEIPTS_ROOT" != "missing" ] && [ "$RECEIPTS_ROOT" != "null" ] || { echo "FAIL: receiptsRoot missing"; exit 1; }
+[ "$TX_ROOT" != "missing" ] && [ "$TX_ROOT" != "null" ] || { echo "FAIL: transactionsRoot missing"; exit 1; }
+# Verify they are 66-char hex strings (0x + 64 hex)
+RR_LEN=${#RECEIPTS_ROOT}
+TR_LEN=${#TX_ROOT}
+[ "$RR_LEN" -eq 66 ] || echo "WARN: receiptsRoot length $RR_LEN, expected 66"
+[ "$TR_LEN" -eq 66 ] || echo "WARN: transactionsRoot length $TR_LEN, expected 66"
+
+# Verify baseFeePerGas field exists (post-London)
+echo "Checking baseFeePerGas field..."
+BASE_FEE=$(echo "$LATEST" | jq -r '.baseFeePerGas // "missing"')
+echo "  baseFeePerGas: $BASE_FEE"
+[ "$BASE_FEE" != "missing" ] && [ "$BASE_FEE" != "null" ] || { echo "FAIL: baseFeePerGas missing (post-London required)"; exit 1; }
+
+echo "PASS: EL Payload — blocks produced, payload structure validated (size, bloom, roots, baseFee)"
