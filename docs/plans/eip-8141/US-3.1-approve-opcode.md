@@ -73,3 +73,51 @@
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | (1) VERIFY frame calls `APPROVE(0x0)` → succeeds. (2) VERIFY frame calls `APPROVE(0x2)` → succeeds. (3) VERIFY frame calls `SSTORE` → exceptional halt. (4) APPROVE exits frame, code after it is unreachable. (5) Non-VERIFY frame APPROVE → still subject to scope preconditions. (6) Confirm `opApprove` does not check `interpreter.readOnly`. |
 | **Definition of Done** | All 6 tests pass; `opApprove` documented as exempted from `readOnly`; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → APPROVE opcode (`0xaa`)
+
+> The `APPROVE` opcode is like `RETURN (0xf3)`. It exits the current context successfully and updates the transaction-scoped approval context based on the `scope` operand. It can only be called when `CALLER == frame.target`, otherwise it results in an exceptional halt.
+>
+> ##### Stack
+>
+> | Stack      | Value        |
+> | ---------- | ------------ |
+> | `top - 0`  | `offset`     |
+> | `top - 1`  | `length`     |
+> | `top - 2`  | `scope`      |
+>
+> ##### Scope Operand
+>
+> The scope operand must be one of the following values:
+>
+> 1. `0x0`: Approval of execution - the sender contract approves future frames calling on its behalf. Only valid when `frame.target` equals `tx.sender`.
+> 2. `0x1`: Approval of payment - the contract approves paying the total gas cost for the transaction.
+> 3. `0x2`: Approval of execution and payment - combines both `0x0` and `0x1`.
+>
+> Any other value results in an exceptional halt.
+>
+> ##### Behavior
+>
+> The behavior of `APPROVE` is defined as follows:
+>
+> - If `APPROVE` is called when `CALLER != frame.target`, revert.
+> - For scopes `0`,`1`, and `2`, execute the following:
+>     - `0x0`: Set `sender_approved = true`.
+>         - If `sender_approved` was already set, revert the frame.
+>         - If `CALLER` != `tx.sender`, revert the frame.
+>     - `0x1`: Increment the sender's nonce, collect the total gas cost of the transaction from the account, and set `payer_approved = true`.
+>         - If `payer_approved` was already set, revert the frame.
+>         - If `frame.target` has insufficient balance, revert the frame.
+>         - If `sender_approved == false`, revert the frame.
+>    - `0x2`: `sender_approved = true`, increment the sender's nonce, collect the total gas cost of the transaction from `frame.target`, and set `payer_approved = true`.
+>         - If `sender_approved` or `payer_approved` was already set, revert the frame.
+>         - If `CALLER` != `tx.sender`, revert the frame.
+>         - If `frame.target` has insufficient balance, revert the frame.
+
+### Rationale → APPROVE calling convention
+
+> Originally `APPROVE` was meant to extend the space of return statuses from 0 and 1 today to 0 to 4. However, this would mean smart accounts deployed today would not be able to modify their contract code to return with a different value at the top level. For this reason, we've chosen behavior above: `APPROVE` terminates the executing frame successfully like `RETURN`, but it actually updates the transaction scoped values `sender_approved` and `payer_approved` during execution. It is still required that only the sender can toggle the `sender_approved` to `true`. Only the `frame.target` can call `APPROVE` generally, because it can allow the transaction pool and other frames to better reason about `VERIFY` mode frames.

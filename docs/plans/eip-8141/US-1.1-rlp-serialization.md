@@ -43,3 +43,65 @@
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | Unit tests: (1) single frame with all-zero data yields `15000 + calldata_bytes*4 + gas_limit`; (2) frame with mixed zero/non-zero data; (3) `MAX_FRAMES` frames with large gas limits to test overflow guard; (4) compare output with hand-computed values from the EIP data-efficiency tables. |
 | **Definition of Done** | All tests pass; overflow handled without panic; `go vet` clean; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Constants
+
+| Name                      | Value                                   |
+| ------------------------- | --------------------------------------- |
+| `FRAME_TX_TYPE`           | `0x06`                                  |
+| `FRAME_TX_INTRINSIC_COST` | `15000`                                 |
+| `ENTRY_POINT`             | `address(0xaa)`                         |
+| `MAX_FRAMES`              | `10^3`                                  |
+
+### Specification → New Transaction Type
+
+> A new [EIP-2718](./eip-2718.md) transaction with type `FRAME_TX_TYPE` is introduced. Transactions of this type are referred to as "Frame transactions".
+>
+> The payload is defined as the RLP serialization of the following:
+>
+> ```
+> [chain_id, nonce, sender, frames, max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas, blob_versioned_hashes]
+>
+> frames = [[mode, target, gas_limit, data], ...]
+> ```
+>
+> If no blobs are included, `blob_versioned_hashes` must be an empty list and `max_fee_per_blob_gas` must be `0`.
+
+### Specification → Gas Accounting (gas limit formula)
+
+> The total gas limit of the transaction is:
+>
+> ```
+> tx_gas_limit = FRAME_TX_INTRINSIC_COST + calldata_cost(rlp(tx.frames)) + sum(frame.gas_limit for all frames)
+> ```
+>
+> Where `calldata_cost` is calculated per standard EVM rules (4 gas per zero byte, 16 gas per non-zero byte).
+
+### Rationale → Data Efficiency
+
+> **Basic transaction sending ETH from a smart account:**
+>
+> | Field                             | Bytes |
+> | --------------------------------- | ----- |
+> | Tx wrapper                        | 1     |
+> | Chain ID                          | 1     |
+> | Nonce                             | 2     |
+> | Sender                            | 20    |
+> | Max priority fee                  | 5     |
+> | Max fee                           | 5     |
+> | Max fee per blob gas              | 1     |
+> | Blob versioned hashes (empty)     | 1     |
+> | Frames wrapper                    | 1     |
+> | Sender validation frame: target   | 1     |
+> | Sender validation frame: gas      | 2     |
+> | Sender validation frame: data     | 65    |
+> | Sender validation frame: mode     | 1     |
+> | Execution frame: target           | 1     |
+> | Execution frame: gas              | 1     |
+> | Execution frame: data             | 20+5  |
+> | Execution frame: mode             | 1     |
+> | **Total**                         | 134   |

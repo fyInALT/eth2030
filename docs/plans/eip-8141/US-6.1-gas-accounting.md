@@ -43,3 +43,34 @@
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | Unit test: `CalcFrameTxGas` with zero-data frames and zero gas limits = exactly `15000 + calldata_cost`. |
 | **Definition of Done** | Test passes; legacy intrinsic not applied to frame txs; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Gas Accounting
+
+> The total gas limit of the transaction is:
+>
+> ```
+> tx_gas_limit = FRAME_TX_INTRINSIC_COST + calldata_cost(rlp(tx.frames)) + sum(frame.gas_limit for all frames)
+> ```
+>
+> Where `calldata_cost` is calculated per standard EVM rules (4 gas per zero byte, 16 gas per non-zero byte).
+>
+> The total fee is defined as:
+>
+> ```
+> tx_fee = tx_gas_limit * effective_gas_price + blob_fees
+> blob_fees = len(blob_versioned_hashes) * GAS_PER_BLOB * blob_base_fee
+> ```
+>
+> The `effective_gas_price` is calculated per EIP-1559 and `blob_fees` is calculated as per EIP-4844.
+>
+> Each frame has its own `gas_limit` allocation. Unused gas from a frame is **not** available to subsequent frames. After all frames execute, the gas refund is calculated as:
+>
+> ```
+> refund = sum(frame.gas_limit for all frames) - total_gas_used
+> ```
+>
+> This refund is returned to the gas payer (the `target` that called `APPROVE(0x1)` or `APPROVE(0x2)`) and added back to the block gas pool. *Note: This refund mechanism is separate from EIP-3529 storage refunds.*

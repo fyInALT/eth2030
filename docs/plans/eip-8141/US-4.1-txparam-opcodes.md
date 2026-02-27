@@ -83,3 +83,40 @@
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | Table-driven: (1) `TXPARAMLOAD(index, 0, 0)` → succeeds; (2) `TXPARAMLOAD(index, 1, 0)` → halt; (3) `TXPARAMLOAD(index, 0xff, 0)` → halt; (4) `TXPARAMSIZE(index, 1)` → halt; (5) frame-indexed with `in2 > 0` within bounds → succeeds. |
 | **Definition of Done** | All 11 scalar indices tested for `in2 != 0` rejection; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → TXPARAM* opcodes
+
+> The `TXPARAMLOAD` (`0xb0`), `TXPARAMSIZE` (`0xb1`), and `TXPARAMCOPY` (`0xb2`) opcodes follow the pattern of `CALLDATA*` / `RETURNDATA*` opcode families. Gas cost follows standard EVM memory expansion costs.
+>
+> Each `TXPARAM*` opcode takes two extra stack input values before the `CALLDATA*` equivalent inputs. The values of these inputs are as follows:
+>
+> | `in1` | `in2`       | Return value                         | Size    |
+> | ----- | ----------- | ------------------------------------ | ------- |
+> | 0x00  | must be 0   | current transaction type             | 32      |
+> | 0x01  | must be 0   | `nonce`                              | 32      |
+> | 0x02  | must be 0   | `sender`                             | 32      |
+> | 0x03  | must be 0   | `max_priority_fee_per_gas`           | 32      |
+> | 0x04  | must be 0   | `max_fee_per_gas`                    | 32      |
+> | 0x05  | must be 0   | `max_fee_per_blob_gas`               | 32      |
+> | 0x06  | must be 0   | max cost (basefee=max, all gas used, includes blob cost and intrinsic cost) | 32 |
+> | 0x07  | must be 0   | `len(blob_versioned_hashes)`         | 32      |
+> | 0x08  | must be 0   | `compute_sig_hash(tx)`               | 32      |
+> | 0x09  | must be 0   | `len(frames)`                        | 32      |
+> | 0x10  | must be 0   | currently executing frame index      | 32      |
+> | 0x11  | frame index | `target`                             | 32      |
+> | 0x12  | frame index | `data`                               | dynamic |
+> | 0x13  | frame index | `gas_limit`                          | 32      |
+> | 0x14  | frame index | `mode`                               | 32      |
+> | 0x15  | frame index | `status` (exceptional halt if current/future) | 32 |
+>
+> Notes:
+>
+> - 0x03 and 0x04 have a possible future extension to allow indices for multidimensional gas.
+> - The `status` field (0x15) returns `0` for failure or `1` for success.
+> - Out-of-bounds access for frame index (`>= len(frames)`) and blob index results in an exceptional halt.
+> - Invalid `in1` values (not defined in the table above) result in an exceptional halt.
+> - The `data` field (0x12) returns size 0 value when called on a frame with `VERIFY` set.

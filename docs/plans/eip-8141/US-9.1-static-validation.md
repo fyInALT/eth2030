@@ -33,3 +33,20 @@
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Correct chain ID → passes. (2) Wrong chain ID → `ErrInvalidChainID`. |
 | **Definition of Done** | Test passes; integrated with chain config; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Constraints
+
+> Some validity constraints can be determined statically. They are outlined below:
+>
+> ```python
+> assert tx.chain_id < 2**256
+> assert tx.nonce < 2**64
+> assert len(tx.frames) > 0 and len(tx.frames) <= MAX_FRAMES
+> assert len(tx.sender) == 20
+> assert tx.frames[n].mode < 3
+> assert len(tx.frames[n].target) == 20 or tx.frames[n].target is None
+> ```

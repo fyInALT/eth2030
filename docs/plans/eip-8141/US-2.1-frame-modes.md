@@ -53,3 +53,47 @@
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | Unit test: frame with `Target == nil` dispatches call to `tx.sender`; assert via a contract that records `address(this)`. |
 | **Definition of Done** | Test passes; null target substituted correctly for all three modes; RLP round-trip correct; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Modes
+
+> There are three modes:
+>
+> | Mode | Name           | Summary                                                   |
+> | ---- | -------------- | --------------------------------------------------------- |
+> |    0 | `DEFAULT`      | Execute frame as `ENTRY_POINT`                            |
+> |    1 | `VERIFY`       | Frame identifies as transaction validation                |
+> |    2 | `SENDER`       | Execute frame as `sender`                                 |
+>
+> ##### `DEFAULT` Mode
+>
+> Frame executes as regular call where the caller address is `ENTRY_POINT`.
+>
+> ##### `VERIFY` Mode
+>
+> Identifies the frame as a validation frame. Its purpose is to *verify* that a sender and/or payer authorized the transaction. It must call `APPROVE` during execution. Failure to do so will result in the whole transaction being invalid.
+>
+> The execution behaves the same as `STATICCALL`, state cannot be modified.
+>
+> Frames in this mode will have their data elided from signature hash calculation and from introspection by other frames.
+>
+> ##### `SENDER` Mode
+>
+> Frame executes as regular call where the caller address is `sender`. This mode effectively acts on behalf of the transaction sender and can only be used after explicitly approved.
+
+### Specification → Behavior (frame dispatch)
+
+> Then for each call frame:
+>
+> 1. Execute a call with the specified `mode`, `target`, `gas_limit`, and `data`.
+>    - If `target` is null, set the call target to `tx.sender`.
+>    - If mode is `SENDER`:
+>        - `sender_approved` must be `true`. If not, the transaction is invalid.
+>        - Set `caller` as `tx.sender`.
+>    - If mode is `DEFAULT` or `VERIFY`:
+>        - Set the `caller` to `ENTRY_POINT`.
+>    - The `ORIGIN` opcode returns frame `caller` throughout all call depths.
+> 2. If frame has mode `VERIFY` and the frame did not successfully call `APPROVE`, the transaction is invalid.

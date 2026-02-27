@@ -33,3 +33,24 @@
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Unit test with no blobs: assert `max_cost = tx_gas_limit * max_fee_per_gas`. (2) Unit test with 2 blobs at known `max_fee_per_blob_gas`: assert blob component is `2 * GAS_PER_BLOB * max_fee_per_blob_gas`. (3) Overflow guard: very large gas limit and fee do not produce silent truncation. |
 | **Definition of Done** | All 3 tests pass; blob component zero when no blobs; implementation matches EIP formula including intrinsic cost in gas limit; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Gas Accounting (fee formula)
+
+> The total fee is defined as:
+>
+> ```
+> tx_fee = tx_gas_limit * effective_gas_price + blob_fees
+> blob_fees = len(blob_versioned_hashes) * GAS_PER_BLOB * blob_base_fee
+> ```
+>
+> The `effective_gas_price` is calculated per EIP-1559 and `blob_fees` is calculated as per EIP-4844.
+
+### Specification → TXPARAM* opcodes (0x06 max cost)
+
+> | `in1` | `in2`       | Return value                         | Size    |
+> | ----- | ----------- | ------------------------------------ | ------- |
+> | 0x06  | must be 0   | max cost (basefee=max, all gas used, includes blob cost and intrinsic cost) | 32 |

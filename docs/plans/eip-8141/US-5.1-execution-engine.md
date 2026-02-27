@@ -73,3 +73,36 @@
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) APPROVE(0x2) in frame 0 + VERIFY without APPROVE in frame 1 → nonce NOT incremented, balance NOT deducted. (2) APPROVE(0x1) in frame 2 + SENDER without sender_approved in frame 3 → rollback. (3) payer_approved never set → all state rolled back. (4) Valid tx → state committed. |
 | **Definition of Done** | All 4 tests pass; snapshot-revert verified; no partial state on invalid tx; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Behavior
+
+> When processing a frame transaction, perform the following steps.
+>
+> Perform stateful validation check:
+>
+> - Ensure `tx.nonce == state[tx.sender].nonce`
+>
+> Initialize with transaction-scoped variables:
+>
+> - `payer_approved = false`
+> - `sender_approved = false`
+>
+> Then for each call frame:
+>
+> 1. Execute a call with the specified `mode`, `target`, `gas_limit`, and `data`.
+>    - If `target` is null, set the call target to `tx.sender`.
+>    - If mode is `SENDER`:
+>        - `sender_approved` must be `true`. If not, the transaction is invalid.
+>        - Set `caller` as `tx.sender`.
+>    - If mode is `DEFAULT` or `VERIFY`:
+>        - Set the `caller` to `ENTRY_POINT`.
+>    - The `ORIGIN` opcode returns frame `caller` throughout all call depths.
+> 2. If frame has mode `VERIFY` and the frame did not successfully call `APPROVE`, the transaction is invalid.
+>
+> After executing all frames, verify that `payer_approved == true`. If it is, refund any unpaid gas to the gas payer. If it is not, the whole transaction is invalid.
+>
+> Note: it is implied by the handling that the sender must approve the transaction *before* the payer and that once `sender_approved` or `payer_approved` become `true` they cannot be re-approved or reverted.

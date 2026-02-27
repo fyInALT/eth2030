@@ -43,3 +43,22 @@
 | **Assignee/Role** | RPC Engineer |
 | **Testing Method** | Integration test: submit frame tx, fetch receipt via RPC, assert `payer` and `frameReceipts` present and correct. |
 | **Definition of Done** | JSON includes new fields; values correct; existing tests unaffected; reviewed. |
+
+---
+
+## EIP-8141 Reference Excerpts
+
+### Specification → Receipt
+
+> The `ReceiptPayload` is defined as:
+>
+> ```
+> [cumulative_gas_used, payer, [frame_receipt, ...]]
+> frame_receipt = [status, gas_used, logs]
+> ```
+>
+> `payer` is the address of the account that paid the fees for the transaction. `status` is the return code of the top-level call.
+
+### Rationale → Payer in receipt
+
+> The payer cannot be determined statically from a frame transaction and is relevant to users. The only way to provide this information safely and efficiently over the JSON-RPC is to record this data in the receipt object.
