@@ -55,3 +55,26 @@ func (pi *precompileInjector) CustomAddresses(blockTime uint64) []gethcommon.Add
 	forkLevel := pi.forkLevelAtTime(blockTime)
 	return geth.CustomPrecompileAddresses(forkLevel)
 }
+
+// InjectIntoGethPrecompiles patches go-ethereum's package-level precompile maps
+// to include eth2030 custom precompiles. This makes them available to eth_call
+// and all block processing within go-ethereum's internal pipeline.
+//
+// This is called at startup when fork overrides are active (e.g., --override.iplus=0).
+// The precompiles are added to go-ethereum's Prague map since that's the latest
+// fork go-ethereum natively supports.
+func (pi *precompileInjector) InjectIntoGethPrecompiles() {
+	// Determine the highest fork level configured.
+	maxLevel := pi.forkLevelAtTime(0)
+	if maxLevel <= geth.ForkLevelPrague {
+		return // No custom forks active, nothing to inject.
+	}
+
+	// Get all custom precompile info and inject into go-ethereum's Prague map.
+	for _, info := range geth.ListCustomPrecompiles() {
+		if maxLevel >= info.MinFork {
+			adapter := geth.NewPrecompileAdapter(info.Contract, info.Name)
+			gethvm.PrecompiledContractsPrague[info.Address] = adapter
+		}
+	}
+}

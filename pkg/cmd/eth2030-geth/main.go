@@ -64,6 +64,7 @@ func run(args []string) int {
 	// ETH2030 fork override flags (for testing future forks).
 	glamsterdamOverride := fs.Uint64("override.glamsterdam", 0, "Override Glamsterdam fork timestamp (testing only)")
 	hogotaOverride := fs.Uint64("override.hogota", 0, "Override Hogota fork timestamp (testing only)")
+	iplusOverride := fs.Uint64("override.iplus", 0, "Override I+ fork timestamp (testing only, enables NTT/NII precompiles)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -114,7 +115,7 @@ func run(args []string) int {
 	}
 
 	// Set up precompile injector for future forks.
-	var glamTime, hogTime *uint64
+	var glamTime, hogTime, iplusTime *uint64
 	if *glamsterdamOverride > 0 {
 		glamTime = glamsterdamOverride
 		log.Info("Glamsterdam fork override set", "timestamp", *glamTime)
@@ -123,8 +124,34 @@ func run(args []string) int {
 		hogTime = hogotaOverride
 		log.Info("Hogota fork override set", "timestamp", *hogTime)
 	}
-	injector := newPrecompileInjector(glamTime, hogTime, nil)
-	_ = injector // Available for future RPC-level precompile injection.
+	if *iplusOverride > 0 {
+		iplusTime = iplusOverride
+		log.Info("I+ fork override set", "timestamp", *iplusTime)
+	}
+	// Special case: --override.iplus=0 means activate at genesis.
+	// Since 0 is the default for unset flags, we check the raw arg.
+	for _, arg := range args {
+		if arg == "--override.iplus=0" {
+			zero := uint64(0)
+			iplusTime = &zero
+			log.Info("I+ fork override set to genesis (timestamp 0)")
+		}
+		if arg == "--override.glamsterdam=0" {
+			zero := uint64(0)
+			glamTime = &zero
+			log.Info("Glamsterdam fork override set to genesis (timestamp 0)")
+		}
+		if arg == "--override.hogota=0" {
+			zero := uint64(0)
+			hogTime = &zero
+			log.Info("Hogota fork override set to genesis (timestamp 0)")
+		}
+	}
+	injector := newPrecompileInjector(glamTime, hogTime, iplusTime)
+
+	// Inject custom precompiles into go-ethereum's precompile maps so they
+	// are visible to eth_call and block processing.
+	injector.InjectIntoGethPrecompiles()
 
 	// Start metrics HTTP server if enabled (required by Kurtosis).
 	if *metricsEnabled {

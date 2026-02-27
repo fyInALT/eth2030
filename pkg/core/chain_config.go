@@ -32,6 +32,7 @@ type ChainConfig struct {
 	AmsterdamTime   *uint64
 	GlamsterdanTime *uint64
 	HogotaTime      *uint64
+	IPlusTime       *uint64
 
 	// BPO (Blob Parameter Optimization) fork timestamps for blob schedule upgrades.
 	BPO1Time *uint64
@@ -140,6 +141,12 @@ func (c *ChainConfig) IsHogota(time uint64) bool {
 	return isTimestampForked(c.HogotaTime, time)
 }
 
+// IsIPlus returns whether the given block time is at or past I+.
+// I+ includes NTT precompile (EIP-7885), native rollups, zkVM, proof aggregation.
+func (c *ChainConfig) IsIPlus(time uint64) bool {
+	return isTimestampForked(c.IPlusTime, time)
+}
+
 // IsBPO1 returns whether the given block time is at or past BPO1.
 // BPO1 increases blob target to 10, max to 15.
 func (c *ChainConfig) IsBPO1(time uint64) bool {
@@ -227,6 +234,11 @@ func (c *ChainConfig) IsEIP7999(time uint64) bool {
 	return c.IsHogota(time)
 }
 
+// IsEIP7885 returns whether EIP-7885 (NTT precompile) is active. Activated with I+.
+func (c *ChainConfig) IsEIP7885(time uint64) bool {
+	return c.IsIPlus(time)
+}
+
 // Rules returns a Rules struct for the given block number and timestamp,
 // providing boolean flags for quick fork checks.
 func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules {
@@ -267,6 +279,8 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules 
 		IsEIP8038:        isMerge && c.IsGlamsterdan(timestamp),
 		IsHogota:         isMerge && c.IsHogota(timestamp),
 		IsEIP7999:        isMerge && c.IsHogota(timestamp),
+		IsIPlus:          isMerge && c.IsIPlus(timestamp),
+		IsEIP7885:        isMerge && c.IsIPlus(timestamp),
 	}
 }
 
@@ -287,6 +301,7 @@ type Rules struct {
 	IsEIP7778, IsEIP2780, IsEIP7976, IsEIP7981              bool
 	IsEIP8037, IsEIP8038                                    bool
 	IsHogota, IsEIP7999                                     bool
+	IsIPlus, IsEIP7885                                      bool
 }
 
 func newUint64(v uint64) *uint64 { return &v }
@@ -317,6 +332,7 @@ var MainnetConfig = &ChainConfig{
 	AmsterdamTime:           nil, // not yet scheduled
 	GlamsterdanTime:         nil, // not yet scheduled
 	HogotaTime:              nil, // not yet scheduled
+	IPlusTime:               nil, // not yet scheduled
 	BPO1Time:                nil, // not yet scheduled
 	BPO2Time:                nil, // not yet scheduled
 }
@@ -342,6 +358,7 @@ var SepoliaConfig = &ChainConfig{
 	AmsterdamTime:           nil,
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,
+	IPlusTime:               nil,
 	BPO1Time:                nil,
 	BPO2Time:                nil,
 }
@@ -366,6 +383,7 @@ var HoleskyConfig = &ChainConfig{
 	AmsterdamTime:           nil,
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,
+	IPlusTime:               nil,
 	BPO1Time:                nil,
 	BPO2Time:                nil,
 }
@@ -392,6 +410,7 @@ var TestConfig = &ChainConfig{
 	AmsterdamTime:           newUint64(0),
 	GlamsterdanTime:         nil,
 	HogotaTime:              nil,
+	IPlusTime:               nil,
 	BPO1Time:                nil,
 	BPO2Time:                nil,
 }
@@ -418,6 +437,7 @@ var TestConfigGlamsterdan = &ChainConfig{
 	AmsterdamTime:           newUint64(0),
 	GlamsterdanTime:         newUint64(0),
 	HogotaTime:              nil,
+	IPlusTime:               nil,
 	BPO1Time:                nil,
 	BPO2Time:                nil,
 }
@@ -444,6 +464,7 @@ var TestConfigHogota = &ChainConfig{
 	AmsterdamTime:           newUint64(0),
 	GlamsterdanTime:         newUint64(0),
 	HogotaTime:              newUint64(0),
+	IPlusTime:               nil,
 	BPO1Time:                nil,
 	BPO2Time:                nil,
 }
@@ -470,6 +491,7 @@ var TestConfigBPO2 = &ChainConfig{
 	AmsterdamTime:           newUint64(0),
 	GlamsterdanTime:         newUint64(0),
 	HogotaTime:              newUint64(0),
+	IPlusTime:               nil,
 	BPO1Time:                newUint64(0),
 	BPO2Time:                newUint64(0),
 }

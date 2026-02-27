@@ -181,6 +181,9 @@ func Eth2028ForkLevelFromConfig(config *core.ChainConfig, time uint64) Eth2028Fo
 	if config == nil {
 		return ForkLevelPrague
 	}
+	if config.IsIPlus(time) {
+		return ForkLevelIPlus
+	}
 	if config.IsHogota(time) {
 		return ForkLevelHogota
 	}
@@ -280,6 +283,7 @@ type Eth2028PrecompileInfo struct {
 	Name     string
 	MinFork  Eth2028ForkLevel
 	Category string // "repricing", "ntt", "nii", "field"
+	Contract vm.PrecompiledContract
 }
 
 // ListCustomPrecompiles returns metadata about all eth2030 custom precompiles.
@@ -307,6 +311,7 @@ func ListCustomPrecompiles() []Eth2028PrecompileInfo {
 			Name:     e.name,
 			MinFork:  e.minFork,
 			Category: cat,
+			Contract: e.contract,
 		}
 	}
 	return result

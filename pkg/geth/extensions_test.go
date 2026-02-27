@@ -185,6 +185,22 @@ func TestEth2028ForkLevelFromConfig(t *testing.T) {
 			time: 1000,
 			want: ForkLevelHogota,
 		},
+		{
+			name: "iplus active",
+			config: func() *core.ChainConfig {
+				ts := uint64(500)
+				ts2 := uint64(800)
+				ts3 := uint64(900)
+				return &core.ChainConfig{
+					ChainID:         big.NewInt(1),
+					GlamsterdanTime: &ts,
+					HogotaTime:      &ts2,
+					IPlusTime:       &ts3,
+				}
+			}(),
+			time: 1000,
+			want: ForkLevelIPlus,
+		},
 	}
 
 	for _, tt := range tests {

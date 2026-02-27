@@ -29,6 +29,7 @@ var ForkOrder = []string{
 	"Amsterdam",
 	"Glamsterdan",
 	"Hogota",
+	"IPlus",
 }
 
 // Validate checks that the chain configuration is internally consistent.
@@ -86,6 +87,7 @@ func (c *ChainConfig) Validate() error {
 		{"Amsterdam", c.AmsterdamTime},
 		{"Glamsterdan", c.GlamsterdanTime},
 		{"Hogota", c.HogotaTime},
+		{"IPlus", c.IPlusTime},
 	}
 	var lastTime *uint64
 	var lastTimeName string
@@ -114,6 +116,9 @@ func (c *ChainConfig) Validate() error {
 // Returns "London" if no timestamp forks are active yet.
 func (c *ChainConfig) ActiveFork(time uint64) string {
 	// Check timestamp forks from newest to oldest.
+	if c.IsIPlus(time) {
+		return "IPlus"
+	}
 	if c.IsHogota(time) {
 		return "Hogota"
 	}
@@ -168,6 +173,7 @@ func TestnetConfig() *ChainConfig {
 	amsterdamTime := uint64(2000)
 	glamsterdanTime := uint64(3000)
 	hogotaTime := uint64(4000)
+	iPlusTime := uint64(5000)
 
 	return &ChainConfig{
 		ChainID:                 big.NewInt(11155111),
@@ -189,6 +195,7 @@ func TestnetConfig() *ChainConfig {
 		AmsterdamTime:           &amsterdamTime,
 		GlamsterdanTime:         &glamsterdanTime,
 		HogotaTime:              &hogotaTime,
+		IPlusTime:               &iPlusTime,
 	}
 }
 
@@ -216,6 +223,7 @@ func DevConfig() *ChainConfig {
 		AmsterdamTime:           &zero,
 		GlamsterdanTime:         &zero,
 		HogotaTime:              &zero,
+		IPlusTime:               &zero,
 		BPO1Time:                &zero,
 		BPO2Time:                &zero,
 	}

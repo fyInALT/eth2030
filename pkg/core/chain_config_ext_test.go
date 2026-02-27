@@ -13,7 +13,7 @@ func TestForkOrder(t *testing.T) {
 	expected := []string{
 		"Homestead", "Byzantium", "London", "Paris",
 		"Shanghai", "Cancun", "Prague", "Amsterdam",
-		"Glamsterdan", "Hogota",
+		"Glamsterdan", "Hogota", "IPlus",
 	}
 	forkSet := make(map[string]bool)
 	for _, f := range ForkOrder {
@@ -115,8 +115,8 @@ func TestValidate_HoleskyConfig(t *testing.T) {
 func TestActiveFork_DevConfig(t *testing.T) {
 	cfg := DevConfig()
 	fork := cfg.ActiveFork(0)
-	if fork != "Hogota" {
-		t.Fatalf("expected Hogota at time 0, got %s", fork)
+	if fork != "IPlus" {
+		t.Fatalf("expected IPlus at time 0, got %s", fork)
 	}
 }
 
@@ -133,7 +133,8 @@ func TestActiveFork_Progression(t *testing.T) {
 		{2000, "Amsterdam"}, // Amsterdam activated
 		{3000, "Glamsterdan"},
 		{4000, "Hogota"},
-		{999999, "Hogota"},
+		{5000, "IPlus"},
+		{999999, "IPlus"},
 	}
 
 	for _, tt := range tests {
@@ -278,6 +279,9 @@ func TestDevConfig(t *testing.T) {
 	if !cfg.IsHogota(0) {
 		t.Fatal("Hogota should be active at time 0")
 	}
+	if !cfg.IsIPlus(0) {
+		t.Fatal("IPlus should be active at time 0")
+	}
 	if !cfg.IsBPO1(0) {
 		t.Fatal("BPO1 should be active at time 0")
 	}
@@ -360,6 +364,8 @@ func TestGetRules_AllEIPs(t *testing.T) {
 		{"IsGlamsterdan", rules.IsGlamsterdan},
 		{"IsHogota", rules.IsHogota},
 		{"IsEIP7999", rules.IsEIP7999},
+		{"IsIPlus", rules.IsIPlus},
+		{"IsEIP7885", rules.IsEIP7885},
 	}
 
 	for _, check := range checks {

@@ -27,7 +27,7 @@ func (k *Keccak256Backend) Hash(data []byte) [32]byte {
 	copy(result[:], h)
 	return result
 }
-func (k *Keccak256Backend) Name() string  { return "keccak256" }
+func (k *Keccak256Backend) Name() string   { return "keccak256" }
 func (k *Keccak256Backend) BlockSize() int { return 136 }
 
 // SHA256Backend wraps crypto/sha256.
@@ -36,7 +36,7 @@ type SHA256Backend struct{}
 func (s *SHA256Backend) Hash(data []byte) [32]byte {
 	return sha256.Sum256(data)
 }
-func (s *SHA256Backend) Name() string  { return "sha256" }
+func (s *SHA256Backend) Name() string   { return "sha256" }
 func (s *SHA256Backend) BlockSize() int { return 64 }
 
 // Blake3Backend implements a minimal BLAKE3-like hash using iterative SHA-256 mixing.
@@ -60,7 +60,7 @@ func (b *Blake3Backend) Hash(data []byte) [32]byte {
 	copy(result[:], h2.Sum(nil))
 	return result
 }
-func (b *Blake3Backend) Name() string  { return "blake3" }
+func (b *Blake3Backend) Name() string   { return "blake3" }
 func (b *Blake3Backend) BlockSize() int { return 64 }
 
 // DefaultHashBackend returns the Keccak256 backend (Ethereum's current default).

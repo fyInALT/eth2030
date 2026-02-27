@@ -4,6 +4,10 @@
 participants:
   - el_type: geth
     el_image: eth2030:local
+    el_extra_params:
+      - "--override.glamsterdam=0"
+      - "--override.hogota=0"
+      - "--override.iplus=0"
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
     count: 2

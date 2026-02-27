@@ -34,8 +34,8 @@ const (
 
 // GoldilocksModulus is the Goldilocks field p = 2^64 - 2^32 + 1.
 var GoldilocksModulus = func() *big.Int {
-	p := new(big.Int).SetUint64(1<<64 - 1)      // 2^64 - 1
-	p.Sub(p, new(big.Int).SetUint64(1<<32-2))    // subtract (2^32 - 2) to get 2^64 - 2^32 + 1
+	p := new(big.Int).SetUint64(1<<64 - 1)    // 2^64 - 1
+	p.Sub(p, new(big.Int).SetUint64(1<<32-2)) // subtract (2^32 - 2) to get 2^64 - 2^32 + 1
 	return p
 }()
 
