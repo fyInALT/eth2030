@@ -127,7 +127,7 @@ All 57 test categories pass at 100%. The go-ethereum backend provides correct ga
 | `engine` | Complete | Engine API V3-V7, forkchoice, payload building, ePBS, distributed builder, Vickrey auctions |
 | `epbs` | Complete | Enshrined PBS: BuilderBid, PayloadEnvelope, builder registry, auctions |
 | `focil` | Complete | FOCIL: inclusion list building, validation, compliance scoring |
-| `bal` | Complete | Block Access Lists (EIP-7928), parallel execution scheduling |
+| `bal` | Complete | Block Access Lists (EIP-7928), opcode-level state tracking (15 opcodes), system contract tracking (EIP-4788/2935/4895), engine API integration, SSTORE no-op detection, parallel execution scheduling |
 | `das` | Complete | PeerDAS: sampling, custody, reconstruction, blob streaming, futures, cell gossip |
 | `das/erasure` | Complete | Reed-Solomon erasure coding (Lagrange interpolation) |
 | `witness` | Complete | Execution witness collector, verifier, VOPS integration |

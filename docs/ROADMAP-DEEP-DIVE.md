@@ -127,6 +127,13 @@ With BAL:    parallel IO + parallel EVM
 - Strict lexicographic ordering for addresses, ascending for indices
 - geth's current `state_prefetcher.go` already does parallel prefetching (4/5 of CPU cores)
   but actual execution remains sequential -- EIP-7928 makes execution parallel too
+- `BALTracker` interface in `vm/bal_tracker.go` avoids circular imports via structural typing
+- 15 opcodes hooked: SLOAD, SSTORE, BALANCE, SELFBALANCE, EXTCODESIZE, EXTCODECOPY,
+  EXTCODEHASH, CALL, CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2, SELFDESTRUCT,
+  plus EVM.Call/create value transfer hooks
+- SSTORE no-op detection: same-value writes record `StorageRead` not `StorageChange`
+- System contracts tracked at AccessIndex 0 (pre-execution) and n+1 (post-execution)
+- Engine API: `ProcessBlockV5` uses `ProcessWithBAL`, `GetPayloadV6` returns computed BAL
 
 ---
 

@@ -132,7 +132,7 @@ func (s *ParallelScheduler) Schedule(bal *BlockAccessList) []ExecutionGroup {
 }
 ```
 
-**Current Status:** BAL types, tracker, hash computation, and integration tests implemented. Parallel scheduler needs completion.
+**Current Status:** Complete EVM-level BAL tracking: `BALTracker` interface in `vm/`, opcode-level hooks in 15 opcodes (SLOAD, SSTORE, BALANCE, CALL, CREATE, SELFDESTRUCT, etc.), EVM value transfer tracking, pre/post system contract tracking (EIP-4788/EIP-2935/EIP-4895), engine API integration (ProcessBlockV5 uses ProcessWithBAL, GetPayloadV6 returns computed BAL). SSTORE no-op detection (same-value writes record StorageRead). Parallel scheduler needs completion.
 
 #### 3.1.2 EIP-7702: Set Code for EOAs (Native Account Abstraction)
 
