@@ -28,7 +28,7 @@ export interface ArchitectureLayer {
 
 export const stats: Stat[] = [
   { label: 'Packages', value: 48 },
-  { label: 'Tests', value: 18000, suffix: '+' },
+  { label: 'Tests', value: 20900, suffix: '+' },
   { label: 'EIPs Implemented', value: 58 },
   { label: 'LOC', value: 713, suffix: 'K' },
   { label: 'EF Conformance', value: 100, suffix: '%' },
@@ -264,7 +264,7 @@ export const architectureLayers: ArchitectureLayer[] = [
 export const gettingStartedCommands = [
   { comment: '# Clone the repository', command: 'git clone https://github.com/jiayaoqijia/eth2030.git' },
   { comment: '# Build all 48 packages', command: 'cd eth2030/pkg && go build ./...' },
-  { comment: '# Run 18,257+ tests', command: 'go test ./...' },
+  { comment: '# Run 20,900+ tests', command: 'go test ./...' },
   { comment: '# Build the geth-embedded node', command: 'go build -o eth2030-geth ./cmd/eth2030-geth/' },
   { comment: '# Sync with Sepolia testnet', command: './eth2030-geth --network sepolia --datadir ~/.eth2030-sepolia' },
 ];
