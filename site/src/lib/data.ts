@@ -30,7 +30,7 @@ export const stats: Stat[] = [
   { label: 'Packages', value: 48 },
   { label: 'Tests', value: 18000, suffix: '+' },
   { label: 'EIPs Implemented', value: 58 },
-  { label: 'LOC', value: 702, suffix: 'K' },
+  { label: 'LOC', value: 713, suffix: 'K' },
   { label: 'EF Conformance', value: 100, suffix: '%' },
   { label: 'Roadmap Items', value: 65, suffix: '/65' },
 ];
@@ -45,10 +45,10 @@ export const features: Feature[] = [
   },
   {
     title: 'Post-Quantum Cryptography',
-    description: 'ML-DSA-65 (FIPS 204), Dilithium3, Falcon512, SPHINCS+ with hybrid signing and PQ algorithm registry.',
+    description: '6 PQ sig algorithms (ML-DSA-65, Dilithium3, Falcon512, SPHINCS+, XMSS/WOTS+, hybrid). STARK constraint eval + FRI folding. EIP-8141 frame tx integration. PQ gas tables in EVM. 26-gap audit complete.',
     icon: '\uD83D\uDD12',
     color: 'teal',
-    tags: ['ML-DSA-65', 'SPHINCS+', 'Falcon512'],
+    tags: ['ML-DSA-65', 'STARK aggregation', 'EIP-8141', 'PQ gas'],
   },
   {
     title: 'Native Rollups',
@@ -127,7 +127,7 @@ export const roadmapPhases: RoadmapPhase[] = [
     name: 'Glamsterdam',
     year: '2026',
     coverage: '~99%',
-    highlights: ['ePBS', 'FOCIL', 'BALs', 'Native AA', '18 EIP repricing', 'Sparse blobpool'],
+    highlights: ['ePBS', 'FOCIL', 'BALs', 'Native AA', '18 EIP repricing', 'Sparse blobpool', 'Frame Tx (EIP-8141)'],
   },
   {
     name: 'Hegotá',
@@ -139,7 +139,7 @@ export const roadmapPhases: RoadmapPhase[] = [
     name: 'I+',
     year: '2027',
     coverage: '~97%',
-    highlights: ['Native rollups', 'zkVM framework', 'VOPS', 'PQ crypto', 'Beam sync'],
+    highlights: ['Native rollups', 'zkVM framework', 'VOPS', 'PQ crypto (STARK/FRI/gas)', 'Beam sync'],
   },
   {
     name: 'J+',
@@ -264,7 +264,7 @@ export const architectureLayers: ArchitectureLayer[] = [
 export const gettingStartedCommands = [
   { comment: '# Clone the repository', command: 'git clone https://github.com/jiayaoqijia/eth2030.git' },
   { comment: '# Build all 48 packages', command: 'cd eth2030/pkg && go build ./...' },
-  { comment: '# Run 18,000+ tests', command: 'go test ./...' },
+  { comment: '# Run 18,257+ tests', command: 'go test ./...' },
   { comment: '# Build the geth-embedded node', command: 'go build -o eth2030-geth ./cmd/eth2030-geth/' },
   { comment: '# Sync with Sepolia testnet', command: './eth2030-geth --network sepolia --datadir ~/.eth2030-sepolia' },
 ];

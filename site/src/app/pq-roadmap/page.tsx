@@ -14,6 +14,9 @@ const coverageData = [
   { item: 'Hash-based sigs (WOTS+/XMSS)', pkg: 'pkg/crypto/pqc/', status: 'complete' },
   { item: 'Pluggable hash functions', pkg: 'pkg/crypto/pqc/hash_backend.go', status: 'complete' },
   { item: 'STARK proof aggregation', pkg: 'pkg/proofs/stark_prover.go', status: 'complete' },
+  { item: 'STARK constraint evaluation', pkg: 'pkg/proofs/stark_prover.go', status: 'complete' },
+  { item: 'FRI polynomial folding', pkg: 'pkg/proofs/stark_prover.go', status: 'complete' },
+  { item: 'Merkle auth paths', pkg: 'pkg/proofs/stark_prover.go', status: 'complete' },
   { item: 'Recursive STARK composition', pkg: 'pkg/proofs/recursive_prover.go', status: 'complete' },
   { item: 'STARK mempool aggregation', pkg: 'pkg/txpool/stark_aggregation.go', status: 'complete' },
   { item: 'STARK CL sig aggregation', pkg: 'pkg/consensus/stark_sig_aggregation.go', status: 'complete' },
@@ -23,6 +26,9 @@ const coverageData = [
   { item: 'PQ attestations', pkg: 'pkg/consensus/pq_attestation.go', status: 'complete' },
   { item: 'Lattice blob commitments', pkg: 'pkg/crypto/pqc/lattice_blob.go', status: 'complete' },
   { item: 'PQ algorithm registry', pkg: 'pkg/crypto/pqc/registry.go', status: 'complete' },
+  { item: 'PQ gas tables in EVM', pkg: 'pkg/core/vm/gas.go, gas_table.go', status: 'complete' },
+  { item: 'Per-topic gossip bandwidth', pkg: 'pkg/p2p/gossip_topics.go', status: 'complete' },
+  { item: 'Finality BLS adapter (PQ fallback)', pkg: 'pkg/consensus/finality_bls_adapter.go', status: 'complete' },
 ];
 
 const vulnerableAreas = [
@@ -71,7 +77,8 @@ const flowSteps = {
   ],
   proofPipeline: [
     { label: 'Individual Tx Proofs', sub: 'Groth16 / STARK' },
-    { label: 'Batch STARK', sub: 'FRI commitment' },
+    { label: 'Constraint Eval', sub: 'sum(coeff*trace^deg) mod p' },
+    { label: 'FRI Folding', sub: 'Pairwise Merkle layers' },
     { label: 'Recursive Composition', sub: 'Outer STARK' },
     { label: 'Block-level Proof', sub: 'Single verification' },
   ],
@@ -147,8 +154,9 @@ export default function PQRoadmapPage() {
           >
             Aligning eth2030 with Vitalik&apos;s Ethereum quantum resistance roadmap.
             Covering <span className="text-eth-purple">4 vulnerable areas</span>,{' '}
-            <span className="text-eth-teal">7 packages</span>, and a{' '}
-            <span className="text-eth-pink">pluggable architecture</span> for hash function agility.
+            <span className="text-eth-teal">7 packages</span>, a{' '}
+            <span className="text-eth-pink">pluggable architecture</span> for hash function agility,
+            and <span className="text-eth-purple">26/26 gaps</span> audited &amp; fixed across 3 rounds.
           </motion.p>
         </div>
       </section>
