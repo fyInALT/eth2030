@@ -235,6 +235,22 @@ func (r *PQAlgorithmRegistry) TotalGasCost(algTypes []AlgorithmType) (uint64, er
 	return total, nil
 }
 
+// ValidatePQSignature validates a PQ signature using the global algorithm registry.
+// It looks up the algorithm by ID and calls its verification method.
+// This bridges the registry to transaction validation.
+func ValidatePQSignature(algorithmID uint8, publicKey, message, signature []byte) error {
+	registry := GlobalRegistry()
+	algType := AlgorithmType(algorithmID)
+	valid, err := registry.VerifySignature(algType, publicKey, message, signature)
+	if err != nil {
+		return fmt.Errorf("pqc: algorithm %d: %w", algorithmID, err)
+	}
+	if !valid {
+		return errors.New("pqc: signature verification failed")
+	}
+	return nil
+}
+
 // registerDefaults populates the registry with all supported PQ algorithms.
 func (r *PQAlgorithmRegistry) registerDefaults() {
 	mldsa := NewMLDSASigner()

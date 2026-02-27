@@ -445,6 +445,24 @@ func (tx *Transaction) BlobHashes() []Hash {
 	return nil
 }
 
+// Frames returns the frame list for EIP-8141 frame transactions.
+// Returns nil for all other transaction types.
+func (tx *Transaction) Frames() []Frame {
+	if ftx, ok := tx.inner.(*FrameTx); ok {
+		return ftx.Frames
+	}
+	return nil
+}
+
+// FrameSender returns the sender address for EIP-8141 frame transactions.
+// Returns the zero address for all other transaction types.
+func (tx *Transaction) FrameSender() Address {
+	if ftx, ok := tx.inner.(*FrameTx); ok {
+		return ftx.Sender
+	}
+	return Address{}
+}
+
 // BlobGas returns the blob gas used by an EIP-4844 blob transaction.
 // Each blob uses 131072 gas (2^17).
 func (tx *Transaction) BlobGas() uint64 {

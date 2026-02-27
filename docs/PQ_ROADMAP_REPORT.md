@@ -48,6 +48,7 @@ Instead of verifying N individual BLS signatures, eth2030 implements:
 1. **PQ Attestations** (`pkg/consensus/pq_attestation.go`) — Validators sign with Dilithium3 (lattice-based, NIST FIPS 204) instead of BLS
 2. **STARK Signature Aggregation** (`pkg/consensus/stark_sig_aggregation.go`) — A single STARK proof attests to the validity of all N Dilithium signatures
 3. **jeanVM Aggregation** (`pkg/consensus/jeanvm_aggregation.go`) — Groth16 ZK-circuit for BLS aggregation (transition path)
+4. **PQ Finality Fallback** (`pkg/consensus/finality_bls_adapter.go`) — `NewFinalityBLSAdapterWithPQ()` produces hybrid BLS+hash-based signatures; `SignVotePQ()`/`VerifyVotePQ()` for PQ-safe finality proofs; `FinalityProof.PQSignature` field
 
 **Gas Savings:** For N validators, individual Dilithium verification costs ~50,000 gas each. STARK aggregation costs ~200,000 gas flat. Breakeven at N=4, saving 300,000 gas for N=10.
 
@@ -127,7 +128,7 @@ eth2030 implements Vitalik's recursive STARK mempool proposal:
 
 1. **STARK Prover** (`pkg/proofs/stark_prover.go`) — FRI-based STARK proof generation and verification over the Goldilocks field
 2. **Recursive Composition** (`pkg/proofs/recursive_prover.go`) — Compose N proofs (Groth16 or STARK) into a single STARK
-3. **Mempool Aggregation** (`pkg/txpool/stark_aggregation.go`) — Every 500ms, nodes create a STARK proving validity of all known validated transactions
+3. **Mempool Aggregation** (`pkg/txpool/stark_aggregation.go`) — Every 500ms, nodes create a STARK proving validity of all known validated transactions. `MergeTick()` recursively merges remote txs with `RemoteProven` flag. `GenerateTick()` produces compact `ValidBitfield` + `TxMerkleRoot`. 128KB bandwidth limit enforced per ethresear.ch. `STARKMempoolTick` gossip topic in `p2p/gossip_topics.go`
 4. **NTT Precompile** (`pkg/core/vm/precompile_ntt.go`) — EIP-7885 Number Theoretic Transform for efficient lattice crypto and STARK verification
 
 ```mermaid

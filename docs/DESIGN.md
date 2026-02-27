@@ -607,7 +607,7 @@ All 48 packages are complete and passing tests. Key packages:
 | `core/types` | COMPLETE | 7 tx types (incl. FrameTx, AATx), SSZ encoding |
 | `core/state` | COMPLETE | In-memory, trie-backed, stateless StateDB, snapshots, pruner |
 | `core/vm` | COMPLETE | 164+ opcodes, 24 precompiles, EOF, gas tables |
-| `core/` | COMPLETE | Blockchain, processor, validator, gas futures, genesis init |
+| `core/` | COMPLETE | Blockchain, processor (incl. EIP-8141 FrameTx dispatch, nonce semantics, transient storage isolation), validator, gas futures, genesis init |
 | `consensus` | COMPLETE | 3SF, quick slots, attestations, beacon state, block producer |
 | `crypto` | COMPLETE | Keccak, secp256k1, BN254, BLS12-381, Banderwagon, VDF |
 | `crypto/pqc` | COMPLETE | Dilithium3, Falcon512, SPHINCS+, hybrid signer |

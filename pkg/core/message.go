@@ -19,8 +19,10 @@ type Message struct {
 	Data       []byte
 	AccessList types.AccessList
 	BlobHashes []types.Hash
-	AuthList   []types.Authorization // EIP-7702 authorization list for SetCode transactions
-	TxType     uint8                 // transaction type (for fork-specific processing)
+	AuthList    []types.Authorization // EIP-7702 authorization list for SetCode transactions
+	Frames      []types.Frame        // EIP-8141 frame transaction frames
+	FrameSender types.Address        // EIP-8141 frame tx sender (from FrameTx.Sender)
+	TxType      uint8                // transaction type (for fork-specific processing)
 }
 
 // TransactionToMessage converts a transaction into a Message for execution.
@@ -45,6 +47,11 @@ func TransactionToMessage(tx *types.Transaction) Message {
 	if tx.To() != nil {
 		to := *tx.To()
 		msg.To = &to
+	}
+	// EIP-8141: populate frame transaction fields.
+	if tx.Type() == types.FrameTxType {
+		msg.Frames = tx.Frames()
+		msg.FrameSender = tx.FrameSender()
 	}
 	if tx.Value() != nil {
 		msg.Value = new(big.Int).Set(tx.Value())

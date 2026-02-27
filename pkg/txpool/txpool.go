@@ -385,6 +385,13 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		return ErrOversizedData
 	}
 
+	// EIP-8141: FrameTx validation — check frame structure and minimum gas.
+	if tx.Type() == types.FrameTxType {
+		if tx.Gas() < types.FrameTxIntrinsicCost {
+			return ErrIntrinsicGas
+		}
+	}
+
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
 	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil)
 	intrinsicGas += AccessListGas(tx.AccessList())

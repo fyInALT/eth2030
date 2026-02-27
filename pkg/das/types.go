@@ -110,3 +110,15 @@ type MatrixEntry struct {
 	ColumnIndex ColumnIndex
 	RowIndex    RowIndex
 }
+
+// STARKCommitment represents a STARK-based data availability commitment.
+// This provides post-quantum security for blob commitments, replacing
+// KZG commitments when UseSTARKDA is enabled.
+type STARKCommitment struct {
+	// Root is the Merkle root of the committed data.
+	Root [32]byte
+	// ProofSize is the size of the STARK proof in bytes.
+	ProofSize uint32
+	// BlowupFactor is the Reed-Solomon expansion factor.
+	BlowupFactor uint8
+}

@@ -876,8 +876,9 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 
 	isCreate := msg.To == nil
 
-	// Increment nonce (for contract creation, EVM.Create handles it)
-	if !isCreate {
+	// Increment nonce (for contract creation, EVM.Create handles it).
+	// EIP-8141: FrameTx nonce is incremented after frame execution, not before.
+	if !isCreate && msg.TxType != types.FrameTxType {
 		statedb.SetNonce(msg.From, msg.Nonce+1)
 	}
 
@@ -1017,7 +1018,138 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 		contractAddr types.Address
 	)
 
-	if isCreate {
+	// EIP-8141: frame transaction execution context (set when executing a FrameTx).
+	var frameCtx *FrameExecutionContext
+
+	if msg.TxType == types.FrameTxType && len(msg.Frames) > 0 {
+		// EIP-8141: execute as frame transaction.
+		frameTx := &types.FrameTx{
+			Nonce:  msg.Nonce,
+			Sender: msg.FrameSender,
+			Frames: msg.Frames,
+		}
+		if msg.GasFeeCap != nil {
+			frameTx.MaxFeePerGas = new(big.Int).Set(msg.GasFeeCap)
+		}
+		if msg.GasTipCap != nil {
+			frameTx.MaxPriorityFeePerGas = new(big.Int).Set(msg.GasTipCap)
+		}
+
+		// Set up the EVM FrameContext for TXPARAM* and APPROVE opcodes.
+		evm.FrameCtx = &vm.FrameContext{
+			Sender:         msg.FrameSender,
+			Nonce:          msg.Nonce,
+			TxType:         uint64(types.FrameTxType),
+			MaxPriorityFee: msg.GasTipCap,
+			MaxFee:         msg.GasFeeCap,
+			MaxCost:        MaxFrameTxCost(frameTx),
+			BlobCount:      uint64(len(msg.BlobHashes)),
+			SigHash:        types.ComputeFrameSigHash(frameTx),
+		}
+		// Populate vm.Frame entries for TXPARAM introspection.
+		vmFrames := make([]vm.Frame, len(msg.Frames))
+		for i, f := range msg.Frames {
+			var target types.Address
+			if f.Target != nil {
+				target = *f.Target
+			} else {
+				target = msg.FrameSender
+			}
+			vmFrames[i] = vm.Frame{
+				Mode:     uint64(f.Mode),
+				Target:   target,
+				GasLimit: f.GasLimit,
+				Data:     f.Data,
+			}
+		}
+		evm.FrameCtx.Frames = vmFrames
+
+		stateNonceForFrame := statedb.GetNonce(msg.FrameSender)
+
+		callFn := func(caller, target types.Address, frameGasLimit uint64, data []byte, mode uint8, frameIndex int) (uint64, uint64, []*types.Log, bool, uint8, error) {
+			// EIP-8141: clear transient storage between frames for isolation.
+			if frameIndex > 0 {
+				statedb.ClearTransientStorage()
+			}
+
+			// Update the current frame index in the EVM context.
+			evm.FrameCtx.CurrentFrameIndex = uint64(frameIndex)
+
+			// Cap frame gas to remaining gas.
+			availGas := gasLeft
+			for j := 0; j < frameIndex; j++ {
+				if j < len(msg.Frames) {
+					availGas -= msg.Frames[j].GasLimit
+				}
+			}
+			if frameGasLimit > availGas {
+				frameGasLimit = availGas
+			}
+
+			_, remainGas, callErr := evm.Call(caller, target, data, frameGasLimit, new(big.Int))
+			status := uint64(types.ReceiptStatusSuccessful)
+			if callErr != nil {
+				status = uint64(types.ReceiptStatusFailed)
+			}
+
+			// Check if APPROVE was called during this frame by inspecting FrameCtx.
+			approved := false
+			var approveScope uint8
+			if evm.FrameCtx != nil {
+				// Detect approval by comparing state before/after the call.
+				// The opApprove function sets SenderApproved and/or PayerApproved directly.
+				// We pass back the current approval state and let ExecuteFrameTx handle it.
+				// The callFn contract: approved=true means APPROVE was called in this frame.
+				// We detect this from the FrameContext's approval state.
+				if mode == types.ModeVerify || mode == types.ModeDefault {
+					if evm.FrameCtx.SenderApproved && !frameTx.Sender.IsZero() {
+						approved = true
+						if evm.FrameCtx.PayerApproved {
+							approveScope = 2
+						} else {
+							approveScope = 0
+						}
+					} else if evm.FrameCtx.PayerApproved {
+						approved = true
+						approveScope = 1
+					}
+				}
+			}
+
+			// Update frame status in vm context for TXPARAM(0x15) introspection.
+			if frameIndex < len(evm.FrameCtx.Frames) {
+				evm.FrameCtx.Frames[frameIndex].Status = status
+			}
+
+			gasUsed := frameGasLimit - remainGas
+			// Collect logs emitted during this frame.
+			logs := statedb.GetLogs(types.Hash{})
+			return status, gasUsed, logs, approved, approveScope, callErr
+		}
+
+		var frameErr error
+		frameCtx, frameErr = ExecuteFrameTx(frameTx, stateNonceForFrame, callFn)
+		if frameErr != nil {
+			execErr = frameErr
+			gasRemaining = 0
+		} else {
+			// Calculate remaining gas after all frame execution.
+			var totalFrameGasUsed uint64
+			for _, fr := range frameCtx.FrameResults {
+				totalFrameGasUsed += fr.GasUsed
+			}
+			if totalFrameGasUsed >= gasLeft {
+				gasRemaining = 0
+			} else {
+				gasRemaining = gasLeft - totalFrameGasUsed
+			}
+
+			// EIP-8141: increment nonce after successful frame execution with sender approval.
+			if frameCtx.SenderApproved {
+				statedb.SetNonce(msg.FrameSender, msg.Nonce+1)
+			}
+		}
+	} else if isCreate {
 		// Contract creation: run EVM Create
 		var ret []byte
 		ret, contractAddr, gasRemaining, execErr = evm.Create(msg.From, msg.Data, gasLeft, msg.Value)

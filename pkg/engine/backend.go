@@ -349,6 +349,10 @@ func blockToPayload(block *types.Block, prevRandao types.Hash, withdrawals []*Wi
 }
 
 // ProcessBlockV5 validates and executes an Amsterdam payload with BAL validation.
+// NOTE: EIP-8141 FrameTx receipts are included in the standard receipt array.
+// The FrameTxReceipt type (core/types/frame_receipt.go) provides per-frame
+// results; however, gas accounting flows through the standard Receipt structure
+// so no special handling is needed here.
 func (b *EngineBackend) ProcessBlockV5(
 	payload *ExecutionPayloadV5,
 	expectedBlobVersionedHashes []types.Hash,
@@ -534,6 +538,9 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 }
 
 // GetPayloadV6ByID retrieves a previously built payload for getPayloadV6 (Amsterdam).
+// NOTE: EIP-8141 FrameTx receipts use the standard Receipt structure for gas
+// accounting. Per-frame results are available via FrameTxReceipt if needed by
+// downstream consumers (e.g., block explorers).
 func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

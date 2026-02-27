@@ -20,12 +20,15 @@ var (
 	ErrAggTickFailed     = errors.New("stark_aggregation: tick generation failed")
 	ErrAggInvalidTick    = errors.New("stark_aggregation: invalid tick data")
 	ErrAggMergeFailed    = errors.New("stark_aggregation: merge failed")
+	ErrAggTickTooLarge   = errors.New("stark_aggregation: tick exceeds 128KB bandwidth limit")
 )
 
 // Default aggregation parameters.
 const (
 	DefaultTickInterval = 500 * time.Millisecond
 	MaxTickTransactions = 10000
+	// MaxTickSize is the maximum serialized size of a mempool tick (128KB per ethresear.ch).
+	MaxTickSize = 128 * 1024
 )
 
 // ValidatedTx represents a transaction that has been validated with a proof.
@@ -34,6 +37,7 @@ type ValidatedTx struct {
 	ValidationProof []byte // proof of tx validity
 	ValidatedAt     time.Time
 	GasUsed         uint64
+	RemoteProven    bool // true if proven by a remote peer's STARK tick
 }
 
 // MempoolAggregationTick represents a single aggregation cycle result.
@@ -52,6 +56,10 @@ type MempoolAggregationTick struct {
 	PeerID string
 	// TickNumber is the sequential tick counter.
 	TickNumber uint64
+	// ValidBitfield is a compact bitfield where bit i indicates tx i is valid.
+	ValidBitfield []byte
+	// TxMerkleRoot is the Merkle root of the valid transaction hashes.
+	TxMerkleRoot types.Hash
 }
 
 // STARKAggregator implements Vitalik's recursive STARK mempool proposal.
@@ -193,6 +201,16 @@ func (sa *STARKAggregator) GenerateTick() (*MempoolAggregationTick, error) {
 		return nil, ErrAggTickFailed
 	}
 
+	// Build bitfield: all transactions in the tick are valid, so all bits are set.
+	bitfieldLen := (len(txHashes) + 7) / 8
+	bitfield := make([]byte, bitfieldLen)
+	for i := range txHashes {
+		bitfield[i/8] |= 1 << uint(i%8)
+	}
+
+	// Compute Merkle root of valid tx hashes.
+	txMerkleRoot := computeTxMerkleRoot(txHashes)
+
 	// Capture and reset discard list.
 	discards := sa.discardList
 	sa.discardList = nil
@@ -206,6 +224,8 @@ func (sa *STARKAggregator) GenerateTick() (*MempoolAggregationTick, error) {
 		TickInterval:   sa.tickInterval,
 		PeerID:         sa.peerID,
 		TickNumber:     sa.tickNumber,
+		ValidBitfield:  bitfield,
+		TxMerkleRoot:   txMerkleRoot,
 	}, nil
 }
 
@@ -216,6 +236,12 @@ func (sa *STARKAggregator) MergeTick(remote *MempoolAggregationTick) error {
 	}
 	if remote.AggregateProof == nil {
 		return ErrAggInvalidTick
+	}
+
+	// Check approximate tick size (each tx hash = 32 bytes, proof overhead ~1KB).
+	approxSize := len(remote.ValidTxHashes)*32 + 1024
+	if approxSize > MaxTickSize {
+		return ErrAggTickTooLarge
 	}
 
 	// Verify the remote STARK proof.
@@ -230,6 +256,17 @@ func (sa *STARKAggregator) MergeTick(remote *MempoolAggregationTick) error {
 	// Remove discarded txs.
 	for _, hash := range remote.DiscardList {
 		delete(sa.validTxs, hash)
+	}
+
+	// Merge remote-proven transactions into the local valid set.
+	for _, txHash := range remote.ValidTxHashes {
+		if _, exists := sa.validTxs[txHash]; !exists {
+			sa.validTxs[txHash] = &ValidatedTx{
+				TxHash:       txHash,
+				ValidatedAt:  remote.Timestamp,
+				RemoteProven: true,
+			}
+		}
 	}
 
 	return nil
@@ -250,6 +287,38 @@ func TickHash(tick *MempoolAggregationTick) types.Hash {
 	var result types.Hash
 	copy(result[:], h.Sum(nil))
 	return result
+}
+
+// computeTxMerkleRoot computes a simple binary Merkle root of transaction hashes.
+func computeTxMerkleRoot(hashes []types.Hash) types.Hash {
+	if len(hashes) == 0 {
+		return types.Hash{}
+	}
+	if len(hashes) == 1 {
+		return hashes[0]
+	}
+
+	// Simple binary Merkle tree using SHA-256.
+	layer := make([]types.Hash, len(hashes))
+	copy(layer, hashes)
+
+	for len(layer) > 1 {
+		var next []types.Hash
+		for i := 0; i < len(layer); i += 2 {
+			h := sha256.New()
+			h.Write(layer[i][:])
+			if i+1 < len(layer) {
+				h.Write(layer[i+1][:])
+			} else {
+				h.Write(layer[i][:]) // duplicate last if odd
+			}
+			var hash types.Hash
+			copy(hash[:], h.Sum(nil))
+			next = append(next, hash)
+		}
+		layer = next
+	}
+	return layer[0]
 }
 
 // tickLoop runs the periodic aggregation.

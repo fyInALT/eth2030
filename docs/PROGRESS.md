@@ -109,7 +109,7 @@ All 57 test categories pass at 100%. The go-ethereum backend provides correct ga
 
 | Package | Status | Description |
 |---------|--------|-------------|
-| `core` | Complete | Blockchain, block builder, validator, state processor, gas futures, genesis init |
+| `core` | Complete | Blockchain, block builder, validator, state processor (incl. EIP-8141 FrameTx dispatch, nonce semantics, transient storage isolation), gas futures, genesis init |
 | `core/types` | Complete | 7 tx types (legacy, access list, dynamic, blob, set code, frame, AA), header, receipt, block, SSZ |
 | `core/state` | Complete | StateDB interface, in-memory, trie-backed, stateless (witness-backed), prefetcher |
 | `core/state/snapshot` | Complete | Layered diff/disk snapshots, account/storage iterators |
@@ -122,16 +122,16 @@ All 57 test categories pass at 100%. The go-ethereum backend provides correct ga
 | `rlp` | Complete | Full Yellow Paper Appendix B with fuzz testing |
 | `ssz` | Complete | SSZ encode/decode, merkleization, EIP-7916 ProgressiveList |
 | `crypto` | Complete | Keccak-256, secp256k1, BN254, BLS12-381 (incl. aggregate sigs), VDF, threshold, shielded |
-| `crypto/pqc` | Complete | Dilithium3 (real lattice crypto), Falcon512, SPHINCS+ (hash-based), hybrid signer, lattice blob commitments |
-| `consensus` | Complete | 3SF (3-slot finality), quick slots, Casper FFG finality, committee selection, BLS operations, attestations, beacon state, block producer, reward calc, slashing |
+| `crypto/pqc` | Complete | Dilithium3 (real lattice crypto), Falcon512, SPHINCS+ (hash-based), hybrid signer, lattice blob commitments, ValidatePQSignature integration |
+| `consensus` | Complete | 3SF (3-slot finality), quick slots, Casper FFG finality, committee selection, BLS operations, attestations, beacon state, block producer, reward calc, slashing, PQ finality fallback (hash-based signatures alongside BLS) |
 | `engine` | Complete | Engine API V3-V7, forkchoice, payload building, ePBS, distributed builder, Vickrey auctions |
 | `epbs` | Complete | Enshrined PBS: BuilderBid, PayloadEnvelope, builder registry, auctions |
 | `focil` | Complete | FOCIL: inclusion list building, validation, compliance scoring |
 | `bal` | Complete | Block Access Lists (EIP-7928), opcode-level state tracking (15 opcodes), system contract tracking (EIP-4788/2935/4895), engine API integration, SSTORE no-op detection, parallel execution scheduling |
-| `das` | Complete | PeerDAS: sampling, custody, reconstruction, blob streaming, futures, cell gossip |
+| `das` | Complete | PeerDAS: sampling, custody, reconstruction, blob streaming, futures, cell gossip, STARK commitment type (PQ DA) |
 | `das/erasure` | Complete | Reed-Solomon erasure coding (Lagrange interpolation) |
 | `witness` | Complete | Execution witness collector, verifier, VOPS integration |
-| `txpool` | Complete | Validation, RBF, eviction, blob gas, EIP-8070 sparse blobpool |
+| `txpool` | Complete | Validation, RBF, eviction, blob gas, EIP-8070 sparse blobpool, FrameTx validation, recursive STARK mempool (tick merging, bitfield, Merkle root, 128KB bandwidth limit) |
 | `txpool/encrypted` | Complete | Encrypted mempool: commit-reveal, threshold decryption ordering |
 | `txpool/shared` | Complete | Sharded mempool with consistent hashing |
 | `rpc` | Complete | 50+ methods, filters, WebSocket subscriptions, Beacon API (16 endpoints) |
@@ -141,7 +141,7 @@ All 57 test categories pass at 100%. The go-ethereum backend provides correct ga
 | `zkvm` | Complete | Guest programs, canonical guest (RISC-V), STF framework, Poseidon hash, R1CS circuit builder |
 | `proofs` | Complete | Proof aggregation: ZKSNARK/ZKSTARK/IPA/KZG, mandatory 3-of-5 system, async proof queue, execution proofs |
 | `light` | Complete | Header sync, proof cache (LRU), sync committee, CL proof generator |
-| `p2p` | Complete | TCP transport, devp2p, peer mgmt, gossip (pub/sub, scoring), protocol manager |
+| `p2p` | Complete | TCP transport, devp2p, peer mgmt, gossip (pub/sub, scoring, STARK mempool tick topic), protocol manager |
 | `p2p/discover` | Complete | Peer discovery V4/V5, Kademlia DHT |
 | `p2p/discv5` | Complete | Discovery V5 protocol with WHOAREYOU/handshake |
 | `p2p/dnsdisc` | Complete | DNS-based peer discovery |

@@ -54,6 +54,10 @@ func ExecuteFrameTx(tx *types.FrameTx, stateNonce uint64, callFn FrameCallFunc) 
 		FrameResults: make([]types.FrameResult, len(tx.Frames)),
 	}
 
+	// NOTE: EIP-8141 requires isolated transient storage per frame. Clearing
+	// transient storage is handled by the callFn callback in the processor
+	// (processor.go), which calls statedb.ClearTransientStorage() before each
+	// frame after the first.
 	for i, frame := range tx.Frames {
 		ctx.CurrentFrame = i
 

@@ -29,6 +29,8 @@ const (
 	BlobSidecar
 	// SyncCommitteeContribution propagates sync committee contributions.
 	SyncCommitteeContribution
+	// STARKMempoolTick propagates recursive STARK mempool aggregation ticks.
+	STARKMempoolTick
 )
 
 // gossipTopicNames maps each GossipTopic to its canonical string name
@@ -41,6 +43,7 @@ var gossipTopicNames = map[GossipTopic]string{
 	AttesterSlashing:          "attester_slashing",
 	BlobSidecar:               "blob_sidecar",
 	SyncCommitteeContribution: "sync_committee_contribution",
+	STARKMempoolTick:          "stark_mempool_tick",
 }
 
 // String returns the spec-defined name of the gossip topic.
