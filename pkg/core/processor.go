@@ -76,12 +76,6 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		header   = block.Header()
 	)
 
-	// EIP-4788: store the parent beacon block root in the beacon root contract.
-	// This is a system-level operation that runs before any user transactions.
-	if p.config != nil && p.config.IsCancun(header.Time) {
-		ProcessBeaconBlockRoot(statedb, header)
-	}
-
 	// Determine if BAL tracking is active for this block.
 	balActive := p.config != nil && p.config.IsAmsterdam(header.Time)
 
@@ -90,14 +84,70 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		blockBAL = bal.NewBlockAccessList()
 	}
 
+	// --- Pre-execution system contracts (AccessIndex 0) ---
+	// Capture old slot values BEFORE system calls modify state, then record
+	// the changes into a pre-execution tracker.
+	var preTracker *bal.AccessTracker
+	if balActive {
+		preTracker = bal.NewTracker()
+	}
+
+	// EIP-4788: store the parent beacon block root in the beacon root contract.
+	if p.config != nil && p.config.IsCancun(header.Time) {
+		if balActive && header.ParentBeaconRoot != nil {
+			// Capture old values before the system call writes.
+			timestampIdx := header.Time % historyBufferLength
+			rootIdx := timestampIdx + historyBufferLength
+			tsSlot := uint64ToHash(timestampIdx)
+			rootSlot := uint64ToHash(rootIdx)
+			oldTsVal := statedb.GetState(BeaconRootAddress, tsSlot)
+			oldRootVal := statedb.GetState(BeaconRootAddress, rootSlot)
+
+			ProcessBeaconBlockRoot(statedb, header)
+
+			// Record the storage changes.
+			newTsVal := uint64ToHash(header.Time)
+			preTracker.RecordStorageChange(BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
+			preTracker.RecordStorageChange(BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
+		} else {
+			ProcessBeaconBlockRoot(statedb, header)
+		}
+	}
+
 	// EIP-2935: store parent block hash in history storage contract (Prague+).
 	if p.config != nil && p.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
-		ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+		if balActive {
+			parentNum := header.Number.Uint64() - 1
+			slotBig := new(big.Int).SetUint64(parentNum % HistoryServeWindow)
+			var slotHash types.Hash
+			if slotBig.Sign() > 0 {
+				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
+			}
+			oldVal := statedb.GetState(HistoryStorageAddress, slotHash)
+
+			ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
+
+			preTracker.RecordStorageChange(HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
+		} else {
+			ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+		}
 	}
 
 	// EIP-7997: deploy the deterministic CREATE2 factory at Glamsterdam activation.
 	if p.config != nil && p.config.IsGlamsterdan(header.Time) {
+		if balActive && statedb.GetCodeSize(FactoryAddress) == 0 {
+			// Factory is about to be deployed — record the code touch.
+			preTracker.RecordAddressTouch(FactoryAddress)
+		}
 		ApplyEIP7997(statedb)
+	}
+
+	// Merge pre-execution system contract accesses into the block BAL.
+	if balActive {
+		preBAL := preTracker.Build(0) // AccessIndex 0 for pre-execution
+		for _, entry := range preBAL.Entries {
+			blockBAL.AddEntry(entry)
+		}
 	}
 
 	var cumulativeGasUsed uint64
@@ -113,7 +163,16 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	for i, tx := range block.Transactions() {
 		statedb.SetTxContext(tx.Hash(), i)
 
-		// Capture pre-state for BAL tracking before applying the transaction.
+		// EIP-7928: create per-transaction BAL tracker and inject into EVM.
+		// The tracker is created BEFORE execution so opcodes record state
+		// accesses (storage reads, storage changes, address touches) during
+		// EVM interpretation.
+		var tracker *bal.AccessTracker
+		if balActive {
+			tracker = bal.NewTracker()
+		}
+
+		// Capture pre-state for balance/nonce diffing (existing behavior).
 		var (
 			preBalances map[types.Address]*big.Int
 			preNonces   map[types.Address]uint64
@@ -122,7 +181,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 			preBalances, preNonces = capturePreState(statedb, tx)
 		}
 
-		receipt, usedGas, err := applyTransaction(p.config, p.getHash, statedb, header, tx, gasPool)
+		receipt, usedGas, err := applyTransactionWithBAL(p.config, p.getHash, statedb, header, tx, gasPool, tracker)
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx, err)
 		}
@@ -149,9 +208,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		receipts = append(receipts, receipt)
 
-		// After successful tx, record state changes in the BAL.
+		// After successful tx, merge opcode-level accesses + balance/nonce diffs.
 		if balActive {
-			tracker := bal.NewTracker()
 			populateTracker(tracker, statedb, preBalances, preNonces)
 			txBAL := tracker.Build(uint64(i + 1)) // AccessIndex 1..n for transactions
 			for _, entry := range txBAL.Entries {
@@ -173,7 +231,38 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	// EIP-4895: process beacon chain withdrawals after all transactions.
 	// Withdrawals are applied post-Shanghai (activated with the merge).
 	if p.config != nil && p.config.IsShanghai(header.Time) {
-		ProcessWithdrawals(statedb, block.Withdrawals())
+		if balActive {
+			postTracker := bal.NewTracker()
+
+			// Capture pre-withdrawal balances.
+			preWithdrawalBals := make(map[types.Address]*big.Int)
+			for _, w := range block.Withdrawals() {
+				if w == nil {
+					continue
+				}
+				if _, seen := preWithdrawalBals[w.Address]; !seen {
+					preWithdrawalBals[w.Address] = new(big.Int).Set(statedb.GetBalance(w.Address))
+				}
+			}
+
+			ProcessWithdrawals(statedb, block.Withdrawals())
+
+			// Record balance changes from withdrawals.
+			for addr, preBal := range preWithdrawalBals {
+				postBal := statedb.GetBalance(addr)
+				if preBal.Cmp(postBal) != 0 {
+					postTracker.RecordBalanceChange(addr, preBal, postBal)
+				}
+			}
+
+			// AccessIndex = n+1 for post-execution (after all transactions).
+			postBAL := postTracker.Build(uint64(len(block.Transactions()) + 1))
+			for _, entry := range postBAL.Entries {
+				blockBAL.AddEntry(entry)
+			}
+		} else {
+			ProcessWithdrawals(statedb, block.Withdrawals())
+		}
 	}
 
 	return &ProcessResult{
@@ -434,13 +523,33 @@ func ApplyTransaction(config *ChainConfig, statedb state.StateDB, header *types.
 	return applyTransaction(config, nil, statedb, header, tx, gp)
 }
 
+// ApplyTransactionWithBAL applies a single transaction to the state with
+// EIP-7928 BAL tracking enabled. The provided tracker is injected into the
+// EVM so opcodes record state accesses during execution.
+func ApplyTransactionWithBAL(config *ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+	return applyTransactionWithBAL(config, nil, statedb, header, tx, gp, tracker)
+}
+
 // applyTransaction is the internal implementation that accepts an optional GetHash function.
 func applyTransaction(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
+	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil)
+}
+
+// applyTransactionWithBAL is like applyTransaction but injects the BAL tracker
+// into the EVM so that opcodes record state accesses for EIP-7928.
+func applyTransactionWithBAL(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker)
+}
+
+// applyTransactionInternal is the shared implementation for applyTransaction
+// and applyTransactionWithBAL. When tracker is non-nil, it is passed to
+// applyMessage for EIP-7928 opcode-level state access recording.
+func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
 	msg := TransactionToMessage(tx)
 
 	snapshot := statedb.Snapshot()
 
-	result, err := applyMessage(config, getHash, statedb, header, &msg, gp)
+	result, err := applyMessage(config, getHash, statedb, header, &msg, gp, tracker)
 	if err != nil {
 		statedb.RevertToSnapshot(snapshot)
 		return nil, 0, err
@@ -681,7 +790,10 @@ func intrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool
 }
 
 // applyMessage executes a transaction message against the state.
-func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *Message, gp *GasPool) (*ExecutionResult, error) {
+// An optional BALTracker can be provided for EIP-7928 state access tracking;
+// when non-nil, the tracker is injected into the EVM so opcodes record
+// storage reads, storage changes, and address touches during execution.
+func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *Message, gp *GasPool, balTracker ...vm.BALTracker) (*ExecutionResult, error) {
 	// Validate and consume gas from the pool
 	if err := gp.SubGas(msg.GasLimit); err != nil {
 		return nil, err
@@ -836,6 +948,11 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 		BlobHashes: msg.BlobHashes,
 	}
 	evm := vm.NewEVMWithState(blockCtx, txCtx, vm.Config{}, statedb)
+
+	// EIP-7928: inject BAL tracker so opcodes record state accesses.
+	if len(balTracker) > 0 && balTracker[0] != nil {
+		evm.SetBALTracker(balTracker[0], 0)
+	}
 
 	// Select the correct jump table based on fork rules.
 	var precompileAddrs map[types.Address]vm.PrecompiledContract

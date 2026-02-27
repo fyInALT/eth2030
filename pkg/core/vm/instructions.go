@@ -579,6 +579,10 @@ func opSload(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *St
 	if evm.StateDB != nil {
 		key := bigToHash(loc)
 		val := evm.StateDB.GetState(contract.Address, key)
+		// EIP-7928: record storage read for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordStorageRead(contract.Address, key, val)
+		}
 		loc.SetBytes(val[:])
 	} else {
 		loc.SetUint64(0)
@@ -618,6 +622,14 @@ func opSstore(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *S
 		}
 
 		evm.StateDB.SetState(contract.Address, key, newVal)
+		// EIP-7928: record storage access for BAL tracking.
+		if evm.balTracker != nil {
+			if current == newVal {
+				evm.balTracker.RecordStorageRead(contract.Address, key, current)
+			} else {
+				evm.balTracker.RecordStorageChange(contract.Address, key, current, newVal)
+			}
+		}
 	}
 	return nil, nil
 }
@@ -634,6 +646,15 @@ func opSstoreGlamst(pc *uint64, evm *EVM, contract *Contract, memory *Memory, st
 	if evm.StateDB != nil {
 		key := bigToHash(loc)
 		newVal := bigToHash(val)
+		// EIP-7928: read current value for BAL no-op detection.
+		if evm.balTracker != nil {
+			current := evm.StateDB.GetState(contract.Address, key)
+			if current == newVal {
+				evm.balTracker.RecordStorageRead(contract.Address, key, current)
+			} else {
+				evm.balTracker.RecordStorageChange(contract.Address, key, current, newVal)
+			}
+		}
 		// EIP-7778: no refund tracking. Just write the state.
 		evm.StateDB.SetState(contract.Address, key, newVal)
 	}
@@ -673,6 +694,10 @@ func opReturndataCopy(pc *uint64, evm *EVM, contract *Contract, memory *Memory, 
 func opSelfBalance(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
 	if evm.StateDB != nil {
 		balance := evm.StateDB.GetBalance(contract.Address)
+		// EIP-7928: record address touch for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(contract.Address)
+		}
 		stack.Push(new(big.Int).Set(balance))
 	} else {
 		stack.Push(new(big.Int))
@@ -685,6 +710,10 @@ func opBalance(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 	if evm.StateDB != nil {
 		addr := types.BytesToAddress(slot.Bytes())
 		balance := evm.StateDB.GetBalance(addr)
+		// EIP-7928: record address touch for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(addr)
+		}
 		slot.Set(balance)
 	} else {
 		slot.SetUint64(0)
@@ -730,6 +759,10 @@ func opCall(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Sta
 	// Pop gas from stack (already accounted for by dynamic gas function).
 	_ = stack.Pop()
 	addr := bigToAddress(stack.Pop())
+	// EIP-7928: record address touch for BAL tracking.
+	if evm.balTracker != nil {
+		evm.balTracker.RecordAddressTouch(addr)
+	}
 	value := stack.Pop()
 	inOffset, inSize := stack.Pop(), stack.Pop()
 	retOffset, retSize := stack.Pop(), stack.Pop()
@@ -780,6 +813,10 @@ func opCallCode(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack 
 	// Pop gas from stack (already accounted for by dynamic gas function).
 	_ = stack.Pop()
 	addr := bigToAddress(stack.Pop())
+	// EIP-7928: record address touch for BAL tracking.
+	if evm.balTracker != nil {
+		evm.balTracker.RecordAddressTouch(addr)
+	}
 	value := stack.Pop()
 	inOffset, inSize := stack.Pop(), stack.Pop()
 	retOffset, retSize := stack.Pop(), stack.Pop()
@@ -827,6 +864,10 @@ func opDelegateCall(pc *uint64, evm *EVM, contract *Contract, memory *Memory, st
 	// Pop gas from stack (already accounted for by dynamic gas function).
 	_ = stack.Pop()
 	addr := bigToAddress(stack.Pop())
+	// EIP-7928: record address touch for BAL tracking.
+	if evm.balTracker != nil {
+		evm.balTracker.RecordAddressTouch(addr)
+	}
 	inOffset, inSize := stack.Pop(), stack.Pop()
 	retOffset, retSize := stack.Pop(), stack.Pop()
 
@@ -866,6 +907,10 @@ func opStaticCall(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stac
 	// Pop gas from stack (already accounted for by dynamic gas function).
 	_ = stack.Pop()
 	addr := bigToAddress(stack.Pop())
+	// EIP-7928: record address touch for BAL tracking.
+	if evm.balTracker != nil {
+		evm.balTracker.RecordAddressTouch(addr)
+	}
 	inOffset, inSize := stack.Pop(), stack.Pop()
 	retOffset, retSize := stack.Pop(), stack.Pop()
 
@@ -926,6 +971,10 @@ func opCreate(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *S
 	if err != nil {
 		stack.Push(new(big.Int))
 	} else {
+		// EIP-7928: record address touch for newly created contract.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(addr)
+		}
 		stack.Push(new(big.Int).SetBytes(addr[:]))
 	}
 
@@ -958,6 +1007,10 @@ func opCreate2(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 	if err != nil {
 		stack.Push(new(big.Int))
 	} else {
+		// EIP-7928: record address touch for newly created contract.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(addr)
+		}
 		stack.Push(new(big.Int).SetBytes(addr[:]))
 	}
 
@@ -970,6 +1023,10 @@ func opExtcodesize(pc *uint64, evm *EVM, contract *Contract, memory *Memory, sta
 	if evm.StateDB != nil {
 		addr := types.BytesToAddress(slot.Bytes())
 		code := evm.StateDB.GetCode(addr)
+		// EIP-7928: record address touch for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(addr)
+		}
 		slot.SetUint64(uint64(len(code)))
 	} else {
 		slot.SetUint64(0)
@@ -993,6 +1050,10 @@ func opExtcodecopy(pc *uint64, evm *EVM, contract *Contract, memory *Memory, sta
 	if evm.StateDB != nil {
 		addr := types.BytesToAddress(addrVal.Bytes())
 		code = evm.StateDB.GetCode(addr)
+		// EIP-7928: record address touch for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(addr)
+		}
 	}
 
 	cOff := codeOffset.Uint64()
@@ -1009,6 +1070,10 @@ func opExtcodehash(pc *uint64, evm *EVM, contract *Contract, memory *Memory, sta
 	slot := stack.Peek()
 	if evm.StateDB != nil {
 		addr := types.BytesToAddress(slot.Bytes())
+		// EIP-7928: record address touch for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordAddressTouch(addr)
+		}
 		if !evm.StateDB.Exist(addr) {
 			slot.SetUint64(0)
 		} else {
@@ -1144,8 +1209,21 @@ func opSelfdestruct(pc *uint64, evm *EVM, contract *Contract, memory *Memory, st
 					EmitBurnLog(evm.StateDB, contract.Address, balance)
 				}
 			}
+			// EIP-7928: capture pre-transfer balances for BAL tracking.
+			var preSelfBal, preBenBal *big.Int
+			if evm.balTracker != nil {
+				preSelfBal = new(big.Int).Set(balance)
+				preBenBal = new(big.Int).Set(evm.StateDB.GetBalance(beneficiary))
+			}
 			evm.StateDB.AddBalance(beneficiary, balance)
 			evm.StateDB.SubBalance(contract.Address, balance)
+			// EIP-7928: record balance changes for BAL tracking.
+			if evm.balTracker != nil {
+				evm.balTracker.RecordBalanceChange(contract.Address, preSelfBal, evm.StateDB.GetBalance(contract.Address))
+				if beneficiary != contract.Address {
+					evm.balTracker.RecordBalanceChange(beneficiary, preBenBal, evm.StateDB.GetBalance(beneficiary))
+				}
+			}
 		}
 		// Post-EIP-6780: do NOT call SelfDestruct. The account persists.
 		// The state processor may still mark it for destruction if the

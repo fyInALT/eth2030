@@ -196,22 +196,69 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 	gasPool := new(GasPool).AddGas(header.GasLimit)
 
-	// EIP-4788: store the parent beacon block root before any user transactions.
-	if b.config != nil && b.config.IsCancun(header.Time) {
-		ProcessBeaconBlockRoot(statedb, header)
-	}
-
-	// EIP-2935: store parent block hash in history storage contract (Prague+).
-	pragueActive := b.config != nil && b.config.IsPrague(header.Time)
-	if pragueActive && header.Number.Uint64() > 0 {
-		ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
-	}
-
 	// Determine if BAL tracking is active for this block.
 	balActive := b.config != nil && b.config.IsAmsterdam(header.Time)
 	var blockBAL *bal.BlockAccessList
 	if balActive {
 		blockBAL = bal.NewBlockAccessList()
+	}
+
+	// --- Pre-execution system contracts (AccessIndex 0) ---
+	var preTracker *bal.AccessTracker
+	if balActive {
+		preTracker = bal.NewTracker()
+	}
+
+	// EIP-4788: store the parent beacon block root before any user transactions.
+	if b.config != nil && b.config.IsCancun(header.Time) {
+		if balActive && header.ParentBeaconRoot != nil {
+			timestampIdx := header.Time % historyBufferLength
+			rootIdx := timestampIdx + historyBufferLength
+			tsSlot := uint64ToHash(timestampIdx)
+			rootSlot := uint64ToHash(rootIdx)
+			oldTsVal := statedb.GetState(BeaconRootAddress, tsSlot)
+			oldRootVal := statedb.GetState(BeaconRootAddress, rootSlot)
+			ProcessBeaconBlockRoot(statedb, header)
+			newTsVal := uint64ToHash(header.Time)
+			preTracker.RecordStorageChange(BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
+			preTracker.RecordStorageChange(BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
+		} else {
+			ProcessBeaconBlockRoot(statedb, header)
+		}
+	}
+
+	// EIP-2935: store parent block hash in history storage contract (Prague+).
+	pragueActive := b.config != nil && b.config.IsPrague(header.Time)
+	if pragueActive && header.Number.Uint64() > 0 {
+		if balActive {
+			parentNum := header.Number.Uint64() - 1
+			slotBig := new(big.Int).SetUint64(parentNum % HistoryServeWindow)
+			var slotHash types.Hash
+			if slotBig.Sign() > 0 {
+				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
+			}
+			oldVal := statedb.GetState(HistoryStorageAddress, slotHash)
+			ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
+			preTracker.RecordStorageChange(HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
+		} else {
+			ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+		}
+	}
+
+	// EIP-7997: deploy the deterministic CREATE2 factory at Glamsterdam activation.
+	if b.config != nil && b.config.IsGlamsterdan(header.Time) {
+		if balActive && statedb.GetCodeSize(FactoryAddress) == 0 {
+			preTracker.RecordAddressTouch(FactoryAddress)
+		}
+		ApplyEIP7997(statedb)
+	}
+
+	// Merge pre-execution system contract accesses into the block BAL.
+	if balActive {
+		preBAL := preTracker.Build(0) // AccessIndex 0 for pre-execution
+		for _, entry := range preBAL.Entries {
+			blockBAL.AddEntry(entry)
+		}
 	}
 
 	var (
@@ -246,6 +293,12 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 			statedb.SetTxContext(ilTx.Hash(), txIndex)
 
+			// EIP-7928: create per-transaction BAL tracker before execution.
+			var tracker *bal.AccessTracker
+			if balActive {
+				tracker = bal.NewTracker()
+			}
+
 			var (
 				preBalances map[types.Address]*big.Int
 				preNonces   map[types.Address]uint64
@@ -255,7 +308,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			}
 
 			snap := statedb.Snapshot()
-			receipt, used, applyErr := ApplyTransaction(b.config, statedb, header, ilTx, gasPool)
+			receipt, used, applyErr := ApplyTransactionWithBAL(b.config, statedb, header, ilTx, gasPool, tracker)
 			if applyErr != nil {
 				statedb.RevertToSnapshot(snap)
 				continue
@@ -270,7 +323,6 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			}
 
 			if balActive {
-				tracker := bal.NewTracker()
 				populateTracker(tracker, statedb, preBalances, preNonces)
 				txBAL := tracker.Build(uint64(txIndex + 1))
 				for _, entry := range txBAL.Entries {
@@ -331,6 +383,12 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		// Set tx context so logs are keyed correctly.
 		statedb.SetTxContext(tx.Hash(), txIndex)
 
+		// EIP-7928: create per-transaction BAL tracker before execution.
+		var tracker *bal.AccessTracker
+		if balActive {
+			tracker = bal.NewTracker()
+		}
+
 		// Capture pre-state for BAL tracking.
 		var (
 			preBalances map[types.Address]*big.Int
@@ -342,7 +400,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := ApplyTransaction(b.config, statedb, header, tx, gasPool)
+		receipt, used, err := ApplyTransactionWithBAL(b.config, statedb, header, tx, gasPool, tracker)
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -360,7 +418,6 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 		// Record state changes in the BAL.
 		if balActive {
-			tracker := bal.NewTracker()
 			populateTracker(tracker, statedb, preBalances, preNonces)
 			txBAL := tracker.Build(uint64(txIndex + 1))
 			for _, entry := range txBAL.Entries {
@@ -485,21 +542,68 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 	gasPool := new(GasPool).AddGas(header.GasLimit)
 
-	// EIP-4788: store the parent beacon block root before any user transactions.
-	if b.config != nil && b.config.IsCancun(header.Time) {
-		ProcessBeaconBlockRoot(statedb, header)
-	}
-
-	// EIP-2935: store parent block hash in history storage contract (Prague+).
-	if b.config != nil && b.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
-		ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
-	}
-
 	// Determine if BAL tracking is active for this block.
 	balActive := b.config != nil && b.config.IsAmsterdam(header.Time)
 	var blockBAL *bal.BlockAccessList
 	if balActive {
 		blockBAL = bal.NewBlockAccessList()
+	}
+
+	// --- Pre-execution system contracts (AccessIndex 0) ---
+	var preTrackerLegacy *bal.AccessTracker
+	if balActive {
+		preTrackerLegacy = bal.NewTracker()
+	}
+
+	// EIP-4788: store the parent beacon block root before any user transactions.
+	if b.config != nil && b.config.IsCancun(header.Time) {
+		if balActive && header.ParentBeaconRoot != nil {
+			timestampIdx := header.Time % historyBufferLength
+			rootIdx := timestampIdx + historyBufferLength
+			tsSlot := uint64ToHash(timestampIdx)
+			rootSlot := uint64ToHash(rootIdx)
+			oldTsVal := statedb.GetState(BeaconRootAddress, tsSlot)
+			oldRootVal := statedb.GetState(BeaconRootAddress, rootSlot)
+			ProcessBeaconBlockRoot(statedb, header)
+			newTsVal := uint64ToHash(header.Time)
+			preTrackerLegacy.RecordStorageChange(BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
+			preTrackerLegacy.RecordStorageChange(BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
+		} else {
+			ProcessBeaconBlockRoot(statedb, header)
+		}
+	}
+
+	// EIP-2935: store parent block hash in history storage contract (Prague+).
+	if b.config != nil && b.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
+		if balActive {
+			parentNum := header.Number.Uint64() - 1
+			slotBig := new(big.Int).SetUint64(parentNum % HistoryServeWindow)
+			var slotHash types.Hash
+			if slotBig.Sign() > 0 {
+				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
+			}
+			oldVal := statedb.GetState(HistoryStorageAddress, slotHash)
+			ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
+			preTrackerLegacy.RecordStorageChange(HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
+		} else {
+			ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+		}
+	}
+
+	// EIP-7997: deploy the deterministic CREATE2 factory at Glamsterdam activation.
+	if b.config != nil && b.config.IsGlamsterdan(header.Time) {
+		if balActive && statedb.GetCodeSize(FactoryAddress) == 0 {
+			preTrackerLegacy.RecordAddressTouch(FactoryAddress)
+		}
+		ApplyEIP7997(statedb)
+	}
+
+	// Merge pre-execution system contract accesses into the block BAL.
+	if balActive {
+		preBAL := preTrackerLegacy.Build(0)
+		for _, entry := range preBAL.Entries {
+			blockBAL.AddEntry(entry)
+		}
 	}
 
 	// Check if EIP-4844 is active.
@@ -567,6 +671,12 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		// Set tx context so logs are keyed correctly.
 		statedb.SetTxContext(tx.Hash(), txIndex)
 
+		// EIP-7928: create per-transaction BAL tracker before execution.
+		var tracker *bal.AccessTracker
+		if balActive {
+			tracker = bal.NewTracker()
+		}
+
 		// Capture pre-state for BAL tracking.
 		var (
 			preBalances map[types.Address]*big.Int
@@ -578,7 +688,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := ApplyTransaction(b.config, statedb, header, tx, gasPool)
+		receipt, used, err := ApplyTransactionWithBAL(b.config, statedb, header, tx, gasPool, tracker)
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -596,7 +706,6 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 		// Record state changes in the BAL.
 		if balActive {
-			tracker := bal.NewTracker()
 			populateTracker(tracker, statedb, preBalances, preNonces)
 			txBAL := tracker.Build(uint64(txIndex + 1))
 			for _, entry := range txBAL.Entries {

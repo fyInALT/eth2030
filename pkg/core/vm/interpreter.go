@@ -120,6 +120,8 @@ type EVM struct {
 	returnData  []byte             // return data from the last CALL/CREATE
 	callGasTemp uint64             // temporary storage for CALL gas (set by dynamic gas, read by opCall)
 	witnessGas  *WitnessGasTracker // EIP-4762: witness gas tracking (nil if not Verkle)
+	balTracker  BALTracker         // EIP-7928: BAL state access tracking (nil if not active)
+	txIndex     uint64             // EIP-7928: current transaction index for BAL
 	forkRules   ForkRules          // active fork rules for this block
 	FrameCtx    *FrameContext      // EIP-8141: frame transaction approval context (nil if not frame tx)
 }
@@ -174,6 +176,18 @@ func (evm *EVM) SetWitnessGasTracker(t *WitnessGasTracker) {
 // GetWitnessGasTracker returns the current witness gas tracker (may be nil).
 func (evm *EVM) GetWitnessGasTracker() *WitnessGasTracker {
 	return evm.witnessGas
+}
+
+// SetBALTracker enables EIP-7928 Block Access List tracking. When set,
+// EVM opcodes that access state will record accesses to the tracker.
+func (evm *EVM) SetBALTracker(t BALTracker, txIdx uint64) {
+	evm.balTracker = t
+	evm.txIndex = txIdx
+}
+
+// GetBALTracker returns the current BAL tracker (may be nil).
+func (evm *EVM) GetBALTracker() BALTracker {
+	return evm.balTracker
 }
 
 // precompile returns the precompiled contract at addr, falling back to the
@@ -411,8 +425,21 @@ func (evm *EVM) Call(caller types.Address, addr types.Address, input []byte, gas
 		if evm.readOnly {
 			return nil, gas, ErrWriteProtection
 		}
+		// EIP-7928: capture pre-transfer balances for BAL tracking.
+		var callerPreBal, addrPreBal *big.Int
+		if evm.balTracker != nil {
+			callerPreBal = new(big.Int).Set(evm.StateDB.GetBalance(caller))
+			addrPreBal = new(big.Int).Set(evm.StateDB.GetBalance(addr))
+		}
 		evm.StateDB.SubBalance(caller, value)
 		evm.StateDB.AddBalance(addr, value)
+		// EIP-7928: record balance changes for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordBalanceChange(caller, callerPreBal, evm.StateDB.GetBalance(caller))
+			if caller != addr {
+				evm.balTracker.RecordBalanceChange(addr, addrPreBal, evm.StateDB.GetBalance(addr))
+			}
+		}
 
 		// EIP-7708: emit transfer log for nonzero-value CALL to a different account.
 		if evm.forkRules.IsEIP7708 && caller != addr {
@@ -828,8 +855,19 @@ func (evm *EVM) create(caller types.Address, code []byte, gas uint64, value *big
 		if callerBalance.Cmp(value) < 0 {
 			return nil, types.Address{}, gas, errors.New("insufficient balance for transfer")
 		}
+		// EIP-7928: capture pre-transfer balances for BAL tracking.
+		var creatorPreBal, contractPreBal *big.Int
+		if evm.balTracker != nil {
+			creatorPreBal = new(big.Int).Set(evm.StateDB.GetBalance(caller))
+			contractPreBal = new(big.Int).Set(evm.StateDB.GetBalance(contractAddr))
+		}
 		evm.StateDB.SubBalance(caller, value)
 		evm.StateDB.AddBalance(contractAddr, value)
+		// EIP-7928: record balance changes for BAL tracking.
+		if evm.balTracker != nil {
+			evm.balTracker.RecordBalanceChange(caller, creatorPreBal, evm.StateDB.GetBalance(caller))
+			evm.balTracker.RecordBalanceChange(contractAddr, contractPreBal, evm.StateDB.GetBalance(contractAddr))
+		}
 
 		// EIP-7708: emit transfer log for nonzero-value CREATE.
 		if evm.forkRules.IsEIP7708 {

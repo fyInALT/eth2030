@@ -68,6 +68,13 @@ func (t *AccessTracker) RecordNonceChange(addr types.Address, oldNonce, newNonce
 	t.touchedAddrs[addr] = struct{}{}
 }
 
+// RecordAddressTouch records that an address was accessed (read or touched)
+// without necessarily modifying any specific storage, balance, or code.
+// This is used by opcodes like BALANCE, EXTCODEHASH, CALL target, etc.
+func (t *AccessTracker) RecordAddressTouch(addr types.Address) {
+	t.touchedAddrs[addr] = struct{}{}
+}
+
 // RecordCodeChange records a code modification.
 func (t *AccessTracker) RecordCodeChange(addr types.Address, oldCode, newCode []byte) {
 	cc := &CodeChange{}

@@ -12,8 +12,10 @@ import (
 
 // --- BAL (EIP-7928) Integration Tests ---
 
-// TestProcessWithBAL_EmptyBlock verifies that an empty block produces an
-// empty BAL when Amsterdam is active.
+// TestProcessWithBAL_EmptyBlock verifies that an empty block produces a
+// BAL with system contract entries when Amsterdam/Cancun/Prague are active.
+// Even without user transactions, EIP-4788 (beacon root) and EIP-2935
+// (parent block hash) system contracts write to state and are tracked.
 func TestProcessWithBAL_EmptyBlock(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	proc := NewStateProcessor(TestConfig)
@@ -28,8 +30,16 @@ func TestProcessWithBAL_EmptyBlock(t *testing.T) {
 	if result.BlockAccessList == nil {
 		t.Fatal("expected non-nil BAL for Amsterdam block")
 	}
-	if result.BlockAccessList.Len() != 0 {
-		t.Errorf("expected empty BAL, got %d entries", result.BlockAccessList.Len())
+	// System contracts (EIP-4788, EIP-2935) produce entries even in empty
+	// blocks. Verify the BAL is non-nil and has the expected system entries.
+	if result.BlockAccessList.Len() == 0 {
+		t.Error("expected system contract entries in BAL for empty block with Cancun/Prague active")
+	}
+	// Verify that all entries have AccessIndex 0 (pre-execution system contracts).
+	for _, entry := range result.BlockAccessList.Entries {
+		if entry.AccessIndex != 0 {
+			t.Errorf("system contract entry for %v has AccessIndex %d, want 0", entry.Address, entry.AccessIndex)
+		}
 	}
 }
 
@@ -210,7 +220,8 @@ func TestBlockBuilder_SetsBALHash(t *testing.T) {
 }
 
 // TestBlockBuilder_EmptyBlock_SetsBALHash verifies that even an empty block
-// gets a BAL hash when Amsterdam is active.
+// gets a BAL hash when Amsterdam is active. The hash may include system
+// contract entries (EIP-4788, EIP-2935) depending on fork activation.
 func TestBlockBuilder_EmptyBlock_SetsBALHash(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	builder := newLegacyBuilder(TestConfig, statedb)
@@ -231,10 +242,12 @@ func TestBlockBuilder_EmptyBlock_SetsBALHash(t *testing.T) {
 		t.Fatal("empty block should have BlockAccessListHash set when Amsterdam is active")
 	}
 
-	// Verify it matches the empty BAL hash.
-	emptyHash := bal.NewBlockAccessList().Hash()
-	if *block.Header().BlockAccessListHash != emptyHash {
-		t.Errorf("empty block BAL hash = %s, want %s", block.Header().BlockAccessListHash.Hex(), emptyHash.Hex())
+	// The BAL hash should be set and non-zero. It may not match the
+	// empty BAL hash because system contracts (EIP-4788, EIP-2935) can
+	// produce entries even without user transactions.
+	zeroHash := types.Hash{}
+	if *block.Header().BlockAccessListHash == zeroHash {
+		t.Error("empty block BAL hash should not be the zero hash")
 	}
 }
 

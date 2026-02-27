@@ -18,6 +18,7 @@ import (
 type pendingPayload struct {
 	block        *types.Block
 	receipts     []*types.Receipt
+	bal          *bal.BlockAccessList // EIP-7928
 	blockValue   *big.Int
 	parentHash   types.Hash
 	timestamp    uint64
@@ -373,9 +374,9 @@ func (b *EngineBackend) ProcessBlockV5(
 		return PayloadStatusV1{Status: StatusSyncing}, nil
 	}
 
-	// Run through the state processor.
+	// Run through the state processor with BAL computation.
 	stateCopy := b.statedb.Copy()
-	_, err = b.processor.Process(block, stateCopy)
+	result, err := b.processor.ProcessWithBAL(block, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
 		return PayloadStatusV1{
@@ -384,11 +385,12 @@ func (b *EngineBackend) ProcessBlockV5(
 		}, nil
 	}
 
-	// Validate the BAL by re-executing transactions and comparing.
-	// Build a BAL from execution and compare with the provided one.
+	// Validate the BAL by comparing the computed BAL with the provided one.
 	if payload.BlockAccessList != nil {
-		computedBAL := bal.NewBlockAccessList()
-		// For an empty block, the BAL should be empty too.
+		computedBAL := result.BlockAccessList
+		if computedBAL == nil {
+			computedBAL = bal.NewBlockAccessList()
+		}
 		computedEncoded, _ := computedBAL.EncodeRLP()
 
 		var providedBALBytes []byte
@@ -483,9 +485,20 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			return ForkchoiceUpdatedResult{}, fmt.Errorf("payload build failed: %w", err)
 		}
 
+		// Compute BAL for the built block (EIP-7928).
+		var blockBAL *bal.BlockAccessList
+		if b.config.IsAmsterdam(attrs.Timestamp) {
+			stateCopy2 := b.statedb.Copy()
+			balResult, err := b.processor.ProcessWithBAL(block, stateCopy2)
+			if err == nil && balResult != nil {
+				blockBAL = balResult.BlockAccessList
+			}
+		}
+
 		b.payloads[id] = &pendingPayload{
 			block:        block,
 			receipts:     receipts,
+			bal:          blockBAL,
 			blockValue:   new(big.Int),
 			parentHash:   fcState.HeadBlockHash,
 			timestamp:    attrs.Timestamp,
@@ -530,7 +543,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 		return nil, ErrUnknownPayload
 	}
 
-	ep5 := blockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, nil)
+	ep5 := blockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
 
 	return &GetPayloadV6Response{
 		ExecutionPayload:  ep5,
