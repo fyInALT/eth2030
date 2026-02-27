@@ -23,6 +23,7 @@ type Message struct {
 	Frames      []types.Frame        // EIP-8141 frame transaction frames
 	FrameSender types.Address        // EIP-8141 frame tx sender (from FrameTx.Sender)
 	TxType      uint8                // transaction type (for fork-specific processing)
+	TxHash      types.Hash           // transaction hash for log attribution
 }
 
 // TransactionToMessage converts a transaction into a Message for execution.
@@ -40,6 +41,7 @@ func TransactionToMessage(tx *types.Transaction) Message {
 		BlobHashes: tx.BlobHashes(),
 		AuthList:   tx.AuthorizationList(),
 		TxType:     tx.Type(),
+		TxHash:     tx.Hash(),
 	}
 	if sender := tx.Sender(); sender != nil {
 		msg.From = *sender

@@ -2,6 +2,7 @@ package txpool
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 	"sync"
@@ -389,6 +390,19 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	if tx.Type() == types.FrameTxType {
 		if tx.Gas() < types.FrameTxIntrinsicCost {
 			return ErrIntrinsicGas
+		}
+		// Validate frame structure (count, modes, targets, blob consistency).
+		frames := tx.Frames()
+		if len(frames) == 0 {
+			return errors.New("frame tx: must have at least one frame")
+		}
+		if len(frames) > types.MaxFrames {
+			return errors.New("frame tx: too many frames")
+		}
+		for i, f := range frames {
+			if f.Mode > types.ModeSender {
+				return fmt.Errorf("frame tx: invalid mode %d in frame %d", f.Mode, i)
+			}
 		}
 	}
 

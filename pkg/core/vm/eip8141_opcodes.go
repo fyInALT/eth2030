@@ -46,6 +46,12 @@ type FrameContext struct {
 	SenderApproved bool
 	PayerApproved  bool
 
+	// APPROVE tracking: records the most recent APPROVE call within the
+	// current frame so the callFn can distinguish APPROVE(2) from
+	// APPROVE(0)+APPROVE(1) without relying solely on boolean flags.
+	LastApproveScope       uint8
+	ApproveCalledThisFrame bool
+
 	// Transaction parameters exposed via TXPARAM* opcodes.
 	TxType            uint64
 	Nonce             uint64
@@ -79,6 +85,10 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 	if scopeVal > 2 {
 		return nil, ErrInvalidApproveScope
 	}
+
+	// Track the APPROVE call for the callFn to read.
+	fc.ApproveCalledThisFrame = true
+	fc.LastApproveScope = uint8(scopeVal)
 
 	// APPROVE requires CALLER == frame.target. The contract's CallerAddress is
 	// the CALLER for the current execution context, and contract.Address is the

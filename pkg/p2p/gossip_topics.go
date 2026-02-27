@@ -30,6 +30,10 @@ const (
 	// SyncCommitteeContribution propagates sync committee contributions.
 	SyncCommitteeContribution
 	// STARKMempoolTick propagates recursive STARK mempool aggregation ticks.
+	// Handler registration: at application startup, the node should call
+	// TopicManager.Subscribe(STARKMempoolTick, handler) where the handler
+	// deserialises the tick via MempoolAggregationTick.UnmarshalBinary,
+	// validates the STARK proof, and calls STARKAggregator.MergeTick.
 	STARKMempoolTick
 )
 

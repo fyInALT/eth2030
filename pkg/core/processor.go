@@ -1075,6 +1075,11 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 			// Update the current frame index in the EVM context.
 			evm.FrameCtx.CurrentFrameIndex = uint64(frameIndex)
 
+			// Reset per-frame APPROVE tracking before each frame call.
+			if evm.FrameCtx != nil {
+				evm.FrameCtx.ApproveCalledThisFrame = false
+			}
+
 			// Cap frame gas to remaining gas.
 			availGas := gasLeft
 			for j := 0; j < frameIndex; j++ {
@@ -1092,28 +1097,14 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 				status = uint64(types.ReceiptStatusFailed)
 			}
 
-			// Check if APPROVE was called during this frame by inspecting FrameCtx.
+			// Check if APPROVE was called during this frame using explicit tracking
+			// fields set by opApprove. This correctly distinguishes APPROVE(2) from
+			// separate APPROVE(0)+APPROVE(1) calls.
 			approved := false
 			var approveScope uint8
-			if evm.FrameCtx != nil {
-				// Detect approval by comparing state before/after the call.
-				// The opApprove function sets SenderApproved and/or PayerApproved directly.
-				// We pass back the current approval state and let ExecuteFrameTx handle it.
-				// The callFn contract: approved=true means APPROVE was called in this frame.
-				// We detect this from the FrameContext's approval state.
-				if mode == types.ModeVerify || mode == types.ModeDefault {
-					if evm.FrameCtx.SenderApproved && !frameTx.Sender.IsZero() {
-						approved = true
-						if evm.FrameCtx.PayerApproved {
-							approveScope = 2
-						} else {
-							approveScope = 0
-						}
-					} else if evm.FrameCtx.PayerApproved {
-						approved = true
-						approveScope = 1
-					}
-				}
+			if evm.FrameCtx != nil && evm.FrameCtx.ApproveCalledThisFrame {
+				approved = true
+				approveScope = evm.FrameCtx.LastApproveScope
 			}
 
 			// Update frame status in vm context for TXPARAM(0x15) introspection.
@@ -1122,8 +1113,9 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 			}
 
 			gasUsed := frameGasLimit - remainGas
-			// Collect logs emitted during this frame.
-			logs := statedb.GetLogs(types.Hash{})
+			// Collect logs emitted during this frame using the actual tx hash
+			// so they match the key set by SetTxContext.
+			logs := statedb.GetLogs(msg.TxHash)
 			return status, gasUsed, logs, approved, approveScope, callErr
 		}
 

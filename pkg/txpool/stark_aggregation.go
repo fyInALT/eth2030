@@ -1,9 +1,11 @@
 package txpool
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math/big"
 	"sync"
 	"time"
@@ -60,6 +62,148 @@ type MempoolAggregationTick struct {
 	ValidBitfield []byte
 	// TxMerkleRoot is the Merkle root of the valid transaction hashes.
 	TxMerkleRoot types.Hash
+}
+
+// MarshalBinary encodes a MempoolAggregationTick for P2P transmission.
+func (t *MempoolAggregationTick) MarshalBinary() ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Write tick number (8 bytes).
+	if err := binary.Write(&buf, binary.BigEndian, t.TickNumber); err != nil {
+		return nil, err
+	}
+
+	// Write timestamp (8 bytes as UnixNano).
+	if err := binary.Write(&buf, binary.BigEndian, t.Timestamp.UnixNano()); err != nil {
+		return nil, err
+	}
+
+	// Write peer ID length + peer ID.
+	peerIDBytes := []byte(t.PeerID)
+	if err := binary.Write(&buf, binary.BigEndian, uint16(len(peerIDBytes))); err != nil {
+		return nil, err
+	}
+	buf.Write(peerIDBytes)
+
+	// Write valid tx count + hashes.
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(t.ValidTxHashes))); err != nil {
+		return nil, err
+	}
+	for _, h := range t.ValidTxHashes {
+		buf.Write(h[:])
+	}
+
+	// Write discard count + hashes.
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(t.DiscardList))); err != nil {
+		return nil, err
+	}
+	for _, h := range t.DiscardList {
+		buf.Write(h[:])
+	}
+
+	// Write bitfield.
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(t.ValidBitfield))); err != nil {
+		return nil, err
+	}
+	buf.Write(t.ValidBitfield)
+
+	// Write Merkle root.
+	buf.Write(t.TxMerkleRoot[:])
+
+	// Write aggregate proof presence + trace commitment.
+	if t.AggregateProof != nil {
+		buf.WriteByte(1) // has proof
+		buf.Write(t.AggregateProof.TraceCommitment[:])
+	} else {
+		buf.WriteByte(0) // no proof
+	}
+
+	return buf.Bytes(), nil
+}
+
+// UnmarshalBinary decodes a MempoolAggregationTick from P2P data.
+func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
+	if len(data) < 18 { // minimum: tick(8) + timestamp(8) + peerID_len(2)
+		return errors.New("stark_aggregation: tick data too short")
+	}
+
+	r := bytes.NewReader(data)
+
+	// Read tick number.
+	if err := binary.Read(r, binary.BigEndian, &t.TickNumber); err != nil {
+		return err
+	}
+
+	// Read timestamp.
+	var tsNano int64
+	if err := binary.Read(r, binary.BigEndian, &tsNano); err != nil {
+		return err
+	}
+	t.Timestamp = time.Unix(0, tsNano)
+
+	// Read peer ID.
+	var peerIDLen uint16
+	if err := binary.Read(r, binary.BigEndian, &peerIDLen); err != nil {
+		return err
+	}
+	peerIDBytes := make([]byte, peerIDLen)
+	if _, err := io.ReadFull(r, peerIDBytes); err != nil {
+		return err
+	}
+	t.PeerID = string(peerIDBytes)
+
+	// Read valid tx hashes.
+	var txCount uint32
+	if err := binary.Read(r, binary.BigEndian, &txCount); err != nil {
+		return err
+	}
+	t.ValidTxHashes = make([]types.Hash, txCount)
+	for i := uint32(0); i < txCount; i++ {
+		if _, err := io.ReadFull(r, t.ValidTxHashes[i][:]); err != nil {
+			return err
+		}
+	}
+
+	// Read discard list.
+	var discardCount uint32
+	if err := binary.Read(r, binary.BigEndian, &discardCount); err != nil {
+		return err
+	}
+	t.DiscardList = make([]types.Hash, discardCount)
+	for i := uint32(0); i < discardCount; i++ {
+		if _, err := io.ReadFull(r, t.DiscardList[i][:]); err != nil {
+			return err
+		}
+	}
+
+	// Read bitfield.
+	var bfLen uint32
+	if err := binary.Read(r, binary.BigEndian, &bfLen); err != nil {
+		return err
+	}
+	t.ValidBitfield = make([]byte, bfLen)
+	if _, err := io.ReadFull(r, t.ValidBitfield); err != nil {
+		return err
+	}
+
+	// Read Merkle root.
+	if _, err := io.ReadFull(r, t.TxMerkleRoot[:]); err != nil {
+		return err
+	}
+
+	// Read aggregate proof presence.
+	var hasProof byte
+	if err := binary.Read(r, binary.BigEndian, &hasProof); err != nil {
+		return err
+	}
+	if hasProof == 1 {
+		t.AggregateProof = &proofs.STARKProofData{}
+		if _, err := io.ReadFull(r, t.AggregateProof.TraceCommitment[:]); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // STARKAggregator implements Vitalik's recursive STARK mempool proposal.
