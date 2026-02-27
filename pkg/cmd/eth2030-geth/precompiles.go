@@ -61,8 +61,9 @@ func (pi *precompileInjector) CustomAddresses(blockTime uint64) []gethcommon.Add
 // and all block processing within go-ethereum's internal pipeline.
 //
 // This is called at startup when fork overrides are active (e.g., --override.iplus=0).
-// The precompiles are added to go-ethereum's Prague map since that's the latest
-// fork go-ethereum natively supports.
+// Precompiles are added to both Prague and Osaka maps because go-ethereum v1.17.0
+// uses PrecompiledContractsOsaka when Osaka (or later) forks are active — which
+// is the case on devnets where Glamsterdam/Hogota/I+ overrides set osakaTime=0.
 func (pi *precompileInjector) InjectIntoGethPrecompiles() {
 	// Determine the highest fork level configured.
 	maxLevel := pi.forkLevelAtTime(0)
@@ -70,11 +71,20 @@ func (pi *precompileInjector) InjectIntoGethPrecompiles() {
 		return // No custom forks active, nothing to inject.
 	}
 
-	// Get all custom precompile info and inject into go-ethereum's Prague map.
+	// Inject into all fork-level precompile maps that go-ethereum might use.
+	// ActivePrecompiledContracts() calls maps.Clone() on these package-level
+	// maps, so patching here before any RPC call makes them visible to eth_call.
 	for _, info := range geth.ListCustomPrecompiles() {
 		if maxLevel >= info.MinFork {
 			adapter := geth.NewPrecompileAdapter(info.Contract, info.Name)
 			gethvm.PrecompiledContractsPrague[info.Address] = adapter
+			gethvm.PrecompiledContractsOsaka[info.Address] = adapter
 		}
 	}
+
+	// Also update the address lists so ActivePrecompiles() includes custom
+	// addresses for EIP-2929 access list warming.
+	customAddrs := geth.CustomPrecompileAddresses(maxLevel)
+	gethvm.PrecompiledAddressesPrague = append(gethvm.PrecompiledAddressesPrague, customAddrs...)
+	gethvm.PrecompiledAddressesOsaka = append(gethvm.PrecompiledAddressesOsaka, customAddrs...)
 }
