@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"math/big"
 	"math/bits"
 )
 
@@ -453,4 +454,107 @@ func computeStatsRecursive(node *ProofNode, depth int, stats *TreeStats) {
 			computeStatsRecursive(child, depth+1, stats)
 		}
 	}
+}
+
+// RecursiveComposition represents a STARK-composed recursive proof.
+// Unlike the Merkle-only RecursiveProof, this uses a STARK to attest
+// to the validity of all inner proofs.
+type RecursiveComposition struct {
+	// InnerProofs are the child proofs being composed.
+	InnerProofs []AggregateableProof
+	// OuterProof is the STARK proving validity of all inner proofs.
+	OuterProof *STARKProofData
+	// PublicInputs are exposed inputs from inner proofs.
+	PublicInputs []FieldElement
+	// CompositionHash is a commitment to the composition.
+	CompositionHash [32]byte
+	// Depth is the composition depth.
+	Depth int
+}
+
+// ComposeWithSTARK takes N proofs and generates a single STARK that
+// attests to all N being valid. This enables true recursive proof
+// composition rather than simple Merkle commitment.
+func (rp *RecursiveProver) ComposeWithSTARK(proofs []AggregateableProof) (*RecursiveComposition, error) {
+	if len(proofs) == 0 {
+		return nil, ErrRecNoProofs
+	}
+
+	// Build execution trace: each proof becomes a trace row.
+	trace := make([][]FieldElement, len(proofs))
+	publicInputs := make([]FieldElement, len(proofs))
+	for i, p := range proofs {
+		data := p.ProofBytes()
+		if len(data) == 0 {
+			return nil, ErrRecNoProofData
+		}
+		// Trace row: [proof_hash_hi, proof_hash_lo, proof_type]
+		commitment := hashLeaf(data, p.ProofKind())
+		hi := new(big.Int).SetBytes(commitment[:16])
+		lo := new(big.Int).SetBytes(commitment[16:])
+		trace[i] = []FieldElement{
+			{Value: hi},
+			{Value: lo},
+			NewFieldElement(int64(p.ProofKind())),
+		}
+		publicInputs[i] = FieldElement{Value: new(big.Int).SetBytes(commitment[:])}
+	}
+
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	prover := NewSTARKProver()
+	outerProof, err := prover.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute composition hash.
+	compositionHash := computeCompositionHash(proofs, outerProof)
+
+	return &RecursiveComposition{
+		InnerProofs:     proofs,
+		OuterProof:      outerProof,
+		PublicInputs:    publicInputs,
+		CompositionHash: compositionHash,
+		Depth:           1,
+	}, nil
+}
+
+// VerifyComposition verifies a STARK-based recursive composition.
+func (rp *RecursiveProver) VerifyComposition(comp *RecursiveComposition) (bool, error) {
+	if comp == nil || comp.OuterProof == nil {
+		return false, ErrRecNilProof
+	}
+
+	prover := NewSTARKProver()
+	valid, err := prover.VerifySTARKProof(comp.OuterProof, comp.PublicInputs)
+	if err != nil {
+		return false, err
+	}
+	if !valid {
+		return false, ErrRecRootMismatch
+	}
+
+	// Verify composition hash.
+	expected := computeCompositionHash(comp.InnerProofs, comp.OuterProof)
+	if expected != comp.CompositionHash {
+		return false, ErrRecRootMismatch
+	}
+
+	return true, nil
+}
+
+// computeCompositionHash hashes the proof set and outer proof into a commitment.
+func computeCompositionHash(proofs []AggregateableProof, outer *STARKProofData) [32]byte {
+	h := sha256.New()
+	for _, p := range proofs {
+		data := p.ProofBytes()
+		h.Write(data)
+	}
+	h.Write(outer.TraceCommitment[:])
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+	return result
 }

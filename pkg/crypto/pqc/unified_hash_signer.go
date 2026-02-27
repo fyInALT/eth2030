@@ -201,10 +201,11 @@ func XMSSVerify(pk *XMSSPublicKey, msg []byte, sig *XMSSSignature) bool {
 // XMSSKeyManager manages multiple XMSS trees for automatic key rotation.
 // When one tree is exhausted, it rotates to the next available tree.
 type XMSSKeyManager struct {
-	mu     sync.Mutex
-	trees  []*xmssTreeEntry
-	active int
-	height int
+	mu          sync.Mutex
+	trees       []*xmssTreeEntry
+	active      int
+	height      int
+	hashBackend HashBackend
 }
 
 type xmssTreeEntry struct {
@@ -220,11 +221,26 @@ func NewXMSSKeyManager(height int) (*XMSSKeyManager, error) {
 		return nil, err
 	}
 	mgr := &XMSSKeyManager{
-		height: height,
-		active: 0,
+		height:      height,
+		active:      0,
+		hashBackend: DefaultHashBackend(),
 		trees: []*xmssTreeEntry{
 			{pk: pk, sk: sk},
 		},
+	}
+	return mgr, nil
+}
+
+// NewXMSSKeyManagerWithBackend creates a key manager with the given tree height
+// and a custom hash backend. The hash backend is stored for future use but does
+// not affect the underlying XMSS operations which use SHA-256 internally.
+func NewXMSSKeyManagerWithBackend(height int, backend HashBackend) (*XMSSKeyManager, error) {
+	mgr, err := NewXMSSKeyManager(height)
+	if err != nil {
+		return nil, err
+	}
+	if backend != nil {
+		mgr.hashBackend = backend
 	}
 	return mgr, nil
 }

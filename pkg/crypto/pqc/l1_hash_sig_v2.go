@@ -22,7 +22,6 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
 )
 
 // L1 V2 hash signature errors.
@@ -89,6 +88,7 @@ type L1HashSignerV2 struct {
 	height      int
 	winternitzW int
 	chainLen    int
+	hashBackend HashBackend
 }
 
 // NewL1HashSignerV2 creates a new L1 V2 hash-based signer from the given config.
@@ -115,7 +115,17 @@ func NewL1HashSignerV2(config L1SignerConfig) *L1HashSignerV2 {
 		height:      h,
 		winternitzW: w,
 		chainLen:    chainLen,
+		hashBackend: DefaultHashBackend(),
 	}
+}
+
+// NewL1HashSignerV2WithBackend creates a new L1 V2 hash-based signer with a custom hash backend.
+func NewL1HashSignerV2WithBackend(config L1SignerConfig, backend HashBackend) *L1HashSignerV2 {
+	s := NewL1HashSignerV2(config)
+	if backend != nil {
+		s.hashBackend = backend
+	}
+	return s
 }
 
 // GenerateKeyPair generates a new XMSS-style Merkle tree key pair.
@@ -161,7 +171,7 @@ func (s *L1HashSignerV2) Sign(keyPair *L1KeyPair, message []byte) (*L1Signature,
 	leafIndex := uint32(keyPair.UsedCount)
 
 	// Hash the message.
-	msgHash := crypto.Keccak256(message)
+	msgHash := s.hashMultiV2(message)
 
 	// Derive OTS private key for this leaf.
 	otsPriv := s.deriveOTSPrivV2(keyPair.PrivateSeeds, leafIndex)
@@ -202,22 +212,22 @@ func (s *L1HashSignerV2) Verify(sig *L1Signature, message []byte) (bool, error) 
 	}
 
 	// Hash message and compare.
-	msgHash := crypto.Keccak256(message)
+	msgHash := s.hashMultiV2(message)
 
 	// Recover OTS public key from signature.
 	otsPub := s.otsRecoverV2(sig.OTSSigBytes, msgHash)
 
 	// Hash the OTS public key to get the leaf hash.
-	leaf := crypto.Keccak256Hash(otsPub...)
+	leaf := s.hashMultiToHashV2(otsPub...)
 
 	// Walk the auth path from leaf to root.
 	computed := leaf
 	idx := sig.LeafIndex
 	for _, sibling := range sig.AuthPath {
 		if idx&1 == 0 {
-			computed = crypto.Keccak256Hash(computed[:], sibling[:])
+			computed = s.hashMultiToHashV2(computed[:], sibling[:])
 		} else {
-			computed = crypto.Keccak256Hash(sibling[:], computed[:])
+			computed = s.hashMultiToHashV2(sibling[:], computed[:])
 		}
 		idx >>= 1
 	}
@@ -247,6 +257,26 @@ func (s *L1HashSignerV2) IsKeyExhausted(keyPair *L1KeyPair) bool {
 	return keyPair.UsedCount >= keyPair.MaxUses
 }
 
+// hashMultiV2 hashes the concatenation of multiple byte slices using the hash backend.
+func (s *L1HashSignerV2) hashMultiV2(data ...[]byte) []byte {
+	var buf []byte
+	for _, d := range data {
+		buf = append(buf, d...)
+	}
+	h := s.hashBackend.Hash(buf)
+	return h[:]
+}
+
+// hashMultiToHashV2 hashes the concatenation of multiple byte slices and returns a types.Hash.
+func (s *L1HashSignerV2) hashMultiToHashV2(data ...[]byte) types.Hash {
+	var buf []byte
+	for _, d := range data {
+		buf = append(buf, d...)
+	}
+	h := s.hashBackend.Hash(buf)
+	return types.Hash(h)
+}
+
 // --- internal helpers ---
 
 // computeRootV2 builds the full Merkle tree and returns the root hash.
@@ -263,10 +293,10 @@ func (s *L1HashSignerV2) buildTreeV2(seed []byte) *MerkleTree {
 	for i := 0; i < numLeaves; i++ {
 		otsPriv := s.deriveOTSPrivV2(seed, uint32(i))
 		otsPub := s.otsPublicFromPrivV2(otsPriv)
-		leaves[i] = crypto.Keccak256Hash(otsPub...)
+		leaves[i] = s.hashMultiToHashV2(otsPub...)
 	}
 
-	return BuildMerkleTree(leaves)
+	return s.buildMerkleTreeV2(leaves)
 }
 
 // extractAuthPathV2 extracts the authentication path for the given leaf.
@@ -286,12 +316,44 @@ func (s *L1HashSignerV2) extractAuthPathV2(tree *MerkleTree, leafIndex uint32) [
 	return path
 }
 
+// buildMerkleTreeV2 builds a Merkle tree using the signer's hash backend.
+func (s *L1HashSignerV2) buildMerkleTreeV2(leaves []types.Hash) *MerkleTree {
+	n := len(leaves)
+	if n == 0 {
+		return &MerkleTree{Height: 0, Leaves: 0}
+	}
+
+	height := 0
+	size := 1
+	for size < n {
+		size <<= 1
+		height++
+	}
+
+	nodes := make([]types.Hash, 2*size+1)
+	for i := 0; i < n; i++ {
+		nodes[size+i] = leaves[i]
+	}
+
+	for i := size - 1; i >= 1; i-- {
+		left := nodes[2*i]
+		right := nodes[2*i+1]
+		nodes[i] = s.hashMultiToHashV2(left[:], right[:])
+	}
+
+	return &MerkleTree{
+		Height: height,
+		Nodes:  nodes,
+		Leaves: n,
+	}
+}
+
 // deriveOTSPrivV2 derives the OTS private key chains for a leaf index.
 func (s *L1HashSignerV2) deriveOTSPrivV2(seed []byte, leafIndex uint32) [][]byte {
 	idxBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(idxBuf, leafIndex)
 	// Domain-separate with "l1v2-ots" to avoid collisions with other schemes.
-	leafSeed := crypto.Keccak256(seed, idxBuf, []byte("l1v2-ots"))
+	leafSeed := s.hashMultiV2(seed, idxBuf, []byte("l1v2-ots"))
 	return s.deriveOTSChainsV2(leafSeed)
 }
 
@@ -301,7 +363,7 @@ func (s *L1HashSignerV2) deriveOTSChainsV2(seed []byte) [][]byte {
 	for i := 0; i < s.chainLen; i++ {
 		iBuf := make([]byte, 4)
 		binary.BigEndian.PutUint32(iBuf, uint32(i))
-		chains[i] = crypto.Keccak256(seed, iBuf)
+		chains[i] = s.hashMultiV2(seed, iBuf)
 	}
 	return chains
 }
@@ -314,7 +376,7 @@ func (s *L1HashSignerV2) otsPublicFromPrivV2(privChains [][]byte) [][]byte {
 		val := make([]byte, len(chain))
 		copy(val, chain)
 		for j := 0; j < w-1; j++ {
-			val = crypto.Keccak256(val)
+			val = s.hashMultiV2(val)
 		}
 		pub[i] = val
 	}
@@ -334,7 +396,7 @@ func (s *L1HashSignerV2) otsSignV2(privChains [][]byte, msgHash []byte) [][]byte
 			d = digits[i]
 		}
 		for j := 0; j < d; j++ {
-			val = crypto.Keccak256(val)
+			val = s.hashMultiV2(val)
 		}
 		sig[i] = val
 	}
@@ -356,7 +418,7 @@ func (s *L1HashSignerV2) otsRecoverV2(sig [][]byte, msgHash []byte) [][]byte {
 		}
 		remaining := w - 1 - d
 		for j := 0; j < remaining; j++ {
-			val = crypto.Keccak256(val)
+			val = s.hashMultiV2(val)
 		}
 		pub[i] = val
 	}

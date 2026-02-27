@@ -93,15 +93,36 @@
 | Cryptography | Encrypted mempool | I+ | Done |
 | Cryptography | NII precompile | I+ | Done |
 
+## Post-Quantum Roadmap Alignment
+
+Based on Vitalik's quantum resistance roadmap (Feb 27, 2026), eth2030 addresses all 4 vulnerable areas:
+
+| Vulnerable Area | Solution | Package |
+|----------------|----------|---------|
+| CL BLS Signatures | STARK-aggregated Dilithium sigs | `pkg/consensus/stark_sig_aggregation.go` |
+| DA KZG Commitments | Lattice-based blob commitments (MLWE) | `pkg/crypto/pqc/lattice_blob.go` |
+| EOA ECDSA Signatures | EIP-8141 frame txs + PQ registry | `pkg/core/`, `pkg/crypto/pqc/registry.go` |
+| Application-layer Proofs | Recursive STARK mempool aggregation | `pkg/proofs/stark_prover.go`, `pkg/txpool/stark_aggregation.go` |
+
+Key infrastructure:
+- **Pluggable hash backend**: Keccak256, SHA-256, BLAKE3 (Poseidon2 future)
+- **STARK prover**: FRI-based over Goldilocks field (p = 2^64 - 2^32 + 1)
+- **NTT precompile**: EIP-7885 aligned, BN254 + Goldilocks fields
+- **500ms mempool ticks**: STARK aggregate of all validated transactions
+
+See [PQ Roadmap Report](PQ_ROADMAP_REPORT.md) for full details.
+
 ## Key EIPs
 
 - **EIP-7732**: Enshrined Proposer-Builder Separation (ePBS)
+- **EIP-7885**: NTT precompile for lattice crypto and STARKs
 - **EIP-7928**: Parallel EVM execution via access lists
 - **EIP-4844**: Blob transactions with KZG commitments
 - **EIP-7594**: PeerDAS (data availability sampling)
 - **EIP-7702**: Set code for EOAs (native account abstraction)
 - **EIP-7805**: FOCIL (fork-choice enforced inclusion lists)
 - **EIP-8079**: Native rollups (EXECUTE precompile)
+- **EIP-8141**: Frame transactions (programmable tx validation)
 - **EIP-7251**: Increase MAX_EFFECTIVE_BALANCE (flexible staking)
 - **EIP-4444**: History expiry (bound historical data retrieval)
 

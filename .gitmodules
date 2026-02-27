@@ -88,3 +88,12 @@
 [submodule "refs/c-kzg-4844"]
 	path = refs/c-kzg-4844
 	url = https://github.com/ethereum/c-kzg-4844
+[submodule "refs/hash-sig"]
+	path = refs/hash-sig
+	url = https://github.com/b-wagn/hash-sig.git
+[submodule "refs/ntt-eip"]
+	path = refs/ntt-eip
+	url = https://github.com/ZKNoxHQ/NTT.git
+[submodule "refs/ethfalcon"]
+	path = refs/ethfalcon
+	url = https://github.com/ZKNoxHQ/ETHFALCON.git

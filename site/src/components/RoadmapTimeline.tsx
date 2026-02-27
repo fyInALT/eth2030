@@ -1,5 +1,6 @@
 'use client';
 import { motion } from 'framer-motion';
+import Link from 'next/link';
 import SectionHeading from '@/components/ui/SectionHeading';
 import { roadmapPhases } from '@/lib/data';
 import { useInView } from '@/hooks/useInView';
@@ -133,6 +134,23 @@ export default function RoadmapTimeline() {
           <span className="text-eth-teal font-semibold">65/65</span> strawmap items implemented across{' '}
           <span className="text-eth-purple font-semibold">8 upgrade phases</span> &middot;{' '}
           <span className="text-eth-pink font-semibold">30 devnet tests</span> passing
+        </motion.div>
+
+        {/* PQ Roadmap link */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={isInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.5, delay: 1.0 }}
+          className="mt-6 text-center"
+        >
+          <Link
+            href="/pq-roadmap"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-eth-pink/10 border border-eth-pink/30
+                       text-eth-pink font-semibold hover:bg-eth-pink/20
+                       hover:shadow-[0_0_20px_#ff6b9d33] transition-all duration-300 text-sm"
+          >
+            Post-Quantum Roadmap &rarr;
+          </Link>
         </motion.div>
       </div>
     </section>

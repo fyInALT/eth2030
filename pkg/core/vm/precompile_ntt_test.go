@@ -154,7 +154,7 @@ func TestNTTPrecompileInvalidOpType(t *testing.T) {
 	p := &nttPrecompile{}
 
 	input := make([]byte, 1+4*32)
-	input[0] = 0x02 // invalid
+	input[0] = 0x04 // invalid (opType 0-3 are valid: BN254 fwd/inv, Goldilocks fwd/inv)
 
 	_, err := p.Run(input)
 	if err != ErrNTTInvalidOpType {
@@ -402,5 +402,96 @@ func TestValidateNTTInput(t *testing.T) {
 	input2[0] = 0
 	if err := ValidateNTTInput(input2); err == nil {
 		t.Fatal("expected error for non-power-of-two elements")
+	}
+}
+
+func TestGoldilocksNTT(t *testing.T) {
+	// Test with small polynomial: [1, 2, 3, 4]
+	coeffs := []*big.Int{
+		big.NewInt(1), big.NewInt(2), big.NewInt(3), big.NewInt(4),
+	}
+
+	result, err := GoldilocksNTT(coeffs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(result))
+	}
+
+	// Verify all results are in range [0, p).
+	for i, r := range result {
+		if r.Sign() < 0 || r.Cmp(goldilocksField) >= 0 {
+			t.Errorf("result[%d] = %s out of Goldilocks field range", i, r.String())
+		}
+	}
+}
+
+func TestGoldilocksNTTRoundTrip(t *testing.T) {
+	// NTT then INTT should return original values.
+	coeffs := []*big.Int{
+		big.NewInt(10), big.NewInt(20), big.NewInt(30), big.NewInt(40),
+	}
+
+	nttResult, err := GoldilocksNTT(coeffs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := GoldilocksINTT(nttResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(recovered) != len(coeffs) {
+		t.Fatalf("length mismatch: %d vs %d", len(recovered), len(coeffs))
+	}
+
+	for i := range coeffs {
+		expected := new(big.Int).Mod(coeffs[i], goldilocksField)
+		if recovered[i].Cmp(expected) != 0 {
+			t.Errorf("coefficient[%d]: got %s, want %s", i, recovered[i].String(), expected.String())
+		}
+	}
+}
+
+func TestGoldilocksField(t *testing.T) {
+	// Verify p = 2^64 - 2^32 + 1
+	expected := new(big.Int).SetUint64(18446744069414584321)
+	if goldilocksField.Cmp(expected) != 0 {
+		t.Errorf("Goldilocks field mismatch: got %s, want %s", goldilocksField.String(), expected.String())
+	}
+
+	// Verify p is prime (probabilistic).
+	if !goldilocksField.ProbablyPrime(20) {
+		t.Error("Goldilocks field modulus should be prime")
+	}
+}
+
+func TestNTTPrecompileGoldilocksOp(t *testing.T) {
+	// Test the precompile with opType 2 (Goldilocks forward NTT).
+	c := &nttPrecompile{}
+
+	// Build input: opType(1 byte) + 4 coefficients (4 * 32 bytes).
+	input := make([]byte, 1+4*32)
+	input[0] = NTTOpGoldilocks
+	// Set coefficient 0 = 1.
+	input[32] = 1
+	// Set coefficient 1 = 2.
+	input[64] = 2
+	// Set coefficient 2 = 3.
+	input[96] = 3
+	// Set coefficient 3 = 4.
+	input[128] = 4
+
+	result, err := c.Run(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Result should be 4 * 32 bytes.
+	if len(result) != 4*32 {
+		t.Errorf("expected %d bytes, got %d", 4*32, len(result))
 	}
 }

@@ -73,6 +73,7 @@ type HashSigScheme struct {
 	height          int
 	winternitzParam int // Winternitz parameter w (4 or 16)
 	chainLen        int // number of OTS chains
+	hashBackend     HashBackend
 }
 
 // NewHashSigScheme creates a new hash-based signature scheme.
@@ -99,7 +100,37 @@ func NewHashSigScheme(height int, winternitzParam int) *HashSigScheme {
 		height:          height,
 		winternitzParam: winternitzParam,
 		chainLen:        chainLen,
+		hashBackend:     DefaultHashBackend(),
 	}
+}
+
+// NewHashSigSchemeWithBackend creates a hash-based signature scheme with a custom hash backend.
+func NewHashSigSchemeWithBackend(height int, winternitzParam int, backend HashBackend) *HashSigScheme {
+	s := NewHashSigScheme(height, winternitzParam)
+	if backend != nil {
+		s.hashBackend = backend
+	}
+	return s
+}
+
+// hashMulti hashes the concatenation of multiple byte slices using the hash backend.
+func (s *HashSigScheme) hashMulti(data ...[]byte) []byte {
+	var buf []byte
+	for _, d := range data {
+		buf = append(buf, d...)
+	}
+	h := s.hashBackend.Hash(buf)
+	return h[:]
+}
+
+// hashMultiToHash hashes the concatenation of multiple byte slices and returns a types.Hash.
+func (s *HashSigScheme) hashMultiToHash(data ...[]byte) types.Hash {
+	var buf []byte
+	for _, d := range data {
+		buf = append(buf, d...)
+	}
+	h := s.hashBackend.Hash(buf)
+	return types.Hash(h)
 }
 
 // GenerateKeyPair generates a new hash-based key pair.
@@ -157,7 +188,7 @@ func (s *HashSigScheme) Sign(privateKey []byte, message []byte) (*HashSignature,
 	otsPriv := s.deriveOTSPrivate(seed, leafIndex)
 
 	// Hash the message to get the digest to sign.
-	msgHash := crypto.Keccak256(message)
+	msgHash := s.hashMulti(message)
 
 	// Produce the Winternitz OTS signature.
 	otsSig := s.otsSignInternal(otsPriv, msgHash)
@@ -193,22 +224,22 @@ func (s *HashSigScheme) Verify(publicKey []byte, message []byte, sig *HashSignat
 	}
 
 	// Hash message.
-	msgHash := crypto.Keccak256(message)
+	msgHash := s.hashMulti(message)
 
 	// Recover the OTS public key from the signature.
 	otsPub := s.otsRecoverPublic(sig.OTSSignature, msgHash)
 
 	// Hash the OTS public key to get the leaf.
-	leaf := crypto.Keccak256Hash(otsPub...)
+	leaf := s.hashMultiToHash(otsPub...)
 
 	// Walk the authentication path to compute the root.
 	computed := leaf
 	idx := uint32(sig.LeafIndex)
 	for _, sibling := range sig.AuthPath {
 		if idx&1 == 0 {
-			computed = crypto.Keccak256Hash(computed[:], sibling[:])
+			computed = s.hashMultiToHash(computed[:], sibling[:])
 		} else {
-			computed = crypto.Keccak256Hash(sibling[:], computed[:])
+			computed = s.hashMultiToHash(sibling[:], computed[:])
 		}
 		idx >>= 1
 	}
@@ -225,7 +256,7 @@ func (s *HashSigScheme) OTSSign(key []byte, message []byte) [][]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	msgHash := crypto.Keccak256(message)
+	msgHash := s.hashMulti(message)
 	privChains := s.deriveOTSChains(key)
 	return s.otsSignInternal(privChains, msgHash)
 }
@@ -238,9 +269,9 @@ func (s *HashSigScheme) OTSVerify(publicKey []byte, message []byte, sig [][]byte
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	msgHash := crypto.Keccak256(message)
+	msgHash := s.hashMulti(message)
 	recovered := s.otsRecoverPublic(sig, msgHash)
-	otsPubHash := crypto.Keccak256(recovered...)
+	otsPubHash := s.hashMulti(recovered...)
 	return types.BytesToHash(otsPubHash) == types.BytesToHash(publicKey)
 }
 
@@ -295,6 +326,43 @@ func BuildMerkleTree(leaves []types.Hash) *MerkleTree {
 	}
 }
 
+// buildMerkleTreeHB builds a Merkle tree using the scheme's hash backend.
+func (s *HashSigScheme) buildMerkleTreeHB(leaves []types.Hash) *MerkleTree {
+	n := len(leaves)
+	if n == 0 {
+		return &MerkleTree{Height: 0, Leaves: 0}
+	}
+
+	// Compute height.
+	height := 0
+	size := 1
+	for size < n {
+		size <<= 1
+		height++
+	}
+
+	// Allocate nodes: indices 1..2*size-1 (1-indexed).
+	nodes := make([]types.Hash, 2*size+1)
+
+	// Fill leaves at positions [size..2*size-1].
+	for i := 0; i < n; i++ {
+		nodes[size+i] = leaves[i]
+	}
+
+	// Build internal nodes bottom-up using the hash backend.
+	for i := size - 1; i >= 1; i-- {
+		left := nodes[2*i]
+		right := nodes[2*i+1]
+		nodes[i] = s.hashMultiToHash(left[:], right[:])
+	}
+
+	return &MerkleTree{
+		Height: height,
+		Nodes:  nodes,
+		Leaves: n,
+	}
+}
+
 // --- internal helpers ---
 
 // buildTree constructs the full Merkle tree of OTS public keys from a seed.
@@ -305,10 +373,10 @@ func (s *HashSigScheme) buildTree(seed []byte) *MerkleTree {
 	for i := 0; i < numLeaves; i++ {
 		otsPriv := s.deriveOTSPrivate(seed, uint32(i))
 		otsPub := s.otsPublicFromPrivate(otsPriv)
-		leaves[i] = crypto.Keccak256Hash(otsPub...)
+		leaves[i] = s.hashMultiToHash(otsPub...)
 	}
 
-	return BuildMerkleTree(leaves)
+	return s.buildMerkleTreeHB(leaves)
 }
 
 // authPath extracts the authentication path for a given leaf index.
@@ -333,7 +401,7 @@ func (s *HashSigScheme) authPath(tree *MerkleTree, leafIndex uint32) []types.Has
 func (s *HashSigScheme) deriveOTSPrivate(seed []byte, leafIndex uint32) [][]byte {
 	idxBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(idxBuf, leafIndex)
-	leafSeed := crypto.Keccak256(seed, idxBuf)
+	leafSeed := s.hashMulti(seed, idxBuf)
 	return s.deriveOTSChains(leafSeed)
 }
 
@@ -343,7 +411,7 @@ func (s *HashSigScheme) deriveOTSChains(seed []byte) [][]byte {
 	for i := 0; i < s.chainLen; i++ {
 		iBuf := make([]byte, 4)
 		binary.BigEndian.PutUint32(iBuf, uint32(i))
-		chains[i] = crypto.Keccak256(seed, iBuf)
+		chains[i] = s.hashMulti(seed, iBuf)
 	}
 	return chains
 }
@@ -357,7 +425,7 @@ func (s *HashSigScheme) otsPublicFromPrivate(privChains [][]byte) [][]byte {
 		val := make([]byte, len(chain))
 		copy(val, chain)
 		for j := 0; j < w-1; j++ {
-			val = crypto.Keccak256(val)
+			val = s.hashMulti(val)
 		}
 		pub[i] = val
 	}
@@ -379,7 +447,7 @@ func (s *HashSigScheme) otsSignInternal(privChains [][]byte, msgHash []byte) [][
 			d = digits[i]
 		}
 		for j := 0; j < d; j++ {
-			val = crypto.Keccak256(val)
+			val = s.hashMulti(val)
 		}
 		sig[i] = val
 	}
@@ -402,7 +470,7 @@ func (s *HashSigScheme) otsRecoverPublic(sig [][]byte, msgHash []byte) [][]byte 
 		}
 		remaining := w - 1 - d
 		for j := 0; j < remaining; j++ {
-			val = crypto.Keccak256(val)
+			val = s.hashMulti(val)
 		}
 		pub[i] = val
 	}

@@ -202,3 +202,32 @@ func CreatePQAttestation(
 		ValidatorIndex:  validatorIndex,
 	}, nil
 }
+
+// STARKAggregateVerify uses STARK-based batch verification for PQ attestations.
+// This is more efficient than individual verification for large batches (N > 4).
+func (v *PQAttestationVerifier) STARKAggregateVerify(attestations []PQAttestation) (*STARKSignatureAggregation, error) {
+	if len(attestations) == 0 {
+		return nil, ErrPQAttNoSignature
+	}
+
+	// For small batches, individual verification may be more efficient.
+	// The crossover point is ~4 signatures (4 * 50k = 200k = STARK verify cost).
+	if len(attestations) <= 4 {
+		// Verify individually first.
+		for _, att := range attestations {
+			valid, err := v.VerifyAttestation(&att)
+			if err != nil || !valid {
+				return nil, ErrPQAttInvalidPQSig
+			}
+		}
+	}
+
+	// Use STARK aggregation for the batch.
+	result, err := BatchVerifyPQAttestations(attestations)
+	if err != nil {
+		return nil, err
+	}
+
+	v.verified.Add(uint64(len(attestations)))
+	return result, nil
+}

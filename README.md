@@ -395,13 +395,15 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Reference Submodules
 
-`refs/` contains 30 git submodules for upstream specs and implementations:
+`refs/` contains 33 git submodules for upstream specs and implementations:
 
 **Ethereum specs:** EIPs, ERCs, consensus-specs, execution-specs, execution-apis, beacon-APIs, builder-specs, consensus-spec-tests, execution-spec-tests
 
 **Reference client:** go-ethereum
 
 **Cryptography:** blst (BLS12-381), circl (PQC: ML-DSA, ML-KEM, SLH-DSA), go-eth-kzg (KZG), gnark (ZK proofs), gnark-crypto, c-kzg-4844
+
+**PQ research:** hash-sig (hash-based multi-sigs), ntt-eip (EIP-7885 NTT precompile), ethfalcon (FALCON on EVM)
 
 **Devops:** ethereum-package, benchmarkoor, erigone, xatu, consensoor
 

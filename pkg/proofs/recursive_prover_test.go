@@ -338,3 +338,82 @@ func TestRecursiveSimpleAggregateableInterface(t *testing.T) {
 		t.Errorf("expected KZG, got %v", sa.ProofKind())
 	}
 }
+
+func TestComposeWithSTARK(t *testing.T) {
+	rp := NewRecursiveProver(MaxTreeDepth)
+
+	proofs := []AggregateableProof{
+		&SimpleAggregateable{Data: []byte("proof-1"), Kind: ZKSNARK},
+		&SimpleAggregateable{Data: []byte("proof-2"), Kind: ZKSTARK},
+		&SimpleAggregateable{Data: []byte("proof-3"), Kind: ZKSNARK},
+	}
+
+	comp, err := rp.ComposeWithSTARK(proofs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if comp.OuterProof == nil {
+		t.Error("outer proof should not be nil")
+	}
+	if len(comp.InnerProofs) != 3 {
+		t.Errorf("expected 3 inner proofs, got %d", len(comp.InnerProofs))
+	}
+	if len(comp.PublicInputs) != 3 {
+		t.Errorf("expected 3 public inputs, got %d", len(comp.PublicInputs))
+	}
+
+	var zero [32]byte
+	if comp.CompositionHash == zero {
+		t.Error("composition hash should not be zero")
+	}
+}
+
+func TestVerifyComposition(t *testing.T) {
+	rp := NewRecursiveProver(MaxTreeDepth)
+
+	proofs := []AggregateableProof{
+		&SimpleAggregateable{Data: []byte("proof-a"), Kind: ZKSNARK},
+		&SimpleAggregateable{Data: []byte("proof-b"), Kind: ZKSTARK},
+	}
+
+	comp, err := rp.ComposeWithSTARK(proofs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	valid, err := rp.VerifyComposition(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Error("composition should be valid")
+	}
+}
+
+func TestVerifyCompositionNil(t *testing.T) {
+	rp := NewRecursiveProver(MaxTreeDepth)
+	_, err := rp.VerifyComposition(nil)
+	if err != ErrRecNilProof {
+		t.Errorf("expected ErrRecNilProof, got %v", err)
+	}
+}
+
+func TestComposeWithSTARKEmpty(t *testing.T) {
+	rp := NewRecursiveProver(MaxTreeDepth)
+	_, err := rp.ComposeWithSTARK(nil)
+	if err != ErrRecNoProofs {
+		t.Errorf("expected ErrRecNoProofs, got %v", err)
+	}
+}
+
+func TestComposeWithSTARKEmptyProofData(t *testing.T) {
+	rp := NewRecursiveProver(MaxTreeDepth)
+	proofs := []AggregateableProof{
+		&SimpleAggregateable{Data: nil, Kind: ZKSNARK},
+	}
+	_, err := rp.ComposeWithSTARK(proofs)
+	if err != ErrRecNoProofData {
+		t.Errorf("expected ErrRecNoProofData, got %v", err)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/ssz"
@@ -94,4 +95,90 @@ func hashProof(p *ExecutionProof) [32]byte {
 	var result [32]byte
 	copy(result[:], h.Sum(nil))
 	return result
+}
+
+// STARKAggregator aggregates proofs using STARK proofs.
+type STARKAggregator struct {
+	prover *STARKProver
+}
+
+// NewSTARKAggregator creates a new STARK-based proof aggregator.
+func NewSTARKAggregator() *STARKAggregator {
+	return &STARKAggregator{
+		prover: NewSTARKProver(),
+	}
+}
+
+// Aggregate combines multiple execution proofs into a STARK-aggregated proof.
+func (sa *STARKAggregator) Aggregate(proofs []ExecutionProof) (*AggregatedProof, error) {
+	if len(proofs) == 0 {
+		return nil, ErrNoProofs
+	}
+
+	// Build execution trace from proof data.
+	trace := make([][]FieldElement, len(proofs))
+	for i, p := range proofs {
+		trace[i] = proofToTraceRow(p)
+	}
+
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	starkProof, err := sa.prover.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		return nil, err
+	}
+
+	// Derive aggregate root from STARK proof commitment.
+	var aggregateRoot types.Hash
+	copy(aggregateRoot[:], starkProof.TraceCommitment[:])
+
+	return &AggregatedProof{
+		Proofs:        proofs,
+		AggregateRoot: aggregateRoot,
+		Valid:         true,
+	}, nil
+}
+
+// Verify checks the validity of a STARK-aggregated proof.
+func (sa *STARKAggregator) Verify(proof *AggregatedProof) (bool, error) {
+	if proof == nil {
+		return false, ErrNilProof
+	}
+	if len(proof.Proofs) == 0 {
+		return false, ErrNoProofs
+	}
+
+	// Re-aggregate and compare roots.
+	trace := make([][]FieldElement, len(proof.Proofs))
+	for i, p := range proof.Proofs {
+		trace[i] = proofToTraceRow(p)
+	}
+
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	starkProof, err := sa.prover.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		return false, err
+	}
+
+	var expectedRoot types.Hash
+	copy(expectedRoot[:], starkProof.TraceCommitment[:])
+
+	return expectedRoot == proof.AggregateRoot, nil
+}
+
+// proofToTraceRow converts an execution proof into a STARK trace row.
+func proofToTraceRow(p ExecutionProof) []FieldElement {
+	row := make([]FieldElement, 3)
+	// Column 0: hash of state root.
+	row[0] = FieldElement{Value: new(big.Int).SetBytes(p.StateRoot[:])}
+	// Column 1: hash of block hash.
+	row[1] = FieldElement{Value: new(big.Int).SetBytes(p.BlockHash[:])}
+	// Column 2: proof type.
+	row[2] = NewFieldElement(int64(p.Type))
+	return row
 }

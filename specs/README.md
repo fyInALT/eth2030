@@ -55,6 +55,7 @@ EIP specifications and roadmap reference documents used in ETH2030.
 | [EIP-7778](eips/eip-7778.md) | Remove Gas Refunds | Glamsterdam |
 | [EIP-8007](eips/eip-8007.md) | Glamsterdam Gas Repricings | Glamsterdam |
 | [EIP-8037](eips/eip-8037.md) | State Growth/Access Separation | Hegotá |
+| [EIP-7885](eips/eip-7885.md) | NTT Precompile | I+ |
 | [EIP-8079](eips/eip-8079.md) | EXECUTE Precompile | K+ |
 | [EIP-8125](eips/eip-8125.md) | Temporary Storage | Hegotá |
 

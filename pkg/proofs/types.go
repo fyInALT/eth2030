@@ -46,3 +46,10 @@ type AggregatedProof struct {
 	AggregateRoot types.Hash
 	Valid         bool
 }
+
+// STARKAggregatedProof holds STARK-based aggregated proofs.
+type STARKAggregatedProof struct {
+	Proofs         []ExecutionProof
+	AggregateProof *STARKProofData
+	Valid          bool
+}
