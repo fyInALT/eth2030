@@ -186,4 +186,4 @@ cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh bal native-aa pq-crypto
 |------|------------|-------|
 | `50675c9` | Round 1: fix 14 integration gaps across frame tx, STARK recursion, PQ finality | 18 files, +950 |
 | `9c84089` | Round 2: fix 7 critical/high gaps from line-by-line audit | 7 files, +218/-23 |
-| (pending) | Round 3: fix 5 remaining gaps — STARK constraints, PQ gas, gossip bandwidth | 12 files, +662/-52 |
+| `e44986a` | Round 3: fix 5 remaining gaps — STARK constraints, PQ gas, gossip bandwidth | 19 files, +1433/-71 |
