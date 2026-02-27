@@ -1,0 +1,35 @@
+# US-9.1 — Static Transaction Validation
+
+**Epic:** EP-9 Static Validity Constraints
+**Total Story Points:** 3
+**Sprint:** 1
+
+> **As a** node operator,
+> **I want** statically invalid frame transactions to be rejected before entering the execution pipeline,
+> **so that** the node wastes no execution resources on structurally malformed transactions.
+
+**INVEST:** I ✓ | N ✓ | V ✓ | E ✓ | S ✓ | T ✓
+
+---
+
+## Tasks
+
+### Task 9.1.1 — Implement Static Validity Check Function
+
+| Field | Detail |
+|-------|--------|
+| **Description** | Implement `ValidateFrameTxStatic(tx *FrameTx) error`: (1) `tx.chain_id < 2^256` (check nil); (2) `tx.nonce < 2^64`; (3) `1 <= len(tx.frames) <= MAX_FRAMES (1000)`; (4) `len(tx.sender) == 20`; (5) for each frame: `frame.mode < 3`; (6) for each frame: `frame.target == nil || len(frame.target) == 20`. Return descriptive error per violation. |
+| **Estimated Effort** | 2 story points |
+| **Assignee/Role** | Core Protocol Engineer |
+| **Testing Method** | Table-driven: one test per constraint violation. Boundary: `nonce = 2^64 - 1` (valid), `nonce = 2^64` (invalid); `len(frames) = 0` (invalid), `1` (valid), `1000` (valid), `1001` (invalid). |
+| **Definition of Done** | All 6 constraint categories tested; descriptive errors; called at tx pool ingress; reviewed. |
+
+### Task 9.1.2 — chain_id Validation
+
+| Field | Detail |
+|-------|--------|
+| **Description** | Add chain ID matching: `tx.chain_id` must equal network's chain ID. Prevents cross-chain replay. |
+| **Estimated Effort** | 1 story point |
+| **Assignee/Role** | Core Protocol Engineer |
+| **Testing Method** | (1) Correct chain ID → passes. (2) Wrong chain ID → `ErrInvalidChainID`. |
+| **Definition of Done** | Test passes; integrated with chain config; reviewed. |
