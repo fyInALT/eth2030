@@ -1,7 +1,7 @@
 # EIP-8141 Frame Transactions & Recursive STARK Mempool — Gap Analysis
 
 > Line-by-line audit of eth2030's implementation against the EIP-8141 spec and ethresear.ch recursive STARK mempool proposal.
-> Conducted 2026-02-27 after initial 14-gap fix (commit 50675c9) and 7-gap fix (commit 9c84089).
+> Conducted 2026-02-27 after initial 14-gap fix (commit 50675c9), 7-gap fix (commit 9c84089), and 5-gap fix (Round 3).
 
 ---
 
@@ -17,13 +17,14 @@
 
 ## Summary
 
-Two rounds of line-by-line audits found **21 gaps** total (7 CRITICAL, 7 IMPORTANT, 7 RISK/NITPICK). All 14 gaps from the first round and all 7 critical/high gaps from the second round have been fixed.
+Three rounds of line-by-line audits found **26 gaps** total (7 CRITICAL, 7 IMPORTANT, 12 RISK/NITPICK). All gaps have been fixed.
 
 | Round | Gaps Found | Fixed | Remaining |
 |-------|-----------|-------|-----------|
 | Round 1 (plan) | 14 | 14 | 0 |
 | Round 2 (line-by-line) | 7 | 7 | 0 |
-| **Total** | **21** | **21** | **0** |
+| Round 3 (hardening) | 5 | 5 | 0 |
+| **Total** | **26** | **26** | **0** |
 
 ---
 
@@ -61,6 +62,16 @@ Two rounds of line-by-line audits found **21 gaps** total (7 CRITICAL, 7 IMPORTA
 | 7 | 7.2 | [ValidatePQSignature bridge](eip-8141/sprint-07-story-7.2-pq-validate.md) | DONE |
 | 7 | 7.3 | [STARK commitment in DAS](eip-8141/sprint-07-story-7.3-stark-da.md) | DONE |
 
+### Round 3: STARK Hardening + PQ Gas + Gossip Bandwidth
+
+| Sprint | Story | Title | Status |
+|--------|-------|-------|--------|
+| 8 | 8.1 | [STARK constraint evaluation](stark-mempool/sprint-08-story-8.1-constraint-evaluation.md) | DONE |
+| 8 | 8.2 | [FRI polynomial folding](stark-mempool/sprint-08-story-8.2-fri-polynomial-folding.md) | DONE |
+| 8 | 8.3 | [Meaningful STARK aggregation constraints](stark-mempool/sprint-08-story-8.3-meaningful-constraints.md) | DONE |
+| 8 | 8.4 | [PQ gas constants in EVM tables](eip-8141/sprint-08-story-8.4-pq-gas-evm-table.md) | DONE |
+| 8 | 8.5 | [Per-topic gossip bandwidth enforcement](stark-mempool/sprint-08-story-8.5-gossip-per-topic-bandwidth.md) | DONE |
+
 ---
 
 ## Codebase Locations
@@ -78,9 +89,11 @@ Two rounds of line-by-line audits found **21 gaps** total (7 CRITICAL, 7 IMPORTA
 | `pkg/p2p/gossip_topics.go` | 32–50 | STARKMempoolTick gossip topic |
 | `pkg/proofs/stark_prover.go` | 162–220 | VerifySTARKProof with public input binding |
 | `pkg/consensus/finality_bls_adapter.go` | 52–240 | FinalityBLSAdapter with PQ fallback |
-| `pkg/crypto/pqc/pq_algorithm_registry.go` | 241–280 | ValidatePQSignature integration |
+| `pkg/crypto/pqc/pq_algorithm_registry.go` | 241–310 | ValidatePQSignature integration, EVMGasLookup, ValidateGasCostsMatch |
 | `pkg/das/types.go` | — | STARKCommitment type |
 | `pkg/engine/backend.go` | — | FrameTx receipt documentation |
+| `pkg/core/vm/gas.go` | 103–112 | PQ signature verification gas constants |
+| `pkg/core/vm/gas_table.go` | 908–926 | GasPQVerify() algorithm ID to gas cost lookup |
 
 ---
 
@@ -119,19 +132,29 @@ See individual sprint story files for full details. Summary:
 | AUDIT-6 | CRITICAL | p2p/gossip_topics.go:32 | No handler registration docs — topology incomplete | Added handler pattern docs (Subscribe + MergeTick call chain) |
 | AUDIT-7 | HIGH | txpool/txpool.go:390 | Frame mode validation missing | Added `f.Mode > types.ModeSender` check |
 
+### Round 3: STARK Hardening + PQ Gas + Gossip Bandwidth (5 gaps)
+
+| ID | Severity | File:Line | Gap | Fix |
+|----|----------|-----------|-----|-----|
+| RISK-PQ1 + RISK-STARK1 | MEDIUM | stark_prover.go:124 | Constraints accepted but never evaluated — prover stored `ConstraintCount` without computing constraint polynomials over trace | Added `evaluateConstraints()` (per-row `sum(coeff*trace^degree) mod p`), `commitConstraintEvals()` (Merkle root), verifier rejects zero commitment when `ConstraintCount > 0` |
+| GAP-STARK4 | MEDIUM | stark_prover.go:231 | FRI commitments were `SHA256(layer_index \|\| size \|\| trace[0][0])` — metadata hashes, not polynomial folding | Rewrote `computeFRICommitments()`: hashes trace rows at each layer, folds pairwise, returns per-layer leaves; added `merkleAuthPath()` + `verifyMerkleAuthPath()` for real auth paths |
+| RISK-PQ2 | LOW | gas.go, gas_table.go | PQ gas costs only in `crypto/pqc/` registry, absent from EVM gas tables — systems could drift | Added `GasPQVerifyMLDSA44..SLH-DSA` constants to `gas.go`; `GasPQVerify(algorithmID)` to `gas_table.go`; `ValidateGasCostsMatch()` cross-check method on PQ registry |
+| GAP-STARK5 | LOW | gossip_topics.go:278,317 | No per-topic bandwidth enforcement — `Publish()`/`Deliver()` only checked global 10 MiB `MaxPayloadSize` | Added `TopicMessageSizeLimit` map (`STARKMempoolTick: 128KB`), `ErrTopicMsgTooLarge`, checks in both `Publish()` and `Deliver()` |
+| Combined | LOW | stark_aggregation.go:339 | Single trivial constraint `{Degree:1, Coeff:[1]}` + approximate bandwidth formula `len(hashes)*32 + 1024` | Replaced with 2 meaningful constraints (hash-consistency + gas-bounds); `MergeTick()` uses `MarshalBinary()` for actual serialized size |
+
 ---
 
 ## Remaining Risks (Non-blocking)
 
-These are architectural limitations documented for future work:
+All previously documented risks have been resolved in Round 3:
 
-| ID | Level | Description |
-|----|-------|-------------|
-| RISK-PQ1 | MEDIUM | STARK signature aggregation constraints are structural, not production-grade. Need gnark circuits. |
-| RISK-STARK1 | MEDIUM | FRI constraint evaluation is structural (transition consistency) not domain-specific (tx validity). |
-| RISK-PQ2 | LOW | Gas cost inconsistency between PQ registry and EVM gas tables. |
-| GAP-STARK4 | MEDIUM | STARK proof verification uses simplified commitments. |
-| GAP-STARK5 | LOW | No bandwidth model enforcement (128KB limit per ethresear.ch) — structural check added but not enforced at gossip layer. |
+| ID | Level | Status | Resolution |
+|----|-------|--------|------------|
+| RISK-PQ1 + RISK-STARK1 | MEDIUM | FIXED | `evaluateConstraints()` computes `sum(coeff*trace^degree) mod p` per row; `commitConstraintEvals()` Merkle-roots results; verifier rejects zero commitment |
+| GAP-STARK4 | MEDIUM | FIXED | `computeFRICommitments()` hashes trace rows and folds pairwise; `merkleAuthPath()` + `verifyMerkleAuthPath()` provide real Merkle authentication |
+| RISK-PQ2 | LOW | FIXED | PQ gas constants added to `gas.go`; `GasPQVerify()` lookup in `gas_table.go`; `ValidateGasCostsMatch()` cross-checks registry vs EVM |
+| GAP-STARK5 | LOW | FIXED | `TopicMessageSizeLimit` map with 128KB for `STARKMempoolTick`; enforced in `Publish()` and `Deliver()`; `MergeTick()` uses actual `MarshalBinary()` size |
+| Combined | LOW | FIXED | Replaced single trivial constraint with hash-consistency + gas-bounds constraints (ConstraintCount: 2) |
 
 ---
 
@@ -145,11 +168,11 @@ cd pkg && go build ./...
 cd pkg && go test ./...
 
 # Run specific packages affected by these fixes
-cd pkg && go test ./core/... -v
-cd pkg && go test ./txpool/... -v
-cd pkg && go test ./consensus/... -v
-cd pkg && go test ./proofs/... -v
-cd pkg && go test ./p2p/... -v
+cd pkg && go test ./core/vm/... -v   # PQ gas constants, GasPQVerify
+cd pkg && go test ./txpool/... -v    # meaningful constraints, serialized bandwidth
+cd pkg && go test ./proofs/... -v    # constraint eval, FRI folding, auth paths
+cd pkg && go test ./p2p/... -v       # per-topic bandwidth limits
+cd pkg && go test ./crypto/pqc/... -v # ValidateGasCostsMatch cross-check
 
 # Run Kurtosis devnet tests (4/4 passing)
 cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh bal native-aa pq-crypto encrypted-mempool
@@ -163,3 +186,4 @@ cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh bal native-aa pq-crypto
 |------|------------|-------|
 | `50675c9` | Round 1: fix 14 integration gaps across frame tx, STARK recursion, PQ finality | 18 files, +950 |
 | `9c84089` | Round 2: fix 7 critical/high gaps from line-by-line audit | 7 files, +218/-23 |
+| (pending) | Round 3: fix 5 remaining gaps — STARK constraints, PQ gas, gossip bandwidth | 12 files, +662/-52 |

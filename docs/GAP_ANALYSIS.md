@@ -1,6 +1,6 @@
 # ETH2030 Gap Analysis vs L1 Strawmap
 
-Last updated: 2026-02-25
+Last updated: 2026-02-27
 
 ## Summary
 
@@ -80,7 +80,7 @@ Systematic audit of all 65 [L1 Strawmap](https://strawmap.org/) items across Con
 | 44 | canonical guest | COMPLETE | `zkvm/canonical.go`, `canonical_executor.go` | GuestRegistry + `ValidateGuestProgram()` (binary hash, registry consistency). Real RISC-V RV32IM CPU emulator with witness collection, cycle counting, and proof generation |
 | 45 | canonical zkVM | COMPLETE | `zkvm/riscv_cpu.go`, `canonical_executor.go`, `proof_backend.go` | RV32IM CPU real + `ValidateCPUConfig()` (memory bounds, instruction limits). Real proof verification via proof_backend with Groth16 size validation |
 | 46 | long-dated gas futures | COMPLETE | `core/vm/gas_futures_long.go`, `core/gas_market.go` | Position/margin cycle + `ValidateGasFuturePosition()` (margin, liquidation) |
-| 47 | sharded mempool | COMPLETE | `txpool/sharding.go`, `txpool/shared/`, `txpool/stark_aggregation.go` | Consistent hash + `ValidateShardAssignment()` (power-of-two, capacity, replication). Recursive STARK mempool: `MergeTick()` merges remote txs (RemoteProven flag), `GenerateTick()` produces bitfield + TxMerkleRoot, 128KB bandwidth limit, `STARKMempoolTick` gossip topic |
+| 47 | sharded mempool | COMPLETE | `txpool/sharding.go`, `txpool/shared/`, `txpool/stark_aggregation.go` | Consistent hash + `ValidateShardAssignment()` (power-of-two, capacity, replication). Recursive STARK mempool: `MergeTick()` merges remote txs (RemoteProven flag), `GenerateTick()` produces bitfield + TxMerkleRoot with 2 meaningful constraints (hash-consistency + gas-bounds), real constraint evaluation + FRI folding, actual serialized bandwidth check, 128KB per-topic gossip enforcement, PQ gas table cross-check |
 | 48 | gigagas L1 | COMPLETE | `core/gigagas.go`, `gigagas_integration.go` | 4-phase parallel + `ValidateGigagasConfig()` (parallelism, conflict thresholds) |
 | 49 | BALs | COMPLETE | `bal/`, `core/vm/bal_tracker.go`, `core/vm/instructions.go`, `core/processor.go`, `engine/backend.go` | Full Block Access List (EIP-7928): opcode-level hooks (15 opcodes), EVM value transfer tracking, system contract tracking, engine API wiring, SSTORE no-op detection. EIP-8141 FrameTx: processor dispatch via `ExecuteFrameTx()`, `Message.Frames` field, nonce semantics, transient storage isolation, txpool validation |
 | 50 | binary tree | COMPLETE | `trie/bintrie/` | SHA-256 binary Merkle trie with proofs |

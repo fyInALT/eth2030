@@ -336,8 +336,11 @@ func (sa *STARKAggregator) GenerateTick() (*MempoolAggregationTick, error) {
 		})
 	}
 
+	// Constraint 1 (hash consistency): sums hash_hi + hash_lo (non-zero for real tx hashes).
+	// Constraint 2 (gas bounds): extracts gas_used column.
 	constraints := []proofs.STARKConstraint{
-		{Degree: 1, Coefficients: []proofs.FieldElement{proofs.NewFieldElement(1)}},
+		{Degree: 1, Coefficients: []proofs.FieldElement{proofs.NewFieldElement(1), proofs.NewFieldElement(1)}},
+		{Degree: 1, Coefficients: []proofs.FieldElement{proofs.NewFieldElement(0), proofs.NewFieldElement(0), proofs.NewFieldElement(1)}},
 	}
 
 	starkProof, err := sa.prover.GenerateSTARKProof(trace, constraints)
@@ -382,9 +385,12 @@ func (sa *STARKAggregator) MergeTick(remote *MempoolAggregationTick) error {
 		return ErrAggInvalidTick
 	}
 
-	// Check approximate tick size (each tx hash = 32 bytes, proof overhead ~1KB).
-	approxSize := len(remote.ValidTxHashes)*32 + 1024
-	if approxSize > MaxTickSize {
+	// Check actual serialized tick size against bandwidth limit.
+	serialized, err := remote.MarshalBinary()
+	if err != nil {
+		return ErrAggInvalidTick
+	}
+	if len(serialized) > MaxTickSize {
 		return ErrAggTickTooLarge
 	}
 

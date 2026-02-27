@@ -1,6 +1,7 @@
 package proofs
 
 import (
+	"crypto/sha256"
 	"math/big"
 	"testing"
 )
@@ -177,5 +178,163 @@ func TestSTARKLargeTrace(t *testing.T) {
 	}
 	if !valid {
 		t.Error("large trace proof should be valid")
+	}
+}
+
+func TestSTARKConstraintEvaluation(t *testing.T) {
+	p := NewSTARKProver()
+
+	trace1 := [][]FieldElement{
+		{NewFieldElement(1), NewFieldElement(2)},
+		{NewFieldElement(3), NewFieldElement(4)},
+	}
+	trace2 := [][]FieldElement{
+		{NewFieldElement(10), NewFieldElement(20)},
+		{NewFieldElement(30), NewFieldElement(40)},
+	}
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1), NewFieldElement(1)}},
+	}
+
+	proof1, err := p.GenerateSTARKProof(trace1, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof2, err := p.GenerateSTARKProof(trace2, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Different traces should produce different constraint eval commitments.
+	if proof1.ConstraintEvalCommitment == proof2.ConstraintEvalCommitment {
+		t.Error("different traces should produce different constraint eval commitments")
+	}
+
+	// Neither should be zero.
+	var zero [32]byte
+	if proof1.ConstraintEvalCommitment == zero {
+		t.Error("constraint eval commitment should not be zero")
+	}
+	if proof2.ConstraintEvalCommitment == zero {
+		t.Error("constraint eval commitment should not be zero")
+	}
+}
+
+func TestSTARKMerkleAuthPath(t *testing.T) {
+	// Create some leaves.
+	leaves := make([][32]byte, 4)
+	for i := range leaves {
+		h := sha256.New()
+		h.Write([]byte{byte(i)})
+		copy(leaves[i][:], h.Sum(nil))
+	}
+
+	root := merkleRoot(leaves)
+
+	// Test auth path for each leaf.
+	for i := uint64(0); i < 4; i++ {
+		path := merkleAuthPath(leaves, i)
+		if !verifyMerkleAuthPath(leaves[i], i, path, root) {
+			t.Errorf("auth path verification failed for leaf %d", i)
+		}
+	}
+
+	// Verify wrong leaf fails.
+	wrongLeaf := [32]byte{0xFF}
+	path := merkleAuthPath(leaves, 0)
+	if verifyMerkleAuthPath(wrongLeaf, 0, path, root) {
+		t.Error("auth path should fail for wrong leaf")
+	}
+}
+
+func TestSTARKFRIFolding(t *testing.T) {
+	p := NewSTARKProver()
+
+	trace1 := [][]FieldElement{
+		{NewFieldElement(1), NewFieldElement(2)},
+		{NewFieldElement(3), NewFieldElement(4)},
+	}
+	trace2 := [][]FieldElement{
+		{NewFieldElement(100), NewFieldElement(200)},
+		{NewFieldElement(300), NewFieldElement(400)},
+	}
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	proof1, err := p.GenerateSTARKProof(trace1, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof2, err := p.GenerateSTARKProof(trace2, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// FRI commitments should differ for different traces.
+	if len(proof1.FRICommitments) != len(proof2.FRICommitments) {
+		t.Fatal("FRI commitment counts should match for same-size traces")
+	}
+
+	allSame := true
+	for i := range proof1.FRICommitments {
+		if proof1.FRICommitments[i] != proof2.FRICommitments[i] {
+			allSame = false
+			break
+		}
+	}
+	if allSame {
+		t.Error("FRI commitments should differ for different trace data")
+	}
+}
+
+func TestSTARKAggregator_EndToEnd_WithConstraints(t *testing.T) {
+	// Create a prover and generate a proof with multiple constraints.
+	p := NewSTARKProver()
+
+	trace := [][]FieldElement{
+		{NewFieldElement(100), NewFieldElement(200)},
+		{NewFieldElement(300), NewFieldElement(400)},
+		{NewFieldElement(500), NewFieldElement(600)},
+		{NewFieldElement(700), NewFieldElement(800)},
+	}
+
+	// Two meaningful constraints like the aggregator uses.
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1), NewFieldElement(1)}},
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(0), NewFieldElement(0), NewFieldElement(1)}},
+	}
+
+	proof, err := p.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify constraint eval commitment is non-zero.
+	var zero [32]byte
+	if proof.ConstraintEvalCommitment == zero {
+		t.Error("constraint eval commitment should be non-zero")
+	}
+
+	// Verify constraint count matches.
+	if proof.ConstraintCount != 2 {
+		t.Errorf("expected 2 constraints, got %d", proof.ConstraintCount)
+	}
+
+	// Verify the proof is valid.
+	valid, err := p.VerifySTARKProof(proof, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Error("proof should be valid")
+	}
+
+	// Verify that tampering with constraint eval commitment causes rejection.
+	tampered := *proof
+	tampered.ConstraintEvalCommitment = [32]byte{}
+	valid, err = p.VerifySTARKProof(&tampered, nil)
+	if valid || err == nil {
+		t.Error("tampered proof with zero constraint eval commitment should fail")
 	}
 }

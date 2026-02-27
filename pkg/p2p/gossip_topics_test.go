@@ -580,3 +580,52 @@ func TestTopicManagerParams(t *testing.T) {
 		t.Errorf("Params().MeshD = %d, want 10", got.MeshD)
 	}
 }
+
+func TestTopicMessageSizeLimit(t *testing.T) {
+	tm := NewTopicManager(DefaultTopicParams())
+	defer tm.Close()
+
+	handler := func(topic GossipTopic, msgID MessageID, data []byte) {}
+	if err := tm.Subscribe(STARKMempoolTick, handler); err != nil {
+		t.Fatal(err)
+	}
+
+	// Data within per-topic limit should succeed.
+	smallData := make([]byte, 1024)
+	smallData[0] = 1
+	if err := tm.Publish(STARKMempoolTick, smallData); err != nil {
+		t.Fatalf("small publish failed: %v", err)
+	}
+
+	// Data exceeding per-topic limit should fail.
+	bigData := make([]byte, 128*1024+1)
+	bigData[0] = 2
+	err := tm.Publish(STARKMempoolTick, bigData)
+	if err != ErrTopicMsgTooLarge {
+		t.Errorf("expected ErrTopicMsgTooLarge, got %v", err)
+	}
+
+	// Deliver with oversized data should also fail.
+	bigData[0] = 3
+	err = tm.Deliver(STARKMempoolTick, bigData, true)
+	if err != ErrTopicMsgTooLarge {
+		t.Errorf("expected ErrTopicMsgTooLarge for Deliver, got %v", err)
+	}
+}
+
+func TestTopicMessageSizeLimit_NonLimitedTopic(t *testing.T) {
+	tm := NewTopicManager(DefaultTopicParams())
+	defer tm.Close()
+
+	handler := func(topic GossipTopic, msgID MessageID, data []byte) {}
+	if err := tm.Subscribe(BeaconBlock, handler); err != nil {
+		t.Fatal(err)
+	}
+
+	// BeaconBlock has no per-topic limit, so 200KB should be fine (under 10MB global).
+	data := make([]byte, 200*1024)
+	data[0] = 1
+	if err := tm.Publish(BeaconBlock, data); err != nil {
+		t.Fatalf("publish to non-limited topic failed: %v", err)
+	}
+}

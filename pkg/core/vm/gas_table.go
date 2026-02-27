@@ -905,3 +905,23 @@ func gasSelfdestructGlamst(evm *EVM, contract *Contract, stack *Stack, mem *Memo
 	}
 	return gas, nil
 }
+
+// GasPQVerify returns the gas cost for verifying a post-quantum signature
+// of the given algorithm ID. Algorithm IDs match the PQ algorithm registry
+// in pkg/crypto/pqc/ (EIP-7932/EIP-8051).
+func GasPQVerify(algorithmID uint8) uint64 {
+	switch algorithmID {
+	case 1: // ML-DSA-44
+		return GasPQVerifyMLDSA44
+	case 2: // ML-DSA-65
+		return GasPQVerifyMLDSA65
+	case 3: // ML-DSA-87
+		return GasPQVerifyMLDSA87
+	case 4: // Falcon-512
+		return GasPQVerifyFalcon512
+	case 5: // SLH-DSA
+		return GasPQVerifySLHDSA
+	default:
+		return GasPQVerifyBase
+	}
+}

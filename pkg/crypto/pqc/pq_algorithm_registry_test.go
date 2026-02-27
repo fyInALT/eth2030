@@ -201,3 +201,71 @@ func TestPQAlgRegistryIsRegistered(t *testing.T) {
 		t.Error("type 99 should not be registered")
 	}
 }
+
+func TestPQGasCostConsistency(t *testing.T) {
+	reg := GlobalRegistry()
+
+	// Simulate EVM gas lookup matching the PQ registry constants.
+	evmGasLookup := func(algorithmID uint8) uint64 {
+		switch algorithmID {
+		case 1:
+			return GasCostMLDSA44
+		case 2:
+			return GasCostMLDSA65
+		case 3:
+			return GasCostMLDSA87
+		case 4:
+			return GasCostFalcon512
+		case 5:
+			return GasCostSLHDSA
+		default:
+			return 1000
+		}
+	}
+
+	err := reg.ValidateGasCostsMatch(evmGasLookup)
+	if err != nil {
+		t.Errorf("ValidateGasCostsMatch failed: %v", err)
+	}
+}
+
+func TestPQGasCostMismatch(t *testing.T) {
+	reg := GlobalRegistry()
+
+	// Provide mismatched gas costs.
+	wrongLookup := func(algorithmID uint8) uint64 {
+		return 9999 // wrong for all algorithms
+	}
+
+	err := reg.ValidateGasCostsMatch(wrongLookup)
+	if err == nil {
+		t.Error("ValidateGasCostsMatch should fail with mismatched gas costs")
+	}
+}
+
+func TestPQGasTable_RegistryConsistency(t *testing.T) {
+	reg := GlobalRegistry()
+
+	// This simulates what vm.GasPQVerify does, matching the EVM gas table.
+	evmLookup := func(algorithmID uint8) uint64 {
+		switch algorithmID {
+		case 1:
+			return 3500 // GasPQVerifyMLDSA44
+		case 2:
+			return 4500 // GasPQVerifyMLDSA65
+		case 3:
+			return 5500 // GasPQVerifyMLDSA87
+		case 4:
+			return 3000 // GasPQVerifyFalcon512
+		case 5:
+			return 8000 // GasPQVerifySLHDSA
+		default:
+			return 1000
+		}
+	}
+
+	err := reg.ValidateGasCostsMatch(evmLookup)
+	if err != nil {
+		t.Fatalf("PQ gas table and registry are inconsistent: %v", err)
+	}
+}

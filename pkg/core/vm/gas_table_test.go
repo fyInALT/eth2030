@@ -2369,3 +2369,24 @@ func TestFrontierCall_ChargesNewAccountGas(t *testing.T) {
 		t.Errorf("Frontier CALL new account gas diff = %d, want %d", diff, CallNewAccountGas)
 	}
 }
+
+func TestGasPQVerify(t *testing.T) {
+	tests := []struct {
+		algID uint8
+		want  uint64
+	}{
+		{1, GasPQVerifyMLDSA44},   // 3500
+		{2, GasPQVerifyMLDSA65},   // 4500
+		{3, GasPQVerifyMLDSA87},   // 5500
+		{4, GasPQVerifyFalcon512}, // 3000
+		{5, GasPQVerifySLHDSA},    // 8000
+		{0, GasPQVerifyBase},      // unknown -> base cost
+		{99, GasPQVerifyBase},     // unknown -> base cost
+	}
+	for _, tt := range tests {
+		got := GasPQVerify(tt.algID)
+		if got != tt.want {
+			t.Errorf("GasPQVerify(%d) = %d, want %d", tt.algID, got, tt.want)
+		}
+	}
+}

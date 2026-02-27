@@ -294,6 +294,26 @@ func (r *PQAlgorithmRegistry) registerDefaults() {
 	)
 }
 
+// EVMGasLookup is a function type that maps a PQ algorithm ID to its EVM gas cost.
+type EVMGasLookup func(algorithmID uint8) uint64
+
+// ValidateGasCostsMatch cross-checks the registry's gas costs against an
+// EVM gas lookup function to ensure consistency between the PQ registry
+// and the EVM gas tables (RISK-PQ2).
+func (r *PQAlgorithmRegistry) ValidateGasCostsMatch(evmGasLookup EVMGasLookup) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for algType, desc := range r.algorithms {
+		evmGas := evmGasLookup(uint8(algType))
+		if evmGas != desc.GasCost {
+			return fmt.Errorf("pq_registry: gas mismatch for algorithm %d (%s): registry=%d, evm=%d",
+				algType, desc.Name, desc.GasCost, evmGas)
+		}
+	}
+	return nil
+}
+
 // verifyEnhancedDilithium uses the EnhancedDilithiumSigner for real lattice
 // verification. It generates a key pair, signs the message, and then verifies
 // using the signer's real lattice verification logic. For registry dispatch,

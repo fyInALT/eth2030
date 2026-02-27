@@ -177,6 +177,15 @@ var (
 // MaxPayloadSize is the maximum uncompressed payload size (10 MiB per spec).
 const MaxPayloadSize = 10 * 1024 * 1024
 
+// TopicMessageSizeLimit defines per-topic maximum message sizes.
+// Topics not in this map use the global MaxPayloadSize limit.
+var TopicMessageSizeLimit = map[GossipTopic]int{
+	STARKMempoolTick: 128 * 1024, // 128KB per ethresear.ch
+}
+
+// ErrTopicMsgTooLarge is returned when a message exceeds its per-topic size limit.
+var ErrTopicMsgTooLarge = errors.New("gossip_topics: message exceeds per-topic size limit")
+
 // topicState tracks per-topic subscription state and scoring.
 type topicState struct {
 	handler TopicHandler
@@ -282,6 +291,10 @@ func (tm *TopicManager) Publish(topic GossipTopic, data []byte) error {
 	if len(data) > MaxPayloadSize {
 		return ErrTopicDataTooLarge
 	}
+	// Per-topic size limit check.
+	if limit, ok := TopicMessageSizeLimit[topic]; ok && len(data) > limit {
+		return ErrTopicMsgTooLarge
+	}
 
 	msgID := ComputeMessageID(data)
 
@@ -323,6 +336,10 @@ func (tm *TopicManager) Deliver(topic GossipTopic, data []byte, isValid bool) er
 	}
 	if len(data) > MaxPayloadSize {
 		return ErrTopicDataTooLarge
+	}
+	// Per-topic size limit check.
+	if limit, ok := TopicMessageSizeLimit[topic]; ok && len(data) > limit {
+		return ErrTopicMsgTooLarge
 	}
 
 	var msgID MessageID

@@ -173,11 +173,9 @@ func TestMergeTick_BandwidthLimit(t *testing.T) {
 	local := NewSTARKAggregator("node-local")
 	remote := NewSTARKAggregator("node-remote")
 
-	// Calculate how many tx hashes would exceed MaxTickSize.
-	// approxSize = len(hashes)*32 + 1024
-	// MaxTickSize = 128*1024 = 131072
-	// need: count*32 + 1024 > 131072 => count > (131072-1024)/32 = 4064
-	numTxs := (MaxTickSize-1024)/32 + 1 // 4065
+	// Add enough txs to exceed MaxTickSize when serialized.
+	// Each tx hash = 32 bytes in serialized form, so ~4100 txs = ~131KB > 128KB.
+	numTxs := 4100
 	for i := 0; i < numTxs; i++ {
 		var h types.Hash
 		h[0] = byte(i & 0xFF)
@@ -227,5 +225,99 @@ func TestComputeTxMerkleRoot_TwoHashes(t *testing.T) {
 
 	if root != expected {
 		t.Errorf("two-hash root mismatch:\n  got  %x\n  want %x", root, expected)
+	}
+}
+
+func TestGenerateTick_MeaningfulConstraints(t *testing.T) {
+	agg := NewSTARKAggregator("node-1")
+
+	var h types.Hash
+	h[0] = 0x42
+	agg.AddValidatedTx(h, []byte("proof"), 21000)
+
+	tick, err := agg.GenerateTick()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if tick.AggregateProof == nil {
+		t.Fatal("aggregate proof should not be nil")
+	}
+	if tick.AggregateProof.ConstraintCount != 2 {
+		t.Errorf("expected 2 constraints, got %d", tick.AggregateProof.ConstraintCount)
+	}
+}
+
+func TestMergeTick_ActualSerializedSize(t *testing.T) {
+	remote := NewSTARKAggregator("node-remote")
+
+	// Add a few txs and generate a tick.
+	for i := 0; i < 10; i++ {
+		var h types.Hash
+		h[0] = byte(i + 1)
+		remote.AddValidatedTx(h, []byte("proof"), uint64(21000*(i+1)))
+	}
+
+	tick, err := remote.GenerateTick()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the tick can be serialized.
+	serialized, err := tick.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The serialized size should be well under 128KB for 10 txs.
+	if len(serialized) > MaxTickSize {
+		t.Errorf("serialized size %d exceeds MaxTickSize %d", len(serialized), MaxTickSize)
+	}
+	if len(serialized) == 0 {
+		t.Error("serialized tick should not be empty")
+	}
+}
+
+func TestSTARKTickGossipBandwidth(t *testing.T) {
+	agg := NewSTARKAggregator("node-1")
+
+	// Add enough txs for a realistic tick.
+	for i := 0; i < 50; i++ {
+		var h types.Hash
+		h[0] = byte(i + 1)
+		h[1] = byte((i >> 8) & 0xFF)
+		agg.AddValidatedTx(h, []byte("proof"), uint64(21000*(i+1)))
+	}
+
+	tick, err := agg.GenerateTick()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Serialize the tick.
+	serialized, err := tick.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary failed: %v", err)
+	}
+
+	// Verify it's under the 128KB limit.
+	if len(serialized) > MaxTickSize {
+		t.Errorf("serialized tick %d bytes exceeds MaxTickSize %d", len(serialized), MaxTickSize)
+	}
+
+	// Verify it has meaningful content.
+	if len(serialized) < 50*32 {
+		t.Errorf("serialized tick %d bytes seems too small for 50 txs", len(serialized))
+	}
+
+	// Verify proof has 2 constraints.
+	if tick.AggregateProof.ConstraintCount != 2 {
+		t.Errorf("expected 2 constraints, got %d", tick.AggregateProof.ConstraintCount)
+	}
+
+	// Verify constraint eval commitment is non-zero.
+	var zero [32]byte
+	if tick.AggregateProof.ConstraintEvalCommitment == zero {
+		t.Error("aggregate proof should have non-zero constraint eval commitment")
 	}
 }
