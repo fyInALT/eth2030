@@ -46,6 +46,29 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/tx_frame.go:1-50` | `FrameTx`, `Frame` structs, constants (`FrameTxType=0x06`, `FrameTxIntrinsicCost=15000`, `MaxFrames=1000`, mode constants, `EntryPointAddress`) |
+| `pkg/core/types/tx_frame.go:107-170` | `EncodeFrameTx` / `DecodeFrameTx` RLP encode/decode |
+| `pkg/core/types/tx_frame.go:251-268` | `CalcFrameTxGas` total gas computation |
+| `pkg/core/types/tx_frame.go:60-105` | `TxData` interface methods (`txType`, `gas`, `nonce`, etc.) |
+| `pkg/core/types/transaction.go` | Transaction envelope dispatch — needs `0x06` registration (Task 1.1.2) |
+
+## Implementation Status
+
+**✅ Mostly Implemented**
+
+- ✅ `FrameTx` struct defined with all fields
+- ✅ `EncodeFrameTx` / `DecodeFrameTx` implemented with correct RLP layout
+- ✅ Null target encodes as empty bytes, decodes to nil
+- ✅ Empty `blob_versioned_hashes` encoded as empty list (not nil)
+- ⚠️ **Gap:** `CalcFrameTxGas` does not check for overflow (returns silently truncated uint64)
+- ⚠️ **Gap:** Not yet integrated into `Transaction` wrapper's `TypedTxData` dispatch (Task 1.1.2)
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Constants

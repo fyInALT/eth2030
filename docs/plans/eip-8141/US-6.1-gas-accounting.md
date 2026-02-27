@@ -46,6 +46,24 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/tx_frame.go:251-268` | `CalcFrameTxGas` (intrinsic + calldata + sum of frame limits) |
+| `pkg/core/types/tx_frame.go:13` | `FrameTxIntrinsicCost = 15000` |
+
+## Implementation Status
+
+**⚠️ Partially Implemented**
+
+- ✅ `CalcFrameTxGas` implemented (intrinsic + calldata + sum of frame limits)
+- ✅ `FrameTxIntrinsicCost = 15000` defined
+- ❌ **Missing:** Per-frame gas isolation in execution (no executor yet)
+- ❌ **Missing:** Overflow detection in `CalcFrameTxGas`
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Gas Accounting

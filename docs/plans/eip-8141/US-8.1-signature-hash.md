@@ -36,6 +36,24 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/tx_frame.go:175-220` | `ComputeFrameSigHash` — elides VERIFY data, RLP encodes, keccak256 |
+| `pkg/core/vm/eip8141_opcodes.go:51` | `FrameContext.SigHash` field (pre-computed at tx entry) |
+
+## Implementation Status
+
+**✅ Implemented**
+
+- ✅ `ComputeFrameSigHash` implemented correctly
+- ✅ VERIFY frame data elided (set to empty bytes)
+- ✅ Uses `keccak256(0x06 || rlp(modified_tx))`
+- ✅ Does not mutate original transaction (builds copy)
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Signature Hash

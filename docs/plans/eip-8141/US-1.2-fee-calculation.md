@@ -36,6 +36,24 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/tx_frame.go:55-58` | `gasFeeCap()`, `gasTipCap()` return `MaxFeePerGas` / `MaxPriorityFeePerGas` |
+| `pkg/core/vm/eip8141_opcodes.go:52` | `FrameContext.MaxCost` field (used by TXPARAM 0x06, but not calculated) |
+
+## Implementation Status
+
+**⚠️ Partially Implemented**
+
+- ✅ `gasFeeCap()` and `gasTipCap()` return correct fields
+- ❌ **Missing:** `EffectiveGasTip(baseFee)` helper not implemented
+- ❌ **Missing:** `TotalFee(baseFee, blobBaseFee)` helper not implemented
+- ❌ **Missing:** `MaxCost` computation for TXPARAM 0x06 (field exists in `FrameContext` but never calculated)
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Gas Accounting (fee formula)

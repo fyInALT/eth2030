@@ -36,6 +36,22 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/tx_frame.go:227-248` | `ValidateFrameTx` — static checks: frame count, chain_id sign, mode < 3, target length, blob consistency |
+
+## Implementation Status
+
+**✅ Mostly Implemented**
+
+- ✅ `ValidateFrameTx` checks: frame count (0 and >MAX_FRAMES), chain_id sign, mode < 3, target length, blob field consistency
+- ⚠️ **Gap:** Does not check `nonce < 2^64` (Go `uint64` naturally caps this — acceptable)
+- ⚠️ **Gap:** Does not check `len(sender) == 20` (`Address` type is always 20 bytes — acceptable)
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Constraints

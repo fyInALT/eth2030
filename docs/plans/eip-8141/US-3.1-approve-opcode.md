@@ -76,6 +76,33 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/vm/eip8141_opcodes.go:68-131` | `opApprove` implementation — all 3 scopes |
+| `pkg/core/vm/eip8141_opcodes.go:14-22` | Error variables: `ErrInvalidApproveScope`, `ErrAlreadyApproved`, `ErrSenderNotApproved`, `ErrCallerNotFrameTarget`, `ErrCallerNotSender`, `ErrInsufficientBalance` |
+| `pkg/core/vm/eip8141_opcodes.go:38-56` | `FrameContext` struct — `SenderApproved`, `PayerApproved` flags |
+| `pkg/core/vm/opcodes.go:161` | `APPROVE OpCode = 0xaa` |
+
+## Implementation Status
+
+**✅ Mostly Implemented**
+
+- ✅ `opApprove` implemented with all 3 scopes (0x0, 0x1, 0x2)
+- ✅ `CALLER == frame.target` check (via `contract.CallerAddress != contract.Address`)
+- ✅ Scope 0x0: `SenderApproved` + `CALLER == tx.sender` check
+- ✅ Scope 0x1: `SenderApproved` prerequisite + balance check + `PayerApproved`
+- ✅ Scope 0x2: Combined check + both flags
+- ✅ Double-approval prevention (monotonic flags)
+- ✅ Returns `memory[offset:offset+length]` like RETURN
+- ⚠️ **Gap:** Scope 0x1 does NOT increment nonce or deduct fee — only checks balance
+- ⚠️ **Gap:** Scope 0x2 does NOT increment nonce or deduct fee
+- ⚠️ **Gap:** Error semantics: returns `error` (exceptional halt) for caller mismatch, but EIP says "revert" (remaining gas returned)
+- ⚠️ **Gap:** `contract.CallerAddress != contract.Address` is NOT equivalent to `CALLER == frame.target` — may differ under DELEGATECALL. Should use `frame.target` from `FrameContext`.
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → APPROVE opcode (`0xaa`)

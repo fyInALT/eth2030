@@ -56,6 +56,30 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/tx_frame.go:18-22` | Mode constants: `ModeDefault=0`, `ModeVerify=1`, `ModeSender=2` |
+| `pkg/core/types/tx_frame.go:25` | `EntryPointAddress = 0x00...00aa` |
+| `pkg/core/vm/aa_executor.go` | EIP-7701 AA executor — handles type 0x04, NOT 0x06. **Not reusable for frame txs.** |
+| `pkg/core/vm/eip8141_opcodes.go:30-35` | `FrameModeDefault/Verify/Sender` constants (duplicated from types) |
+
+## Implementation Status
+
+**⚠️ Partially Implemented**
+
+- ✅ Mode constants defined
+- ✅ `EntryPointAddress` defined as `0x00...00aa`
+- ❌ **Missing:** Frame execution dispatcher — `aa_executor.go` handles EIP-7701, not EIP-8141. A new `FrameExecutor` is needed.
+- ❌ **Missing:** VERIFY mode STATICCALL enforcement (readOnly flag)
+- ❌ **Missing:** SENDER mode `sender_approved` guard
+- ❌ **Missing:** Null target → `tx.sender` substitution in execution logic
+
+**Refactoring needed:** Create `pkg/core/vm/frame_executor.go` for the EIP-8141 frame dispatch loop.
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Modes

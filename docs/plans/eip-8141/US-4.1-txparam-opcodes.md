@@ -86,6 +86,33 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/vm/eip8141_opcodes.go:134-267` | `txParamValue` — all 16 parameter indices |
+| `pkg/core/vm/eip8141_opcodes.go:270-303` | `txParamSize` — size query for all indices |
+| `pkg/core/vm/eip8141_opcodes.go:306-335` | `opTxParamLoad` (0xb0) |
+| `pkg/core/vm/eip8141_opcodes.go:338-355` | `opTxParamSize` (0xb1) |
+| `pkg/core/vm/eip8141_opcodes.go:358-383` | `opTxParamCopy` (0xb2) |
+| `pkg/core/vm/opcodes.go:162-164` | Opcode constants: `TXPARAMLOAD=0xb0`, `TXPARAMSIZE=0xb1`, `TXPARAMCOPY=0xb2` |
+
+## Implementation Status
+
+**✅ Mostly Implemented**
+
+- ✅ All 16 parameter indices implemented in `txParamValue`
+- ✅ `in2 == 0` enforcement for scalar parameters
+- ✅ Frame index bounds checking
+- ✅ VERIFY frame data returns nil/empty
+- ✅ Status (0x15) blocks current/future frame access
+- ✅ `opTxParamLoad`, `opTxParamSize`, `opTxParamCopy` all implemented
+- ⚠️ **Gap:** `opTxParamLoad` has 2 stack inputs (in1, in2) but EIP specifies 3 (in1, in2, byte_offset) — missing `byte_offset` support
+- ⚠️ **Gap:** Gap indices `0x0a`–`0x0f` not explicitly handled (falls through to default → halt, which is correct but implicit)
+- ⚠️ **Gap:** Gas costs not registered in instruction table
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → TXPARAM* opcodes

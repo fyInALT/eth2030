@@ -76,6 +76,29 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/vm/aa_executor.go` | EIP-7701 AA executor — handles type 0x04 only. **Cannot be reused for EIP-8141.** |
+| `pkg/core/vm/eip8141_opcodes.go:38-56` | `FrameContext` struct (approval flags, tx params, frame list) |
+| `pkg/core/types/tx_frame.go:227-248` | `ValidateFrameTx` static checks |
+
+## Implementation Status
+
+**❌ Not Implemented**
+
+- ❌ No `FrameExecutor` or frame dispatch loop exists
+- ❌ No nonce validation before frame execution
+- ❌ No `sender_approved`/`payer_approved` state machine
+- ❌ No post-loop `payer_approved` check
+- ❌ No gas refund to payer
+- ❌ No state atomicity (snapshot/revert on invalid tx)
+
+**Action needed:** Create `pkg/core/vm/frame_executor.go` implementing the complete frame dispatch loop.
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Behavior

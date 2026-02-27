@@ -46,6 +46,25 @@
 
 ---
 
+## Codebase Locations
+
+| File | Relevance |
+|------|-----------|
+| `pkg/core/types/frame_receipt.go` | `FrameResult` (`Status`, `GasUsed`, `Logs`), `FrameTxReceipt` (`CumulativeGasUsed`, `Payer`, `FrameResults`) |
+| `pkg/core/types/frame_receipt_extended.go` | Extended receipt functionality (RLP encode/decode may be here) |
+
+## Implementation Status
+
+**✅ Mostly Implemented**
+
+- ✅ `FrameResult` struct: `{Status, GasUsed, Logs}`
+- ✅ `FrameTxReceipt` struct: `{CumulativeGasUsed, Payer, FrameResults}`
+- ✅ `TotalGasUsed()` and `AllLogs()` helpers
+- ⚠️ **Gap:** RLP encode/decode for `FrameTxReceipt` not visible in base file (may be in extended)
+- ⚠️ **Gap:** JSON-RPC serialization for `eth_getTransactionReceipt` not implemented
+
+---
+
 ## EIP-8141 Reference Excerpts
 
 ### Specification → Receipt
