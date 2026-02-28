@@ -310,6 +310,63 @@ func TestGenerateRoundConstantsDeterministic(t *testing.T) {
 	}
 }
 
+func TestGenerateRoundConstantsGrainLFSR(t *testing.T) {
+	field := bn254ScalarField
+	rcs := generateRoundConstants(3, 65, field)
+
+	// All constants must be non-zero (Grain LFSR should not produce zero
+	// for a properly seeded state; zero would indicate degenerate output).
+	for i, rc := range rcs {
+		if rc.Sign() == 0 {
+			t.Fatalf("round constant %d is zero; Grain LFSR should not produce zero constants", i)
+		}
+	}
+
+	// All constants must be strictly within the field [0, p).
+	for i, rc := range rcs {
+		if rc.Sign() < 0 || rc.Cmp(field) >= 0 {
+			t.Fatalf("round constant %d out of field range: %s", i, rc.String())
+		}
+	}
+
+	// Determinism: calling again with the same parameters must yield identical constants.
+	rcs2 := generateRoundConstants(3, 65, field)
+	for i := range rcs {
+		if rcs[i].Cmp(rcs2[i]) != 0 {
+			t.Fatalf("round constant %d differs between calls (not deterministic)", i)
+		}
+	}
+
+	// Different parameters should yield different constants.
+	rcsAlt := generateRoundConstants(4, 65, field)
+	allSame := true
+	for i := 0; i < len(rcs) && i < len(rcsAlt); i++ {
+		if rcs[i].Cmp(rcsAlt[i]) != 0 {
+			allSame = false
+			break
+		}
+	}
+	if allSame && len(rcs) == len(rcsAlt) {
+		t.Fatal("different t parameters should produce different constants")
+	}
+}
+
+func TestGrainLFSRNonDegenerate(t *testing.T) {
+	// The Grain LFSR should not produce a repeating short cycle.
+	field := bn254ScalarField
+	g := newGrainLFSR(field.BitLen(), 3, 8, 57, []byte("PoseidonBN254"))
+
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		val := g.nextFieldElement(field)
+		key := val.String()
+		if seen[key] {
+			t.Fatalf("Grain LFSR produced duplicate field element %s at iteration %d", key, i)
+		}
+		seen[key] = true
+	}
+}
+
 // --- MDS matrix ---
 
 func TestGenerateMDS(t *testing.T) {

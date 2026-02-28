@@ -57,14 +57,23 @@ func DefaultPoseidon2Params() *Poseidon2Params {
 }
 
 // generatePoseidon2RoundConstants produces deterministic round constants
-// for Poseidon2 using a different seed than Poseidon1.
+// for Poseidon2 using a Grain LFSR with a different seed than Poseidon1.
+// This follows the same Grain LFSR specification from the Poseidon paper.
 func generatePoseidon2RoundConstants(t, totalConstants int, field *big.Int) []*big.Int {
 	constants := make([]*big.Int, totalConstants)
-	seed := new(big.Int).SetBytes([]byte("Poseidon2BN254"))
+
+	// For Poseidon2: externalRounds=8, internalRounds derived from totalConstants.
+	// totalConstants = T * externalRounds + internalRounds
+	externalRounds := 8
+	internalRounds := totalConstants - t*externalRounds
+	if internalRounds < 0 {
+		internalRounds = 0
+	}
+
+	g := newGrainLFSR(field.BitLen(), t, externalRounds, internalRounds, []byte("Poseidon2BN254"))
+
 	for i := 0; i < totalConstants; i++ {
-		val := new(big.Int).Add(seed, big.NewInt(int64(i)))
-		val.Exp(val, big.NewInt(5), field)
-		constants[i] = val
+		constants[i] = g.nextFieldElement(field)
 	}
 	return constants
 }

@@ -97,3 +97,15 @@
 [submodule "refs/ethfalcon"]
 	path = refs/ethfalcon
 	url = https://github.com/ZKNoxHQ/ETHFALCON.git
+[submodule "refs/leanMultisig"]
+	path = refs/leanMultisig
+	url = https://github.com/leanEthereum/leanMultisig
+[submodule "refs/leanSig"]
+	path = refs/leanSig
+	url = https://github.com/leanEthereum/leanSig
+[submodule "refs/leanSpec"]
+	path = refs/leanSpec
+	url = https://github.com/leanEthereum/leanSpec
+[submodule "refs/fiat-shamir"]
+	path = refs/fiat-shamir
+	url = https://github.com/leanEthereum/fiat-shamir

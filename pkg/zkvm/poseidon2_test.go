@@ -327,6 +327,46 @@ func TestPoseidon2RoundConstants(t *testing.T) {
 	}
 }
 
+func TestPoseidon2RoundConstantsGrainLFSR(t *testing.T) {
+	field := bn254ScalarField
+	rcs := generatePoseidon2RoundConstants(3, 80, field)
+
+	// All constants must be non-zero.
+	for i, rc := range rcs {
+		if rc.Sign() == 0 {
+			t.Fatalf("Poseidon2 round constant %d is zero; Grain LFSR should not produce zero constants", i)
+		}
+	}
+
+	// All constants must be strictly within the field [0, p).
+	for i, rc := range rcs {
+		if rc.Sign() < 0 || rc.Cmp(field) >= 0 {
+			t.Fatalf("Poseidon2 round constant %d out of field range: %s", i, rc.String())
+		}
+	}
+
+	// Determinism.
+	rcs2 := generatePoseidon2RoundConstants(3, 80, field)
+	for i := range rcs {
+		if rcs[i].Cmp(rcs2[i]) != 0 {
+			t.Fatalf("Poseidon2 round constant %d differs between calls (not deterministic)", i)
+		}
+	}
+
+	// Must differ from Poseidon1 constants (different seed).
+	rcs1 := generateRoundConstants(3, 80, field)
+	differ := false
+	for i := 0; i < len(rcs) && i < len(rcs1); i++ {
+		if rcs[i].Cmp(rcs1[i]) != 0 {
+			differ = true
+			break
+		}
+	}
+	if !differ {
+		t.Fatal("Poseidon2 round constants should differ from Poseidon1 (different seed)")
+	}
+}
+
 func TestPoseidon2HashBytes_Empty(t *testing.T) {
 	h := Poseidon2HashBytes(nil)
 	// Should produce a valid hash even for empty input.

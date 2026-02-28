@@ -288,6 +288,183 @@ func TestSTARKFRIFolding(t *testing.T) {
 	}
 }
 
+// --- Fix 1: Canonical field element tests ---
+
+func TestNewFieldElement_Canonical(t *testing.T) {
+	// Zero should remain zero.
+	fe := NewFieldElement(0)
+	if fe.Value.Sign() != 0 {
+		t.Fatalf("NewFieldElement(0) should be 0, got %s", fe.Value.String())
+	}
+
+	// Small positive values should remain unchanged.
+	fe = NewFieldElement(42)
+	if fe.Value.Cmp(big.NewInt(42)) != 0 {
+		t.Fatalf("NewFieldElement(42) should be 42, got %s", fe.Value.String())
+	}
+
+	// All values produced by NewFieldElement must be in [0, p).
+	fe = NewFieldElement(1)
+	if fe.Value.Cmp(GoldilocksModulus) >= 0 || fe.Value.Sign() < 0 {
+		t.Fatalf("field element out of range: %s", fe.Value.String())
+	}
+
+	// Negative values should be reduced into the field (e.g., -1 becomes p-1).
+	fe = NewFieldElement(-1)
+	expectedNeg1 := new(big.Int).Sub(GoldilocksModulus, big.NewInt(1))
+	if fe.Value.Cmp(expectedNeg1) != 0 {
+		t.Fatalf("NewFieldElement(-1) should be p-1 = %s, got %s", expectedNeg1.String(), fe.Value.String())
+	}
+
+	fe = NewFieldElement(-5)
+	expectedNeg5 := new(big.Int).Sub(GoldilocksModulus, big.NewInt(5))
+	if fe.Value.Cmp(expectedNeg5) != 0 {
+		t.Fatalf("NewFieldElement(-5) should be p-5 = %s, got %s", expectedNeg5.String(), fe.Value.String())
+	}
+
+	// max int64 should be reduced (max int64 < Goldilocks modulus, so stays the same).
+	maxInt64 := int64(1<<63 - 1)
+	fe = NewFieldElement(maxInt64)
+	expected := new(big.Int).SetInt64(maxInt64)
+	expected.Mod(expected, GoldilocksModulus)
+	if fe.Value.Cmp(expected) != 0 {
+		t.Fatalf("NewFieldElement(maxInt64) should be %s, got %s", expected.String(), fe.Value.String())
+	}
+	if fe.Value.Cmp(GoldilocksModulus) >= 0 || fe.Value.Sign() < 0 {
+		t.Fatalf("max int64 field element out of range: %s", fe.Value.String())
+	}
+
+	// min int64 should be reduced into field.
+	minInt64 := int64(-1 << 63)
+	fe = NewFieldElement(minInt64)
+	expectedMin := new(big.Int).SetInt64(minInt64)
+	expectedMin.Mod(expectedMin, GoldilocksModulus)
+	if fe.Value.Cmp(expectedMin) != 0 {
+		t.Fatalf("NewFieldElement(minInt64) should be %s, got %s", expectedMin.String(), fe.Value.String())
+	}
+	if fe.Value.Cmp(GoldilocksModulus) >= 0 || fe.Value.Sign() < 0 {
+		t.Fatalf("min int64 field element out of range: %s", fe.Value.String())
+	}
+}
+
+// --- Fix 2: Query deduplication test ---
+
+func TestSTARKQueryDeduplication(t *testing.T) {
+	p := NewSTARKProver()
+
+	trace := [][]FieldElement{
+		{NewFieldElement(1), NewFieldElement(2)},
+		{NewFieldElement(3), NewFieldElement(4)},
+		{NewFieldElement(5), NewFieldElement(6)},
+		{NewFieldElement(7), NewFieldElement(8)},
+	}
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	proof, err := p.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify all query indices are unique.
+	seen := make(map[uint64]bool, len(proof.QueryResponses))
+	for i, qr := range proof.QueryResponses {
+		if seen[qr.Index] {
+			t.Fatalf("duplicate query index %d found at position %d", qr.Index, i)
+		}
+		seen[qr.Index] = true
+	}
+
+	// Also verify the proof still verifies.
+	valid, err := p.VerifySTARKProof(proof, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Error("proof with deduplicated queries should be valid")
+	}
+}
+
+// --- Fix 3: Public input Fiat-Shamir binding tests ---
+
+func TestSTARKPublicInputFiatShamirBinding(t *testing.T) {
+	p := NewSTARKProver()
+
+	trace := [][]FieldElement{
+		{NewFieldElement(1), NewFieldElement(2)},
+		{NewFieldElement(3), NewFieldElement(4)},
+		{NewFieldElement(5), NewFieldElement(6)},
+		{NewFieldElement(7), NewFieldElement(8)},
+	}
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	proof, err := p.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Two different sets of public inputs should produce different challenges.
+	pubInputs1 := []FieldElement{NewFieldElement(100)}
+	pubInputs2 := []FieldElement{NewFieldElement(200)}
+
+	challenge1 := p.deriveChallenge(proof, pubInputs1)
+	challenge2 := p.deriveChallenge(proof, pubInputs2)
+
+	if challenge1 == challenge2 {
+		t.Fatal("different public inputs must produce different Fiat-Shamir challenges")
+	}
+
+	// Both proofs should verify with their respective inputs.
+	valid1, err := p.VerifySTARKProof(proof, pubInputs1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid1 {
+		t.Error("proof should verify with public inputs 1")
+	}
+
+	valid2, err := p.VerifySTARKProof(proof, pubInputs2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid2 {
+		t.Error("proof should verify with public inputs 2")
+	}
+
+	// Empty public inputs should produce a different challenge than non-empty.
+	challengeEmpty := p.deriveChallenge(proof, nil)
+	if challengeEmpty == challenge1 {
+		t.Fatal("empty public inputs should produce a different challenge than non-empty")
+	}
+}
+
+func TestSTARKDeriveChallengeDeterministic(t *testing.T) {
+	p := NewSTARKProver()
+
+	trace := [][]FieldElement{
+		{NewFieldElement(1)},
+		{NewFieldElement(2)},
+	}
+	constraints := []STARKConstraint{
+		{Degree: 1, Coefficients: []FieldElement{NewFieldElement(1)}},
+	}
+
+	proof, err := p.GenerateSTARKProof(trace, constraints)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pubInputs := []FieldElement{NewFieldElement(42)}
+	c1 := p.deriveChallenge(proof, pubInputs)
+	c2 := p.deriveChallenge(proof, pubInputs)
+	if c1 != c2 {
+		t.Fatal("deriveChallenge should be deterministic")
+	}
+}
+
 func TestSTARKAggregator_EndToEnd_WithConstraints(t *testing.T) {
 	// Create a prover and generate a proof with multiple constraints.
 	p := NewSTARKProver()

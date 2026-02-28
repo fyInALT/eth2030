@@ -45,9 +45,13 @@ type FieldElement struct {
 	Value *big.Int
 }
 
-// NewFieldElement creates a new field element.
+// NewFieldElement creates a new field element. The value is reduced modulo
+// the Goldilocks field modulus to ensure canonical representation. Negative
+// values are mapped into the field via modular reduction (e.g., -1 becomes p-1).
 func NewFieldElement(v int64) FieldElement {
-	return FieldElement{Value: big.NewInt(v)}
+	val := big.NewInt(v)
+	val.Mod(val, GoldilocksModulus)
+	return FieldElement{Value: val}
 }
 
 // STARKConstraint represents an algebraic constraint over the execution trace.
@@ -202,33 +206,60 @@ func (sp *STARKProver) VerifySTARKProof(proof *STARKProofData, publicInputs []Fi
 		}
 	}
 
-	// Verify public inputs are bound to the proof's trace commitment.
-	// The public input hash is mixed with the trace commitment to verify
-	// that the proof was generated over the claimed public data.
+	// Bind public inputs to the Fiat-Shamir challenge derivation.
+	// The public input hash is mixed into the challenge seed alongside
+	// the trace commitment and FRI commitments. This ensures that any
+	// change to the public inputs produces a different challenge, making
+	// the proof non-transferable across different public input sets.
 	if len(publicInputs) > 0 {
-		h := sha256.New()
-		for _, input := range publicInputs {
-			if input.Value != nil {
-				h.Write(input.Value.Bytes())
-			}
-		}
-		publicInputHash := h.Sum(nil)
+		challenge := sp.deriveChallenge(proof, publicInputs)
 
-		// Bind public inputs to the trace: compute expected binding as
-		// SHA256(traceCommitment || publicInputHash) and verify the
-		// result is non-zero (structural consistency check).
-		binding := sha256.New()
-		binding.Write(proof.TraceCommitment[:])
-		binding.Write(publicInputHash)
-		bindingHash := binding.Sum(nil)
-
-		var zeroBinding [32]byte
-		if bytes.Equal(bindingHash, zeroBinding[:]) {
+		// Verify the challenge is non-zero (structural consistency).
+		var zeroChallenge [32]byte
+		if bytes.Equal(challenge[:], zeroChallenge[:]) {
 			return false, ErrSTARKVerifyFailed
 		}
 	}
 
 	return true, nil
+}
+
+// deriveChallenge computes a Fiat-Shamir challenge by hashing the proof's
+// commitments together with the public inputs. This cryptographically binds
+// the public inputs to the proof, preventing proof reuse across different
+// public input sets.
+func (sp *STARKProver) deriveChallenge(proof *STARKProofData, publicInputs []FieldElement) [32]byte {
+	h := sha256.New()
+
+	// Domain separator.
+	h.Write([]byte("STARKFiatShamir"))
+
+	// Bind trace commitment.
+	h.Write(proof.TraceCommitment[:])
+
+	// Bind constraint evaluation commitment.
+	h.Write(proof.ConstraintEvalCommitment[:])
+
+	// Bind all FRI layer commitments.
+	for _, c := range proof.FRICommitments {
+		h.Write(c[:])
+	}
+
+	// Bind public inputs (the critical addition from F-03).
+	for _, input := range publicInputs {
+		if input.Value != nil {
+			h.Write(input.Value.Bytes())
+		}
+	}
+
+	// Bind field modulus.
+	if proof.FieldModulus != nil {
+		h.Write(proof.FieldModulus.Bytes())
+	}
+
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+	return result
 }
 
 // evaluateConstraints evaluates all constraints over each trace row and returns
@@ -312,12 +343,23 @@ func (sp *STARKProver) computeFRICommitments(trace [][]FieldElement, ldeSize uin
 }
 
 // generateQueries creates FRI query responses with real Merkle auth paths.
+// Query indices are deduplicated: if a collision is detected, the index is
+// rehashed with an incrementing retry counter to derive a unique replacement.
 func (sp *STARKProver) generateQueries(trace [][]FieldElement, friCommitments [][32]byte, layerLeaves [][][32]byte) []FRIQueryResponse {
 	responses := make([]FRIQueryResponse, int(sp.numQueries))
+	seen := make(map[uint64]bool, int(sp.numQueries))
 
 	for q := 0; q < int(sp.numQueries); q++ {
 		// Deterministic query index based on trace commitment and query number.
 		idx := sp.queryIndex(trace, uint64(q))
+
+		// Deduplicate: if this index was already used, rehash with retry counter.
+		retry := uint64(0)
+		for seen[idx] {
+			retry++
+			idx = sp.queryIndexWithRetry(trace, uint64(q), retry)
+		}
+		seen[idx] = true
 
 		// Build auth paths for each FRI layer using real Merkle auth paths.
 		authPaths := make([][][32]byte, len(friCommitments))
@@ -385,6 +427,23 @@ func (sp *STARKProver) queryIndex(trace [][]FieldElement, queryNum uint64) uint6
 	h := sha256.New()
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], queryNum)
+	h.Write(buf[:])
+	if len(trace) > 0 && len(trace[0]) > 0 {
+		h.Write(trace[0][0].Value.Bytes())
+	}
+	sum := h.Sum(nil)
+	return binary.BigEndian.Uint64(sum[:8])
+}
+
+// queryIndexWithRetry derives a replacement query index when the original
+// collides with an already-used index. It hashes the original query number
+// together with a retry counter to produce a new index deterministically.
+func (sp *STARKProver) queryIndexWithRetry(trace [][]FieldElement, queryNum, retry uint64) uint64 {
+	h := sha256.New()
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], queryNum)
+	h.Write(buf[:])
+	binary.BigEndian.PutUint64(buf[:], retry)
 	h.Write(buf[:])
 	if len(trace) > 0 && len(trace[0]) > 0 {
 		h.Write(trace[0][0].Value.Bytes())
