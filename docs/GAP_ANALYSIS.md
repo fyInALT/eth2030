@@ -1,6 +1,6 @@
 # ETH2030 Gap Analysis vs L1 Strawmap
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 ## Summary
 
@@ -211,3 +211,21 @@ All 65 roadmap items are validated via 30 Kurtosis devnet feature tests (14 road
 | ZK proofs | `Consensys/gnark` | ~1,700 | In refs/, Groth16/PLONK circuits |
 | SSZ codec | `ferranbt/fastssz` | ~300 | Tier 2 candidate, code-gen SSZ |
 | Reed-Solomon | `klauspost/reedsolomon` | ~2,000 | Tier 2 candidate |
+
+---
+
+## leanVM Security Audit
+
+Cross-audit of [leanEthereum](https://github.com/leanEthereum) repositories (leanMultisig, leanSig, leanSpec, fiat-shamir) — the minimal hash-based zkVM for XMSS signature aggregation using WHIR + SuperSpartan + Logup.
+
+| Metric | Value |
+|--------|-------|
+| **Total findings** | 18 (1 CRITICAL, 4 HIGH, 8 MEDIUM, 5 LOW) |
+| **Valid** | 12 |
+| **Partially valid** | 5 |
+| **False positive** | 1 (F-08: Merkle tree already parallelized) |
+| **GitHub issues filed** | 12 (across 4 repos) |
+| **Fix PRs submitted** | 4 (F-01 CRITICAL, F-02/03/04 HIGH) |
+| **eth2030 cross-fixes** | 4 (canonical fields, query dedup, FS binding, Grain LFSR) |
+
+See [docs/plans/lean-vm-audit.md](plans/lean-vm-audit.md) for the full line-by-line audit.

@@ -61,13 +61,15 @@ jobs:
         run: |
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          grep -E "^(ok|FAIL|---)" /tmp/test-output.txt | head -60 >> $GITHUB_STEP_SUMMARY || true
+          grep -E "^(ok|FAIL|---)" /tmp/test-output.txt | head -100 >> $GITHUB_STEP_SUMMARY || true
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-go@v5
         with:

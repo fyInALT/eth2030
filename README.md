@@ -21,10 +21,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Packages-48-blue?style=flat-square" alt="Packages" />
-  <img src="https://img.shields.io/badge/Tests-18%2C257-blue?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-18%2C400%2B-blue?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/EIPs-58%20supported-blue?style=flat-square" alt="EIPs supported (native + go-ethereum)" />
   <img src="https://img.shields.io/badge/EF%20State%20Tests-100%25%20(36%2C126)-brightgreen?style=flat-square" alt="EF Tests" />
-  <img src="https://img.shields.io/badge/LOC-713K-blue?style=flat-square" alt="LOC" />
+  <img src="https://img.shields.io/badge/LOC-720K-blue?style=flat-square" alt="LOC" />
 </p>
 
 <p align="center">
@@ -74,7 +74,7 @@ go build -o eth2030-geth ./cmd/eth2030-geth/
 # Sync with mainnet
 ./eth2030-geth --datadir ~/.eth2030-geth --authrpc.jwtsecret /path/to/jwt.hex
 
-# Run all tests (48 packages, 18,257 tests)
+# Run all tests (48 packages, 18,400+ tests)
 go test ./...
 
 # Run EF state test validation (36,126 vectors, 100% pass rate)
@@ -365,6 +365,7 @@ All 65 strawmap items are COMPLETE with real cryptographic backends wired (BLS, 
 
 - [docs/EIP_SPEC_IMPL.md](docs/EIP_SPEC_IMPL.md) -- EIP traceability: specs, implementations, tests (94+ EIPs)
 - [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) -- Full audit of 65 roadmap items
+- [docs/plans/lean-vm-audit.md](docs/plans/lean-vm-audit.md) -- leanVM security audit: 18 findings across 4 leanEthereum repos
 - [docs/PROGRESS.md](docs/PROGRESS.md) -- Progress report and completion tracking
 - [docs/DESIGN.md](docs/DESIGN.md) -- Architecture and implementation design
 - [docs/ROADMAP.md](docs/ROADMAP.md) -- L1 Strawmap timeline overview
@@ -395,7 +396,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Reference Submodules
 
-`refs/` contains 33 git submodules for upstream specs and implementations:
+`refs/` contains 37 git submodules for upstream specs and implementations:
 
 **Ethereum specs:** EIPs, ERCs, consensus-specs, execution-specs, execution-apis, beacon-APIs, builder-specs, consensus-spec-tests, execution-spec-tests
 
@@ -406,6 +407,8 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 **PQ research:** hash-sig (hash-based multi-sigs), ntt-eip (EIP-7885 NTT precompile), ethfalcon (FALCON on EVM)
 
 **Devops:** ethereum-package, benchmarkoor, erigone, xatu, consensoor
+
+**Audited:** leanMultisig, leanSig, leanSpec, fiat-shamir (leanEthereum — 18-finding security audit)
 
 ## License
 
