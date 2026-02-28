@@ -7,15 +7,8 @@ import (
 // TestNodeCreate verifies that a Node can be created with default config
 // and that all subsystems are initialized.
 func TestNodeCreate(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	// Blockchain must be initialized.
 	if n.Blockchain() == nil {
@@ -89,10 +82,7 @@ func TestNodeConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := DefaultConfig()
-			cfg.P2PPort = 0
-			cfg.RPCPort = 0
-			cfg.EnginePort = 0
+			cfg := makeTestConfig(t)
 			tt.modify(&cfg)
 
 			_, err := New(&cfg)
@@ -109,6 +99,11 @@ func TestNodeCreateWithNilConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(nil) error: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := n.Stop(); err != nil {
+			t.Errorf("Stop() error: %v", err)
+		}
+	})
 	if n.Config().Network != "mainnet" {
 		t.Errorf("network = %s, want mainnet", n.Config().Network)
 	}
@@ -120,15 +115,8 @@ func TestNodeCreateWithNilConfig(t *testing.T) {
 // TestNodeStartStopLifecycle verifies the full node lifecycle: create, start,
 // verify running state, stop, verify stopped state.
 func TestNodeStartStopLifecycle(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	// Start.
 	if err := n.Start(); err != nil {
@@ -155,15 +143,8 @@ func TestNodeStartStopLifecycle(t *testing.T) {
 // TestNodeSubsystemsAvailable verifies that all subsystems are accessible
 // after node creation.
 func TestNodeSubsystemsAvailable(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	// Blockchain should have genesis as current head.
 	head := n.Blockchain().CurrentBlock()
@@ -192,16 +173,9 @@ func TestNodeNetworkConfigs(t *testing.T) {
 	networks := []string{"mainnet", "sepolia", "holesky"}
 	for _, network := range networks {
 		t.Run(network, func(t *testing.T) {
-			cfg := DefaultConfig()
+			cfg := makeTestConfig(t)
 			cfg.Network = network
-			cfg.P2PPort = 0
-			cfg.RPCPort = 0
-			cfg.EnginePort = 0
-
-			n, err := New(&cfg)
-			if err != nil {
-				t.Fatalf("New() error for %s: %v", network, err)
-			}
+			n := newTestNode(t, &cfg)
 			if n.Config().Network != network {
 				t.Errorf("network = %s, want %s", n.Config().Network, network)
 			}
@@ -218,15 +192,8 @@ func TestNodeNetworkConfigs(t *testing.T) {
 // TestNodeBackendIntegration verifies the RPC backend adapter provides
 // correct chain data from the node's blockchain.
 func TestNodeBackendIntegration(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	backend := newNodeBackend(n)
 

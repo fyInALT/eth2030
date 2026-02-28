@@ -149,15 +149,8 @@ func TestConfigAddrs(t *testing.T) {
 
 func TestNewNode(t *testing.T) {
 	// Use ephemeral ports to avoid conflicts.
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 	if n.Blockchain() == nil {
 		t.Error("blockchain should not be nil")
 	}
@@ -184,6 +177,11 @@ func TestNewNode_NilConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(nil) error: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := n.Stop(); err != nil {
+			t.Errorf("Stop() error: %v", err)
+		}
+	})
 	if n.Config().Network != "mainnet" {
 		t.Errorf("expected mainnet, got %s", n.Config().Network)
 	}
@@ -199,15 +197,8 @@ func TestNewNode_InvalidConfig(t *testing.T) {
 }
 
 func TestNode_StartStop(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	if err := n.Start(); err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -224,15 +215,8 @@ func TestNode_StartStop(t *testing.T) {
 }
 
 func TestNode_StopWithoutStart(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	// Stop on a node that was never started should be a no-op.
 	if err := n.Stop(); err != nil {
@@ -241,15 +225,8 @@ func TestNode_StopWithoutStart(t *testing.T) {
 }
 
 func TestNode_DoubleStop(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	if err := n.Start(); err != nil {
 		t.Fatalf("Start() error: %v", err)
@@ -266,15 +243,8 @@ func TestNode_DoubleStop(t *testing.T) {
 }
 
 func TestNode_Running(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	if n.Running() {
 		t.Error("node should not be running before Start()")
@@ -299,15 +269,8 @@ func TestNode_Running(t *testing.T) {
 
 func TestNode_Lifecycle(t *testing.T) {
 	// Full lifecycle test: create, start, verify subsystems, stop.
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	// Verify subsystems are initialized before start.
 	if n.Blockchain() == nil {
@@ -350,15 +313,8 @@ func TestNode_Lifecycle(t *testing.T) {
 }
 
 func TestNode_Backend(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.P2PPort = 0
-	cfg.RPCPort = 0
-	cfg.EnginePort = 0
-
-	n, err := New(&cfg)
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
+	cfg := makeTestConfig(t)
+	n := newTestNode(t, &cfg)
 
 	// Test the RPC backend adapter.
 	backend := newNodeBackend(n)

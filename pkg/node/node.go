@@ -153,6 +153,18 @@ func (n *Node) Stop() error {
 	defer n.mu.Unlock()
 
 	if !n.running {
+		if n.db != nil {
+			if err := n.db.Close(); err != nil {
+				log.Printf("Database close error: %v", err)
+			}
+			n.db = nil
+		}
+		select {
+		case <-n.stop:
+			// stop channel already closed.
+		default:
+			close(n.stop)
+		}
 		return nil
 	}
 
@@ -177,6 +189,7 @@ func (n *Node) Stop() error {
 	if err := n.db.Close(); err != nil {
 		log.Printf("Database close error: %v", err)
 	}
+	n.db = nil
 
 	n.running = false
 	select {
