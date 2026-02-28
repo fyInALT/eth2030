@@ -203,7 +203,7 @@ func TestBlockErasureDecode_KOfN_AllCombinations(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	n := len(pieces) // 8
+	n := len(pieces)    // 8
 	k := cfg.DataShards // 4
 	combos := 0
 

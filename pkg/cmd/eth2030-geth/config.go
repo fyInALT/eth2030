@@ -100,9 +100,11 @@ func mapNodeConfig(p nodeConfigParams) gethnode.Config {
 			ListenAddr:       fmt.Sprintf(":%d", p.p2pPort),
 			DiscAddr:         discAddr,
 			MaxPeers:         p.maxPeers,
+			MaxPendingPeers:  50,
 			NAT:              natInterface,
 			BootstrapNodes:   bootstrapNodes,
 			BootstrapNodesV5: bootstrapNodesV5,
+			DiscoveryV5:      true,
 		},
 	}
 

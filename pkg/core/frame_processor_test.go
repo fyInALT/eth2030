@@ -206,15 +206,15 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 
 	to := types.HexToAddress("0x2222")
 	legacyMsg := Message{
-		From:     sender,
-		To:       &to,
-		Nonce:    0,
-		Value:    big.NewInt(0),
-		GasLimit: 21000,
-		GasPrice: big.NewInt(1),
+		From:      sender,
+		To:        &to,
+		Nonce:     0,
+		Value:     big.NewInt(0),
+		GasLimit:  21000,
+		GasPrice:  big.NewInt(1),
 		GasFeeCap: big.NewInt(1),
 		GasTipCap: big.NewInt(1),
-		TxType:  types.LegacyTxType,
+		TxType:    types.LegacyTxType,
 	}
 	gp2 := GasPool(30_000_000)
 	_, _ = applyMessage(TestConfig, func(n uint64) types.Hash { return types.Hash{} }, statedb2, header, &legacyMsg, &gp2)

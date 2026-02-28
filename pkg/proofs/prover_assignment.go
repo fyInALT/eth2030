@@ -14,24 +14,24 @@ import (
 
 // Prover assignment errors.
 var (
-	ErrPoolEmpty            = errors.New("prover_pool: no registered provers")
-	ErrNotEnoughProvers     = errors.New("prover_pool: not enough available provers")
-	ErrProverAlreadyExists  = errors.New("prover_pool: prover already registered")
-	ErrProverNotRegistered  = errors.New("prover_pool: prover not registered")
-	ErrZeroCapacity         = errors.New("prover_pool: capacity must be positive")
-	ErrInvalidCount         = errors.New("prover_pool: requested count must be positive")
-	ErrInvalidMinProvers    = errors.New("prover_pool: minProvers must be positive")
-	ErrProverAtCapacity     = errors.New("prover_pool: prover is at capacity")
-	ErrInvalidDecayFactor   = errors.New("reputation: decay factor must be in (0, 1]")
+	ErrPoolEmpty           = errors.New("prover_pool: no registered provers")
+	ErrNotEnoughProvers    = errors.New("prover_pool: not enough available provers")
+	ErrProverAlreadyExists = errors.New("prover_pool: prover already registered")
+	ErrProverNotRegistered = errors.New("prover_pool: prover not registered")
+	ErrZeroCapacity        = errors.New("prover_pool: capacity must be positive")
+	ErrInvalidCount        = errors.New("prover_pool: requested count must be positive")
+	ErrInvalidMinProvers   = errors.New("prover_pool: minProvers must be positive")
+	ErrProverAtCapacity    = errors.New("prover_pool: prover is at capacity")
+	ErrInvalidDecayFactor  = errors.New("reputation: decay factor must be in (0, 1]")
 )
 
 // Default reputation parameters.
 const (
-	initialReputation  = 0.5
-	maxReputation      = 1.0
-	minReputation      = 0.01
-	successIncrement   = 0.1
-	failureDecrement   = 0.2
+	initialReputation = 0.5
+	maxReputation     = 1.0
+	minReputation     = 0.01
+	successIncrement  = 0.1
+	failureDecrement  = 0.2
 )
 
 // ProverCandidate represents a prover with its current reputation and capacity.
@@ -50,10 +50,10 @@ func (pc *ProverCandidate) Available() int {
 
 // AssignmentResult holds the result of assigning provers to a block.
 type AssignmentResult struct {
-	BlockNum   uint64
-	ProverIDs  []string
-	Scores     []float64
-	Regions    []string
+	BlockNum  uint64
+	ProverIDs []string
+	Scores    []float64
+	Regions   []string
 }
 
 // ReputationScorer tracks prover reliability as the ratio of successful

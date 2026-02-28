@@ -33,10 +33,10 @@ var (
 
 // Default eclipse resistance constants.
 const (
-	DefaultMaxPeersPerSubnet = 4
+	DefaultMaxPeersPerSubnet  = 4
 	DefaultMinDistinctSubnets = 3
-	DefaultSybilThreshold    = 0.7
-	DefaultDiversityInterval = 30 * time.Second
+	DefaultSybilThreshold     = 0.7
+	DefaultDiversityInterval  = 30 * time.Second
 	// rapidJoinWindow is the time window for detecting rapid join patterns.
 	rapidJoinWindow = 60 // seconds
 )
@@ -86,9 +86,9 @@ type DiversityStats struct {
 // It tracks peers by their /16 subnet prefix and rejects new connections
 // that would exceed the per-subnet limit.
 type PeerDiversityValidator struct {
-	mu     sync.Mutex
-	config *EclipseResistanceConfig
-	peers  map[string]*peerEntry  // peerID -> entry
+	mu      sync.Mutex
+	config  *EclipseResistanceConfig
+	peers   map[string]*peerEntry // peerID -> entry
 	subnets map[string]int        // subnet -> count
 }
 

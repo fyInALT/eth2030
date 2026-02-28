@@ -12,9 +12,9 @@ import (
 func makeTestSSFRound(slot uint64, blockRoot types.Hash, voteCount int, stakePerVote uint64, finalized bool) *SSFRound {
 	round := &SSFRound{
 		Slot: slot, Phase: PhaseFinalize, BlockRoot: blockRoot,
-		Votes: make(map[types.Hash]*SSFRoundVote, voteCount),
+		Votes:       make(map[types.Hash]*SSFRoundVote, voteCount),
 		StakeByRoot: make(map[types.Hash]uint64),
-		Finalized: finalized, StartedAt: time.Now().Add(-100 * time.Millisecond), FinalizedAt: time.Now(),
+		Finalized:   finalized, StartedAt: time.Now().Add(-100 * time.Millisecond), FinalizedAt: time.Now(),
 	}
 	var totalStake uint64
 	for i := 0; i < voteCount; i++ {

@@ -99,11 +99,11 @@ type AuctionSettlement struct {
 // BuilderCoordinator manages the full lifecycle of builder bids for a slot:
 // registration, bidding, Vickrey settlement, delivery recording, and reputation.
 type BuilderCoordinator struct {
-	mu       sync.RWMutex
-	config   CoordinatorConfig
-	builders map[string]*coordinatorBuilder
-	bids     map[uint64][]*coordinatorBid // slot -> bids
-	deadlines map[uint64]time.Time       // slot -> first-bid timestamp (deadline anchor)
+	mu        sync.RWMutex
+	config    CoordinatorConfig
+	builders  map[string]*coordinatorBuilder
+	bids      map[uint64][]*coordinatorBid // slot -> bids
+	deadlines map[uint64]time.Time         // slot -> first-bid timestamp (deadline anchor)
 }
 
 // NewBuilderCoordinator creates a new coordinator with the given config.

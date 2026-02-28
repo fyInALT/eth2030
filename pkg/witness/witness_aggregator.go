@@ -212,9 +212,9 @@ func (wa *WitnessAggregator) Size(wr *WitnessRange) int {
 	for _, psa := range wr.MergedPreState {
 		size += 20 // address
 		size += len(psa.Balance)
-		size += 8  // nonce
-		size += 32 // code hash
-		size += 1  // exists flag
+		size += 8                     // nonce
+		size += 32                    // code hash
+		size += 1                     // exists flag
 		size += len(psa.Storage) * 64 // key + value
 	}
 

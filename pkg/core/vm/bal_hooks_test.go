@@ -230,13 +230,13 @@ func TestBALHook_CallEmitsAddressTouch(t *testing.T) {
 	evm.callGasTemp = 50000
 
 	stack := NewStack()
-	stack.Push(new(big.Int))                      // retLength
-	stack.Push(new(big.Int))                      // retOffset
-	stack.Push(new(big.Int))                      // argsLength
-	stack.Push(new(big.Int))                      // argsOffset
-	stack.Push(new(big.Int))                      // value = 0
+	stack.Push(new(big.Int))                     // retLength
+	stack.Push(new(big.Int))                     // retOffset
+	stack.Push(new(big.Int))                     // argsLength
+	stack.Push(new(big.Int))                     // argsOffset
+	stack.Push(new(big.Int))                     // value = 0
 	stack.Push(new(big.Int).SetBytes(target[:])) // addr
-	stack.Push(new(big.Int).SetUint64(50000))     // gas
+	stack.Push(new(big.Int).SetUint64(50000))    // gas
 
 	_, err := opCall(new(uint64), evm, contract, NewMemory(), stack)
 	if err != nil {

@@ -242,7 +242,7 @@ func TestReservoirGasCost_NonzeroToNonzero(t *testing.T) {
 func TestReservoirGasCost_ClearSlot(t *testing.T) {
 	var original, current [32]byte
 	original[31] = 5
-	current[31] = 5 // original == current
+	current[31] = 5     // original == current
 	var newVal [32]byte // zero (clearing)
 
 	var res uint64 = 50_000

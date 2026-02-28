@@ -18,16 +18,16 @@ import (
 
 // BFT finality pipeline errors.
 var (
-	ErrBFTPipelineNilConfig        = errors.New("bft_pipeline: nil config")
-	ErrBFTPipelineNilRound         = errors.New("bft_pipeline: nil round")
+	ErrBFTPipelineNilConfig         = errors.New("bft_pipeline: nil config")
+	ErrBFTPipelineNilRound          = errors.New("bft_pipeline: nil round")
 	ErrBFTPipelineRoundNotFinalized = errors.New("bft_pipeline: round is not finalized")
-	ErrBFTPipelineNoVotes          = errors.New("bft_pipeline: round has no votes")
-	ErrBFTPipelineInvalidEpoch     = errors.New("bft_pipeline: invalid epoch")
-	ErrBFTPipelineStoreCapacity    = errors.New("bft_pipeline: checkpoint store at capacity")
+	ErrBFTPipelineNoVotes           = errors.New("bft_pipeline: round has no votes")
+	ErrBFTPipelineInvalidEpoch      = errors.New("bft_pipeline: invalid epoch")
+	ErrBFTPipelineStoreCapacity     = errors.New("bft_pipeline: checkpoint store at capacity")
 	ErrBFTPipelineInsufficientStake = errors.New("bft_pipeline: insufficient stake in round")
-	ErrBFTPipelineZeroConfirmation = errors.New("bft_pipeline: confirmation depth must be > 0")
-	ErrBFTPipelineZeroInterval     = errors.New("bft_pipeline: checkpoint interval must be > 0")
-	ErrBFTPipelineZeroMaxPending   = errors.New("bft_pipeline: max pending must be > 0")
+	ErrBFTPipelineZeroConfirmation  = errors.New("bft_pipeline: confirmation depth must be > 0")
+	ErrBFTPipelineZeroInterval      = errors.New("bft_pipeline: checkpoint interval must be > 0")
+	ErrBFTPipelineZeroMaxPending    = errors.New("bft_pipeline: max pending must be > 0")
 )
 
 // BFTPipelineCheckpoint is a finalized checkpoint produced by the BFT

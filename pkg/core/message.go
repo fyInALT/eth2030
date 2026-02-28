@@ -8,22 +8,22 @@ import (
 
 // Message represents a transaction message prepared for EVM execution.
 type Message struct {
-	From       types.Address
-	To         *types.Address // nil for contract creation
-	Nonce      uint64
-	Value      *big.Int
-	GasLimit   uint64
-	GasPrice   *big.Int
-	GasFeeCap  *big.Int
-	GasTipCap  *big.Int
-	Data       []byte
-	AccessList types.AccessList
-	BlobHashes []types.Hash
+	From        types.Address
+	To          *types.Address // nil for contract creation
+	Nonce       uint64
+	Value       *big.Int
+	GasLimit    uint64
+	GasPrice    *big.Int
+	GasFeeCap   *big.Int
+	GasTipCap   *big.Int
+	Data        []byte
+	AccessList  types.AccessList
+	BlobHashes  []types.Hash
 	AuthList    []types.Authorization // EIP-7702 authorization list for SetCode transactions
-	Frames      []types.Frame        // EIP-8141 frame transaction frames
-	FrameSender types.Address        // EIP-8141 frame tx sender (from FrameTx.Sender)
-	TxType      uint8                // transaction type (for fork-specific processing)
-	TxHash      types.Hash           // transaction hash for log attribution
+	Frames      []types.Frame         // EIP-8141 frame transaction frames
+	FrameSender types.Address         // EIP-8141 frame tx sender (from FrameTx.Sender)
+	TxType      uint8                 // transaction type (for fork-specific processing)
+	TxHash      types.Hash            // transaction hash for log attribution
 }
 
 // TransactionToMessage converts a transaction into a Message for execution.

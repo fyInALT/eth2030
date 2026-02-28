@@ -17,17 +17,17 @@ import (
 
 // Hybrid threshold errors.
 var (
-	ErrHTInvalidThreshold  = errors.New("hybrid_threshold: threshold t must be >= 1")
-	ErrHTInvalidTotal      = errors.New("hybrid_threshold: total n must be >= 1")
-	ErrHTThresholdExceeds  = errors.New("hybrid_threshold: threshold t must be <= total n")
-	ErrHTDuplicateSigner   = errors.New("hybrid_threshold: duplicate signer index")
-	ErrHTSignerOutOfRange  = errors.New("hybrid_threshold: signer index out of range [0, n)")
-	ErrHTEmptyShare        = errors.New("hybrid_threshold: share has neither classical nor PQ signature")
-	ErrHTRequireBoth       = errors.New("hybrid_threshold: config requires both classical and PQ signatures")
-	ErrHTNilShare          = errors.New("hybrid_threshold: nil share")
-	ErrHTEmptyMessage      = errors.New("hybrid_threshold: empty message")
-	ErrHTInvalidClassical  = errors.New("hybrid_threshold: classical signature is empty")
-	ErrHTInvalidPQ         = errors.New("hybrid_threshold: PQ signature is empty")
+	ErrHTInvalidThreshold = errors.New("hybrid_threshold: threshold t must be >= 1")
+	ErrHTInvalidTotal     = errors.New("hybrid_threshold: total n must be >= 1")
+	ErrHTThresholdExceeds = errors.New("hybrid_threshold: threshold t must be <= total n")
+	ErrHTDuplicateSigner  = errors.New("hybrid_threshold: duplicate signer index")
+	ErrHTSignerOutOfRange = errors.New("hybrid_threshold: signer index out of range [0, n)")
+	ErrHTEmptyShare       = errors.New("hybrid_threshold: share has neither classical nor PQ signature")
+	ErrHTRequireBoth      = errors.New("hybrid_threshold: config requires both classical and PQ signatures")
+	ErrHTNilShare         = errors.New("hybrid_threshold: nil share")
+	ErrHTEmptyMessage     = errors.New("hybrid_threshold: empty message")
+	ErrHTInvalidClassical = errors.New("hybrid_threshold: classical signature is empty")
+	ErrHTInvalidPQ        = errors.New("hybrid_threshold: PQ signature is empty")
 )
 
 // SignatureWeighting assigns relative weight to classical vs PQ signatures
