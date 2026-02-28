@@ -1,0 +1,123 @@
+From 550849ee220506cf67c151ac68f0d2a7ffdbe538 Mon Sep 17 00:00:00 2001
+From: YQ AltLayer <y@altresear.ch>
+Date: Sat, 28 Feb 2026 15:53:12 +0000
+Subject: [PATCH] fix: increase XMSS seed from 160 bits to 256 bits
+
+The XMSS secret key seed is [u8; 20] (160 bits), which provides only
+80 bits of security against brute-force (birthday bound) and falls
+below the 128-bit security target. An attacker with ~2^80 computation
+could recover the seed and forge signatures for any slot.
+
+Increase the seed to [u8; 32] (256 bits) providing a full 128-bit
+security margin. The sub-key derivation functions (gen_wots_secret_key,
+gen_random_node) are updated to use XOR-based domain separation on the
+full 32-byte seed instead of the previous concatenation scheme.
+
+BREAKING CHANGE: xmss_key_gen() now takes [u8; 32] instead of
+[u8; 20]. All callers and tests are updated.
+
+Severity: HIGH (F-04)
+---
+ crates/xmss/src/xmss.rs         | 30 +++++++++++++++++-------------
+ crates/xmss/tests/xmss_tests.rs |  4 ++--
+ src/lib.rs                      |  2 +-
+ 3 files changed, 20 insertions(+), 16 deletions(-)
+
+diff --git a/crates/xmss/src/xmss.rs b/crates/xmss/src/xmss.rs
+index 364cf2a..beb05b9 100644
+--- a/crates/xmss/src/xmss.rs
++++ b/crates/xmss/src/xmss.rs
+@@ -8,7 +8,7 @@ use crate::*;
+ pub struct XmssSecretKey {
+     pub(crate) slot_start: u32, // inclusive
+     pub(crate) slot_end: u32,   // inclusive
+-    pub(crate) seed: [u8; 20],
++    pub(crate) seed: [u8; 32],
+     // At level l, stored indices go from (slot_start >> l) to (slot_end >> l).
+     pub(crate) merkle_tree: Vec<Vec<Digest>>,
+ }
+@@ -25,22 +25,26 @@ pub struct XmssPublicKey {
+     pub merkle_root: Digest,
+ }
+ 
+-fn gen_wots_secret_key(seed: &[u8; 20], slot: u32) -> WotsSecretKey {
+-    let mut rng_seed = [0u8; 32];
+-    rng_seed[..20].copy_from_slice(seed);
+-    rng_seed[20] = 0x00;
+-    rng_seed[21..25].copy_from_slice(&slot.to_le_bytes());
++fn gen_wots_secret_key(seed: &[u8; 32], slot: u32) -> WotsSecretKey {
++    let mut rng_seed = *seed;
++    // Domain-separate by XORing a tag byte and the slot into fixed positions.
++    rng_seed[0] ^= 0x57; // 'W' for WOTS domain
++    for (i, b) in slot.to_le_bytes().iter().enumerate() {
++        rng_seed[1 + i] ^= b;
++    }
+     let mut rng = StdRng::from_seed(rng_seed);
+     WotsSecretKey::random(&mut rng)
+ }
+ 
+ /// Deterministic pseudo-random digest for an out-of-range tree node.
+-fn gen_random_node(seed: &[u8; 20], level: usize, index: u32) -> Digest {
+-    let mut rng_seed = [0u8; 32];
+-    rng_seed[..20].copy_from_slice(seed);
+-    rng_seed[20] = 0x01;
+-    rng_seed[21] = level as u8;
+-    rng_seed[22..26].copy_from_slice(&index.to_le_bytes());
++fn gen_random_node(seed: &[u8; 32], level: usize, index: u32) -> Digest {
++    let mut rng_seed = *seed;
++    // Domain-separate by XORing a tag byte, level, and index into fixed positions.
++    rng_seed[0] ^= 0x4E; // 'N' for Node domain
++    rng_seed[1] ^= level as u8;
++    for (i, b) in index.to_le_bytes().iter().enumerate() {
++        rng_seed[2 + i] ^= b;
++    }
+     let mut rng = StdRng::from_seed(rng_seed);
+     rng.random()
+ }
+@@ -51,7 +55,7 @@ pub enum XmssKeyGenError {
+ }
+ 
+ pub fn xmss_key_gen(
+-    seed: [u8; 20],
++    seed: [u8; 32],
+     slot_start: u32,
+     slot_end: u32,
+ ) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {
+diff --git a/crates/xmss/tests/xmss_tests.rs b/crates/xmss/tests/xmss_tests.rs
+index 7e60cae..c707121 100644
+--- a/crates/xmss/tests/xmss_tests.rs
++++ b/crates/xmss/tests/xmss_tests.rs
+@@ -6,7 +6,7 @@ type F = KoalaBear;
+ 
+ #[test]
+ fn test_xmss_serialize_deserialize() {
+-    let keygen_seed: [u8; 20] = std::array::from_fn(|i| i as u8);
++    let keygen_seed: [u8; 32] = std::array::from_fn(|i| i as u8);
+     let message: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3 + 7));
+ 
+     let (sk, pk) = xmss_key_gen(keygen_seed, 100, 115).unwrap();
+@@ -25,7 +25,7 @@ fn test_xmss_serialize_deserialize() {
+ 
+ #[test]
+ fn keygen_sign_verify() {
+-    let keygen_seed: [u8; 20] = std::array::from_fn(|i| i as u8);
++    let keygen_seed: [u8; 32] = std::array::from_fn(|i| i as u8);
+     let message: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3 + 7));
+ 
+     let (sk, pk) = xmss_key_gen(keygen_seed, 100, 115).unwrap();
+diff --git a/src/lib.rs b/src/lib.rs
+index 2133e14..e7d7489 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -30,7 +30,7 @@ mod tests {
+         let start = 555;
+         let end = 565;
+         let slot = 560;
+-        let key_gen_seed: [u8; 20] = rand::rng().random();
++        let key_gen_seed: [u8; 32] = rand::rng().random();
+         let message_hash: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3));
+ 
+         let (secret_key, pub_key) = xmss_key_gen(key_gen_seed, start, end).unwrap();
+-- 
+2.43.0
+

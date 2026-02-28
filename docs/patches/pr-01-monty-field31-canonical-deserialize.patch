@@ -1,0 +1,38 @@
+From 4dc37d451137d714cca73a68dbbccb79df406181 Mon Sep 17 00:00:00 2001
+From: YQ AltLayer <y@altresear.ch>
+Date: Sat, 28 Feb 2026 15:48:58 +0000
+Subject: [PATCH] fix: add canonical range check to MontyField31
+ deserialization
+
+The Deserialize impl for MontyField31 accepts any u32 and passes it
+directly to new_monty() without verifying val < PRIME. An attacker can
+supply a value >= PRIME that is stored as-is in Montgomery form,
+creating a non-canonical field element. This breaks the field invariant
+(value < P) and can cause incorrect arithmetic, forged proofs, or
+consensus divergence.
+
+Add a range check that rejects values >= FP::PRIME with a descriptive
+serde error.
+
+Severity: CRITICAL (F-01)
+---
+ crates/backend/koala-bear/src/monty_31/monty_31.rs | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/crates/backend/koala-bear/src/monty_31/monty_31.rs b/crates/backend/koala-bear/src/monty_31/monty_31.rs
+index b4be71e..7de88fa 100644
+--- a/crates/backend/koala-bear/src/monty_31/monty_31.rs
++++ b/crates/backend/koala-bear/src/monty_31/monty_31.rs
+@@ -160,6 +160,9 @@ impl<'de, FP: FieldParameters> Deserialize<'de> for MontyField31<FP> {
+     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+         // It's faster to Serialize and Deserialize in monty form.
+         let val = u32::deserialize(d)?;
++        if val >= FP::PRIME {
++            return Err(serde::de::Error::custom("non-canonical MontyField31 value"));
++        }
+         Ok(Self::new_monty(val))
+     }
+ }
+-- 
+2.43.0
+

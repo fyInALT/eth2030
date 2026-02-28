@@ -1,0 +1,48 @@
+From 0b87d3251453b8dbbc461654c15b86d4ae309476 Mon Sep 17 00:00:00 2001
+From: YQ AltLayer <y@altresear.ch>
+Date: Sat, 28 Feb 2026 15:49:39 +0000
+Subject: [PATCH] fix: deduplicate STIR query indices to preserve soundness
+
+get_challenge_stir_queries delegates directly to sample_in_range which
+can return duplicate indices. When duplicate query indices occur, the
+effective number of distinct queries is reduced, weakening the
+soundness guarantee of the STIR protocol. For example, if num_queries
+is 128 but only 120 are unique, the verifier gets ~8 fewer independent
+checks than the security parameter requires.
+
+Replace the single sample_in_range call with a loop that uses a
+HashSet to track seen indices and keeps sampling until exactly
+num_queries distinct indices are collected.
+
+Severity: HIGH (F-02)
+---
+ crates/whir/src/utils.rs | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/crates/whir/src/utils.rs b/crates/whir/src/utils.rs
+index e647991..5d4fe09 100644
+--- a/crates/whir/src/utils.rs
++++ b/crates/whir/src/utils.rs
+@@ -21,7 +21,18 @@ pub(crate) fn get_challenge_stir_queries<F: Field, Chal: ChallengeSampler<F>>(
+     num_queries: usize,
+     challenger: &mut Chal,
+ ) -> Vec<usize> {
+-    challenger.sample_in_range(folded_domain_size.ilog2() as usize, num_queries)
++    let bits = folded_domain_size.ilog2() as usize;
++    let mut indices = Vec::with_capacity(num_queries);
++    let mut seen = std::collections::HashSet::with_capacity(num_queries);
++    while indices.len() < num_queries {
++        let batch = challenger.sample_in_range(bits, num_queries - indices.len());
++        for idx in batch {
++            if seen.insert(idx) {
++                indices.push(idx);
++            }
++        }
++    }
++    indices
+ }
+ 
+ /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.
+-- 
+2.43.0
+

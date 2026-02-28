@@ -1,0 +1,70 @@
+From c8c890d95cf01e34dd19a329942f5312c10775b0 Mon Sep 17 00:00:00 2001
+From: YQ AltLayer <y@altresear.ch>
+Date: Sat, 28 Feb 2026 15:51:00 +0000
+Subject: [PATCH] fix: bind public inputs to Fiat-Shamir transcript in
+ ProverState::new
+
+ProverState::new() creates a fresh challenger without absorbing any
+public inputs into the sponge state. This means the Fiat-Shamir
+transcript is not bound to the statement being proved: an adversary
+can reuse a valid proof for statement S1 as a "proof" for a different
+statement S2 that shares the same witness structure, since the
+challenge generation is identical for both.
+
+Modify new() to accept a public_inputs slice and absorb it into the
+challenger via add_base_scalars() before any proof generation begins.
+This ensures all challenges are derived from a transcript that
+includes the public statement, preventing cross-statement proof
+reuse.
+
+BREAKING CHANGE: ProverState::new() now requires a second argument
+`public_inputs: &[PF<EF>]`. Callers with no public inputs can pass
+`&[]` to preserve the previous behavior.
+
+Severity: HIGH (F-03)
+---
+ src/prover.rs     | 8 ++++++--
+ tests/grinding.rs | 2 +-
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/prover.rs b/src/prover.rs
+index e79ddbe..93dc514 100644
+--- a/src/prover.rs
++++ b/src/prover.rs
+@@ -24,14 +24,18 @@ where
+     PF<EF>: PrimeField64,
+ {
+     #[must_use]
+-    pub fn new(permutation: P) -> Self {
++    pub fn new(permutation: P, public_inputs: &[PF<EF>]) -> Self {
+         assert!(EF::DIMENSION <= RATE);
+-        Self {
++        let mut state = Self {
+             challenger: DuplexChallenger::new(permutation),
+             transcript: Vec::new(),
+             n_zeros: 0,
+             _extension_field: std::marker::PhantomData,
++        };
++        if !public_inputs.is_empty() {
++            state.add_base_scalars(public_inputs);
+         }
++        state
+     }
+ 
+     pub fn proof_size_fe(&self) -> usize {
+diff --git a/tests/grinding.rs b/tests/grinding.rs
+index a6755ba..af4254a 100644
+--- a/tests/grinding.rs
++++ b/tests/grinding.rs
+@@ -12,7 +12,7 @@ type EF = QuinticExtensionFieldKB;
+ fn bench_grinding() {
+     let n_reps = 100;
+     for grinding_bits in [5, 10, 15, 20] {
+-        let mut prover_state = ProverState::<EF, _>::new(get_poseidon16());
++        let mut prover_state = ProverState::<EF, _>::new(get_poseidon16(), &[]);
+         let time = Instant::now();
+         for _ in 0..n_reps {
+             prover_state.pow_grinding(grinding_bits);
+-- 
+2.43.0
+
