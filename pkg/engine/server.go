@@ -405,7 +405,7 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
-	if len(body) > maxRequestSize {
+	if int64(len(body)) > maxRequestSize {
 		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}

@@ -6,6 +6,8 @@
 - [x] Add execution and run-level correctness lemmas for the expanded opcodes.
 - [x] Add bytecode-offset interpreter (`runBytecode`) and decoding helpers (`decodeAt`, `decodeNoImmediate`, `decodePush`).
 - [x] Document offset-vs-index jump mismatch using an executable counterexample theorem pair (`run` vs `runBytecode`).
+- [x] Configure Lean workspace test driver (`lake test`) and add a unified Lean test module.
+- [x] Add `.gitignore` entries for Lean artifacts (`.lake`, `*.olean`, `*.ilean`).
 - [ ] Add a full refinement theorem from `compile` to bytecode-offset execution (`compile`↔`runBytecode`).
 - [ ] Add machine-state fields for `pc`/memory/calldata/accounting as separate invariants.
 - [ ] Prove compilation soundness for a larger instruction subset with controlled jump targets.

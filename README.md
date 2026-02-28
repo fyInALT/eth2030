@@ -364,6 +364,7 @@ All 65 strawmap items are COMPLETE with real cryptographic backends wired (BLS, 
 ## Documentation
 
 - [docs/EIP_SPEC_IMPL.md](docs/EIP_SPEC_IMPL.md) -- EIP traceability: specs, implementations, tests (94+ EIPs)
+- [docs/strategies/lean-vm-riscv-implementation.md](docs/strategies/lean-vm-riscv-implementation.md) -- Lean 4 strategy for formal VM and RISC-V compiler-chain proof development
 - [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) -- Full audit of 65 roadmap items
 - [docs/plans/lean-vm-audit.md](docs/plans/lean-vm-audit.md) -- leanVM security audit: 18 findings across 4 leanEthereum repos
 - [docs/PROGRESS.md](docs/PROGRESS.md) -- Progress report and completion tracking
@@ -419,4 +420,3 @@ also included in our repository in the `COPYING.LESSER` file.
 The ETH2030 binaries (i.e. all code inside of the `cmd` directory) are licensed under the
 [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html), also
 included in our repository in the `COPYING` file.
-
