@@ -106,7 +106,7 @@ EIP-7702 delegation processing in this codebase occurs in two separate places wi
 
 3. **`gasEIP2929AccountCheck` warms the call target inside `dynamicGas`** (before `UseGas` is called), so the call target is always warmed regardless of whether gas suffices. No separate `access_cost` check for the delegated address is performed at all.
 
-4. The BAL tracker (`pkg/bal/tracker.go`) has no `RecordAddressAccess` method. The BAL is populated by `populateTracker` using a pre/post snapshot comparison restricted to the tx sender and recipient; it cannot observe delegation resolution access patterns.
+4. The BAL tracker (`pkg/bal/tracker.go`) has `RecordAddressTouch` at line 74, which adds an address to `touchedAddrs` without recording any change. This is also part of the `BALTracker` interface in `pkg/core/vm/bal_tracker.go`. However, the delegation resolution path in the EVM call handler does not currently call it for the delegated address.
 
 ### Gaps and Proposed Solutions
 
@@ -114,6 +114,6 @@ EIP-7702 delegation processing in this codebase occurs in two separate places wi
 
 2. **No `access_cost` gate for the delegated address**: The spec requires a fresh `access_cost` check for the delegated address (warm=100, cold=2600) after the call target has been accessed. If this check fails OOG, the delegated address must not appear in the BAL. Currently no such check exists anywhere in the call path.
 
-3. **`bal.AccessTracker` lacks `RecordAddressAccess`**: The tracker has `RecordBalanceChange`, `RecordStorageRead`, etc., but no method for a pure address touch (no state change). A new `RecordAddressAccess(addr)` method must be added to `AccessTracker` that adds the address to `touchedAddrs` without recording any change, so that empty-change-list entries appear in the BAL for delegation targets.
+3. **`bal.AccessTracker` has `RecordAddressTouch`**: The method `RecordAddressTouch(addr types.Address)` exists at `pkg/bal/tracker.go` line 74 and is part of the `BALTracker` interface. It adds the address to `touchedAddrs` without recording any change, producing empty-change-list entries in the BAL. This method needs to be called for delegation targets in the EVM call path.
 
 4. **Authorization-time BAL recording missing**: When `ProcessAuthorizations` successfully sets delegation code and increments nonce, the authority address must appear in the BAL with nonce and code changes. Currently `populateTracker` is called with only sender/recipient pre-state; it misses the authority addresses in the authorization list.

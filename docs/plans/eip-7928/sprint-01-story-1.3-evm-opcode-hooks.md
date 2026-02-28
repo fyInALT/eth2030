@@ -209,8 +209,8 @@ It **MUST** include:
 
 | File | Relevance |
 |------|-----------|
-| `pkg/core/vm/interpreter.go` | EVM struct definition — has `Context`, `TxContext`, `StateDB`, `Config`, `depth`, `readOnly`, `jumpTable`, `precompiles`, `returnData`, `callGasTemp`, `witnessGas`, `forkRules`, `FrameCtx`; no `AccessTracker` or `TxIndex` fields |
-| `pkg/core/vm/instructions.go` | Contains `opSload`, `opSstore`, `opBalance`, `opCall`, `opCallCode`, `opExtcodesize`, `opExtcodecopy`, `opCreate`, `opCreate2` — none emit BAL events |
+| `pkg/core/vm/interpreter.go` | EVM struct with `balTracker BALTracker`, `txIndex uint64`, `Context`, `TxContext`, `StateDB`, `Config`, `depth`, `readOnly`, `jumpTable`, `precompiles`, `returnData`, `callGasTemp`, `witnessGas`, `forkRules`, `FrameCtx`; `Call()` method records balance changes for value transfers |
+| `pkg/core/vm/instructions.go` | Contains opcode implementations with BAL hooks: 15+ call sites using `evm.balTracker.RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordAddressTouch` |
 | `pkg/core/vm/evm_storage_ops.go` | `StorageOpHandler` wraps SLOAD/SSTORE with gas accounting via `AccessListTracker`; no BAL emit calls |
 | `pkg/core/vm/evm_call_handlers.go` | `CallHandler` orchestrates CALL-family opcodes; no BAL emit calls |
 | `pkg/core/vm/evm_create.go` | `CreateExecutor` handles CREATE/CREATE2 lifecycle; no BAL emit calls |
@@ -224,11 +224,11 @@ It **MUST** include:
 
 ### Current Status
 
-Not implemented.
+Complete. The EVM struct has `balTracker BALTracker` and `txIndex uint64` fields, and 15+ opcodes in `instructions.go` emit BAL events via `evm.balTracker`.
 
 ### Architecture Notes
 
-The EVM struct (`pkg/core/vm/interpreter.go`) does not carry `AccessTracker` or `TxIndex` fields. All state-touching opcodes in `instructions.go` and the handler files (`evm_storage_ops.go`, `evm_call_handlers.go`, `evm_create.go`) access `evm.StateDB` directly without any BAL emit calls.
+The EVM struct (`pkg/core/vm/interpreter.go`) carries `balTracker BALTracker` and `txIndex uint64` fields, set via `SetBALTracker(t BALTracker, txIdx uint64)`. All state-touching opcodes in `instructions.go` check `evm.balTracker != nil` and call the appropriate recorder methods. The `Call()` method in `interpreter.go` also records balance changes for value transfers.
 
 The gas validation ordering is already partially correct: `AccessListTracker.TouchSlot` / `TouchAddress` is called by the dynamic gas functions (via `gas_eip2929.go`) **before** the opcode body reads state — which aligns with the spec's pre-state validation requirement. BAL emit calls should therefore be placed **after** the gas deduction succeeds (i.e., after the existing `TouchSlot`/`TouchAddress` calls), to match the spec's rule that the target is included only when pre-state validation passes.
 
@@ -238,14 +238,15 @@ Key spec nuance: `SSTORE` no-op writes (where `post-value == pre-value`) must ap
 
 ### Gaps and Proposed Solutions
 
-| Gap | Proposed Solution |
+All gaps from the original plan are resolved:
+
+| Original Gap | Resolution |
 |-----|-------------------|
-| EVM struct lacks `AccessTracker AccessTracker` field | Add field to EVM struct in `pkg/core/vm/interpreter.go`; initialize to `NewNoopAccessTracker()` in `NewEVM()` (depends on Story 1.1) |
-| EVM struct lacks `TxIndex uint16` field | Add `TxIndex uint16` to EVM struct; caller (block processor) sets it before each tx |
-| `opSload` does not emit BAL read event | After `evm.StateDB.GetState(...)`, call `evm.AccessTracker.RecordStorageRead(addr, slot, evm.TxIndex)` |
-| `opSstore` does not emit BAL write/read event | After the `SetState` call, call `RecordStorageWrite` if value changed, else `RecordStorageRead` for no-op writes (pre-value == post-value check already exists in `SstoreGasCost`) |
-| `opBalance`, `opExtcodesize`, `opExtcodecopy`, `opExtcodehash` do not emit address access | Add `evm.AccessTracker.RecordAddressAccess(addr.Bytes20(), evm.TxIndex)` after the state read |
-| CALL family opcodes do not emit address or balance events | In `evm_call_handlers.go` `HandleCall`, emit `RecordAddressAccess` for target; emit `RecordBalanceChange` for sender/recipient if `value > 0` |
-| `opCreate` / `opCreate2` do not emit deployment events | After successful deployment in `evm_create.go`, emit `RecordAddressAccess`, `RecordCodeChange`, `RecordNonceChange` for the new contract and `RecordNonceChange` for the caller |
-| Pre-state validation gate not enforced in hooks | Hooks should be placed only inside the successful-gas-deduction path; since gas deduction already happens first in existing code, placing hooks after the state access call is sufficient |
-| `SELFBALANCE` must NOT be hooked | Do not add any `RecordAddressAccess` call in `opSelfBalance` — spec explicitly excludes it |
+| EVM struct lacks tracker fields | `balTracker BALTracker` and `txIndex uint64` exist on the `EVM` struct; set via `SetBALTracker(t, txIdx)` |
+| `opSload` does not emit BAL read event | `instructions.go` line ~583: `evm.balTracker.RecordStorageRead(contract.Address, key, val)` |
+| `opSstore` does not emit BAL write/read event | `instructions.go` lines ~626-655: emits `RecordStorageRead` for no-op writes and `RecordStorageChange` for actual changes |
+| Account-read opcodes do not emit address access | `instructions.go`: `RecordAddressTouch(addr)` calls in BALANCE, EXTCODESIZE, EXTCODECOPY, EXTCODEHASH, CALL targets, etc. (15+ call sites) |
+| CALL family opcodes do not emit balance events | `interpreter.go` `Call()` method records `RecordBalanceChange` for both sender and recipient when `value > 0` |
+| CREATE/CREATE2 do not emit deployment events | `interpreter.go` `create()` method records `RecordBalanceChange` for creator and contract address when `value > 0` |
+| Pre-state validation gate | Hooks are placed after gas deduction succeeds, inside the execution path |
+| `SELFBALANCE` must NOT be hooked | Confirmed: no `RecordAddressTouch` call in `opSelfBalance` |

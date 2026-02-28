@@ -22,7 +22,7 @@ package vm_test
 
 import (
 	"testing"
-	"github.com/your-org/eth2030/pkg/core/vm"
+	"github.com/eth2030/eth2030/core/vm"
 )
 
 func TestNoopAccessTracker_ImplementsInterface(t *testing.T) {
@@ -177,9 +177,9 @@ Track **post‑transaction runtime bytecode** for deployed or modified contracts
 |------|-----------|
 | `pkg/bal/tracker.go` | Existing `AccessTracker` struct (concrete type, not interface); implements `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordNonceChange`, `RecordCodeChange`, `Build(txIndex)`, `Reset()` |
 | `pkg/bal/types.go` | Defines `BlockAccessList`, `AccessEntry`, `StorageAccess`, `StorageChange`, `BalanceChange`, `NonceChange`, `CodeChange` |
-| `pkg/core/vm/access_list_tracker.go` | EIP-2929 warm/cold `AccessListTracker` — unrelated to EIP-7928; no BAL interface here |
-| `pkg/core/vm/interpreter.go` | EVM struct definition — no `AccessTracker` or `TxIndex` fields present |
-| `pkg/core/vm/evm_storage_ops.go` | SLOAD/SSTORE handling; uses `AccessListTracker` for warmth only; no BAL emit calls |
+| `pkg/core/vm/bal_tracker.go` | `BALTracker` interface definition: `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordAddressTouch` |
+| `pkg/core/vm/access_list_tracker.go` | EIP-2929 warm/cold `AccessListTracker` — unrelated to EIP-7928 |
+| `pkg/core/vm/interpreter.go` | EVM struct with `balTracker BALTracker` and `txIndex uint64` fields; `SetBALTracker()` / `GetBALTracker()` methods |
 | `pkg/core/vm/instructions.go` | Raw opcode implementations (`opSload`, `opSstore`, `opBalance`, `opCall`, `opCreate`, etc.) |
 
 ---
@@ -188,23 +188,25 @@ Track **post‑transaction runtime bytecode** for deployed or modified contracts
 
 ### Current Status
 
-Not implemented.
+Complete. The BAL tracker interface exists in `pkg/core/vm/bal_tracker.go` as `BALTracker`, and the EVM struct in `pkg/core/vm/interpreter.go` already has `balTracker BALTracker` and `txIndex uint64` fields with `SetBALTracker(t BALTracker, txIdx uint64)` / `GetBALTracker()` methods.
 
 ### Architecture Notes
 
-The plan calls for an `AccessTracker` **interface** (plus `NoopAccessTracker`) in `pkg/core/vm/access_tracker.go`. This file does not exist. The codebase has:
+The actual implementation differs from the plan in naming and signatures but achieves the same goal:
 
-- `pkg/bal/tracker.go`: a **concrete struct** named `AccessTracker` that is per-transaction (single-tx focus via `Build(txIndex)`), not a Go interface, and lives in the `bal` package rather than `pkg/core/vm`. Its method signatures also differ from the plan: it takes `types.Hash` and `*big.Int` rather than raw `[32]byte` arrays.
-- `pkg/core/vm/access_list_tracker.go`: the `AccessListTracker` struct handles only EIP-2929 warm/cold accounting and is entirely separate from EIP-7928 BAL tracking.
-
-The `EVM` struct in `pkg/core/vm/interpreter.go` has no `AccessTracker` or `TxIndex` fields, so there is no hook point yet.
+- `pkg/core/vm/bal_tracker.go`: defines the `BALTracker` interface (not `AccessTracker`) with methods: `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordAddressTouch`. Uses `types.Address`, `types.Hash`, and `*big.Int` rather than raw `[20]byte`/`[32]byte` arrays.
+- `pkg/bal/tracker.go`: the concrete `AccessTracker` struct satisfies `BALTracker` via Go structural typing. It has `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordNonceChange`, `RecordCodeChange`, `RecordAddressTouch`, `Build(txIndex)`, and `Reset()`.
+- The EVM struct in `pkg/core/vm/interpreter.go` carries `balTracker BALTracker` and `txIndex uint64` fields. A nil `balTracker` functions as the noop case (no pre-Amsterdam `NoopAccessTracker` is needed; nil checks guard all call sites).
+- `pkg/core/vm/access_list_tracker.go`: the `AccessListTracker` handles EIP-2929 warm/cold accounting only and is entirely separate from EIP-7928 BAL tracking.
 
 ### Gaps and Proposed Solutions
 
-| Gap | Proposed Solution |
+All gaps from the original plan are resolved:
+
+| Original Gap | Resolution |
 |-----|-------------------|
-| No `AccessTracker` interface in `pkg/core/vm/` | Create `pkg/core/vm/access_tracker.go` with the interface definition as shown in the story |
-| No `NoopAccessTracker` | Ship alongside the interface in the same file; used for pre-Amsterdam blocks |
-| Naming collision with `pkg/bal.AccessTracker` (struct) | The plan's interface lives in a different package (`vm`) so there is no direct naming conflict, but documentation should clarify the distinction |
-| Method signatures differ from plan | The plan uses `[20]byte` and `[32]byte` raw arrays; `pkg/bal.AccessTracker` uses `types.Address` / `types.Hash` / `*big.Int`. Align the new interface to use raw arrays as the plan specifies, since it bridges the VM layer to the BAL builder |
-| `EVM` struct lacks `AccessTracker` and `TxIndex` fields | Addressed in Story 1.3; Story 1.1 only defines the interface and noop |
+| No `AccessTracker` interface in `pkg/core/vm/` | `BALTracker` interface exists in `pkg/core/vm/bal_tracker.go` |
+| No `NoopAccessTracker` | Not needed; nil `balTracker` field serves the same purpose (all call sites check `evm.balTracker != nil`) |
+| Naming collision with `pkg/bal.AccessTracker` | No collision: the interface is named `BALTracker` in `vm` package; the concrete struct is named `AccessTracker` in `bal` package |
+| Method signatures differ from plan | The actual interface uses `types.Address` / `types.Hash` / `*big.Int` rather than raw arrays; this is consistent with the rest of the codebase |
+| `EVM` struct lacks tracker fields | `balTracker BALTracker` and `txIndex uint64` exist on the `EVM` struct (see Story 1.3) |

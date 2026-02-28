@@ -14,11 +14,11 @@
 
 ## Tasks
 
-### Task 8.1.1 — ComputeSigHash Implementation
+### Task 8.1.1 — ComputeFrameSigHash Implementation
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `ComputeSigHash(tx *FrameTx) common.Hash`: (1) deep-copy `tx`; (2) for each frame where `mode == VERIFY`, set `frame.data = []byte{}`; (3) RLP-encode the modified transaction; (4) return `keccak256(rlp_bytes)`. Must not mutate the original transaction. |
+| **Description** | The function is `ComputeFrameSigHash(tx *FrameTx) Hash` in `pkg/core/types/tx_frame.go`: (1) builds a copy with VERIFY frame data set to `[]byte{}`; (2) RLP-encodes the modified transaction; (3) returns `keccak256(0x06 || rlp(modified_tx))`. Does not mutate the original transaction. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) VERIFY frames → hash differs from full-data hash; (2) no VERIFY frames → hash equals standard RLP hash; (3) different VERIFY data → same sig hash; (4) `frame.target` of VERIFY NOT elided — changing it changes hash; (5) no mutation of original tx. |
@@ -28,10 +28,10 @@
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Pre-compute `ComputeSigHash` once at tx entry and store in `FrameContext.SigHash`. Avoids recomputation on every `TXPARAMLOAD(0x08)`. |
+| **Description** | Pre-compute `ComputeFrameSigHash` once at tx entry and store in `FrameContext.SigHash`. Already wired in `processor.go:1047`. Avoids recomputation on every `TXPARAMLOAD(0x08)`. |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | Core Protocol Engineer |
-| **Testing Method** | Assert `FrameContext.SigHash` is non-zero after pre-processing; `TXPARAMLOAD(0x08)` returns same value as independent `ComputeSigHash`. |
+| **Testing Method** | Assert `FrameContext.SigHash` is non-zero after pre-processing; `TXPARAMLOAD(0x08)` returns same value as independent `ComputeFrameSigHash`. |
 | **Definition of Done** | Pre-computation verified; no recomputation in opcode handler; reviewed. |
 
 ---

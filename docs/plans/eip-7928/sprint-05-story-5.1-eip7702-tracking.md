@@ -117,13 +117,13 @@ Not implemented.
 
 Additionally, the current tracker design stores one change per address (a `map[addrKey]*NonceChange`), overwriting previous entries. The spec requires a list of `NonceChange` entries with `BlockAccessIndex` — for EIP-7702 this means the authority nonce and code changes from the SetCode transaction must be tagged with the transaction's index `i+1`. The current `AccessEntry.NonceChange` is a single pointer, not a slice, which diverges from the spec's per-index list model.
 
-The plan also calls `tracker.RecordAddressAccess` for the failed-authorization case, but no `RecordAddressAccess` method exists on `AccessTracker`; the equivalent is recording a touched address, which currently only happens as a side-effect of the other `Record*` methods.
+The plan calls `tracker.RecordAddressAccess` for the failed-authorization case. The equivalent method `RecordAddressTouch(addr types.Address)` exists at `pkg/bal/tracker.go` line 74, adding the address to `touchedAddrs` without recording any change. It is also part of the `BALTracker` interface in `pkg/core/vm/bal_tracker.go`.
 
 ### Gaps and Proposed Solutions
 
 1. **No BAL emission in `processOneAuthorization`**: Add an `*AccessTracker` parameter (or accept a callback) to `ProcessAuthorizations` / `processOneAuthorization`. After `statedb.SetCode` / `statedb.SetNonce`, call `tracker.RecordNonceChange` and `tracker.RecordCodeChange`. On failed-after-load authorization, call `tracker.RecordAddressAccess` (which needs to be added as a new method that merely adds the address to `touchedAddrs`).
 
-2. **Missing `RecordAddressAccess` method**: Add `func (t *AccessTracker) RecordAddressAccess(addr types.Address)` to `pkg/bal/tracker.go` that inserts into `t.touchedAddrs` without recording any field change.
+2. **`RecordAddressTouch` method exists**: `func (t *AccessTracker) RecordAddressTouch(addr types.Address)` already exists at `pkg/bal/tracker.go` line 74. It inserts into `t.touchedAddrs` without recording any field change. This gap is resolved.
 
 3. **Single-change-per-address limitation**: The `AccessEntry` structs use single-pointer fields (`NonceChange *NonceChange`) rather than slices. For EIP-7702 the authority address may have nonce and code changes from the SetCode tx and then additional changes if the delegated code executes. A deeper refactor to per-index slices is needed for full spec compliance; for this story, the minimal fix of recording the changes at the correct `txIndex` is sufficient.
 

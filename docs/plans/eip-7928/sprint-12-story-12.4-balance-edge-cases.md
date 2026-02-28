@@ -123,7 +123,7 @@ The correctness concern is more subtle: the pre-snapshot at `capturePreState` do
 
 ### Gaps and Proposed Solutions
 
-1. **Accessed-but-unchanged address not guaranteed in BAL**: If an address appears in `preBalances` (because it is the sender or recipient) but has no net balance change and no nonce change, it will not be added to `touchedAddrs` in the tracker and thus will not appear in the BAL at all. The spec (lines 224-226) requires the address to be present in `AccountChanges`. Solution: in `populateTracker`, always call `tracker.RecordTouchedAddress(addr)` (a new method to add) for every address in `preBalances`, even when no change is detected.
+1. **Accessed-but-unchanged address not guaranteed in BAL**: If an address appears in `preBalances` (because it is the sender or recipient) but has no net balance change and no nonce change, it will not be added to `touchedAddrs` in the tracker and thus will not appear in the BAL at all. The spec (lines 224-226) requires the address to be present in `AccountChanges`. Solution: in `populateTracker`, always call `tracker.RecordAddressTouch(addr)` (already exists at `pkg/bal/tracker.go` line 74) for every address in `preBalances`, even when no change is detected.
 
 2. **No `pkg/bal/builder.go` exists**: The story references `pkg/bal/builder.go` but the actual BAL population logic resides in `pkg/bal/tracker.go` and the `populateTracker` helper in `pkg/core/processor.go`. The `pkg/bal/` package has no `builder.go` file. The story's architecture diagram does not match the actual implementation structure.
 

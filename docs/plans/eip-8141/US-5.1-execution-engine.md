@@ -80,22 +80,23 @@
 
 | File | Relevance |
 |------|-----------|
-| `pkg/core/vm/aa_executor.go` | EIP-7701 AA executor — handles type 0x04 only. **Cannot be reused for EIP-8141.** |
+| `pkg/core/frame_execution.go` | `ExecuteFrameTx` — complete frame dispatch loop with nonce validation, mode dispatch, SENDER/VERIFY guards, payer check, gas refund, receipt building |
+| `pkg/core/processor.go:1038-1143` | Wires `ExecuteFrameTx` into state processor: sets up `FrameContext`, builds `callFn` callback, transient storage clearing, nonce increment |
+| `pkg/core/vm/aa_executor.go` | EIP-7701 AA executor — handles type 0x04 only. **Not used for EIP-8141.** |
 | `pkg/core/vm/eip8141_opcodes.go:38-56` | `FrameContext` struct (approval flags, tx params, frame list) |
-| `pkg/core/types/tx_frame.go:227-248` | `ValidateFrameTx` static checks |
+| `pkg/core/types/tx_frame.go:243-268` | `ValidateFrameTx` static checks |
 
 ## Implementation Status
 
-**❌ Not Implemented**
+**✅ Complete**
 
-- ❌ No `FrameExecutor` or frame dispatch loop exists
-- ❌ No nonce validation before frame execution
-- ❌ No `sender_approved`/`payer_approved` state machine
-- ❌ No post-loop `payer_approved` check
-- ❌ No gas refund to payer
-- ❌ No state atomicity (snapshot/revert on invalid tx)
-
-**Action needed:** Create `pkg/core/vm/frame_executor.go` implementing the complete frame dispatch loop.
+- ✅ `ExecuteFrameTx` in `pkg/core/frame_execution.go`: nonce validation, frame dispatch loop, mode dispatch (DEFAULT/VERIFY/SENDER), SENDER guard (`sender_approved`), VERIFY guard (APPROVE required), post-loop `payer_approved` check
+- ✅ `CalcFrameRefund` computes gas refund (`sum(frame.gas_limit) - total_gas_used`)
+- ✅ `MaxFrameTxCost` computes max ETH cost (wired into `FrameContext.MaxCost` in processor.go)
+- ✅ `BuildFrameReceipt` constructs receipt from execution context
+- ✅ `processApprove` handles APPROVE scope 0/1/2 with monotonic flags
+- ✅ `processor.go` wires everything: `FrameContext` setup, `ComputeFrameSigHash` pre-computation, transient storage clearing between frames, APPROVE tracking via `ApproveCalledThisFrame`/`LastApproveScope`, frame status recording, nonce increment after execution
+- ⚠️ **Gap:** State atomicity (snapshot/revert on invalid tx) — `ExecuteFrameTx` returns an error on invalid conditions, but processor.go does not take a snapshot before frame execution to roll back partial state changes
 
 ---
 

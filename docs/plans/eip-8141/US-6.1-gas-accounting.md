@@ -28,7 +28,7 @@
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `CalldataCostFrames(frames []Frame) uint64`: RLP-encode frames list, apply 4 gas/zero byte + 16 gas/non-zero byte. Added to `FRAME_TX_INTRINSIC_COST` in `CalcFrameTxGas`. |
+| **Description** | Compute calldata cost for the RLP-encoded frames list: 4 gas/zero byte + 16 gas/non-zero byte. Added to `FRAME_TX_INTRINSIC_COST` in `CalcFrameTxGas`. Note: the actual implementation computes calldata cost inline within `CalcFrameTxGas` (via `CalldataTokenGas`), not as a separate exported function. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) All-zero data → 4 * bytes. (2) All non-zero → 16 * bytes. (3) Mixed → correct weighted sum. (4) Compare with EIP data-efficiency table (134 bytes). |
@@ -55,12 +55,13 @@
 
 ## Implementation Status
 
-**⚠️ Partially Implemented**
+**✅ Mostly Implemented**
 
 - ✅ `CalcFrameTxGas` implemented (intrinsic + calldata + sum of frame limits)
 - ✅ `FrameTxIntrinsicCost = 15000` defined
-- ❌ **Missing:** Per-frame gas isolation in execution (no executor yet)
-- ❌ **Missing:** Overflow detection in `CalcFrameTxGas`
+- ✅ Per-frame gas isolation implemented in `processor.go:1083-1091` (frame gas limit capped to remaining gas, passed independently to each EVM call)
+- ✅ `CalcFrameRefund` computes `sum(frame.gas_limit) - total_gas_used` in `frame_execution.go:177-189`
+- ⚠️ **Gap:** Overflow detection in `CalcFrameTxGas`
 
 ---
 

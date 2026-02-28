@@ -80,7 +80,7 @@ From the Edge Cases section:
 | `pkg/core/vm/evm_call_handlers.go` | `runPrecompile`: executes the precompile, charges gas, returns result; no `RecordAddressAccess` call |
 | `pkg/core/vm/interpreter.go` | `warmPrecompiles`: adds all 19 precompile addresses (0x01–0x13) to the state access list at transaction start via `evm.StateDB.AddAddressToAccessList`; does not emit BAL events |
 | `pkg/core/vm/access_list_tracker.go` | `PrePopulate`: also pre-warms precompile addresses (0x01–0x13) without journal; this is EIP-2929 warm tracking only, not BAL recording |
-| `pkg/bal/tracker.go` | `AccessTracker`: `RecordBalanceChange`, `touchedAddrs`; no `RecordAddressAccess` method for pure address-touch |
+| `pkg/bal/tracker.go` | `AccessTracker`: `RecordBalanceChange`, `RecordAddressTouch` (line 74), `touchedAddrs`; `RecordAddressTouch` exists for pure address-touch |
 
 ---
 
@@ -104,8 +104,8 @@ There is also a discrepancy in target files: the story plan refers to `pkg/core/
 
 1. **No BAL emission in `runPrecompile`**: When a precompile is called, `RecordAddressAccess` must be called for the precompile's address. Solution: add a BAL event recorder to the EVM (or pass it into `HandleCall`), and emit `RecordAddressAccess(addr)` inside `runPrecompile` after the gas check passes but before (or after) execution. If `params.Value.Sign() > 0`, also emit `RecordBalanceChange` for the precompile address using the post-execution balance.
 
-2. **`bal.AccessTracker` missing `RecordAddressAccess`**: A method that adds an address to `touchedAddrs` without recording any change is needed to produce the empty-change-list entry the spec requires for zero-value precompile calls. This method must be added to `AccessTracker`.
+2. **`bal.AccessTracker` has `RecordAddressTouch`**: The method `RecordAddressTouch(addr types.Address)` exists at `pkg/bal/tracker.go` line 74, adding the address to `touchedAddrs` without recording any change. It is also part of the `BALTracker` interface in `pkg/core/vm/bal_tracker.go`. The EVM's `Call()` path already calls `evm.balTracker.RecordAddressTouch` for precompile targets indirectly via the value-transfer path, but a direct call may be needed for zero-value precompile calls.
 
 3. **`capturePreState` does not include precompile addresses**: Even if `populateTracker` were extended to detect value-bearing precompile calls, the pre-balance of the precompile is not captured. Precompile tracking requires either in-EVM instrumentation (in `runPrecompile`) or extending `capturePreState` to iterate over all call targets parsed from EVM bytecode — the former is far simpler.
 
-4. **Wrong target file in the story plan**: The plan refers to `pkg/core/vm/evm.go` but the precompile dispatch lives in `pkg/core/vm/evm_call_handlers.go` (`CallHandler.HandleCall` and `runPrecompile`). The implementation work should target that file.
+4. **Wrong target file in the story plan**: The plan refers to `pkg/core/vm/evm.go` but the precompile dispatch lives in `pkg/core/vm/interpreter.go` (the `Call()` method handles precompile detection at line 409 via `evm.precompile(addr)` and runs them via `runPrecompile`). Note: there is no file named `evm.go` in `pkg/core/vm/`. The correct file to modify for precompile BAL tracking is `pkg/core/vm/interpreter.go`.

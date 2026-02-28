@@ -151,15 +151,15 @@ Not implemented. Neither `pkg/bal/apply.go` nor `pkg/bal/apply_test.go` exist.
 
 The plan's `ApplyBAL` implementation is semantically correct for the current `types.go` data model, but there are type-level mismatches that must be resolved before it can compile:
 
-1. **`entry.BalanceChanges` (plural) does not exist**: `AccessEntry.BalanceChange` is a single `*BalanceChange` pointer, not a slice. The plan loops over `entry.BalanceChanges[n-1]` as if it were a slice; the real field is `entry.BalanceChange.NewValue`.
+1. **`entry.BalanceChanges` (plural) does not exist**: `AccessEntry.BalanceChange` is a single `*BalanceChange` pointer, not a slice. The plan loops over `entry.BalanceChanges[n-1]` as if it were a slice; the correct access is `entry.BalanceChange` (singular, check non-nil).
 
-2. **`entry.NonceChanges` and `entry.CodeChanges` (plural) do not exist**: Likewise, `AccessEntry.NonceChange` and `AccessEntry.CodeChange` are single pointers.
+2. **`entry.NonceChanges` and `entry.CodeChanges` (plural) do not exist**: Likewise, `AccessEntry.NonceChange *NonceChange` and `AccessEntry.CodeChange *CodeChange` are single pointers, not slices.
 
-3. **`BalanceChange.PostBalance` field does not exist**: The `BalanceChange` struct has `OldValue *big.Int` and `NewValue *big.Int`. The plan references `last.PostBalance[:]`, which should be `entry.BalanceChange.NewValue`.
+3. **`BalanceChange.PostBalance` field does not exist**: The `BalanceChange` struct has `OldValue *big.Int` and `NewValue *big.Int`. The plan references `last.PostBalance[:]`; the correct field is `entry.BalanceChange.NewValue`.
 
-4. **`StorageChange.Changes` slice does not exist**: `StorageChange` has `OldValue` and `NewValue` directly, not a slice of changes. The plan loops `for _, sc := range entry.StorageChanges` and then `sc.Changes[len(sc.Changes)-1]` — the correct field is `sc.NewValue`.
+4. **`StorageChange.Changes` slice does not exist**: `StorageChange` has `Slot types.Hash`, `OldValue types.Hash`, and `NewValue types.Hash` directly, not a nested slice of changes. The plan loops `sc.Changes[len(sc.Changes)-1]`; the correct access is `sc.NewValue` directly.
 
-5. **`StateWriter.SetBalance` signature**: The plan's `StateWriter` takes `*big.Int`, consistent with `BalanceChange.NewValue`.
+5. **`StateWriter.SetBalance` signature**: The plan's `StateWriter` takes `*big.Int`, which is consistent with `BalanceChange.NewValue *big.Int`.
 
 The current `AccessTracker.Build` collapses all changes for a given address into a single `AccessEntry` (one balance change, one nonce change, one code change). The spec requires per-`BlockAccessIndex` lists so that `ApplyBAL` applies the final value — the highest index — but with the current single-pointer model the final value is already the only stored value.
 

@@ -18,7 +18,7 @@
 
 | Field | Detail |
 |-------|--------|
-| **Description** | In the frame execution engine (`pkg/core/core/aa_executor.go` or equivalent), when a frame has `mode == DEFAULT`, set the `caller` of the EVM call to `ENTRY_POINT` (`address(0xaa)`). Confirm `EntryPointAddress` is defined in `pkg/core/types/tx_frame.go` as `HexToAddress("0x00000000000000000000000000000000000000aa")`. No state-modification restrictions apply. |
+| **Description** | In the frame execution engine (`pkg/core/frame_execution.go` or equivalent), when a frame has `mode == DEFAULT`, set the `caller` of the EVM call to `ENTRY_POINT` (`address(0xaa)`). Confirm `EntryPointAddress` is defined in `pkg/core/types/tx_frame.go` as `HexToAddress("0x00000000000000000000000000000000000000aa")`. No state-modification restrictions apply. |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | Integration test: deploy a contract that records `msg.sender`; execute a DEFAULT frame targeting it; assert `msg.sender == ENTRY_POINT`. |
@@ -28,7 +28,7 @@
 
 | Field | Detail |
 |-------|--------|
-| **Description** | When a frame has `mode == VERIFY`, the EVM call must behave as a `STATICCALL` — all standard state-modifying opcodes (`SSTORE`, `LOG*`, `CREATE*`, `SELFDESTRUCT`, `CALL` with non-zero value) must result in exceptional halt; the `readOnly` flag must be `true` and propagated through all sub-calls. The frame's caller must be `ENTRY_POINT`. **Critical exception:** the `APPROVE` opcode (`0xaa`) is explicitly permitted in VERIFY frames despite STATICCALL semantics. `APPROVE` modifies **transaction-scoped** state (`sender_approved`, `payer_approved`, nonce, balance), not EVM account/storage state; therefore `opApprove` must bypass the `readOnly` check and is the only state-changing action allowed. After frame completion, detect whether `APPROVE` was called by inspecting whether `sender_approved` or `payer_approved` changed during the frame; if neither changed (APPROVE was never called successfully), mark the entire transaction invalid. Integrate with `pkg/core/core/aa_executor.go`. |
+| **Description** | When a frame has `mode == VERIFY`, the EVM call must behave as a `STATICCALL` — all standard state-modifying opcodes (`SSTORE`, `LOG*`, `CREATE*`, `SELFDESTRUCT`, `CALL` with non-zero value) must result in exceptional halt; the `readOnly` flag must be `true` and propagated through all sub-calls. The frame's caller must be `ENTRY_POINT`. **Critical exception:** the `APPROVE` opcode (`0xaa`) is explicitly permitted in VERIFY frames despite STATICCALL semantics. `APPROVE` modifies **transaction-scoped** state (`sender_approved`, `payer_approved`, nonce, balance), not EVM account/storage state; therefore `opApprove` must bypass the `readOnly` check and is the only state-changing action allowed. After frame completion, detect whether `APPROVE` was called by inspecting whether `sender_approved` or `payer_approved` changed during the frame; if neither changed (APPROVE was never called successfully), mark the entire transaction invalid. Integrate with `pkg/core/frame_execution.go`. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | (1) VERIFY frame that calls `SSTORE` → exceptional halt. (2) VERIFY frame that calls `LOG0` → exceptional halt. (3) VERIFY frame that calls `APPROVE(0x2)` → succeeds despite STATICCALL; both `sender_approved` and `payer_approved` become true. (4) VERIFY frame that calls `APPROVE` followed by `SSTORE` — APPROVE succeeds (exits frame), SSTORE never executes (APPROVE terminates frame like RETURN). (5) Integration test: VERIFY frame completes without any APPROVE → transaction invalid. (6) Assert caller is `ENTRY_POINT` inside VERIFY frame and all sub-calls. (7) Sub-call from within VERIFY frame also sees `readOnly = true`; (8) VERIFY frame that issues a `CALL` opcode with non-zero value → exceptional halt (value transfer is blocked by STATICCALL semantics). |
@@ -67,16 +67,15 @@
 
 ## Implementation Status
 
-**⚠️ Partially Implemented**
+**✅ Mostly Implemented**
 
-- ✅ Mode constants defined
+- ✅ Mode constants defined (`ModeDefault=0`, `ModeVerify=1`, `ModeSender=2`)
 - ✅ `EntryPointAddress` defined as `0x00...00aa`
-- ❌ **Missing:** Frame execution dispatcher — `aa_executor.go` handles EIP-7701, not EIP-8141. A new `FrameExecutor` is needed.
-- ❌ **Missing:** VERIFY mode STATICCALL enforcement (readOnly flag)
-- ❌ **Missing:** SENDER mode `sender_approved` guard
-- ❌ **Missing:** Null target → `tx.sender` substitution in execution logic
-
-**Refactoring needed:** Create `pkg/core/vm/frame_executor.go` for the EIP-8141 frame dispatch loop.
+- ✅ Frame execution dispatcher in `pkg/core/frame_execution.go`: `ExecuteFrameTx` handles all three modes (DEFAULT/VERIFY → `ENTRY_POINT` caller, SENDER → `tx.sender` caller)
+- ✅ SENDER mode `sender_approved` guard (`ErrFrameSenderNotApproved`)
+- ✅ VERIFY mode APPROVE requirement enforced (`ErrFrameVerifyNoApprove`)
+- ✅ Null target → `tx.sender` substitution in frame_execution.go lines 66-69
+- ⚠️ **Gap:** VERIFY mode STATICCALL enforcement (readOnly flag) — not set in processor.go's `callFn` callback
 
 ---
 

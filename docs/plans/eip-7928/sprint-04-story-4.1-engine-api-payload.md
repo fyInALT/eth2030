@@ -163,7 +163,7 @@ The EL MUST retain BALs for at least the duration of the weak subjectivity perio
 |------|-----------|
 | `pkg/engine/engine_glamsterdam.go` | `GlamsterdamBackend` interface; `HandleNewPayloadV5()` checks `payload.BlockAccessList != nil` then delegates to `backend.NewPayloadV5()`; exposes `HandleGetPayloadV5()` (V5, not V6) |
 | `pkg/engine/server.go` | `EngineAPI.NewPayloadV5()` validates Amsterdam fork gate, blob hashes, and non-nil BAL, then calls `backend.ProcessBlockV5()`; `EngineAPI.GetPayloadV6()` delegates to `backend.GetPayloadV6ByID()` with Amsterdam fork check |
-| `pkg/engine/backend.go` | `ProcessBlockV5()` processes the block and does a shallow BAL comparison (compares provided bytes against an empty computed BAL); `GetPayloadV6ByID()` calls `blockToPayloadV5()` with `nil` BAL field |
+| `pkg/engine/backend.go` | `ProcessBlockV5()` processes the block via `ProcessWithBAL()` and compares the computed BAL against the provided one; `GetPayloadV6ByID()` calls `blockToPayloadV5()` with `pending.bal`; `ForkchoiceUpdatedV4()` computes BAL during block building |
 | `pkg/engine/types.go` | `ExecutionPayloadV5` (extends V4 with `BlockAccessList json.RawMessage`); `GetPayloadV6Response` (returns `*ExecutionPayloadV5`) |
 | `pkg/engine/handler.go` | JSON-RPC dispatch including `engine_getPayloadV6` route |
 
@@ -187,19 +187,19 @@ The plan expects `getPayloadV6` to:
 2. RLP-encode the `BlockAccessList` from the build result
 3. Return it inside `ExecutionPayloadV5.BlockAccessList`
 
-The actual `engine_newPayloadV5` path (`server.go` → `backend.ProcessBlockV5()`) is partially wired. `ProcessBlockV5()` calls `processor.Process()` (not `ProcessWithBAL()`), so it never computes the actual BAL from execution. It then creates an empty `bal.NewBlockAccessList()`, encodes it, and compares the encoded bytes against the provided `blockAccessList` bytes. This comparison is wrong for any non-empty block: it always succeeds for an empty BAL and always fails for a non-empty one.
+The actual `engine_newPayloadV5` path (`server.go` → `backend.ProcessBlockV5()`) is correctly wired. `ProcessBlockV5()` at `backend.go` line 383 calls `b.processor.ProcessWithBAL(block, stateCopy)` to compute the actual BAL from execution. It then compares the computed BAL encoding against the provided `blockAccessList` bytes.
 
-The `engine_getPayloadV6` path exists at the handler and server level. `GetPayloadV6ByID()` in `backend.go` calls `blockToPayloadV5(pending.block, ..., nil)` — the `nil` BAL argument means the returned `ExecutionPayloadV5.BlockAccessList` is always `nil` or `json.RawMessage("null")`. No actual BAL is populated in the response.
+The `engine_getPayloadV6` path exists at the handler and server level. `GetPayloadV6ByID()` in `backend.go` at line 553 calls `blockToPayloadV5(pending.block, ..., pending.bal)`, passing the BAL computed during `ForkchoiceUpdatedV4`. The `pendingPayload` struct has a `bal *bal.BlockAccessList` field (line 21) that is populated during block building.
 
 The `engine_glamsterdam.go` file does not expose `getPayloadV6` — only `getPayloadV5`. The V6 route lives in `server.go`/`handler.go` as part of the main `EngineAPI`, separate from `EngineGlamsterdam`.
 
 ### Gaps and Proposed Solutions
 
-1. **`ProcessBlockV5` uses `processor.Process()` instead of `ProcessWithBAL()`.** The actual BAL is never computed during `newPayloadV5` validation, so the hash comparison is always against an empty BAL. Solution: replace `b.processor.Process(block, stateCopy)` with `b.processor.ProcessWithBAL(block, stateCopy)`, capture `result.BlockAccessList`, encode it with `EncodeRLP()`, and compare the bytes against `providedBALBytes`.
+1. **`ProcessBlockV5` correctly uses `ProcessWithBAL()`.** At `backend.go` line 383, `b.processor.ProcessWithBAL(block, stateCopy)` is called. The `result.BlockAccessList` is used for comparison against the provided BAL bytes. This gap is resolved.
 
-2. **BAL comparison in `ProcessBlockV5` always uses an empty BAL.** Even after fixing point 1, the current comparison logic (`computedEncoded` from `bal.NewBlockAccessList()`) must be replaced with the actual execution result. Solution: use `result.BlockAccessList.EncodeRLP()` as the reference encoding in the byte comparison.
+2. **BAL comparison in `ProcessBlockV5` uses the actual execution result.** The comparison at lines 394-416 encodes the computed BAL via `computedBAL.EncodeRLP()` and compares against the provided bytes. A fallback to `bal.NewBlockAccessList()` handles the nil case. This gap is resolved.
 
-3. **`GetPayloadV6ByID` returns a nil `BlockAccessList`.** The `pendingPayload` struct does not store the BAL built during block construction. Solution: add a `blockAccessList *bal.BlockAccessList` field to `pendingPayload`, populate it during `ForkchoiceUpdatedV4` when `BuildBlock`/`BuildBlockLegacy` is called, then serialize it in `GetPayloadV6ByID` via `bal.EncodeRLP()`.
+3. **`GetPayloadV6ByID` returns the built BAL.** The `pendingPayload` struct has a `bal *bal.BlockAccessList` field (line 21), populated during `ForkchoiceUpdatedV4` (lines 493-500) via `b.processor.ProcessWithBAL()`. `GetPayloadV6ByID` passes `pending.bal` to `blockToPayloadV5` at line 553. This gap is resolved.
 
 4. **`engine_newPayloadV5` BAL validation test files are absent.** The plan lists `pkg/engine/newpayloadv5_test.go` and `pkg/engine/getpayloadv6_test.go`. The existing BAL payload tests are in `pkg/engine/payload_test.go` (`TestNewPayloadV5_ValidBAL`, `TestNewPayloadV5_InvalidBAL`, `TestGetPayloadV6_Success`), but `TestNewPayloadV5_ValidBAL` passes a non-nil BAL while the backend still compares against an empty computed BAL, so the test only works for the empty-block case. Solution: once the `ProcessWithBAL` integration is fixed, update the tests to cover non-empty blocks.
 

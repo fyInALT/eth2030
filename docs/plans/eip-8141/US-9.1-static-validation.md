@@ -18,7 +18,7 @@
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `ValidateFrameTxStatic(tx *FrameTx) error`: (1) `tx.chain_id < 2^256` (check nil); (2) `tx.nonce < 2^64`; (3) `1 <= len(tx.frames) <= MAX_FRAMES (1000)`; (4) `len(tx.sender) == 20`; (5) for each frame: `frame.mode < 3`; (6) for each frame: `frame.target == nil || len(frame.target) == 20`. Return descriptive error per violation. |
+| **Description** | Implement `ValidateFrameTx(tx *FrameTx) error`: (1) `tx.chain_id < 2^256` (check nil); (2) `tx.nonce < 2^64`; (3) `1 <= len(tx.frames) <= MAX_FRAMES (1000)`; (4) `len(tx.sender) == 20`; (5) for each frame: `frame.mode < 3`; (6) for each frame: `frame.target == nil || len(frame.target) == 20`. Return descriptive error per violation. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | Table-driven: one test per constraint violation. Boundary: `nonce = 2^64 - 1` (valid), `nonce = 2^64` (invalid); `len(frames) = 0` (invalid), `1` (valid), `1000` (valid), `1001` (invalid). |

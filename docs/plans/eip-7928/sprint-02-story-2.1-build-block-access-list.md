@@ -18,8 +18,8 @@ package bal_test
 
 import (
 	"testing"
-	"github.com/your-org/eth2030/pkg/bal"
-	"github.com/your-org/eth2030/pkg/core/vm"
+	"github.com/eth2030/eth2030/bal"
+	"github.com/eth2030/eth2030/core/vm"
 )
 
 func TestBuildFromEvents_SingleAddress(t *testing.T) {
@@ -63,7 +63,7 @@ package bal
 
 import (
 	"sort"
-	"github.com/your-org/eth2030/pkg/core/vm"
+	"github.com/eth2030/eth2030/core/vm"
 )
 
 // BuildFromEvents converts raw tracker events into a sorted BlockAccessList.

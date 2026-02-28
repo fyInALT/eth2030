@@ -88,11 +88,11 @@ Partially implemented. The EIP-2930 warming path in `processor.go` does NOT curr
 
 ### Architecture Notes
 
-The story's plan assumes a `tracker.RecordAddressAccess` call exists that must be suppressed in the warming path. In the actual codebase no such call exists anywhere — the BAL tracker (`pkg/bal/tracker.go`) has `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordNonceChange`, and `RecordCodeChange`, but no `RecordAddressAccess` method. The `AccessListTracker` in `pkg/core/vm/access_list_tracker.go` handles EIP-2929 warm/cold gas tracking only; it has no connection to the BAL. The BAL is populated entirely after each transaction in `populateTracker`, which inspects pre/post deltas — meaning opcode-level address access events are never forwarded to the BAL at all today.
+The BAL tracker (`pkg/bal/tracker.go`) has `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordNonceChange`, `RecordCodeChange`, and `RecordAddressTouch` (line 74). The `RecordAddressTouch` method adds an address to `touchedAddrs` without recording any change. The `BALTracker` interface in `pkg/core/vm/bal_tracker.go` also includes `RecordAddressTouch`. The EVM's opcode handlers in `instructions.go` call `evm.balTracker.RecordAddressTouch(addr)` for BALANCE, EXTCODESIZE, EXTCODECOPY, EXTCODEHASH, and CALL-family targets (15+ call sites). The `AccessListTracker` in `pkg/core/vm/access_list_tracker.go` handles EIP-2929 warm/cold gas tracking only; it has no connection to the BAL.
 
 ### Gaps and Proposed Solutions
 
-1. **No opcode-level address access recording**: Addresses touched solely via `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`, `STATICCALL`, etc. without balance or nonce changes are absent from the BAL today. The spec (line 110) requires they be included with empty change lists. Solution: introduce a `RecordAddressTouch(addr)` method on `bal.AccessTracker` and call it from opcode handlers in `pkg/core/vm/instructions.go` (or via `evm.Call`, `evm.CallCode`, etc.).
+1. **Opcode-level address access recording exists**: `RecordAddressTouch(addr types.Address)` exists on `bal.AccessTracker` at line 74 and is called from 15+ opcode handlers in `pkg/core/vm/instructions.go` via the `BALTracker` interface. Addresses touched by BALANCE, EXTCODESIZE, EXTCODEHASH, STATICCALL, etc. are recorded. This gap is resolved.
 
 2. **EIP-2930 exclusion is already correctly not emitted**: The warming loop at `processor.go:876-881` does not call the BAL tracker — this part is already correct and just needs to be guarded by a comment or test to document the invariant.
 

@@ -18,7 +18,7 @@ package bal_test
 
 import (
 	"testing"
-	"github.com/your-org/eth2030/pkg/bal"
+	"github.com/eth2030/eth2030/bal"
 )
 
 func TestTypes_Compile(t *testing.T) {
@@ -172,7 +172,7 @@ BlockAccessList = List[AccountChanges]
 
 ### Current Status
 
-Partially implemented — the type names all exist, but their schemas differ significantly from the spec and the plan.
+Complete. All BAL types exist in `pkg/bal/types.go` with a working schema used throughout the codebase. The schema differs from the plan's proposed design but is functionally correct and used by `tracker.go`, `hash.go`, `scheduler.go`, `conflict_detector.go`, and integration tests.
 
 ### Architecture Notes
 

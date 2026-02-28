@@ -141,7 +141,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | In the frame execution engine (`pkg/core/core/aa_executor.go` or equivalent), when a frame has `mode == DEFAULT`, set the `caller` of the EVM call to `ENTRY_POINT` (`address(0xaa)`). Confirm `EntryPointAddress` is defined in `pkg/core/types/tx_frame.go` as `HexToAddress("0x00000000000000000000000000000000000000aa")`. No state-modification restrictions apply. |
+| **Description** | In the frame execution engine (`pkg/core/frame_execution.go` + `pkg/core/processor.go`), when a frame has `mode == DEFAULT`, set the `caller` of the EVM call to `ENTRY_POINT` (`address(0xaa)`). Confirm `EntryPointAddress` is defined in `pkg/core/types/tx_frame.go` as `HexToAddress("0x00000000000000000000000000000000000000aa")`. No state-modification restrictions apply. |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | Integration test: deploy a contract that records `msg.sender`; execute a DEFAULT frame targeting it; assert `msg.sender == ENTRY_POINT`. |
@@ -151,7 +151,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | When a frame has `mode == VERIFY`, the EVM call must behave as a `STATICCALL` — all standard state-modifying opcodes (`SSTORE`, `LOG*`, `CREATE*`, `SELFDESTRUCT`, `CALL` with non-zero value) must result in exceptional halt; the `readOnly` flag must be `true` and propagated through all sub-calls. The frame's caller must be `ENTRY_POINT`. **Critical exception:** the `APPROVE` opcode (`0xaa`) is explicitly permitted in VERIFY frames despite STATICCALL semantics. `APPROVE` modifies **transaction-scoped** state (`sender_approved`, `payer_approved`, nonce, balance), not EVM account/storage state; therefore `opApprove` must bypass the `readOnly` check and is the only state-changing action allowed. After frame completion, detect whether `APPROVE` was called by inspecting whether `sender_approved` or `payer_approved` changed during the frame; if neither changed (APPROVE was never called successfully), mark the entire transaction invalid. Integrate with `pkg/core/core/aa_executor.go`. |
+| **Description** | When a frame has `mode == VERIFY`, the EVM call must behave as a `STATICCALL` — all standard state-modifying opcodes (`SSTORE`, `LOG*`, `CREATE*`, `SELFDESTRUCT`, `CALL` with non-zero value) must result in exceptional halt; the `readOnly` flag must be `true` and propagated through all sub-calls. The frame's caller must be `ENTRY_POINT`. **Critical exception:** the `APPROVE` opcode (`0xaa`) is explicitly permitted in VERIFY frames despite STATICCALL semantics. `APPROVE` modifies **transaction-scoped** state (`sender_approved`, `payer_approved`, nonce, balance), not EVM account/storage state; therefore `opApprove` must bypass the `readOnly` check and is the only state-changing action allowed. After frame completion, detect whether `APPROVE` was called by inspecting whether `sender_approved` or `payer_approved` changed during the frame; if neither changed (APPROVE was never called successfully), mark the entire transaction invalid. Integrate with `pkg/core/frame_execution.go`. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | (1) VERIFY frame that calls `SSTORE` → exceptional halt. (2) VERIFY frame that calls `LOG0` → exceptional halt. (3) VERIFY frame that calls `APPROVE(0x2)` → succeeds despite STATICCALL; both `sender_approved` and `payer_approved` become true. (4) VERIFY frame that calls `APPROVE` followed by `SSTORE` — APPROVE succeeds (exits frame), SSTORE never executes (APPROVE terminates frame like RETURN). (5) Integration test: VERIFY frame completes without any APPROVE → transaction invalid. (6) Assert caller is `ENTRY_POINT` inside VERIFY frame and all sub-calls. (7) Sub-call from within VERIFY frame also sees `readOnly = true`; (8) VERIFY frame that issues a `CALL` opcode with non-zero value → exceptional halt (value transfer is blocked by STATICCALL semantics, identical to how a standard `STATICCALL` restricts value-bearing calls). |
@@ -269,10 +269,10 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement the scalar-parameter path of `opTxParamLoad` in `pkg/core/vm/eip8141_opcodes.go`. Stack layout follows the CALLDATALOAD pattern with **3 inputs**: `in1` (parameter index), `in2` (must be `0` for all scalar indices), `byte_offset` (byte offset into the 32-byte value). Returns a 32-byte word at `byte_offset`, zero-padded when offset exceeds 32. Implement the **11 scalar indices**: `0x00` tx type, `0x01` nonce, `0x02` sender (left-padded address), `0x03` max_priority_fee_per_gas, `0x04` max_fee_per_gas, `0x05` max_fee_per_blob_gas, `0x06` max_cost, `0x07` blob hash count, `0x08` sig_hash, `0x09` frame count, `0x10` current frame index. Gap indices `0x0a`–`0x0f` are undefined in the EIP table and must result in exceptional halt. Any other undefined `in1` → exceptional halt. For `0x07`, note that per the EIP "blob index" out-of-bounds access results in an exceptional halt — since `in2` must be 0 for `0x07`, any non-zero `in2` is caught by the scalar enforcement rule and effectively represents an OOB blob index. |
+| **Description** | Implement the scalar-parameter path of `opTxParamLoad` in `pkg/core/vm/eip8141_opcodes.go`. Stack layout: **2 inputs**: `in1` (parameter index), `in2` (must be `0` for all scalar indices). Returns a 32-byte word pushed onto the stack. Implement the **11 scalar indices**: `0x00` tx type, `0x01` nonce, `0x02` sender (left-padded address), `0x03` max_priority_fee_per_gas, `0x04` max_fee_per_gas, `0x05` max_fee_per_blob_gas, `0x06` max_cost, `0x07` blob hash count, `0x08` sig_hash, `0x09` frame count, `0x10` current frame index. Gap indices `0x0a`–`0x0f` are undefined in the EIP table and must result in exceptional halt. Any other undefined `in1` → exceptional halt. For `0x07`, note that per the EIP "blob index" out-of-bounds access results in an exceptional halt — since `in2` must be 0 for `0x07`, any non-zero `in2` is caught by the scalar enforcement rule and effectively represents an OOB blob index. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | EVM Engineer |
-| **Testing Method** | Table-driven unit tests: (1) correct return value with `byte_offset=0` for each of the 11 valid scalar `in1` values from a known `FrameContext`; (2) `byte_offset=16` on a scalar returns the trailing 16-byte zero-padded slice correctly; (3) TXPARAMLOAD(0x07, 0, 0) returns 0 for a tx with no blobs, returns 2 for a tx with 2 blobs; (4) TXPARAMLOAD(0x10, 0, 0) when executing frame N returns N; (5) `in1` in gap range `0x0a`–`0x0f` → exceptional halt; (6) other undefined `in1` (e.g., `0x16`, `0xff`) → exceptional halt. |
+| **Testing Method** | Table-driven unit tests: (1) correct return value for each of the 11 valid scalar `in1` values from a known `FrameContext`; (2) TXPARAMLOAD(0x07, 0) returns 0 for a tx with no blobs, returns 2 for a tx with 2 blobs; (3) TXPARAMLOAD(0x10, 0) when executing frame N returns N; (4) `in1` in gap range `0x0a`–`0x0f` → exceptional halt; (5) other undefined `in1` (e.g., `0x16`, `0xff`) → exceptional halt. |
 | **Definition of Done** | All 11 scalar indices pass tests; gap-index halts verified; `go vet` clean; reviewed; coverage ≥ 85%. |
 
 ##### Task 4.1.1b — TXPARAMLOAD (0xb0): Frame-Indexed Parameters (0x11–0x15) + Error Handling
@@ -299,7 +299,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `opTxParamCopy` following the `CALLDATACOPY` pattern. Stack: `[mem_dest, src_offset, length, in1, in2]` (5 stack inputs before the CALLDATACOPY-equivalent 3). Copies parameter bytes into memory. Apply standard EVM memory expansion gas cost. For `0x12` (frame data), copy `frame[in2].data[src_offset:src_offset+length]`; out-of-range bytes are zero-padded. For VERIFY frames, data is treated as zero-length. For fixed-size parameters, treat the 32-byte encoding as the source byte array. |
+| **Description** | Implement `opTxParamCopy` following the `CALLDATACOPY` pattern. Stack: `[in1, in2, destOffset, dataOffset, length]` (5 stack inputs — `in1` and `in2` identify the parameter, then the CALLDATACOPY-equivalent 3). Copies parameter bytes into memory. Apply standard EVM memory expansion gas cost. For `0x12` (frame data), copy `frame[in2].data[dataOffset:dataOffset+length]`; out-of-range bytes are zero-padded. For VERIFY frames, data is treated as zero-length. For fixed-size parameters, treat the 32-byte encoding as the source byte array. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | (1) Copy frame data into memory — assert memory contents match. (2) Offset beyond data length — zero-padded. (3) VERIFY frame data — zero-padded (treated as empty). (4) Memory expansion cost charged. (5) Out-of-bounds frame index → halt. |
@@ -309,17 +309,17 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Ensure `TXPARAMLOAD(0x08, 0)` returns `compute_sig_hash(tx)` as a 32-byte hash. The sig hash must be pre-computed at transaction execution start and stored in `FrameContext.SigHash`. Implement `ComputeSigHash(tx *FrameTx) common.Hash` in `pkg/core/types/tx_frame.go`: RLP-encode the transaction with all VERIFY frame data elided, then return `keccak256(rlp(tx))`. |
+| **Description** | Ensure `TXPARAMLOAD(0x08, 0)` returns `compute_sig_hash(tx)` as a 32-byte hash. The sig hash must be pre-computed at transaction execution start and stored in `FrameContext.SigHash`. Implement `ComputeFrameSigHash(tx *FrameTx) common.Hash` in `pkg/core/types/tx_frame.go`: RLP-encode the transaction with all VERIFY frame data elided, then return `keccak256(rlp(tx))`. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | Core Protocol Engineer |
-| **Testing Method** | (1) Transaction with one VERIFY frame: assert hash differs from full-data hash; (2) transaction with no VERIFY frames: assert hash equals standard RLP hash; (3) two different VERIFY data payloads → same sig hash (data elided); (4) assert `TXPARAMLOAD(0x08)` returns same value as `ComputeSigHash`. |
+| **Testing Method** | (1) Transaction with one VERIFY frame: assert hash differs from full-data hash; (2) transaction with no VERIFY frames: assert hash equals standard RLP hash; (3) two different VERIFY data payloads → same sig hash (data elided); (4) assert `TXPARAMLOAD(0x08)` returns same value as `ComputeFrameSigHash`. |
 | **Definition of Done** | Tests pass; VERIFY data elision confirmed; hash deterministic; reviewed. |
 
 ##### Task 4.1.5 — TXPARAM Gas Cost
 
 | Field | Detail |
 |-------|--------|
-| **Description** | All three TXPARAM opcodes follow standard EVM memory expansion costs. For `TXPARAMLOAD`/`TXPARAMSIZE`: base gas cost of 3 (same as `CALLDATALOAD`/`CALLDATASIZE`). For `TXPARAMCOPY`: standard `CALLDATACOPY` cost = `3 + ceil(length/32) * 3` + memory expansion. Implement gas cost functions in `pkg/core/vm/dynamic_gas.go` or alongside the opcode implementations. Register in the instruction table. |
+| **Description** | All three TXPARAM opcodes follow standard EVM memory expansion costs. For `TXPARAMLOAD`/`TXPARAMSIZE`: base gas cost of 2 (`GasBase`). For `TXPARAMCOPY`: base gas cost of 3 (`GasVerylow`) + memory expansion. Implement gas cost functions in `pkg/core/vm/dynamic_gas.go` or alongside the opcode implementations. Register in the instruction table. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | EVM Engineer |
 | **Testing Method** | Unit test: execute TXPARAMCOPY with known length in known memory state; assert gas consumed matches formula. Test memory expansion triggered on large copy. |
@@ -332,7 +332,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 | **Description** | For all scalar (fixed-size) parameters — `in1` values `0x00` through `0x10` inclusive (11 indices) — the `in2` operand **must** be exactly `0`. Per the EIP table, these parameters have `in2 = "must be 0"`. Any non-zero `in2` for these indices results in an **exceptional halt**. This rule applies identically to `TXPARAMLOAD`, `TXPARAMSIZE`, and `TXPARAMCOPY`. Implement a guard in each opcode handler after identifying the `in1` value as scalar, before reading the parameter. Frame-indexed parameters (`in1 = 0x11`–`0x15`) accept any valid frame index in `in2` and do not require `in2 == 0`. Note: `in1` values `0x0a`–`0x0f` are gap indices and halt unconditionally (covered by Task 4.1.1). |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | EVM Engineer |
-| **Testing Method** | Table-driven tests for each of the 11 scalar parameter indices (`0x00`, `0x01`, `0x02`, `0x03`, `0x04`, `0x05`, `0x06`, `0x07`, `0x08`, `0x09`, `0x10`): (1) `TXPARAMLOAD(index, 0, 0)` → succeeds and returns correct value; (2) `TXPARAMLOAD(index, 1, 0)` → exceptional halt; (3) `TXPARAMLOAD(index, 0xff, 0)` → exceptional halt. Also test: (4) `TXPARAMSIZE(index, 1)` → exceptional halt for scalar indices; (5) frame-indexed params (`0x11`, `0x13`) with `in2 > 0` within bounds → succeeds (not halted by this rule). |
+| **Testing Method** | Table-driven tests for each of the 11 scalar parameter indices (`0x00`, `0x01`, `0x02`, `0x03`, `0x04`, `0x05`, `0x06`, `0x07`, `0x08`, `0x09`, `0x10`): (1) `TXPARAMLOAD(index, 0)` → succeeds and returns correct value; (2) `TXPARAMLOAD(index, 1)` → exceptional halt; (3) `TXPARAMLOAD(index, 0xff)` → exceptional halt. Also test: (4) `TXPARAMSIZE(index, 1)` → exceptional halt for scalar indices; (5) frame-indexed params (`0x11`, `0x13`) with `in2 > 0` within bounds → succeeds (not halted by this rule). |
 | **Definition of Done** | All 11 scalar indices tested for `in2 != 0` rejection; all three opcodes enforce the rule; frame-indexed params unaffected; `go vet` clean; reviewed. |
 
 ---
@@ -353,7 +353,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | At the start of frame transaction processing (before any frame executes), check `tx.nonce == state[tx.sender].nonce`. If they differ, reject the transaction (not revert — the transaction is entirely invalid). The nonce increment happens inside `APPROVE(0x1)` or `APPROVE(0x2)`, not at transaction boundary. Implement in `pkg/core/core/aa_executor.go` or the state processor. |
+| **Description** | At the start of frame transaction processing (before any frame executes), check `tx.nonce == state[tx.sender].nonce`. If they differ, reject the transaction (not revert — the transaction is entirely invalid). The nonce increment happens inside `APPROVE(0x1)` or `APPROVE(0x2)`, not at transaction boundary. Implement in `pkg/core/frame_execution.go` or the state processor. |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Correct nonce → proceeds to frame execution. (2) Nonce too low → transaction rejected. (3) Nonce too high → transaction rejected. (4) Assert no state changes occur on rejection. |
@@ -363,7 +363,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement the skeleton of the frame execution loop in `pkg/core/core/aa_executor.go`. (1) Initialize `sender_approved = false` and `payer_approved = false` in `FrameContext` before any frame executes. (2) Iterate over `tx.frames`; for each frame: substitute null target with `tx.sender`; set caller per mode (DEFAULT/VERIFY → `ENTRY_POINT`, SENDER → `tx.sender`); dispatch EVM call with `frame.gas_limit`. (3) Continue to next frame regardless of individual frame success/failure. (4) At loop end, proceed to post-loop validation (Task 5.1.3). This task establishes the loop skeleton only — mode-specific guards and status recording are in Task 5.1.2b. |
+| **Description** | Implement the skeleton of the frame execution loop in `pkg/core/frame_execution.go`. (1) Initialize `sender_approved = false` and `payer_approved = false` in `FrameContext` before any frame executes. (2) Iterate over `tx.frames`; for each frame: substitute null target with `tx.sender`; set caller per mode (DEFAULT/VERIFY → `ENTRY_POINT`, SENDER → `tx.sender`); dispatch EVM call with `frame.gas_limit`. (3) Continue to next frame regardless of individual frame success/failure. (4) At loop end, proceed to post-loop validation (Task 5.1.3). This task establishes the loop skeleton only — mode-specific guards and status recording are in Task 5.1.2b. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | Integration test: (1) two-frame tx (DEFAULT then SENDER) — both frames are dispatched in order; (2) null target in frame 0 resolves to `tx.sender` as call target; (3) DEFAULT frame caller = `ENTRY_POINT`; (4) SENDER frame caller = `tx.sender`; (5) frame gas limit is passed to the EVM call and not shared with adjacent frames. |
@@ -393,7 +393,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | When a frame transaction is determined to be invalid at any point during execution — whether because a VERIFY frame completes without having called APPROVE, a SENDER frame is reached with `sender_approved == false`, or the final post-loop check finds `payer_approved == false` — **all state changes made by all preceding frames must be rolled back**. This includes nonce increments and fee deductions that APPROVE performed. The EIP states "the whole transaction is invalid" in each of these cases, which means no state change can commit. Implement this using a top-level state snapshot taken before the first frame executes; on any invalid condition, revert to that snapshot before returning. Implement in `pkg/core/core/aa_executor.go`. |
+| **Description** | When a frame transaction is determined to be invalid at any point during execution — whether because a VERIFY frame completes without having called APPROVE, a SENDER frame is reached with `sender_approved == false`, or the final post-loop check finds `payer_approved == false` — **all state changes made by all preceding frames must be rolled back**. This includes nonce increments and fee deductions that APPROVE performed. The EIP states "the whole transaction is invalid" in each of these cases, which means no state change can commit. Implement this using a top-level state snapshot taken before the first frame executes; on any invalid condition, revert to that snapshot before returning. Implement in `pkg/core/frame_execution.go`. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Transaction with successful APPROVE(0x2) in frame 0 followed by a VERIFY frame that never calls APPROVE in frame 1: assert sender nonce was NOT incremented, payer balance was NOT deducted, and no other state changes persist. (2) Transaction with APPROVE(0x1) in frame 2 followed by a SENDER frame in frame 3 that has no prior `sender_approved`: assert the nonce increment from frame 2's APPROVE is rolled back. (3) Transaction where `payer_approved` is never set after all frames: assert all state changes (including any SSTORE from DEFAULT frames) are rolled back. (4) Valid transaction: assert state changes ARE committed after successful completion. |
@@ -427,7 +427,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Each frame executes with exactly `frame.gas_limit` gas. Unused gas from a frame is **not** carried over to the next frame. When the frame's gas is exhausted, execution halts for that frame (out-of-gas exception), but the remaining frames still execute with their own gas limits. The total transaction gas is pre-charged at transaction entry (deducted from payer when `APPROVE(0x1)/(0x2)` is called). Implement gas isolation in the frame dispatch loop in `pkg/core/core/aa_executor.go`. |
+| **Description** | Each frame executes with exactly `frame.gas_limit` gas. Unused gas from a frame is **not** carried over to the next frame. When the frame's gas is exhausted, execution halts for that frame (out-of-gas exception), but the remaining frames still execute with their own gas limits. The total transaction gas is pre-charged at transaction entry (deducted from payer when `APPROVE(0x1)/(0x2)` is called). Implement gas isolation in the frame dispatch loop in `pkg/core/frame_execution.go`. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Frame A uses 100 of 200 gas limit; Frame B starts fresh with its own gas limit — not 100 extra. (2) Frame A exhausts gas — Frame A fails; Frame B executes normally. (3) Gas refund is sum of unused gas across all frames, not carry-over. |
@@ -437,7 +437,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `CalldataCostFrames(frames []Frame) uint64` that RLP-encodes the frames list and applies standard EVM calldata cost rules (4 gas/zero byte, 16 gas/non-zero byte). This is added to `FRAME_TX_INTRINSIC_COST` in `CalcFrameTxGas`. Ensure the RLP encoding used matches the wire encoding used for transaction submission. |
+| **Description** | Compute calldata cost for the RLP-encoded frames list using standard EVM calldata cost rules (4 gas/zero byte, 16 gas/non-zero byte). This is added to `FRAME_TX_INTRINSIC_COST` in `CalcFrameTxGas`. Note: the actual implementation computes calldata cost inline within `CalcFrameTxGas` (via `CalldataTokenGas`), not as a separate exported function. Ensure the RLP encoding used matches the wire encoding used for transaction submission. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) All-zero data frame — cost = `4 * bytes`. (2) All non-zero data — cost = `16 * bytes`. (3) Mixed data — correct weighted sum. (4) Compare with values from EIP data-efficiency table (134 bytes for basic tx). |
@@ -511,11 +511,11 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 **INVEST:** I ✓ | N ✓ | V ✓ | E ✓ | S ✓ | T ✓
 
-##### Task 8.1.1 — ComputeSigHash Implementation
+##### Task 8.1.1 — ComputeFrameSigHash Implementation
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `ComputeSigHash(tx *FrameTx) common.Hash` in `pkg/core/types/tx_frame.go`. Algorithm: (1) deep-copy `tx`; (2) for each frame where `mode == VERIFY`, set `frame.data = []byte{}`; (3) RLP-encode the modified transaction; (4) return `keccak256(rlp_bytes)`. The function must not mutate the original transaction. |
+| **Description** | Implement `ComputeFrameSigHash(tx *FrameTx) common.Hash` in `pkg/core/types/tx_frame.go`. Algorithm: (1) deep-copy `tx`; (2) for each frame where `mode == VERIFY`, set `frame.data = []byte{}`; (3) RLP-encode the modified transaction; (4) return `keccak256(rlp_bytes)`. The function must not mutate the original transaction. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Transaction with VERIFY frames — sig hash differs from full-data keccak; (2) replacing VERIFY frame data with different bytes → same sig hash; (3) non-VERIFY frames — changing their data changes sig hash; (4) `frame.target` of VERIFY frames is **not** elided — changing it changes sig hash; (5) no mutation of original tx. |
@@ -525,10 +525,10 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Pre-compute `ComputeSigHash` once when the frame transaction enters the execution pipeline and store the result in `FrameContext.SigHash`. This avoids recomputing it on every `TXPARAMLOAD(0x08)` call. Implement in the transaction pre-processing step, before frame dispatch. |
+| **Description** | Pre-compute `ComputeFrameSigHash` once when the frame transaction enters the execution pipeline and store the result in `FrameContext.SigHash`. This avoids recomputing it on every `TXPARAMLOAD(0x08)` call. Implement in the transaction pre-processing step, before frame dispatch. |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | Core Protocol Engineer |
-| **Testing Method** | Assert `FrameContext.SigHash` is non-zero after pre-processing; assert `TXPARAMLOAD(0x08)` returns the same value as `ComputeSigHash` called independently. |
+| **Testing Method** | Assert `FrameContext.SigHash` is non-zero after pre-processing; assert `TXPARAMLOAD(0x08)` returns the same value as `ComputeFrameSigHash` called independently. |
 | **Definition of Done** | Pre-computation verified; no recomputation in opcode handler; reviewed. |
 
 ---
@@ -549,7 +549,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Implement `ValidateFrameTxStatic(tx *FrameTx) error` in `pkg/core/types/tx_frame.go` (or a validator file). Enforce all static constraints from the EIP: (1) `tx.chain_id < 2^256` (always true for `*big.Int`, check for nil); (2) `tx.nonce < 2^64`; (3) `1 <= len(tx.frames) <= MAX_FRAMES (1000)`; (4) `len(tx.sender) == 20` (address type — check for zero address separately if needed); (5) for each frame: `frame.mode < 3`; (6) for each frame: `frame.target == nil || len(frame.target) == 20`. Return a descriptive error for each violation. |
+| **Description** | Implement `ValidateFrameTx(tx *FrameTx) error` in `pkg/core/types/tx_frame.go` (or a validator file). Enforce all static constraints from the EIP: (1) `tx.chain_id < 2^256` (always true for `*big.Int`, check for nil); (2) `tx.nonce < 2^64`; (3) `1 <= len(tx.frames) <= MAX_FRAMES (1000)`; (4) `len(tx.sender) == 20` (address type — check for zero address separately if needed); (5) for each frame: `frame.mode < 3`; (6) for each frame: `frame.target == nil || len(frame.target) == 20`. Return a descriptive error for each violation. |
 | **Estimated Effort** | 2 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | Table-driven tests: one test case per constraint violation. Also test a valid transaction passes all checks. Test boundary conditions: `nonce = 2^64 - 1` (valid), `nonce = 2^64` (invalid); `len(frames) = 1` (valid), `len(frames) = 0` (invalid), `len(frames) = 1000` (valid), `len(frames) = 1001` (invalid). |
@@ -559,7 +559,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | Add chain ID matching to `ValidateFrameTxStatic`: if `tx.chain_id` does not equal the current network's chain ID, reject the transaction. This prevents cross-chain replay. Integrate with the chain config in `pkg/core/`. |
+| **Description** | Add chain ID matching to `ValidateFrameTx`: if `tx.chain_id` does not equal the current network's chain ID, reject the transaction. This prevents cross-chain replay. Integrate with the chain config in `pkg/core/`. |
 | **Estimated Effort** | 1 story point |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Correct chain ID → passes. (2) Wrong chain ID → rejected with `ErrInvalidChainID`. |
@@ -583,7 +583,7 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 
 | Field | Detail |
 |-------|--------|
-| **Description** | In the frame execution loop, maintain a single `AccessList` / warm-state journal across all frames. When Frame N warms a storage slot or account, Frame N+1 should see it as already warm. This is the opposite of transient storage (which is reset between frames). Implement by passing or sharing the state journal in `pkg/core/core/aa_executor.go`. |
+| **Description** | In the frame execution loop, maintain a single `AccessList` / warm-state journal across all frames. When Frame N warms a storage slot or account, Frame N+1 should see it as already warm. This is the opposite of transient storage (which is reset between frames). Implement by passing or sharing the state journal in `pkg/core/frame_execution.go`. |
 | **Estimated Effort** | 3 story points |
 | **Assignee/Role** | Core Protocol Engineer |
 | **Testing Method** | (1) Frame 0 reads `address(X)` storage slot → cold access, pays 2100 gas. (2) Frame 1 reads same slot → warm access, pays 100 gas. (3) Assert gas charged correctly in each frame. (4) Confirm this applies to accounts as well as storage slots. |
@@ -817,11 +817,12 @@ This document decomposes the EIP into Scrum-ready user stories and actionable en
 ### Key Files (Existing)
 | File | Role |
 |------|------|
-| `pkg/core/types/tx_frame.go` | `FrameTx`, `Frame` structs, constants, `CalcFrameTxGas`, `ComputeSigHash` |
+| `pkg/core/types/tx_frame.go` | `FrameTx`, `Frame` structs, constants, `CalcFrameTxGas`, `ComputeFrameSigHash` |
 | `pkg/core/types/frame_receipt.go` | `FrameReceipt` struct |
 | `pkg/core/vm/eip8141_opcodes.go` | `opApprove`, `opTxParamLoad`, `opTxParamSize`, `opTxParamCopy` |
 | `pkg/core/vm/opcodes.go` | Opcode constant registration |
-| `pkg/core/core/aa_executor.go` | Frame execution engine |
+| `pkg/core/frame_execution.go` | Frame execution engine (`ExecuteFrameTx`, `CalcFrameRefund`, `MaxFrameTxCost`, `BuildFrameReceipt`) |
+| `pkg/core/processor.go` | Wires frame execution into the state processor (lines 1038-1143) |
 | `pkg/txpool/` | Mempool validation policies |
 | `pkg/rpc/` | JSON-RPC receipt serialization |
 
@@ -877,7 +878,7 @@ A story or task is considered **Done** when all of the following are true:
 
 ---
 
-*This document covers all 15 key areas specified in EIP-8141: transaction type (§1), frame structure (§2), frame modes (§3), APPROVE opcode (§4), TXPARAM* opcodes (§5), validation flow (§6), gas accounting (§7), receipt structure (§8), signature hash (§9), static constraints (§10), frame interactions (§11), ORIGIN opcode change (§12), ENTRY_POINT address (§13), null target handling (§14), and mempool security (§15). Review refinements applied in this pass: (a) Task 3.1.1: scope 0x0 now explicitly requires `frame.target == tx.sender`, approval flags documented as monotonic; (b) Tasks 3.1.2/3.1.3: RETURN-like frame termination formally specified in description and testing; (c) Task 3.1.6 (new): APPROVE exempted from STATICCALL guard because it modifies tx-scoped not EVM state; (d) Task 2.1.2: APPROVE exception to readOnly documented, detection mechanism (checking flag changes) specified; (e) Task 4.1.1: `byte_offset` 3rd stack input added per CALLDATALOAD pattern, all 16 indices tested, gap indices 0x0a–0x0f and current-frame status halt added; (f) Task 4.1.6 (new): explicit in2==0 enforcement for all 11 scalar parameters; (g) Task 5.1.2: frame.status finalization timing clarified — status is recorded immediately after frame completes and is queryable only by subsequent frames; (h) Task 12.1.1: VERIFY-only mempool simulation rule stated explicitly, specific forbidden opcodes enumerated per ERC-7562 pattern.*
+*This document covers all 15 key areas specified in EIP-8141: transaction type (§1), frame structure (§2), frame modes (§3), APPROVE opcode (§4), TXPARAM* opcodes (§5), validation flow (§6), gas accounting (§7), receipt structure (§8), signature hash (§9), static constraints (§10), frame interactions (§11), ORIGIN opcode change (§12), ENTRY_POINT address (§13), null target handling (§14), and mempool security (§15). Review refinements applied in this pass: (a) Task 3.1.1: scope 0x0 now explicitly requires `frame.target == tx.sender`, approval flags documented as monotonic; (b) Tasks 3.1.2/3.1.3: RETURN-like frame termination formally specified in description and testing; (c) Task 3.1.6 (new): APPROVE exempted from STATICCALL guard because it modifies tx-scoped not EVM state; (d) Task 2.1.2: APPROVE exception to readOnly documented, detection mechanism (checking flag changes) specified; (e) Task 4.1.1: 2 stack inputs (in1, in2) confirmed per implementation, all 16 indices tested, gap indices 0x0a–0x0f and current-frame status halt added; (f) Task 4.1.6 (new): explicit in2==0 enforcement for all 11 scalar parameters; (g) Task 5.1.2: frame.status finalization timing clarified — status is recorded immediately after frame completes and is queryable only by subsequent frames; (h) Task 12.1.1: VERIFY-only mempool simulation rule stated explicitly, specific forbidden opcodes enumerated per ERC-7562 pattern.*
 
 ---
 

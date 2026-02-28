@@ -40,17 +40,20 @@
 
 | File | Relevance |
 |------|-----------|
-| `pkg/core/types/tx_frame.go:55-58` | `gasFeeCap()`, `gasTipCap()` return `MaxFeePerGas` / `MaxPriorityFeePerGas` |
-| `pkg/core/vm/eip8141_opcodes.go:52` | `FrameContext.MaxCost` field (used by TXPARAM 0x06, but not calculated) |
+| `pkg/core/types/tx_frame.go:53-55` | `gasFeeCap()`, `gasTipCap()` return `MaxFeePerGas` / `MaxPriorityFeePerGas` |
+| `pkg/core/frame_execution.go:191-210` | `MaxFrameTxCost(tx *FrameTx) *big.Int` — computes worst-case ETH cost |
+| `pkg/core/processor.go:1045` | Wires `MaxFrameTxCost` into `FrameContext.MaxCost` |
+| `pkg/core/vm/eip8141_opcodes.go:62` | `FrameContext.MaxCost` field (used by TXPARAM 0x06) |
 
 ## Implementation Status
 
 **⚠️ Partially Implemented**
 
 - ✅ `gasFeeCap()` and `gasTipCap()` return correct fields
+- ✅ `MaxFrameTxCost` implemented in `frame_execution.go` — computes `tx_gas_limit * max_fee_per_gas + blob_count * GAS_PER_BLOB * max_fee_per_blob_gas`
+- ✅ `MaxCost` wired into `FrameContext` in `processor.go:1045`
 - ❌ **Missing:** `EffectiveGasTip(baseFee)` helper not implemented
 - ❌ **Missing:** `TotalFee(baseFee, blobBaseFee)` helper not implemented
-- ❌ **Missing:** `MaxCost` computation for TXPARAM 0x06 (field exists in `FrameContext` but never calculated)
 
 ---
 

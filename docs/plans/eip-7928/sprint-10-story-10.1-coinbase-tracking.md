@@ -111,7 +111,7 @@ Zero-value block reward recipients MUST NOT trigger a balance change in the bloc
 |------|-----------|
 | `pkg/core/processor.go` | `ProcessWithBAL`: main block execution loop, fee payment to `header.Coinbase` via `statedb.AddBalance`; `populateTracker` called after each tx but does not include coinbase; `applyTransaction` adds coinbase to access list and pays tip/full fees |
 | `pkg/core/block_builder.go` | `BuildBlock`/`BuildBlockLegacy`: also calls `ApplyTransaction` and uses `bal.NewTracker` + `populateTracker`; same gap — no coinbase BAL recording |
-| `pkg/bal/tracker.go` | `AccessTracker`: `RecordBalanceChange`, `RecordAddressAccess` (missing), `touchedAddrs`; BAL population methods |
+| `pkg/bal/tracker.go` | `AccessTracker`: `RecordBalanceChange`, `RecordAddressTouch` (line 74), `RecordStorageRead`, `RecordStorageChange`, `RecordNonceChange`, `RecordCodeChange`, `touchedAddrs`; BAL population methods |
 
 ---
 
@@ -134,7 +134,7 @@ There is also no logic anywhere that implements the three-case coinbase rule:
 - Zero-reward, zero-fee block with no transactions: coinbase must NOT appear.
 - Zero block reward with non-zero tx fees: coinbase appears as address-read only (empty change list).
 
-The `bal.AccessTracker` does not have a `RecordAddressAccess` method for the read-only case, which would be needed for the "zero reward, non-zero fees" scenario (or if the coinbase balance happened to be unchanged after fees and any other adjustments).
+The `bal.AccessTracker` has a `RecordAddressTouch(addr types.Address)` method at line 74 for the read-only case, which can be used for the "zero reward, non-zero fees" scenario. This method is also part of the `BALTracker` interface in `pkg/core/vm/bal_tracker.go`.
 
 ### Gaps and Proposed Solutions
 
@@ -142,8 +142,8 @@ The `bal.AccessTracker` does not have a `RecordAddressAccess` method for the rea
 
 2. **Zero-reward / empty-block rules not enforced**: After all transactions are processed, the current code makes no decision about whether to include or exclude the coinbase from the BAL. Solution: after the transaction loop in `ProcessWithBAL`, inspect the coinbase entry in the tracker and apply the spec rules:
    - If the block has no transactions and no withdrawals touched the coinbase, delete any coinbase entry.
-   - If the coinbase balance is unchanged (tip = 0, e.g. all fees burned), emit a read-only access (add `RecordAddressAccess` to `AccessTracker`) rather than a balance change.
+   - If the coinbase balance is unchanged (tip = 0, e.g. all fees burned), emit a read-only access via `RecordAddressTouch` (already exists on `AccessTracker`) rather than a balance change.
 
-3. **`bal.AccessTracker` missing `RecordAddressAccess`**: The read-only coinbase case (zero reward) requires emitting the address with an empty change list. This method must be added to `AccessTracker`, adding the address to `touchedAddrs` without any change records.
+3. **`bal.AccessTracker` has `RecordAddressTouch`**: The method exists at `pkg/bal/tracker.go` line 74 and is part of the `BALTracker` interface. It adds the address to `touchedAddrs` with an empty change list. This can be used for the read-only coinbase case. This gap is resolved.
 
 4. **`processor.go` vs `block_builder.go` duplication**: Both files duplicate the `populateTracker` + BAL-building pattern. The coinbase fix must be applied in both, or the logic centralized into a shared helper.

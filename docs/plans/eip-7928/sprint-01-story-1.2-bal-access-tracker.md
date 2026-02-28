@@ -20,7 +20,7 @@ package vm_test
 
 import (
 	"testing"
-	"github.com/your-org/eth2030/pkg/core/vm"
+	"github.com/eth2030/eth2030/core/vm"
 )
 
 func TestBALAccessTracker_RecordsStorageWrite(t *testing.T) {
@@ -255,7 +255,7 @@ and transmits them as a field in the `ExecutionPayload` via the engine API.
 | `pkg/core/vm/access_list_tracker.go` | EIP-2929 warm/cold tracker only; not related to BAL accumulation |
 | `pkg/core/vm/parallel_executor.go` | Contains a `TxIndex int` field in `TxAccessProfile` — shows pattern for per-tx indexing within the VM layer |
 | `pkg/core/vm/parallel_executor_deep.go` | Also has `TxIndex int` in `TxAccessProfile` and slot access tracking per tx; architecturally similar to what `BALAccessTracker` needs but purpose-built for parallelism scheduling |
-| `pkg/core/vm/interpreter.go` | EVM struct — no `AccessTracker` or `TxIndex` fields yet |
+| `pkg/core/vm/interpreter.go` | EVM struct with `balTracker BALTracker` and `txIndex uint64` fields; `SetBALTracker()` / `GetBALTracker()` methods |
 
 ---
 
@@ -263,26 +263,25 @@ and transmits them as a field in the `ExecutionPayload` via the engine API.
 
 ### Current Status
 
-Not implemented.
+Complete. The concrete BAL tracker exists at `pkg/bal/tracker.go` as `AccessTracker`, and it satisfies the `BALTracker` interface defined in `pkg/core/vm/bal_tracker.go` via Go structural typing.
 
 ### Architecture Notes
 
-The plan's `BALAccessTracker` collects events from the **entire block** in memory, keyed by `txIndex`, and stores per-address aggregated events (`AccountEvents`) across all transactions. Its `Drain()` returns a `map[[20]byte]*AccountEvents`.
+The actual implementation uses a different architecture than the plan proposed, but achieves the same goal:
 
-The existing `pkg/bal/tracker.go` (`AccessTracker`) is fundamentally different:
-- It is **per-transaction**: all state is reset between transactions via `Reset()`.
-- `Build(txIndex)` emits a `BlockAccessList` where each `AccessEntry` carries a single `AccessIndex` field — meaning each entry is associated with exactly one transaction.
-- It lives in `pkg/bal`, not `pkg/core/vm`, so the EVM would have to import `bal` (creating a possible import cycle through `core`).
-- Its method signatures use `types.Hash`, `types.Address`, `*big.Int` rather than raw `[20]byte`/`[32]byte` arrays.
-
-The `BALAccessTracker` in `pkg/core/vm` solves the cross-block accumulation problem by holding a `map[[20]byte]*AccountEvents` where each address maps to slices/maps of events across all tx indices. The eventual `Drain()` output is then converted by the builder (Sprint 2) into the spec-compliant `BlockAccessList` with correct per-change `BlockAccessIndex` values and lexicographic ordering.
+- `pkg/bal/tracker.go` (`AccessTracker`): a per-transaction tracker that records storage reads, storage changes, balance changes, nonce changes, code changes, and address touches. After each transaction, `Build(txIndex)` produces `AccessEntry` records tagged with that transaction's index, and `Reset()` clears state for the next transaction. The block processor aggregates entries across all transactions by calling `Build()` + `Reset()` in a loop.
+- `pkg/core/vm/bal_tracker.go` (`BALTracker` interface): defines `RecordStorageRead`, `RecordStorageChange`, `RecordBalanceChange`, `RecordAddressTouch`. The EVM holds a `balTracker BALTracker` field and calls these methods from opcode handlers (15+ call sites in `instructions.go` and `interpreter.go`).
+- The import cycle concern is avoided because the `vm` package defines the `BALTracker` interface, and the `bal` package provides the concrete implementation. The EVM never imports `bal` directly; the processor wires them together.
+- Method signatures use `types.Address`, `types.Hash`, and `*big.Int` (not raw `[20]byte`/`[32]byte` arrays), consistent with the rest of the codebase.
 
 ### Gaps and Proposed Solutions
 
-| Gap | Proposed Solution |
+All gaps from the original plan are resolved:
+
+| Original Gap | Resolution |
 |-----|-------------------|
-| No `BALAccessTracker` in `pkg/core/vm/` | Create `pkg/core/vm/bal_access_tracker.go` as described in the story |
-| Existing `pkg/bal.AccessTracker` is per-tx, not multi-tx | Keep it as-is for now; the new `BALAccessTracker` is the block-level collector; a future Sprint 2 builder will convert `Drain()` output to `pkg/bal.BlockAccessList` |
-| No `AccessTracker` interface yet (Story 1.1 dependency) | `BALAccessTracker` must implement the `AccessTracker` interface once Story 1.1 is merged |
-| Thread-safety: EVM execution is typically single-threaded per block | The plan includes a `sync.Mutex` in `BALAccessTracker`; for sequential tx processing this is safe but adds overhead — acceptable for correctness |
-| `Drain()` returns raw `AccountEvents` not spec-ordered `BlockAccessList` | Ordering (lexicographic by address, then by `BlockAccessIndex` within each change list) will be applied by the BAL builder in Sprint 2; the tracker itself need not sort |
+| No `BALAccessTracker` in `pkg/core/vm/` | `BALTracker` interface in `pkg/core/vm/bal_tracker.go`; concrete `AccessTracker` in `pkg/bal/tracker.go` |
+| Existing `pkg/bal.AccessTracker` is per-tx, not multi-tx | Per-tx design is used with `Build(txIndex)` + `Reset()` loop; the processor aggregates entries per block |
+| No `AccessTracker` interface yet | `BALTracker` interface exists in `pkg/core/vm/bal_tracker.go` |
+| Thread-safety | Not needed in current design; per-tx tracker is single-threaded within the EVM execution loop |
+| Ordering not applied by tracker | `Build()` in `pkg/bal/tracker.go` sorts addresses lexicographically and slot keys within each address |
