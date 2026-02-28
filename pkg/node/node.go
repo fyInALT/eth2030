@@ -6,7 +6,10 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/core"
 	"github.com/eth2030/eth2030/core/rawdb"
@@ -26,8 +29,7 @@ type Node struct {
 	db           rawdb.Database
 	blockchain   *core.Blockchain
 	txPool       *txpool.TxPool
-	rpcServer    *http.Server
-	rpcHandler   *rpc.Server
+	rpcServer    *rpc.ExtServer
 	engineServer *engine.EngineAPI
 	p2pServer    *p2p.Server
 
@@ -52,8 +54,12 @@ func New(config *Config) (*Node, error) {
 		stop:   make(chan struct{}),
 	}
 
-	// Initialize in-memory database.
-	n.db = rawdb.NewMemoryDB()
+	// Initialize persistent database.
+	db, err := rawdb.NewFileDB(config.ResolvePath("chaindata"))
+	if err != nil {
+		return nil, fmt.Errorf("init database: %w", err)
+	}
+	n.db = db
 
 	// Initialize blockchain with a genesis block.
 	chainConfig := chainConfigForNetwork(config.Network)
@@ -78,11 +84,27 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize RPC server with blockchain backend.
 	backend := newNodeBackend(n)
-	n.rpcHandler = rpc.NewServer(backend)
+	n.rpcServer = rpc.NewExtServer(backend, rpc.ServerConfig{
+		MaxRequestSize:   config.RPCMaxRequestSize,
+		ReadTimeout:      30 * time.Second,
+		WriteTimeout:     30 * time.Second,
+		IdleTimeout:      120 * time.Second,
+		ShutdownTimeout:  10 * time.Second,
+		CORSAllowOrigins: config.RPCCORSAllowedOrigins(),
+		AuthSecret:       config.RPCAuthSecret,
+		RateLimitPerSec:  config.RPCRateLimitPerSec,
+		MaxBatchSize:     config.RPCMaxBatchSize,
+	})
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)
 	n.engineServer = engine.NewEngineAPI(engineBackend)
+	n.engineServer.SetMaxRequestSize(config.EngineMaxRequestSize)
+	if token, err := resolveEngineAuthToken(config); err != nil {
+		return nil, fmt.Errorf("engine auth: %w", err)
+	} else if token != "" {
+		n.engineServer.SetAuthSecret(token)
+	}
 
 	return n, nil
 }
@@ -105,13 +127,9 @@ func (n *Node) Start() error {
 	log.Printf("P2P server listening on %s", n.p2pServer.ListenAddr())
 
 	// Start JSON-RPC server.
-	n.rpcServer = &http.Server{
-		Addr:    n.config.RPCAddr(),
-		Handler: n.rpcHandler.Handler(),
-	}
 	go func() {
 		log.Printf("RPC server listening on %s", n.config.RPCAddr())
-		if err := n.rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := n.rpcServer.Start(n.config.RPCAddr()); err != nil && err != http.ErrServerClosed {
 			log.Printf("RPC server error: %v", err)
 		}
 	}()
@@ -147,7 +165,7 @@ func (n *Node) Stop() error {
 
 	// Stop RPC server.
 	if n.rpcServer != nil {
-		if err := n.rpcServer.Close(); err != nil {
+		if err := n.rpcServer.Stop(); err != nil {
 			log.Printf("RPC server stop error: %v", err)
 		}
 	}
@@ -161,7 +179,12 @@ func (n *Node) Stop() error {
 	}
 
 	n.running = false
-	close(n.stop)
+	select {
+	case <-n.stop:
+		// stop channel already closed.
+	default:
+		close(n.stop)
+	}
 	log.Println("Node stopped")
 	return nil
 }
@@ -205,6 +228,25 @@ func chainConfigForNetwork(network string) *core.ChainConfig {
 	default:
 		return core.MainnetConfig
 	}
+}
+
+func resolveEngineAuthToken(cfg *Config) (string, error) {
+	if cfg.EngineAuthToken != "" {
+		return strings.TrimSpace(cfg.EngineAuthToken), nil
+	}
+	if cfg.EngineAuthTokenPath == "" {
+		return "", nil
+	}
+
+	data, err := os.ReadFile(cfg.EngineAuthTokenPath)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("engine auth token file is empty")
+	}
+	return token, nil
 }
 
 // genesisForNetwork returns the genesis specification for the given network.

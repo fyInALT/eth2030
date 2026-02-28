@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -114,13 +115,21 @@ type ExtServer struct {
 
 // NewExtServer creates a new extended JSON-RPC server.
 func NewExtServer(backend Backend, config ServerConfig) *ExtServer {
+	if config.MaxRequestSize <= 0 {
+		config.MaxRequestSize = DefaultServerConfig().MaxRequestSize
+	}
+	if config.RateLimitPerSec <= 0 {
+		config.RateLimitPerSec = DefaultServerConfig().RateLimitPerSec
+	}
 	api := NewEthAPI(backend)
-	return &ExtServer{
+	s := &ExtServer{
 		config:      config,
 		api:         api,
 		batch:       NewBatchHandler(api),
 		rateLimiter: NewRateLimiter(config.RateLimitPerSec),
 	}
+	s.batch.SetMaxBatchSize(config.MaxBatchSize)
+	return s
 }
 
 // Use adds a middleware to the server's middleware chain.
@@ -212,12 +221,6 @@ func (s *ExtServer) Handler() http.Handler {
 func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	s.requestCount.Add(1)
 
-	// Method check.
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// CORS headers.
 	s.setCORSHeaders(w, r)
 
@@ -227,25 +230,47 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Method check.
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	// Auth check.
 	if s.config.AuthSecret != "" {
 		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") || auth[7:] != s.config.AuthSecret {
-			writeExtError(w, nil, ErrCodeInvalidRequest, "authentication failed")
+		if !strings.HasPrefix(auth, "Bearer ") || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(s.config.AuthSecret)) != 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			writeExtError(w, nil, ErrCodeInvalidRequest, "unauthorized")
 			return
 		}
 	}
 
 	// Rate limit check.
 	if !s.rateLimiter.Allow() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
 		writeExtError(w, nil, ErrCodeInternal, "rate limited")
 		return
 	}
 
+	defer r.Body.Close()
+	if r.ContentLength > s.config.MaxRequestSize {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		writeExtError(w, nil, ErrCodeInvalidRequest, "request body too large")
+		return
+	}
+
 	// Read body with size limit.
-	body, err := io.ReadAll(io.LimitReader(r.Body, s.config.MaxRequestSize))
+	body, err := io.ReadAll(io.LimitReader(r.Body, s.config.MaxRequestSize+1))
 	if err != nil {
 		writeExtError(w, nil, ErrCodeParse, "failed to read request body")
+		return
+	}
+	if int64(len(body)) > s.config.MaxRequestSize {
+		writeExtError(w, nil, ErrCodeInvalidRequest, "request body too large")
 		return
 	}
 

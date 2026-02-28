@@ -5,8 +5,10 @@ package node
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config holds all configuration for an ETH2030 node.
@@ -33,8 +35,39 @@ type Config struct {
 	// RPCPort is the HTTP port for the JSON-RPC server.
 	RPCPort int
 
+	// RPCHost is the interface that the HTTP-RPC server binds to.
+	RPCHost string
+
+	// RPCAuthSecret requires this bearer token for JSON-RPC requests when set.
+	RPCAuthSecret string
+
+	// RPCRateLimitPerSec controls request rate limiting for JSON-RPC requests.
+	RPCRateLimitPerSec int
+
+	// RPCMaxRequestSize is the max body size for JSON-RPC requests, in bytes.
+	RPCMaxRequestSize int64
+
+	// RPCMaxBatchSize is the max number of requests in a single batch.
+	RPCMaxBatchSize int
+
+	// RPCCORSOrigins is a comma-separated list of allowed Origin headers.
+	// Use "*" to allow all.
+	RPCCORSOrigins string
+
 	// EnginePort is the HTTP port for the Engine API server.
 	EnginePort int
+
+	// EngineHost is the interface that the Engine API server binds to.
+	EngineHost string
+
+	// EngineMaxRequestSize is the max body size for Engine API requests, in bytes.
+	EngineMaxRequestSize int64
+
+	// EngineAuthToken requires this bearer token for Engine API requests when set.
+	EngineAuthToken string
+
+	// EngineAuthTokenPath optionally loads the Engine API token from a file.
+	EngineAuthTokenPath string
 
 	// MaxPeers is the maximum number of P2P peers.
 	MaxPeers int
@@ -64,18 +97,28 @@ func defaultDataDir() string {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		DataDir:    defaultDataDir(),
-		Name:       "ETH2030",
-		Network:    "mainnet",
-		NetworkID:  1,
-		SyncMode:   "snap",
-		P2PPort:    30303,
-		RPCPort:    8545,
-		EnginePort: 8551,
-		MaxPeers:   50,
-		LogLevel:   "info",
-		Verbosity:  3,
-		Metrics:    false,
+		DataDir:              defaultDataDir(),
+		Name:                 "ETH2030",
+		Network:              "mainnet",
+		NetworkID:            1,
+		SyncMode:             "snap",
+		P2PPort:              30303,
+		RPCPort:              8545,
+		RPCHost:              "127.0.0.1",
+		RPCAuthSecret:        "",
+		RPCRateLimitPerSec:   100,
+		RPCMaxRequestSize:    5 * 1024 * 1024,
+		RPCMaxBatchSize:      100,
+		RPCCORSOrigins:       "*",
+		EnginePort:           8551,
+		EngineHost:           "127.0.0.1",
+		EngineMaxRequestSize: 5 * 1024 * 1024,
+		EngineAuthToken:      "",
+		EngineAuthTokenPath:  "",
+		MaxPeers:             50,
+		LogLevel:             "info",
+		Verbosity:            3,
+		Metrics:              false,
 	}
 }
 
@@ -92,6 +135,24 @@ func (c *Config) Validate() error {
 	}
 	if c.EnginePort < 0 || c.EnginePort > 65535 {
 		return fmt.Errorf("config: invalid engine port: %d", c.EnginePort)
+	}
+	if c.RPCHost == "" {
+		return errors.New("config: rpc host must not be empty")
+	}
+	if c.RPCMaxRequestSize <= 0 {
+		return fmt.Errorf("config: invalid rpc max request size: %d", c.RPCMaxRequestSize)
+	}
+	if c.RPCRateLimitPerSec < 0 {
+		return fmt.Errorf("config: invalid rpc rate limit: %d", c.RPCRateLimitPerSec)
+	}
+	if c.RPCMaxBatchSize <= 0 {
+		return fmt.Errorf("config: invalid rpc max batch size: %d", c.RPCMaxBatchSize)
+	}
+	if c.EngineHost == "" {
+		return errors.New("config: engine host must not be empty")
+	}
+	if c.EngineMaxRequestSize <= 0 {
+		return fmt.Errorf("config: invalid engine max request size: %d", c.EngineMaxRequestSize)
 	}
 	if c.MaxPeers < 0 {
 		return fmt.Errorf("config: invalid max peers: %d", c.MaxPeers)
@@ -177,10 +238,31 @@ func (c *Config) P2PAddr() string {
 
 // RPCAddr returns the RPC listen address string.
 func (c *Config) RPCAddr() string {
-	return fmt.Sprintf("127.0.0.1:%d", c.RPCPort)
+	return net.JoinHostPort(c.RPCHost, fmt.Sprintf("%d", c.RPCPort))
 }
 
 // EngineAddr returns the Engine API listen address string.
 func (c *Config) EngineAddr() string {
-	return fmt.Sprintf("127.0.0.1:%d", c.EnginePort)
+	return net.JoinHostPort(c.EngineHost, fmt.Sprintf("%d", c.EnginePort))
+}
+
+// RPCCORSAllowedOrigins returns the parsed CORS origin allowlist.
+func (c *Config) RPCCORSAllowedOrigins() []string {
+	out := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	for _, origin := range strings.Split(c.RPCCORSOrigins, ",") {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		out = append(out, "*")
+	}
+	return out
 }

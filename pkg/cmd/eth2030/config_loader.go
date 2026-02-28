@@ -110,6 +110,7 @@ func LoadConfig(path string) (*Config, error) {
 	cfg.Node.P2PPort = nodeCfg.P2P.Port
 	cfg.Node.MaxPeers = nodeCfg.P2P.MaxPeers
 	cfg.Node.RPCPort = nodeCfg.RPC.Port
+	cfg.Node.RPCHost = nodeCfg.RPC.Host
 	cfg.Node.LogLevel = nodeCfg.Log.Level
 
 	MergeDefaults(cfg)
@@ -154,6 +155,36 @@ func MergeDefaults(cfg *Config) {
 	}
 	if cfg.Node.Verbosity == 0 {
 		cfg.Node.Verbosity = defaults.Verbosity
+	}
+	if cfg.Node.RPCHost == "" {
+		cfg.Node.RPCHost = defaults.RPCHost
+	}
+	if cfg.Node.RPCAuthSecret == "" {
+		cfg.Node.RPCAuthSecret = defaults.RPCAuthSecret
+	}
+	if cfg.Node.RPCRateLimitPerSec == 0 {
+		cfg.Node.RPCRateLimitPerSec = defaults.RPCRateLimitPerSec
+	}
+	if cfg.Node.RPCMaxRequestSize == 0 {
+		cfg.Node.RPCMaxRequestSize = defaults.RPCMaxRequestSize
+	}
+	if cfg.Node.RPCMaxBatchSize == 0 {
+		cfg.Node.RPCMaxBatchSize = defaults.RPCMaxBatchSize
+	}
+	if cfg.Node.RPCCORSOrigins == "" {
+		cfg.Node.RPCCORSOrigins = defaults.RPCCORSOrigins
+	}
+	if cfg.Node.EngineHost == "" {
+		cfg.Node.EngineHost = defaults.EngineHost
+	}
+	if cfg.Node.EngineMaxRequestSize == 0 {
+		cfg.Node.EngineMaxRequestSize = defaults.EngineMaxRequestSize
+	}
+	if cfg.Node.EngineAuthToken == "" {
+		cfg.Node.EngineAuthToken = defaults.EngineAuthToken
+	}
+	if cfg.Node.EngineAuthTokenPath == "" {
+		cfg.Node.EngineAuthTokenPath = defaults.EngineAuthTokenPath
 	}
 
 	// Resolve network config from node network name.
@@ -213,55 +244,101 @@ func NewChainConfig(network string) (*NetworkConfig, error) {
 }
 
 // ApplyEnvironment reads environment variables and overrides Config fields.
-// Environment variables use the prefix ETH2028_ followed by uppercase
-// field names (e.g., ETH2028_DATADIR, ETH2028_P2P_PORT).
+// Environment variables use the prefix ETH2030_ followed by uppercase
+// field names (e.g., ETH2030_DATADIR, ETH2030_P2P_PORT).
+// The deprecated ETH2028_ prefix is also supported as a fallback.
 func ApplyEnvironment(cfg *Config) {
-	if v := os.Getenv("ETH2028_DATADIR"); v != "" {
+	getenv := func(name string) string {
+		if v := os.Getenv("ETH2030_" + name); v != "" {
+			return v
+		}
+		return os.Getenv("ETH2028_" + name)
+	}
+
+	if v := getenv("DATADIR"); v != "" {
 		cfg.Node.DataDir = v
 	}
-	if v := os.Getenv("ETH2028_NETWORK"); v != "" {
+	if v := getenv("NETWORK"); v != "" {
 		cfg.Node.Network = v
 	}
-	if v := os.Getenv("ETH2028_NETWORK_ID"); v != "" {
+	if v := getenv("NETWORK_ID"); v != "" {
 		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
 			cfg.Node.NetworkID = n
 		}
 	}
-	if v := os.Getenv("ETH2028_SYNCMODE"); v != "" {
+	if v := getenv("SYNCMODE"); v != "" {
 		cfg.Node.SyncMode = v
 	}
-	if v := os.Getenv("ETH2028_P2P_PORT"); v != "" {
+	if v := getenv("P2P_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Node.P2PPort = n
 		}
 	}
-	if v := os.Getenv("ETH2028_RPC_PORT"); v != "" {
+	if v := getenv("RPC_HOST"); v != "" {
+		cfg.Node.RPCHost = v
+	}
+	if v := getenv("RPC_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Node.RPCPort = n
 		}
 	}
-	if v := os.Getenv("ETH2028_ENGINE_PORT"); v != "" {
+	if v := getenv("ENGINE_HOST"); v != "" {
+		cfg.Node.EngineHost = v
+	}
+	if v := getenv("ENGINE_MAX_REQUEST_SIZE"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Node.EngineMaxRequestSize = n
+		}
+	}
+	if v := getenv("ENGINE_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Node.EnginePort = n
 		}
 	}
-	if v := os.Getenv("ETH2028_MAX_PEERS"); v != "" {
+	if v := getenv("MAX_PEERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Node.MaxPeers = n
 		}
 	}
-	if v := os.Getenv("ETH2028_LOG_LEVEL"); v != "" {
+	if v := getenv("LOG_LEVEL"); v != "" {
 		cfg.Node.LogLevel = v
 	}
-	if v := os.Getenv("ETH2028_VERBOSITY"); v != "" {
+	if v := getenv("VERBOSITY"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Node.Verbosity = n
 		}
 	}
-	if v := os.Getenv("ETH2028_METRICS"); v != "" {
+	if v := getenv("METRICS"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Node.Metrics = b
 		}
+	}
+	if v := getenv("RPC_AUTH_SECRET"); v != "" {
+		cfg.Node.RPCAuthSecret = v
+	}
+	if v := getenv("RPC_RATE_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Node.RPCRateLimitPerSec = n
+		}
+	}
+	if v := getenv("RPC_MAX_REQUEST_SIZE"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.Node.RPCMaxRequestSize = n
+		}
+	}
+	if v := getenv("RPC_MAX_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Node.RPCMaxBatchSize = n
+		}
+	}
+	if v := getenv("RPC_CORS_ORIGINS"); v != "" {
+		cfg.Node.RPCCORSOrigins = v
+	}
+	if v := getenv("ENGINE_AUTH_SECRET"); v != "" {
+		cfg.Node.EngineAuthToken = v
+	}
+	if v := getenv("ENGINE_AUTH_TOKEN_PATH"); v != "" {
+		cfg.Node.EngineAuthTokenPath = v
 	}
 }
 

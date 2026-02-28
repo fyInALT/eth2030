@@ -41,8 +41,8 @@ func run(args []string) int {
 	// Kurtosis-compatible flags.
 	genesisPath := fs.String("override.genesis", "", "Path to custom genesis.json (for Kurtosis devnets)")
 	httpEnabled := fs.Bool("http", false, "Enable HTTP-RPC server (always enabled, kept for compatibility)")
-	httpVhosts := fs.String("http.vhosts", "*", "Comma-separated list of virtual hostnames for HTTP-RPC (use * for all)")
-	httpCORSDomain := fs.String("http.corsdomain", "*", "Comma-separated list of CORS domains for HTTP-RPC")
+	httpVhosts := fs.String("http.vhosts", "localhost", "Comma-separated list of virtual hostnames for HTTP-RPC (use * for all)")
+	httpCORSDomain := fs.String("http.corsdomain", "localhost", "Comma-separated list of CORS domains for HTTP-RPC")
 	httpAPI := fs.String("http.api", "admin,engine,net,eth,web3,debug,txpool", "Comma-separated list of HTTP-RPC API modules")
 	wsEnabled := fs.Bool("ws", false, "Enable WebSocket RPC server")
 	wsAddr := fs.String("ws.addr", "127.0.0.1", "WebSocket RPC server listening address")
