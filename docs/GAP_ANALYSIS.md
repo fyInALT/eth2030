@@ -225,7 +225,21 @@ Cross-audit of [leanEthereum](https://github.com/leanEthereum) repositories (lea
 | **Partially valid** | 5 |
 | **False positive** | 1 (F-08: Merkle tree already parallelized) |
 | **GitHub issues filed** | 12 (across 4 repos) |
-| **Fix PRs submitted** | 4 (F-01 CRITICAL, F-02/03/04 HIGH) |
+| **Fix PRs submitted** | 9 (1 merged, 6 open, 2 closed) |
 | **eth2030 cross-fixes** | 4 (canonical fields, query dedup, FS binding, Grain LFSR) |
+
+### PR Tracker
+
+| PR | Finding | Repo | Status | URL |
+|----|---------|------|--------|-----|
+| leanMultisig #155 | F-01 (CRITICAL) | MontyField31 range check | **Merged** | [PR](https://github.com/leanEthereum/leanMultisig/pull/155) |
+| leanMultisig #158 | F-02 (HIGH) | STIR query dedup | Closed | [PR](https://github.com/leanEthereum/leanMultisig/pull/158) |
+| leanMultisig #160 | F-04 (HIGH) | XMSS seed size 256-bit | Closed | [PR](https://github.com/leanEthereum/leanMultisig/pull/160) |
+| fiat-shamir #5 | F-03 (HIGH) | FS public input binding | Open | [PR](https://github.com/leanEthereum/fiat-shamir/pull/5) |
+| leanMultisig #161 | F-07 (MEDIUM) | Logup stack arrays | Open | [PR](https://github.com/leanEthereum/leanMultisig/pull/161) |
+| leanMultisig #162 | F-15 (LOW) | SAFETY docs on unsafe blocks | Open | [PR](https://github.com/leanEthereum/leanMultisig/pull/162) |
+| leanMultisig #163 | F-16 (LOW) + ext #133 | xmss_key_gen slot range cap | Open | [PR](https://github.com/leanEthereum/leanMultisig/pull/163) |
+| fiat-shamir #6 | F-05 (HIGH) | sample() distribution docs | Open | [PR](https://github.com/leanEthereum/fiat-shamir/pull/6) |
+| leanSpec #428 | ext #400 | Docs site URL fix | Open | [PR](https://github.com/leanEthereum/leanSpec/pull/428) |
 
 See [docs/plans/lean-vm-audit.md](plans/lean-vm-audit.md) for the full line-by-line audit.
