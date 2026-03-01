@@ -1024,7 +1024,7 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 	if msg.TxType == types.FrameTxType && len(msg.Frames) > 0 {
 		// EIP-8141: execute as frame transaction.
 		frameTx := &types.FrameTx{
-			Nonce:  msg.Nonce,
+			Nonce:  new(big.Int).SetUint64(msg.Nonce),
 			Sender: msg.FrameSender,
 			Frames: msg.Frames,
 		}
@@ -1038,7 +1038,7 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 		// Set up the EVM FrameContext for TXPARAM* and APPROVE opcodes.
 		evm.FrameCtx = &vm.FrameContext{
 			Sender:         msg.FrameSender,
-			Nonce:          msg.Nonce,
+			Nonce:          new(big.Int).SetUint64(msg.Nonce),
 			TxType:         uint64(types.FrameTxType),
 			MaxPriorityFee: msg.GasTipCap,
 			MaxFee:         msg.GasFeeCap,
@@ -1091,7 +1091,14 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 				frameGasLimit = availGas
 			}
 
-			_, remainGas, callErr := evm.Call(caller, target, data, frameGasLimit, new(big.Int))
+			// EIP-8141: VERIFY frames use StaticCall to prevent state modifications (GAP-2).
+			var remainGas uint64
+			var callErr error
+			if mode == types.ModeVerify {
+				_, remainGas, callErr = evm.StaticCall(caller, target, data, frameGasLimit)
+			} else {
+				_, remainGas, callErr = evm.Call(caller, target, data, frameGasLimit, new(big.Int))
+			}
 			status := uint64(types.ReceiptStatusSuccessful)
 			if callErr != nil {
 				status = uint64(types.ReceiptStatusFailed)
@@ -1139,6 +1146,14 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 			// EIP-8141: increment nonce after successful frame execution with sender approval.
 			if frameCtx.SenderApproved {
 				statedb.SetNonce(msg.FrameSender, msg.Nonce+1)
+			}
+
+			// EIP-8141: transfer gas cost from sender to payer for sponsored tx (GAP-1).
+			// The sender was pre-charged at line 875. If a different payer was
+			// approved, refund sender and charge payer instead.
+			if frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
+				statedb.AddBalance(msg.From, deduction)
+				statedb.SubBalance(frameCtx.Payer, deduction)
 			}
 		}
 	} else if isCreate {
@@ -1189,11 +1204,15 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 		}
 	}
 
-	// Refund remaining gas to sender
+	// Refund remaining gas — to payer if a sponsored frame tx, otherwise to sender (GAP-1).
 	remainingGas := msg.GasLimit - gasUsed
 	if remainingGas > 0 {
 		refundAmount := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(remainingGas))
-		statedb.AddBalance(msg.From, refundAmount)
+		refundRecipient := msg.From
+		if frameCtx != nil && frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
+			refundRecipient = frameCtx.Payer
+		}
+		statedb.AddBalance(refundRecipient, refundAmount)
 	}
 
 	// Return unused gas to the pool.

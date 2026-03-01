@@ -17,7 +17,7 @@ func newFrameTestEVM(sender types.Address, frames []Frame) *EVM {
 	evm.SetJumpTable(NewGlamsterdanJumpTable())
 	evm.FrameCtx = &FrameContext{
 		TxType:            0x06,
-		Nonce:             42,
+		Nonce:             new(big.Int).SetUint64(42),
 		Sender:            sender,
 		MaxPriorityFee:    big.NewInt(1000000000),
 		MaxFee:            big.NewInt(2000000000),
@@ -1156,4 +1156,72 @@ func (m *MockStateDB) SlotInAccessList(addr types.Address, slot types.Hash) (boo
 		return false, false
 	}
 	return true, slots[slot]
+}
+
+// --- APPROVE target check tests ---
+
+func TestApprove_SubContractFails(t *testing.T) {
+	// APPROVE should fail when called from a sub-contract (address != frame target)
+	sender := types.Address{0x01}
+	subContract := types.Address{0x99}
+	frames := []Frame{{Mode: FrameModeVerify, Target: sender, GasLimit: 100000}}
+	evm := newFrameTestEVM(sender, frames)
+
+	code := []byte{
+		byte(PUSH1), 0x00,
+		byte(PUSH1), 0x00,
+		byte(PUSH1), 0x00,
+		byte(APPROVE),
+	}
+	// contract.Address = subContract (not sender), so APPROVE should fail
+	contract := NewContract(sender, subContract, nil, 100000)
+	contract.Code = code
+
+	_, err := evm.Run(contract, nil)
+	if err == nil {
+		t.Fatal("expected error: sub-contract should not be able to APPROVE")
+	}
+}
+
+func TestApprove_FrameTargetSucceeds(t *testing.T) {
+	// APPROVE should succeed when contract.Address == frame target
+	sender := types.Address{0x01}
+	frames := []Frame{{Mode: FrameModeVerify, Target: sender, GasLimit: 100000}}
+	evm := newFrameTestEVM(sender, frames)
+
+	code := []byte{
+		byte(PUSH1), 0x00,
+		byte(PUSH1), 0x00,
+		byte(PUSH1), 0x00,
+		byte(APPROVE),
+	}
+	// contract.Address = sender = frame target, should succeed
+	contract := NewContract(sender, sender, nil, 100000)
+	contract.Code = code
+
+	_, err := evm.Run(contract, nil)
+	if err != nil {
+		t.Fatalf("expected success for APPROVE from frame target: %v", err)
+	}
+}
+
+// --- VERIFY jump table restriction tests ---
+
+func TestVerifyJumpTable_RestrictsOpcodes(t *testing.T) {
+	tbl := NewFrameVerifyJumpTable()
+
+	restricted := []OpCode{SSTORE, CREATE, CREATE2, SELFDESTRUCT, LOG0, LOG1, LOG2, LOG3, LOG4}
+	for _, op := range restricted {
+		if tbl[op] != nil {
+			t.Errorf("%s should be nil in VERIFY jump table", op)
+		}
+	}
+
+	// SLOAD should still be available
+	allowed := []OpCode{SLOAD, STATICCALL, ADD, MLOAD, RETURN, KECCAK256}
+	for _, op := range allowed {
+		if tbl[op] == nil {
+			t.Errorf("%s should be available in VERIFY jump table", op)
+		}
+	}
 }

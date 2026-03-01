@@ -1481,3 +1481,51 @@ func TestNonceGap_MultipleGaps(t *testing.T) {
 		t.Errorf("QueuedCount after partial fill = %d, want 1", pool.QueuedCount())
 	}
 }
+
+// TestTxPool_FrameTx_VerifyStructuralValidation tests that FrameTx VERIFY frame
+// structural validation catches SENDER-without-VERIFY and passes valid frames.
+func TestTxPool_FrameTx_VerifyStructuralValidation(t *testing.T) {
+	state := newMockState()
+	sender := types.HexToAddress("0x1111111111111111111111111111111111111111")
+	state.balances[sender] = new(big.Int).Set(richBalance)
+	state.nonces[sender] = 0
+	pool := New(DefaultConfig(), state)
+
+	// A FrameTx with only VERIFY frames should pass structural validation.
+	verifyOnlyFrames := []types.Frame{
+		{Mode: types.ModeVerify, GasLimit: 50000, Data: []byte{0x01}},
+	}
+	ftxVerify := &types.FrameTx{
+		ChainID:              big.NewInt(1),
+		Nonce:                new(big.Int),
+		Sender:               sender,
+		Frames:               verifyOnlyFrames,
+		MaxFeePerGas:         big.NewInt(1000000000),
+		MaxPriorityFeePerGas: big.NewInt(1000000),
+	}
+	txVerify := types.NewTransaction(ftxVerify)
+	txVerify.SetSender(sender)
+	err := pool.AddLocal(txVerify)
+	if err != nil {
+		t.Errorf("expected VERIFY-only FrameTx to pass validation, got: %v", err)
+	}
+
+	// A FrameTx with SENDER but no VERIFY should be rejected.
+	senderOnlyFrames := []types.Frame{
+		{Mode: types.ModeSender, GasLimit: 50000, Data: []byte{0x01}},
+	}
+	ftxSenderOnly := &types.FrameTx{
+		ChainID:              big.NewInt(1),
+		Nonce:                new(big.Int).SetUint64(1),
+		Sender:               sender,
+		Frames:               senderOnlyFrames,
+		MaxFeePerGas:         big.NewInt(1000000000),
+		MaxPriorityFeePerGas: big.NewInt(1000000),
+	}
+	txSenderOnly := types.NewTransaction(ftxSenderOnly)
+	txSenderOnly.SetSender(sender)
+	err = pool.AddLocal(txSenderOnly)
+	if err == nil {
+		t.Error("expected SENDER-without-VERIFY FrameTx to be rejected")
+	}
+}

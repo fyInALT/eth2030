@@ -699,3 +699,23 @@ func NewGlamsterdanJumpTable() JumpTable {
 
 	return tbl
 }
+
+// NewFrameVerifyJumpTable returns a restricted jump table for VERIFY frames.
+// Per EIP-8141 spec, VERIFY frames MUST NOT use state-modifying opcodes
+// to prevent mempool DoS attacks.
+func NewFrameVerifyJumpTable() JumpTable {
+	tbl := NewGlamsterdanJumpTable()
+
+	// Remove state-modifying opcodes.
+	tbl[SSTORE] = nil
+	tbl[CREATE] = nil
+	tbl[CREATE2] = nil
+	tbl[SELFDESTRUCT] = nil
+	tbl[LOG0] = nil
+	tbl[LOG1] = nil
+	tbl[LOG2] = nil
+	tbl[LOG3] = nil
+	tbl[LOG4] = nil
+
+	return tbl
+}

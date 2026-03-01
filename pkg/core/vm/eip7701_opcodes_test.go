@@ -343,6 +343,100 @@ func TestNewAAContext(t *testing.T) {
 	}
 }
 
+func TestAAContext_PaymasterFieldsPreserved(t *testing.T) {
+	// Verify that NewAAContext from types.AATx preserves paymaster fields
+	// for cross-module use (AA context -> frame execution -> gas settlement).
+	sender := types.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	paymaster := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+	tx := &types.AATx{
+		ChainID:                big.NewInt(1),
+		Nonce:                  42,
+		Sender:                 sender,
+		SenderValidationData:   []byte{0x01},
+		SenderExecutionData:    []byte{0x02},
+		Paymaster:              &paymaster,
+		PaymasterData:          []byte{0x03, 0x04},
+		MaxPriorityFeePerGas:   big.NewInt(1_000_000_000),
+		MaxFeePerGas:           big.NewInt(30_000_000_000),
+		SenderValidationGas:    100_000,
+		PaymasterValidationGas: 50_000,
+		SenderExecutionGas:     200_000,
+		PaymasterPostOpGas:     20_000,
+	}
+
+	sigHash := types.Hash{0xFF}
+	ctx := NewAAContext(tx, sigHash)
+
+	// Verify paymaster fields are set correctly for downstream gas settlement.
+	if ctx.Paymaster != paymaster {
+		t.Errorf("Paymaster = %x, want %x", ctx.Paymaster, paymaster)
+	}
+	if len(ctx.PaymasterData) != 2 || ctx.PaymasterData[0] != 0x03 {
+		t.Errorf("PaymasterData = %x, want 0304", ctx.PaymasterData)
+	}
+	if ctx.PaymasterValidationGas != 50_000 {
+		t.Errorf("PaymasterValidationGas = %d, want 50000", ctx.PaymasterValidationGas)
+	}
+	if ctx.PaymasterPostOpGas != 20_000 {
+		t.Errorf("PaymasterPostOpGas = %d, want 20000", ctx.PaymasterPostOpGas)
+	}
+	if ctx.MaxFeePerGas.Cmp(big.NewInt(30_000_000_000)) != 0 {
+		t.Errorf("MaxFeePerGas = %s, want 30000000000", ctx.MaxFeePerGas)
+	}
+}
+
+func TestAAContext_NoPaymaster(t *testing.T) {
+	// Verify zero paymaster when none is specified.
+	sender := types.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+	tx := &types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  100_000,
+		SenderExecutionGas:   200_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(1),
+	}
+
+	ctx := NewAAContext(tx, types.Hash{})
+
+	// Paymaster should be zero address when not set.
+	if ctx.Paymaster != (types.Address{}) {
+		t.Errorf("Paymaster should be zero, got %x", ctx.Paymaster)
+	}
+}
+
+func TestAAContext_RoleTransitionClearsAcceptance(t *testing.T) {
+	// Cross-module: verify that transitioning roles resets acceptance,
+	// important for the VERIFY -> SENDER frame mode transition.
+	ctx := &AAContext{
+		CurrentRole:  AARoleSenderValidation,
+		RoleAccepted: true,
+	}
+
+	ctx.TransitionRole(AARoleSenderExecution)
+
+	if ctx.RoleAccepted {
+		t.Error("RoleAccepted should be false after transition")
+	}
+	if ctx.CurrentRole != AARoleSenderExecution {
+		t.Errorf("CurrentRole = 0x%02x, want 0x%02x", ctx.CurrentRole, AARoleSenderExecution)
+	}
+
+	// Transition again to paymaster post-op.
+	ctx.RoleAccepted = true
+	ctx.TransitionRole(AARolePaymasterPostOp)
+
+	if ctx.RoleAccepted {
+		t.Error("RoleAccepted should be false after second transition")
+	}
+	if ctx.CurrentRole != AARolePaymasterPostOp {
+		t.Errorf("CurrentRole = 0x%02x, want 0x%02x", ctx.CurrentRole, AARolePaymasterPostOp)
+	}
+}
+
 func TestEIP7701Operations(t *testing.T) {
 	ops := EIP7701Operations()
 

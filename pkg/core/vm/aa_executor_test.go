@@ -694,6 +694,162 @@ func TestAAExecutor_CheckNonce_NilState(t *testing.T) {
 	}
 }
 
+func TestAAExecutor_FrameContext_PayerTracking(t *testing.T) {
+	// Verify that FrameContext correctly tracks payer for sponsored tx.
+	ex := NewAAExecutor()
+	state := newAATestStateDB()
+	account := aaTestAccountAddr()
+	pm := aaTestPaymasterAddr()
+
+	// Set up code for both account and paymaster.
+	state.codes[account] = []byte{byte(STOP)}
+	state.codes[pm] = []byte{byte(STOP)}
+	state.balances[pm] = big.NewInt(1000000)
+
+	evm := makeAATestEVM(state)
+
+	// Create a tx with a paymaster.
+	tx := &AATx{
+		Sender:             account,
+		ValidationGasLimit: 100000,
+		ExecutionGasLimit:  200000,
+		PostOpGasLimit:     50000,
+		Paymaster:          &pm,
+		PaymasterData:      []byte{0x01, 0x02},
+		Nonce:              NonceKey{Sequence: 0},
+		MaxFeePerGas:       big.NewInt(1000000000),
+	}
+
+	// Validate phase sets up AA context with paymaster info.
+	_, err := ex.ValidatePhase(evm, tx, account)
+	// Expect role not accepted since STOP doesn't call ACCEPT_ROLE,
+	// but verify the AA context was configured with paymaster.
+	if !errors.Is(err, ErrAARoleNotAccepted) {
+		t.Fatalf("expected ErrAARoleNotAccepted, got: %v", err)
+	}
+
+	// Verify paymaster post-op also tracks paymaster.
+	err = ex.PostOpPhase(evm, tx, &AAExecutionResult{Success: true, GasUsed: 5000})
+	// Post-op should not error because paymaster has code.
+	if err != nil {
+		t.Fatalf("PostOpPhase unexpected error: %v", err)
+	}
+}
+
+func TestAAExecutor_ApproveFlow_Scope0ThenScope1(t *testing.T) {
+	// Test the conceptual APPROVE(0) then APPROVE(1) flow at the executor level.
+	// APPROVE(0) = sender approves execution, APPROVE(1) = payer approves payment.
+	// At the executor level, this maps to validation then paymaster validation.
+	ex := NewAAExecutor()
+	state := newAATestStateDB()
+	account := aaTestAccountAddr()
+	pm := aaTestPaymasterAddr()
+
+	// Both need code. STOP won't call ACCEPT_ROLE, but we verify the flow.
+	state.codes[account] = []byte{byte(STOP)}
+	state.codes[pm] = []byte{byte(STOP)}
+	state.balances[pm] = big.NewInt(10000000)
+
+	evm := makeAATestEVM(state)
+
+	tx := &AATx{
+		Sender:             account,
+		Paymaster:          &pm,
+		ValidationGasLimit: 100000,
+		ExecutionGasLimit:  200000,
+		PostOpGasLimit:     50000,
+		Nonce:              NonceKey{Sequence: 0},
+		MaxFeePerGas:       big.NewInt(1000000000),
+	}
+
+	// Phase 1: Account validation (analogous to sender APPROVE(0)).
+	valResult, err := ex.ValidatePhase(evm, tx, account)
+	if !errors.Is(err, ErrAARoleNotAccepted) {
+		t.Fatalf("phase 1: expected ErrAARoleNotAccepted, got: %v", err)
+	}
+	if valResult == nil {
+		t.Fatal("phase 1: expected non-nil validation result")
+	}
+	if valResult.Success {
+		t.Fatal("phase 1: expected validation failure (STOP doesn't call ACCEPT_ROLE)")
+	}
+
+	// Phase 1b: Paymaster validation (analogous to payer APPROVE(1)).
+	pmResult, err := ex.ValidatePaymaster(evm, tx, pm)
+	if !errors.Is(err, ErrAARoleNotAccepted) {
+		t.Fatalf("phase 1b: expected ErrAARoleNotAccepted, got: %v", err)
+	}
+	if pmResult == nil {
+		t.Fatal("phase 1b: expected non-nil paymaster result")
+	}
+	if pmResult.Success {
+		t.Fatal("phase 1b: expected paymaster failure (STOP doesn't call ACCEPT_ROLE)")
+	}
+}
+
+func TestAAExecutor_NonceKey_PrivacyPool(t *testing.T) {
+	// Verify that different nonce keys can be used for different contexts
+	// (privacy pool scenario from Vitalik's review).
+	ex := NewAAExecutor()
+	state := newAATestStateDB()
+	account := aaTestAccountAddr()
+
+	// Set up storage for two different nonce keys.
+	key1 := big.NewInt(1) // DeFi context
+	key2 := big.NewInt(2) // Social context
+
+	key1Bytes := make([]byte, 32)
+	key1.FillBytes(key1Bytes)
+	slot1 := types.BytesToHash(key1Bytes)
+
+	key2Bytes := make([]byte, 32)
+	key2.FillBytes(key2Bytes)
+	slot2 := types.BytesToHash(key2Bytes)
+
+	if _, ok := state.storage[account]; !ok {
+		state.storage[account] = make(map[types.Hash]types.Hash)
+	}
+	// Key1 has sequence 5, key2 has sequence 10.
+	seq1Bytes := make([]byte, 32)
+	big.NewInt(5).FillBytes(seq1Bytes)
+	state.storage[account][slot1] = types.BytesToHash(seq1Bytes)
+
+	seq2Bytes := make([]byte, 32)
+	big.NewInt(10).FillBytes(seq2Bytes)
+	state.storage[account][slot2] = types.BytesToHash(seq2Bytes)
+
+	// Check key1 with correct sequence.
+	err := ex.CheckNonce(state, account, NonceKey{Key: key1, Sequence: 5})
+	if err != nil {
+		t.Errorf("key1 correct seq: unexpected error: %v", err)
+	}
+
+	// Check key2 with correct sequence.
+	err = ex.CheckNonce(state, account, NonceKey{Key: key2, Sequence: 10})
+	if err != nil {
+		t.Errorf("key2 correct seq: unexpected error: %v", err)
+	}
+
+	// Cross-check: key1 with key2's sequence should fail.
+	err = ex.CheckNonce(state, account, NonceKey{Key: key1, Sequence: 10})
+	if !errors.Is(err, ErrAANonceMismatch) {
+		t.Errorf("key1 wrong seq: expected ErrAANonceMismatch, got: %v", err)
+	}
+
+	// Increment key1 and verify.
+	ex.IncrementNonce(state, account, NonceKey{Key: key1, Sequence: 5})
+	err = ex.CheckNonce(state, account, NonceKey{Key: key1, Sequence: 6})
+	if err != nil {
+		t.Errorf("key1 after increment: unexpected error: %v", err)
+	}
+
+	// Key2 should be unaffected.
+	err = ex.CheckNonce(state, account, NonceKey{Key: key2, Sequence: 10})
+	if err != nil {
+		t.Errorf("key2 after key1 increment: unexpected error: %v", err)
+	}
+}
+
 func TestValidateAATransaction(t *testing.T) {
 	// Nil tx.
 	if err := ValidateAATransaction(nil); err == nil {

@@ -15,6 +15,7 @@ var (
 	ErrFramePayerNotApproved  = errors.New("frame tx: payer not approved after all frames")
 	ErrFrameNonceMismatch     = errors.New("frame tx: nonce mismatch")
 	ErrFrameInvalidMode       = errors.New("frame tx: invalid frame mode")
+	ErrFrameVerifyNoCode      = errors.New("frame tx: VERIFY target has no code (use EIP-7702 delegation)")
 )
 
 // FrameExecutionContext tracks transaction-scoped state for EIP-8141 frame execution.
@@ -46,8 +47,11 @@ type FrameCallFunc func(
 // stateNonce is the current nonce of tx.Sender in state (for stateful validation).
 func ExecuteFrameTx(tx *types.FrameTx, stateNonce uint64, callFn FrameCallFunc) (*FrameExecutionContext, error) {
 	// Stateful validation: nonce check.
-	if tx.Nonce != stateNonce {
-		return nil, fmt.Errorf("%w: got %d, want %d", ErrFrameNonceMismatch, tx.Nonce, stateNonce)
+	// For 2D nonces (key != 0), only the sequence portion is compared.
+	// For simple nonces (key == 0), it behaves like a standard uint64 nonce.
+	txSeq := tx.NonceSeq()
+	if txSeq != stateNonce {
+		return nil, fmt.Errorf("%w: got %d, want %d", ErrFrameNonceMismatch, txSeq, stateNonce)
 	}
 
 	ctx := &FrameExecutionContext{

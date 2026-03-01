@@ -39,7 +39,7 @@ func TestExecuteFrameTxSimpleApproveScope2(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -86,7 +86,7 @@ func TestExecuteFrameTxSponsoredTransaction(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   5,
+		Nonce:   new(big.Int).SetUint64(5),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sender-sig")},
@@ -125,7 +125,7 @@ func TestExecuteFrameTxSenderModeWithoutApproval(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			// No VERIFY frame first, directly try SENDER mode.
@@ -147,7 +147,7 @@ func TestExecuteFrameTxVerifyNoApprove(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -175,7 +175,7 @@ func TestExecuteFrameTxPayerNotApproved(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -203,7 +203,7 @@ func TestExecuteFrameTxNonceMismatch(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   5,
+		Nonce:   new(big.Int).SetUint64(5),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -226,7 +226,7 @@ func TestExecuteFrameTxGasIsolation(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -263,7 +263,7 @@ func TestExecuteFrameTxDoubleApproveRejects(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig1")},
@@ -290,7 +290,7 @@ func TestCalcFrameRefund(t *testing.T) {
 	sender := types.HexToAddress("0xaaaa")
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, GasLimit: 50000},
@@ -318,7 +318,7 @@ func TestCalcFrameRefund(t *testing.T) {
 func TestCalcFrameRefundNoRefund(t *testing.T) {
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  types.HexToAddress("0xaaaa"),
 		Frames: []types.Frame{
 			{Mode: types.ModeDefault, GasLimit: 50000},
@@ -370,7 +370,7 @@ func TestBuildFrameReceipt(t *testing.T) {
 func TestMaxFrameTxCost(t *testing.T) {
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  types.HexToAddress("0xaaaa"),
 		Frames: []types.Frame{
 			{Mode: types.ModeDefault, GasLimit: 100000},
@@ -391,7 +391,7 @@ func TestMaxFrameTxCost(t *testing.T) {
 func TestMaxFrameTxCostWithBlobs(t *testing.T) {
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  types.HexToAddress("0xaaaa"),
 		Frames: []types.Frame{
 			{Mode: types.ModeDefault, GasLimit: 100000},
@@ -421,7 +421,7 @@ func TestFrameExecutionDefaultModeCaller(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -467,7 +467,7 @@ func TestFrameExecutionSenderModeCaller(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},
@@ -506,7 +506,7 @@ func TestFrameExecutionNilTargetDefaultsToSender(t *testing.T) {
 
 	tx := &types.FrameTx{
 		ChainID: big.NewInt(1),
-		Nonce:   0,
+		Nonce:   new(big.Int).SetUint64(0),
 		Sender:  sender,
 		Frames: []types.Frame{
 			{Mode: types.ModeVerify, Target: nil, GasLimit: 50000, Data: []byte("sig")},

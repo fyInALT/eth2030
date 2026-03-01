@@ -54,7 +54,7 @@ type FrameContext struct {
 
 	// Transaction parameters exposed via TXPARAM* opcodes.
 	TxType            uint64
-	Nonce             uint64
+	Nonce             *big.Int // 256-bit 2D nonce
 	Sender            types.Address
 	MaxPriorityFee    *big.Int
 	MaxFee            *big.Int
@@ -90,10 +90,11 @@ func opApprove(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *
 	fc.ApproveCalledThisFrame = true
 	fc.LastApproveScope = uint8(scopeVal)
 
-	// APPROVE requires CALLER == frame.target. The contract's CallerAddress is
-	// the CALLER for the current execution context, and contract.Address is the
-	// code address being executed.
-	if contract.CallerAddress != contract.Address {
+	// APPROVE must only succeed if the executing contract IS the frame target.
+	if fc.CurrentFrameIndex >= uint64(len(fc.Frames)) {
+		return nil, ErrFrameIndexOutOfBounds
+	}
+	if contract.Address != fc.Frames[fc.CurrentFrameIndex].Target {
 		return nil, ErrCallerNotFrameTarget
 	}
 
@@ -158,11 +159,14 @@ func txParamValue(fc *FrameContext, in1, in2 uint64) ([]byte, error) {
 		}
 		new(big.Int).SetUint64(fc.TxType).FillBytes(result)
 
-	case 0x01: // nonce
+	case 0x01: // nonce (256-bit)
 		if in2 != 0 {
 			return nil, ErrTxParamIn2MustBeZero
 		}
-		new(big.Int).SetUint64(fc.Nonce).FillBytes(result)
+		if fc.Nonce != nil {
+			b := fc.Nonce.Bytes()
+			copy(result[32-len(b):], b)
+		}
 
 	case 0x02: // sender
 		if in2 != 0 {

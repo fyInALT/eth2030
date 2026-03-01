@@ -35,7 +35,7 @@ type Frame struct {
 // FrameTx represents an EIP-8141 (type 0x06) frame transaction.
 type FrameTx struct {
 	ChainID              *big.Int
-	Nonce                uint64
+	Nonce                *big.Int // 256-bit: upper 192 bits = key, lower 64 bits = sequence
 	Sender               Address
 	Frames               []Frame
 	MaxPriorityFeePerGas *big.Int
@@ -54,13 +54,37 @@ func (tx *FrameTx) gasPrice() *big.Int     { return tx.MaxFeePerGas }
 func (tx *FrameTx) gasTipCap() *big.Int    { return tx.MaxPriorityFeePerGas }
 func (tx *FrameTx) gasFeeCap() *big.Int    { return tx.MaxFeePerGas }
 func (tx *FrameTx) value() *big.Int        { return new(big.Int) }
-func (tx *FrameTx) nonce() uint64          { return tx.Nonce }
-func (tx *FrameTx) to() *Address           { return nil }
+func (tx *FrameTx) nonce() uint64 {
+	if tx.Nonce == nil {
+		return 0
+	}
+	return tx.NonceSeq()
+}
+func (tx *FrameTx) to() *Address { return nil }
+
+// NonceKey returns the upper 192-bit key of the 2D nonce.
+func (tx *FrameTx) NonceKey() *big.Int {
+	if tx.Nonce == nil {
+		return new(big.Int)
+	}
+	return new(big.Int).Rsh(tx.Nonce, 64)
+}
+
+// NonceSeq returns the lower 64-bit sequential portion of the 2D nonce.
+func (tx *FrameTx) NonceSeq() uint64 {
+	if tx.Nonce == nil {
+		return 0
+	}
+	mask := new(big.Int).SetUint64(^uint64(0))
+	return new(big.Int).And(tx.Nonce, mask).Uint64()
+}
 
 func (tx *FrameTx) copy() TxData {
 	cpy := &FrameTx{
-		Nonce:  tx.Nonce,
 		Sender: tx.Sender,
+	}
+	if tx.Nonce != nil {
+		cpy.Nonce = new(big.Int).Set(tx.Nonce)
 	}
 	if tx.ChainID != nil {
 		cpy.ChainID = new(big.Int).Set(tx.ChainID)
@@ -107,7 +131,7 @@ type frameRLP struct {
 // Fields: [chain_id, nonce, sender, frames, max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas, blob_versioned_hashes]
 type frameTxRLP struct {
 	ChainID              *big.Int
-	Nonce                uint64
+	Nonce                *big.Int
 	Sender               Address
 	Frames               []frameRLP
 	MaxPriorityFeePerGas *big.Int
@@ -120,7 +144,7 @@ type frameTxRLP struct {
 func EncodeFrameTx(tx *FrameTx) ([]byte, error) {
 	enc := frameTxRLP{
 		ChainID:              bigOrZero(tx.ChainID),
-		Nonce:                tx.Nonce,
+		Nonce:                bigOrZero(tx.Nonce),
 		Sender:               tx.Sender,
 		Frames:               encodeFrames(tx.Frames),
 		MaxPriorityFeePerGas: bigOrZero(tx.MaxPriorityFeePerGas),
@@ -214,7 +238,7 @@ func ComputeFrameSigHash(tx *FrameTx) Hash {
 	}
 	enc := frameTxRLP{
 		ChainID:              bigOrZero(tx.ChainID),
-		Nonce:                tx.Nonce,
+		Nonce:                bigOrZero(tx.Nonce),
 		Sender:               tx.Sender,
 		Frames:               frames,
 		MaxPriorityFeePerGas: bigOrZero(tx.MaxPriorityFeePerGas),
@@ -249,6 +273,9 @@ func ValidateFrameTx(tx *FrameTx) error {
 	}
 	if tx.ChainID != nil && tx.ChainID.Sign() < 0 {
 		return errors.New("frame tx: negative chain ID")
+	}
+	if tx.Nonce != nil && tx.Nonce.Sign() < 0 {
+		return errors.New("frame tx: negative nonce")
 	}
 	for i, f := range tx.Frames {
 		if f.Mode > 2 {

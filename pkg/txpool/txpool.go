@@ -404,6 +404,30 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 				return fmt.Errorf("frame tx: invalid mode %d in frame %d", f.Mode, i)
 			}
 		}
+		// EIP-8141: VERIFY frame structural validation (PARTIAL-5).
+		// Codeless VERIFY target rejection requires StateDB.GetCodeSize, which
+		// is not available via the txpool's StateReader. Full VERIFY simulation
+		// (checking APPROVE is called) is deferred to block processing in
+		// processor.go where the EVM is available. Here we validate structure only.
+		hasVerify := false
+		for _, f := range frames {
+			if f.Mode == types.ModeVerify {
+				hasVerify = true
+				break
+			}
+		}
+		// A FrameTx with SENDER frames but no VERIFY will fail at execution time
+		// (ErrFrameSenderNotApproved), but we can reject it early.
+		hasSender := false
+		for _, f := range frames {
+			if f.Mode == types.ModeSender {
+				hasSender = true
+				break
+			}
+		}
+		if hasSender && !hasVerify {
+			return errors.New("frame tx: SENDER frames require at least one VERIFY frame for approval")
+		}
 	}
 
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
