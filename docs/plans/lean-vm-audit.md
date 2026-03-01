@@ -499,7 +499,7 @@ For large polynomials (2^24+ variables), proving takes minutes with no way to di
 | F-04 | HIGH | [leanMultisig #160](https://github.com/leanEthereum/leanMultisig/pull/160) | Closed | Seed size rejected — team argued 160-bit sufficient for their threat model |
 | F-05 | HIGH | [fiat-shamir #6](https://github.com/leanEthereum/fiat-shamir/pull/6) | Open | Docs-only: distribution properties of sample()/sample_in_range() |
 | F-06 | MEDIUM | — | Issue filed | .unwrap() DoS — no PR yet |
-| F-07 | MEDIUM | [leanMultisig #161](https://github.com/leanEthereum/leanMultisig/pull/161) | Open | Stack arrays in logup inner loops |
+| F-07 | MEDIUM | [leanMultisig #161](https://github.com/leanEthereum/leanMultisig/pull/161) | **Merged** | Stack arrays in logup inner loops |
 | F-08 | MEDIUM | — | False positive | Merkle tree already parallelized |
 | F-09 | MEDIUM | — | Issue filed | SIMD fallback — invasive change |
 | F-10 | MEDIUM | — | Issue filed | FRI twiddle precomputation — domain expertise needed |
@@ -508,7 +508,7 @@ For large polynomials (2^24+ variables), proving takes minutes with no way to di
 | F-13 | MEDIUM | — | Issue filed | No Lean 4 formalization |
 | F-14 | LOW | — | Issue filed | Hardcoded security params |
 | F-15 | LOW | [leanMultisig #162](https://github.com/leanEthereum/leanMultisig/pull/162) | Open | SAFETY docs on unsafe blocks |
-| F-16 | LOW | [leanMultisig #163](https://github.com/leanEthereum/leanMultisig/pull/163) | Open | xmss_key_gen slot range cap (also ext #133) |
+| F-16 | LOW | [leanMultisig #163](https://github.com/leanEthereum/leanMultisig/pull/163) | Closed | xmss_key_gen slot range cap — team wants full 2^32 range (ext #133) |
 | F-17 | LOW | — | Issue filed | No progress callback |
 | F-18 | LOW | — | Issue filed | Missing worst-case benchmarks |
 | ext | — | [leanSpec #428](https://github.com/leanEthereum/leanSpec/pull/428) | Open | Docs site URL 404 fix (ext #400) |
