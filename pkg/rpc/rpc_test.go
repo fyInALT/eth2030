@@ -336,7 +336,7 @@ func TestGetBlockByNumber_NotFound(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent block")
 	}
 }
@@ -483,7 +483,7 @@ func TestGetTransactionByHash_NotFound(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent tx")
 	}
 }
@@ -673,7 +673,45 @@ func TestGetBlockReceipts_NotFound(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent block")
+	}
+}
+
+// TestGetBlockReceipts_BlockNumberOrHashObject verifies that the object form
+// {"blockHash":"0x..."} accepted by go-ethereum ethclient works correctly.
+func TestGetBlockReceipts_BlockNumberOrHashObject(t *testing.T) {
+	mb := newMockBackend()
+	blockHash := mb.headers[42].Hash()
+
+	receipt := &types.Receipt{
+		Status:            types.ReceiptStatusSuccessful,
+		CumulativeGasUsed: 21000,
+		GasUsed:           21000,
+		TxHash:            types.HexToHash("0x1111"),
+		BlockHash:         blockHash,
+		BlockNumber:       big.NewInt(42),
+		TransactionIndex:  0,
+		Logs:              []*types.Log{},
+	}
+	mb.receipts[blockHash] = []*types.Receipt{receipt}
+
+	api := NewEthAPI(mb)
+
+	// Object form with blockHash
+	param := map[string]interface{}{
+		"blockHash":        blockHash.Hex(),
+		"requireCanonical": false,
+	}
+	resp := callRPC(t, api, "eth_getBlockReceipts", param)
+	if resp.Error != nil {
+		t.Fatalf("blockHash object form error: %v", resp.Error.Message)
+	}
+	receipts, ok := resp.Result.([]*RPCReceipt)
+	if !ok {
+		t.Fatalf("result not []*RPCReceipt: %T", resp.Result)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("want 1 receipt, got %d", len(receipts))
 	}
 }

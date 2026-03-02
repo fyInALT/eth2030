@@ -181,15 +181,23 @@ func (api *EthAPI) getLogs(req *Request) *Response {
 	return successResponse(req.ID, result)
 }
 
+// blockNumberOrHashParam mirrors the go-ethereum ethclient BlockNumberOrHash
+// JSON encoding: {"blockHash":"0x...","requireCanonical":false} or
+// {"blockNumber":"0x..."}.
+type blockNumberOrHashParam struct {
+	BlockHash   *string `json:"blockHash"`
+	BlockNumber *string `json:"blockNumber"`
+}
+
 // getBlockReceipts returns all receipts for a given block number.
+// The first parameter accepts:
+//   - a hex block hash string "0x..." (66 chars)
+//   - a hex block number string "0x..."
+//   - a named tag "latest", "earliest", "pending"
+//   - a BlockNumberOrHash object {"blockHash":"0x..."} or {"blockNumber":"0x..."}
 func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 	if len(req.Params) < 1 {
 		return errorResponse(req.ID, ErrCodeInvalidParams, "missing block number or hash")
-	}
-
-	var paramStr string
-	if err := json.Unmarshal(req.Params[0], &paramStr); err != nil {
-		return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
 	}
 
 	// Detect block hash vs block number: a hash is 0x-prefixed and 66 chars.
@@ -198,16 +206,43 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 		blockHash types.Hash
 		byHash    bool
 	)
-	if len(paramStr) == 66 && (paramStr[:2] == "0x" || paramStr[:2] == "0X") {
-		blockHash = types.HexToHash(paramStr)
-		header = api.backend.HeaderByHash(blockHash)
-		byHash = true
+
+	// Try object form {"blockHash":"0x..."} / {"blockNumber":"0x..."} first.
+	raw := req.Params[0]
+	if len(raw) > 0 && raw[0] == '{' {
+		var obj blockNumberOrHashParam
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return errorResponse(req.ID, ErrCodeInvalidParams, "invalid block param: "+err.Error())
+		}
+		if obj.BlockHash != nil {
+			blockHash = types.HexToHash(*obj.BlockHash)
+			header = api.backend.HeaderByHash(blockHash)
+			byHash = true
+		} else if obj.BlockNumber != nil {
+			var bn BlockNumber
+			if err := json.Unmarshal([]byte(`"` + *obj.BlockNumber + `"`), &bn); err != nil {
+				return errorResponse(req.ID, ErrCodeInvalidParams, "invalid blockNumber: "+err.Error())
+			}
+			header = api.backend.HeaderByNumber(bn)
+		} else {
+			return errorResponse(req.ID, ErrCodeInvalidParams, "object must have blockHash or blockNumber")
+		}
 	} else {
-		var bn BlockNumber
-		if err := json.Unmarshal(req.Params[0], &bn); err != nil {
+		var paramStr string
+		if err := json.Unmarshal(raw, &paramStr); err != nil {
 			return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
 		}
-		header = api.backend.HeaderByNumber(bn)
+		if len(paramStr) == 66 && (paramStr[:2] == "0x" || paramStr[:2] == "0X") {
+			blockHash = types.HexToHash(paramStr)
+			header = api.backend.HeaderByHash(blockHash)
+			byHash = true
+		} else {
+			var bn BlockNumber
+			if err := json.Unmarshal(raw, &bn); err != nil {
+				return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+			}
+			header = api.backend.HeaderByNumber(bn)
+		}
 	}
 
 	if header == nil {
