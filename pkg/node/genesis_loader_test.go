@@ -135,6 +135,44 @@ func TestLoadGenesisFile_ToBlock(t *testing.T) {
 	}
 }
 
+func TestLoadGenesisFile_HexStringNonce(t *testing.T) {
+	// Kurtosis devnet genesis files encode alloc nonce as a hex string, e.g. "0x1".
+	// Ensure the loader doesn't error on this format.
+	raw := []byte(`{
+		"config": {"chainId": 3151908, "homesteadBlock": 0, "eip155Block": 0,
+		           "eip158Block": 0, "byzantiumBlock": 0, "constantinopleBlock": 0,
+		           "petersburgBlock": 0, "istanbulBlock": 0, "berlinBlock": 0,
+		           "londonBlock": 0, "shanghaiTime": 0, "cancunTime": 0, "pragueTime": 0},
+		"nonce": "0x0", "timestamp": "0x0", "extraData": "0x",
+		"gasLimit": "0x1C9C380", "difficulty": "0x0",
+		"alloc": {
+			"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266": {
+				"balance": "1000000000000000000000",
+				"nonce": "0x1"
+			}
+		}
+	}`)
+	dir := t.TempDir()
+	path := dir + "/genesis.json"
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatalf("write genesis: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dir
+	cfg.GenesisPath = path
+
+	genesis, err := loadGenesisFile(&cfg)
+	if err != nil {
+		t.Fatalf("loadGenesisFile() with hex nonce error: %v", err)
+	}
+	for _, acc := range genesis.Alloc {
+		if acc.Nonce != 1 {
+			t.Errorf("Nonce = %d, want 1", acc.Nonce)
+		}
+	}
+}
+
 func TestNodeWithGenesisFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "genesis.json")

@@ -54,7 +54,7 @@ type chainConfigJSON struct {
 type allocAccountJSON struct {
 	Balance string            `json:"balance"`
 	Code    hexBytes          `json:"code"`
-	Nonce   uint64            `json:"nonce"`
+	Nonce   uint64JSON        `json:"nonce"`
 	Storage map[string]string `json:"storage"`
 }
 
@@ -222,7 +222,7 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 		}
 		bal := new(big.Int)
 		bal.SetString(acc.Balance, 10)
-		alloc[addr] = core.GenesisAccount{Balance: bal, Code: acc.Code, Nonce: acc.Nonce}
+		alloc[addr] = core.GenesisAccount{Balance: bal, Code: acc.Code, Nonce: uint64(acc.Nonce)}
 	}
 
 	difficulty := new(big.Int)
