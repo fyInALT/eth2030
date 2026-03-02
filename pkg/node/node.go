@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -35,7 +36,7 @@ type Node struct {
 	db            rawdb.Database
 	blockchain    *core.Blockchain
 	txPool        *txpool.TxPool
-	rpcServer     *http.Server
+	rpcServer     *rpc.ExtServer
 	rpcHandler    *rpc.Server
 	engineServer  *engine.EngineAPI
 	p2pServer     *p2p.Server
@@ -68,8 +69,12 @@ func New(config *Config) (*Node, error) {
 		stop:   make(chan struct{}),
 	}
 
-	// Initialize in-memory database.
-	n.db = rawdb.NewMemoryDB()
+	// Initialize persistent database.
+	db, err := rawdb.NewFileDB(config.ResolvePath("chaindata"))
+	if err != nil {
+		return nil, fmt.Errorf("init database: %w", err)
+	}
+	n.db = db
 
 	// Initialize genesis state before resolving the genesis block so that
 	// SetupGenesisBlock can populate alloc accounts into it.
@@ -123,12 +128,29 @@ func New(config *Config) (*Node, error) {
 	backend := newNodeBackend(n)
 	n.rpcHandler = rpc.NewServer(backend)
 	n.rpcHandler.SetAdminBackend(newNodeAdminBackend(n))
+	n.rpcServer = rpc.NewExtServer(backend, rpc.ServerConfig{
+		MaxRequestSize:   config.RPCMaxRequestSize,
+		ReadTimeout:      30 * time.Second,
+		WriteTimeout:     30 * time.Second,
+		IdleTimeout:      120 * time.Second,
+		ShutdownTimeout:  10 * time.Second,
+		CORSAllowOrigins: config.RPCCORSAllowedOrigins(),
+		AuthSecret:       config.RPCAuthSecret,
+		RateLimitPerSec:  config.RPCRateLimitPerSec,
+		MaxBatchSize:     config.RPCMaxBatchSize,
+	})
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)
 	n.engineServer = engine.NewEngineAPI(engineBackend)
 	// Forward eth_/web3_/net_/admin_ methods on the engine port to the RPC handler.
 	n.engineServer.SetEthHandler(n.rpcHandler.Handler())
+	n.engineServer.SetMaxRequestSize(config.EngineMaxRequestSize)
+	if token, err := resolveEngineAuthToken(config); err != nil {
+		return nil, fmt.Errorf("engine auth: %w", err)
+	} else if token != "" {
+		n.engineServer.SetAuthSecret(token)
+	}
 
 	return n, nil
 }
@@ -150,18 +172,10 @@ func (n *Node) Start() error {
 	}
 	slog.Info("P2P server listening", "addr", n.p2pServer.ListenAddr())
 
-	// Build the HTTP handler with CORS and vhosts middleware.
-	httpHandler := n.rpcHandler.Handler()
-	httpHandler = corsMiddleware(httpHandler, n.config.HTTPCORSDomain, n.config.HTTPVhosts)
-
-	// Start JSON-RPC server.
-	n.rpcServer = &http.Server{
-		Addr:    n.config.HTTPListenAddr(),
-		Handler: httpHandler,
-	}
+	// Start JSON-RPC server (ExtServer handles auth, rate limiting, CORS, body limits).
 	go func() {
-		slog.Info("RPC server listening", "addr", n.config.HTTPListenAddr())
-		if err := n.rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Info("RPC server listening", "addr", n.config.RPCAddr())
+		if err := n.rpcServer.Start(n.config.RPCAddr()); err != nil && err != http.ErrServerClosed {
 			slog.Error("RPC server error", "err", err)
 		}
 	}()
@@ -220,6 +234,18 @@ func (n *Node) Stop() error {
 	defer n.mu.Unlock()
 
 	if !n.running {
+		if n.db != nil {
+			if err := n.db.Close(); err != nil {
+				slog.Warn("database close error", "err", err)
+			}
+			n.db = nil
+		}
+		select {
+		case <-n.stop:
+			// stop channel already closed.
+		default:
+			close(n.stop)
+		}
 		return nil
 	}
 
@@ -232,7 +258,7 @@ func (n *Node) Stop() error {
 
 	// Stop RPC server.
 	if n.rpcServer != nil {
-		if err := n.rpcServer.Close(); err != nil {
+		if err := n.rpcServer.Stop(); err != nil {
 			slog.Warn("RPC server stop error", "err", err)
 		}
 	}
@@ -258,9 +284,15 @@ func (n *Node) Stop() error {
 	if err := n.db.Close(); err != nil {
 		slog.Warn("database close error", "err", err)
 	}
+	n.db = nil
 
 	n.running = false
-	close(n.stop)
+	select {
+	case <-n.stop:
+		// stop channel already closed.
+	default:
+		close(n.stop)
+	}
 	slog.Info("node stopped")
 	return nil
 }
@@ -305,6 +337,40 @@ func chainConfigForNetwork(network string) *core.ChainConfig {
 		return core.MainnetConfig
 	}
 }
+
+func resolveEngineAuthToken(cfg *Config) (string, error) {
+	if cfg.EngineAuthToken != "" {
+		return strings.TrimSpace(cfg.EngineAuthToken), nil
+	}
+	if cfg.EngineAuthTokenPath == "" {
+		return "", nil
+	}
+
+	data, err := os.ReadFile(cfg.EngineAuthTokenPath)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("engine auth token file is empty")
+	}
+	return token, nil
+}
+
+// genesisForNetwork returns the genesis specification for the given network.
+func genesisForNetwork(network string) *core.Genesis {
+	switch network {
+	case "mainnet":
+		return core.DefaultGenesisBlock()
+	case "sepolia":
+		return core.DefaultSepoliaGenesisBlock()
+	case "holesky":
+		return core.DefaultHoleskyGenesisBlock()
+	default:
+		return core.DefaultGenesisBlock()
+	}
+}
+
 
 // makeGenesisBlock creates a minimal genesis block.
 func makeGenesisBlock() *types.Block {

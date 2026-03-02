@@ -45,6 +45,37 @@ type Config struct {
 	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
 	NAT string
 
+	// RPCHost is the interface that the HTTP-RPC server binds to.
+	RPCHost string
+
+	// RPCAuthSecret requires this bearer token for JSON-RPC requests when set.
+	RPCAuthSecret string
+
+	// RPCRateLimitPerSec controls request rate limiting for JSON-RPC requests.
+	RPCRateLimitPerSec int
+
+	// RPCMaxRequestSize is the max body size for JSON-RPC requests, in bytes.
+	RPCMaxRequestSize int64
+
+	// RPCMaxBatchSize is the max number of requests in a single batch.
+	RPCMaxBatchSize int
+
+	// RPCCORSOrigins is a comma-separated list of allowed Origin headers.
+	// Use "*" to allow all.
+	RPCCORSOrigins string
+
+	// EngineHost is the interface that the Engine API server binds to.
+	EngineHost string
+
+	// EngineMaxRequestSize is the max body size for Engine API requests, in bytes.
+	EngineMaxRequestSize int64
+
+	// EngineAuthToken requires this bearer token for Engine API requests when set.
+	EngineAuthToken string
+
+	// EngineAuthTokenPath optionally loads the Engine API token from a file.
+	EngineAuthTokenPath string
+
 	// MaxPeers is the maximum number of P2P peers.
 	MaxPeers int
 
@@ -116,17 +147,27 @@ func DefaultConfig() Config {
 		Verbosity: 3,
 
 		// HTTP-RPC
-		RPCPort:        8545,
-		HTTPAddr:       "127.0.0.1",
-		HTTPVhosts:     []string{"*"},
-		HTTPCORSDomain: []string{"*"},
-		HTTPModules:    []string{"eth", "net", "web3", "engine", "admin", "debug", "txpool"},
+		RPCPort:            8545,
+		HTTPAddr:           "127.0.0.1",
+		RPCHost:            "127.0.0.1",
+		RPCAuthSecret:      "",
+		RPCRateLimitPerSec: 100,
+		RPCMaxRequestSize:  5 * 1024 * 1024,
+		RPCMaxBatchSize:    100,
+		RPCCORSOrigins:     "*",
+		HTTPVhosts:         []string{"*"},
+		HTTPCORSDomain:     []string{"*"},
+		HTTPModules:        []string{"eth", "net", "web3", "engine", "admin", "debug", "txpool"},
 
 		// Engine API
-		EnginePort: 8551,
-		AuthAddr:   "127.0.0.1",
-		AuthVhosts: []string{"localhost"},
-		JWTSecret:  "",
+		EnginePort:           8551,
+		AuthAddr:             "127.0.0.1",
+		EngineHost:           "127.0.0.1",
+		EngineMaxRequestSize: 5 * 1024 * 1024,
+		EngineAuthToken:      "",
+		EngineAuthTokenPath:  "",
+		AuthVhosts:           []string{"localhost"},
+		JWTSecret:            "",
 
 		// WebSocket
 		WSEnabled: false,
@@ -161,6 +202,18 @@ func (c *Config) Validate() error {
 	}
 	if c.MetricsPort < 0 || c.MetricsPort > 65535 {
 		return fmt.Errorf("config: invalid metrics port: %d", c.MetricsPort)
+	}
+	if c.RPCMaxRequestSize <= 0 {
+		return fmt.Errorf("config: invalid rpc max request size: %d", c.RPCMaxRequestSize)
+	}
+	if c.RPCRateLimitPerSec < 0 {
+		return fmt.Errorf("config: invalid rpc rate limit: %d", c.RPCRateLimitPerSec)
+	}
+	if c.RPCMaxBatchSize <= 0 {
+		return fmt.Errorf("config: invalid rpc max batch size: %d", c.RPCMaxBatchSize)
+	}
+	if c.EngineMaxRequestSize <= 0 {
+		return fmt.Errorf("config: invalid engine max request size: %d", c.EngineMaxRequestSize)
 	}
 	if c.MaxPeers < 0 {
 		return fmt.Errorf("config: invalid max peers: %d", c.MaxPeers)
@@ -305,4 +358,25 @@ func SplitModules(s string) []string {
 		}
 	}
 	return result
+}
+
+// RPCCORSAllowedOrigins returns the parsed CORS origin allowlist.
+func (c *Config) RPCCORSAllowedOrigins() []string {
+	out := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	for _, origin := range strings.Split(c.RPCCORSOrigins, ",") {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		out = append(out, "*")
+	}
+	return out
 }

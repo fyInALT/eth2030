@@ -65,6 +65,16 @@ func run(args []string) int {
 		slog.Info("WebSocket RPC", "addr", cfg.WSListenAddr())
 	}
 
+	// Log security configuration.
+	slog.Info("Security",
+		"rpc_auth", cfg.RPCAuthSecret != "",
+		"rpc_rate", cfg.RPCRateLimitPerSec,
+		"rpc_body", cfg.RPCMaxRequestSize,
+		"rpc_batch", cfg.RPCMaxBatchSize,
+		"engine_body", cfg.EngineMaxRequestSize,
+		"engine_auth", cfg.EngineAuthToken != "" || cfg.EngineAuthTokenPath != "",
+	)
+
 	// Log any fork override timestamps so they appear in the startup banner.
 	logForkOverrides(&cfg)
 
@@ -150,12 +160,21 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.StringSliceVar(&cfg.HTTPVhosts, "http.vhosts", cfg.HTTPVhosts, "comma-separated virtual hostnames for HTTP-RPC")
 	fs.StringSliceVar(&cfg.HTTPCORSDomain, "http.corsdomain", cfg.HTTPCORSDomain, "comma-separated CORS domains")
 	fs.StringSliceVar(&cfg.HTTPModules, "http.api", cfg.HTTPModules, "comma-separated HTTP-RPC API modules")
+	fs.StringVar(&cfg.RPCAuthSecret, "rpc.auth_secret", cfg.RPCAuthSecret, "Bearer token required by HTTP-RPC (empty = disabled)")
+	fs.IntVar(&cfg.RPCRateLimitPerSec, "rpc.rate_limit", cfg.RPCRateLimitPerSec, "HTTP-RPC request rate limit (req/s, 0 = default)")
+	fs.Int64Var(&cfg.RPCMaxRequestSize, "rpc.max_request_size", cfg.RPCMaxRequestSize, "HTTP-RPC max request body size (bytes)")
+	fs.IntVar(&cfg.RPCMaxBatchSize, "rpc.max_batch_size", cfg.RPCMaxBatchSize, "HTTP-RPC max batch size")
+	fs.StringVar(&cfg.RPCCORSOrigins, "rpc.cors_origin", cfg.RPCCORSOrigins, "HTTP-RPC allowed CORS origins (comma-separated, * = all)")
 
 	// --- Auth / Engine API ---
 	fs.StringVar(&cfg.AuthAddr, "authrpc.addr", cfg.AuthAddr, "Engine API listen address")
 	fs.IntVar(&cfg.EnginePort, "authrpc.port", cfg.EnginePort, "Engine API port")
 	fs.StringSliceVar(&cfg.AuthVhosts, "authrpc.vhosts", cfg.AuthVhosts, "comma-separated virtual hostnames for Engine API")
 	fs.StringVar(&cfg.JWTSecret, "authrpc.jwtsecret", cfg.JWTSecret, "path to JWT secret for Engine API auth")
+	fs.StringVar(&cfg.EngineHost, "engine.addr", cfg.EngineHost, "Engine API bind address (PR#10 compat)")
+	fs.Int64Var(&cfg.EngineMaxRequestSize, "engine.max_request_size", cfg.EngineMaxRequestSize, "Engine API max request body size (bytes)")
+	fs.StringVar(&cfg.EngineAuthToken, "engine.auth_secret", cfg.EngineAuthToken, "Engine API bearer token (empty = disabled)")
+	fs.StringVar(&cfg.EngineAuthTokenPath, "engine.auth_secret_file", cfg.EngineAuthTokenPath, "Engine API bearer token file path")
 
 	// --- WebSocket ---
 	fs.BoolVar(&cfg.WSEnabled, "ws", cfg.WSEnabled, "enable WebSocket RPC server")

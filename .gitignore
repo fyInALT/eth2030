@@ -32,6 +32,14 @@ Thumbs.db
 coverage.out
 coverage.html
 
+# Lean (formal verification)
+.lake/
+*.olean
+*.ilean
+*.ilean.out
+*.ilean.json
+*.ilean.md
+
 # Devnet test results (regenerable)
 pkg/devnet/kurtosis/results/
 

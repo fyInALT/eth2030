@@ -43,16 +43,26 @@ type BatchResponse struct {
 // executes each request (optionally in parallel), and assembles the results
 // in the original request order.
 type BatchHandler struct {
-	api         *EthAPI
-	parallelism int
+	api          *EthAPI
+	parallelism  int
+	maxBatchSize int
 }
 
 // NewBatchHandler creates a new batch handler that dispatches to the given API.
 func NewBatchHandler(api *EthAPI) *BatchHandler {
 	return &BatchHandler{
-		api:         api,
-		parallelism: DefaultParallelism,
+		api:          api,
+		parallelism:  DefaultParallelism,
+		maxBatchSize: MaxBatchSize,
 	}
+}
+
+// SetMaxBatchSize sets the maximum supported batch size.
+func (bh *BatchHandler) SetMaxBatchSize(n int) {
+	if n < 1 {
+		n = 1
+	}
+	bh.maxBatchSize = n
 }
 
 // SetParallelism sets the maximum number of goroutines used for parallel
@@ -75,8 +85,11 @@ func (bh *BatchHandler) HandleBatch(body []byte) ([]BatchResponse, error) {
 	if len(requests) == 0 {
 		return nil, ErrBatchEmpty
 	}
-	if len(requests) > MaxBatchSize {
-		return nil, ErrBatchTooLarge
+	if len(requests) > bh.maxBatchSize {
+		if bh.maxBatchSize == MaxBatchSize {
+			return nil, ErrBatchTooLarge
+		}
+		return nil, fmt.Errorf("rpc: batch exceeds maximum size of %d", bh.maxBatchSize)
 	}
 	return bh.ExecuteParallel(requests), nil
 }
