@@ -280,6 +280,7 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_forkchoiceUpdatedV4",
 		"engine_getPayloadV3",
 		"engine_getPayloadV4",
+		"engine_getPayloadV5",
 		"engine_getPayloadV6",
 		"engine_exchangeCapabilities",
 		"engine_getClientVersionV1",
