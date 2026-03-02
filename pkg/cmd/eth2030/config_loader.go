@@ -213,55 +213,94 @@ func NewChainConfig(network string) (*NetworkConfig, error) {
 }
 
 // ApplyEnvironment reads environment variables and overrides Config fields.
-// Environment variables use the prefix ETH2028_ followed by uppercase
-// field names (e.g., ETH2028_DATADIR, ETH2028_P2P_PORT).
+// Variables use the prefix ETH2030_ (legacy ETH2028_ also supported).
 func ApplyEnvironment(cfg *Config) {
-	if v := os.Getenv("ETH2028_DATADIR"); v != "" {
+	envStr := func(keys ...string) string {
+		for _, k := range keys {
+			if v := os.Getenv(k); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	envInt := func(keys ...string) (int, bool) {
+		if v := envStr(keys...); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				return n, true
+			}
+		}
+		return 0, false
+	}
+	envUint64 := func(keys ...string) (uint64, bool) {
+		if v := envStr(keys...); v != "" {
+			if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+				return n, true
+			}
+		}
+		return 0, false
+	}
+	envBool := func(keys ...string) (bool, bool) {
+		if v := envStr(keys...); v != "" {
+			if b, err := strconv.ParseBool(v); err == nil {
+				return b, true
+			}
+		}
+		return false, false
+	}
+
+	if v := envStr("ETH2030_DATADIR", "ETH2028_DATADIR"); v != "" {
 		cfg.Node.DataDir = v
 	}
-	if v := os.Getenv("ETH2028_NETWORK"); v != "" {
+	if v := envStr("ETH2030_NETWORK", "ETH2028_NETWORK"); v != "" {
 		cfg.Node.Network = v
 	}
-	if v := os.Getenv("ETH2028_NETWORK_ID"); v != "" {
-		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
-			cfg.Node.NetworkID = n
-		}
+	if n, ok := envUint64("ETH2030_NETWORK_ID", "ETH2028_NETWORK_ID"); ok {
+		cfg.Node.NetworkID = n
 	}
-	if v := os.Getenv("ETH2028_SYNCMODE"); v != "" {
+	if v := envStr("ETH2030_SYNCMODE", "ETH2028_SYNCMODE"); v != "" {
 		cfg.Node.SyncMode = v
 	}
-	if v := os.Getenv("ETH2028_P2P_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Node.P2PPort = n
-		}
+	if n, ok := envInt("ETH2030_P2P_PORT", "ETH2028_P2P_PORT"); ok {
+		cfg.Node.P2PPort = n
 	}
-	if v := os.Getenv("ETH2028_RPC_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Node.RPCPort = n
-		}
+	if n, ok := envInt("ETH2030_HTTP_PORT", "ETH2028_RPC_PORT"); ok {
+		cfg.Node.RPCPort = n
 	}
-	if v := os.Getenv("ETH2028_ENGINE_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Node.EnginePort = n
-		}
+	if v := envStr("ETH2030_HTTP_ADDR"); v != "" {
+		cfg.Node.HTTPAddr = v
 	}
-	if v := os.Getenv("ETH2028_MAX_PEERS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Node.MaxPeers = n
-		}
+	if n, ok := envInt("ETH2030_ENGINE_PORT", "ETH2028_ENGINE_PORT"); ok {
+		cfg.Node.EnginePort = n
 	}
-	if v := os.Getenv("ETH2028_LOG_LEVEL"); v != "" {
+	if v := envStr("ETH2030_AUTH_ADDR"); v != "" {
+		cfg.Node.AuthAddr = v
+	}
+	if v := envStr("ETH2030_JWT_SECRET"); v != "" {
+		cfg.Node.JWTSecret = v
+	}
+	if n, ok := envInt("ETH2030_MAX_PEERS", "ETH2028_MAX_PEERS"); ok {
+		cfg.Node.MaxPeers = n
+	}
+	if v := envStr("ETH2030_LOG_LEVEL", "ETH2028_LOG_LEVEL"); v != "" {
 		cfg.Node.LogLevel = v
 	}
-	if v := os.Getenv("ETH2028_VERBOSITY"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Node.Verbosity = n
-		}
+	if n, ok := envInt("ETH2030_VERBOSITY", "ETH2028_VERBOSITY"); ok {
+		cfg.Node.Verbosity = n
 	}
-	if v := os.Getenv("ETH2028_METRICS"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Node.Metrics = b
-		}
+	if b, ok := envBool("ETH2030_METRICS", "ETH2028_METRICS"); ok {
+		cfg.Node.Metrics = b
+	}
+	if v := envStr("ETH2030_METRICS_ADDR"); v != "" {
+		cfg.Node.MetricsAddr = v
+	}
+	if n, ok := envInt("ETH2030_METRICS_PORT"); ok {
+		cfg.Node.MetricsPort = n
+	}
+	if v := envStr("ETH2030_BOOTNODES"); v != "" {
+		cfg.Node.Bootnodes = v
+	}
+	if v := envStr("ETH2030_GENESIS_PATH"); v != "" {
+		cfg.Node.GenesisPath = v
 	}
 }
 
