@@ -64,9 +64,28 @@ func New(config *Config) (*Node, error) {
 	// Initialize in-memory database.
 	n.db = rawdb.NewMemoryDB()
 
-	// Initialize blockchain with a genesis block.
-	chainConfig := chainConfigForNetwork(config.Network)
-	genesis := makeGenesisBlock()
+	// Resolve chain config and genesis block.
+	var chainConfig *core.ChainConfig
+	var genesis *types.Block
+	if config.GenesisPath != "" {
+		genSpec, err := loadGenesisFile(config)
+		if err != nil {
+			return nil, fmt.Errorf("load genesis file: %w", err)
+		}
+		chainConfig = genSpec.Config
+		genesis = genSpec.ToBlock()
+		// Derive network ID from genesis chain ID unless the user explicitly
+		// passed a non-default value (default is 1; 0 also means "auto").
+		if (config.NetworkID == 0 || config.NetworkID == 1) &&
+			genSpec.Config != nil && genSpec.Config.ChainID != nil {
+			config.NetworkID = genSpec.Config.ChainID.Uint64()
+		}
+	} else {
+		chainConfig = chainConfigForNetwork(config.Network)
+		// Apply any fork overrides on top of the standard chain config.
+		applyForkOverrides(chainConfig, config)
+		genesis = makeGenesisBlock()
+	}
 	statedb := state.NewMemoryStateDB()
 
 	bc, err := core.NewBlockchain(chainConfig, genesis, statedb, n.db)
