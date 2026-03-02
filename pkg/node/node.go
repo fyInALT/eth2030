@@ -1,11 +1,15 @@
 package node
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/eth2030/eth2030/core"
@@ -45,6 +49,11 @@ func New(config *Config) (*Node, error) {
 	}
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	// Auto-generate JWT secret if not provided.
+	if err := ensureJWTSecret(config); err != nil {
+		return nil, fmt.Errorf("jwt secret: %w", err)
 	}
 
 	n := &Node{
@@ -96,36 +105,40 @@ func (n *Node) Start() error {
 		return errors.New("node already running")
 	}
 
-	log.Printf("Starting ETH2030 node (network=%s)", n.config.Network)
+	slog.Info("starting ETH2030 node", "network", n.config.Network)
 
 	// Start P2P server.
 	if err := n.p2pServer.Start(); err != nil {
 		return fmt.Errorf("start p2p: %w", err)
 	}
-	log.Printf("P2P server listening on %s", n.p2pServer.ListenAddr())
+	slog.Info("P2P server listening", "addr", n.p2pServer.ListenAddr())
+
+	// Build the HTTP handler with CORS and vhosts middleware.
+	httpHandler := n.rpcHandler.Handler()
+	httpHandler = corsMiddleware(httpHandler, n.config.HTTPCORSDomain, n.config.HTTPVhosts)
 
 	// Start JSON-RPC server.
 	n.rpcServer = &http.Server{
-		Addr:    n.config.RPCAddr(),
-		Handler: n.rpcHandler.Handler(),
+		Addr:    n.config.HTTPListenAddr(),
+		Handler: httpHandler,
 	}
 	go func() {
-		log.Printf("RPC server listening on %s", n.config.RPCAddr())
+		slog.Info("RPC server listening", "addr", n.config.HTTPListenAddr())
 		if err := n.rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("RPC server error: %v", err)
+			slog.Error("RPC server error", "err", err)
 		}
 	}()
 
 	// Start Engine API server.
 	go func() {
-		log.Printf("Engine API server listening on %s", n.config.EngineAddr())
-		if err := n.engineServer.Start(n.config.EngineAddr()); err != nil {
-			log.Printf("Engine API error: %v", err)
+		slog.Info("Engine API server listening", "addr", n.config.AuthListenAddr())
+		if err := n.engineServer.Start(n.config.AuthListenAddr()); err != nil {
+			slog.Error("Engine API error", "err", err)
 		}
 	}()
 
 	n.running = true
-	log.Println("Node started successfully")
+	slog.Info("node started successfully")
 	return nil
 }
 
@@ -138,17 +151,17 @@ func (n *Node) Stop() error {
 		return nil
 	}
 
-	log.Println("Stopping ETH2030 node...")
+	slog.Info("stopping ETH2030 node")
 
 	// Stop Engine API.
 	if err := n.engineServer.Stop(); err != nil {
-		log.Printf("Engine API stop error: %v", err)
+		slog.Warn("Engine API stop error", "err", err)
 	}
 
 	// Stop RPC server.
 	if n.rpcServer != nil {
 		if err := n.rpcServer.Close(); err != nil {
-			log.Printf("RPC server stop error: %v", err)
+			slog.Warn("RPC server stop error", "err", err)
 		}
 	}
 
@@ -157,12 +170,12 @@ func (n *Node) Stop() error {
 
 	// Close database.
 	if err := n.db.Close(); err != nil {
-		log.Printf("Database close error: %v", err)
+		slog.Warn("database close error", "err", err)
 	}
 
 	n.running = false
 	close(n.stop)
-	log.Println("Node stopped")
+	slog.Info("node stopped")
 	return nil
 }
 
@@ -207,20 +220,6 @@ func chainConfigForNetwork(network string) *core.ChainConfig {
 	}
 }
 
-// genesisForNetwork returns the genesis specification for the given network.
-func genesisForNetwork(network string) *core.Genesis {
-	switch network {
-	case "mainnet":
-		return core.DefaultGenesisBlock()
-	case "sepolia":
-		return core.DefaultSepoliaGenesisBlock()
-	case "holesky":
-		return core.DefaultHoleskyGenesisBlock()
-	default:
-		return core.DefaultGenesisBlock()
-	}
-}
-
 // makeGenesisBlock creates a minimal genesis block.
 func makeGenesisBlock() *types.Block {
 	header := &types.Header{
@@ -233,4 +232,85 @@ func makeGenesisBlock() *types.Block {
 		UncleHash:  types.EmptyUncleHash,
 	}
 	return types.NewBlock(header, nil)
+}
+
+// ensureJWTSecret generates a random JWT secret and writes it to the
+// configured path if JWTSecret is empty or the file does not yet exist.
+// The parent directory is created if necessary.
+func ensureJWTSecret(config *Config) error {
+	path := config.JWTSecretPath()
+
+	// If the file already exists, nothing to do.
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+
+	// Ensure parent directory exists.
+	if err := os.MkdirAll(config.DataDir, 0700); err != nil {
+		return fmt.Errorf("create datadir for jwt secret: %w", err)
+	}
+
+	// Generate 32 random bytes.
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return fmt.Errorf("generate random secret: %w", err)
+	}
+
+	// Write as hex string (0x-prefixed to match geth convention).
+	content := "0x" + hex.EncodeToString(secret) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		return fmt.Errorf("write jwt secret to %s: %w", path, err)
+	}
+
+	slog.Info("generated JWT secret", "path", path)
+	return nil
+}
+
+// corsMiddleware wraps handler with CORS headers and virtual-host checking.
+// An empty or ["*"] domains list allows all origins.
+// An empty or ["*"] vhosts list allows all hosts.
+func corsMiddleware(handler http.Handler, domains, vhosts []string) http.Handler {
+	allowAllOrigins := len(domains) == 0 || (len(domains) == 1 && domains[0] == "*")
+	allowAllHosts := len(vhosts) == 0 || (len(vhosts) == 1 && vhosts[0] == "*")
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Virtual-host check.
+		if !allowAllHosts {
+			host := r.Host
+			if idx := strings.LastIndex(host, ":"); idx >= 0 {
+				host = host[:idx]
+			}
+			if !sliceContains(vhosts, host) {
+				http.Error(w, "invalid host", http.StatusForbidden)
+				return
+			}
+		}
+
+		// CORS headers.
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			if allowAllOrigins || sliceContains(domains, origin) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+		}
+
+		handler.ServeHTTP(w, r)
+	})
+}
+
+// sliceContains reports whether s contains elem (case-insensitive).
+func sliceContains(s []string, elem string) bool {
+	lower := strings.ToLower(elem)
+	for _, v := range s {
+		if strings.ToLower(v) == lower {
+			return true
+		}
+	}
+	return false
 }
