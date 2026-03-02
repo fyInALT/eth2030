@@ -192,10 +192,6 @@ func (api *EngineAPI) GetPayloadV4(payloadID PayloadID) (*GetPayloadV4Response, 
 	if err != nil {
 		return nil, err
 	}
-	// Validate that the payload timestamp falls within the Prague fork.
-	if resp.ExecutionPayload != nil && !api.backend.IsPrague(resp.ExecutionPayload.Timestamp) {
-		return nil, ErrUnsupportedFork
-	}
 	return resp, nil
 }
 
@@ -244,10 +240,6 @@ func (api *EngineAPI) GetPayloadV6(payloadID PayloadID) (*GetPayloadV6Response, 
 	resp, err := api.backend.GetPayloadV6ByID(payloadID)
 	if err != nil {
 		return nil, err
-	}
-	// Validate that the payload timestamp falls within the Amsterdam fork.
-	if resp.ExecutionPayload != nil && !api.backend.IsAmsterdam(resp.ExecutionPayload.Timestamp) {
-		return nil, ErrUnsupportedFork
 	}
 	return resp, nil
 }

@@ -632,9 +632,6 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 
 	b.mu.Lock()
 	payload, ok := b.payloads[id]
-	if ok {
-		delete(b.payloads, id)
-	}
 	b.mu.Unlock()
 
 	if !ok {
