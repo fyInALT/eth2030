@@ -98,10 +98,13 @@ func New(config *Config) (*Node, error) {
 	poolCfg := txpool.DefaultConfig()
 	n.txPool = txpool.New(poolCfg, bc.State())
 
-	// Initialize P2P server.
+	// Initialize P2P server with bootnodes, discovery port, and NAT.
 	n.p2pServer = p2p.NewServer(p2p.Config{
-		ListenAddr: config.P2PAddr(),
-		MaxPeers:   config.MaxPeers,
+		ListenAddr:     config.P2PAddr(),
+		MaxPeers:       config.MaxPeers,
+		BootstrapNodes: config.Bootnodes,
+		DiscoveryPort:  config.EffectiveDiscoveryPort(),
+		NAT:            config.NAT,
 	})
 
 	// Initialize RPC server with blockchain backend.

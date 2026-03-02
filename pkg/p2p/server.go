@@ -50,6 +50,18 @@ type Config struct {
 	// compatibility with tests that connect raw TCP clients without
 	// performing a handshake exchange.
 	DisableHandshake bool
+
+	// DiscoveryPort is the UDP port used for node discovery.
+	// When 0, the same port as ListenAddr is used.
+	DiscoveryPort int
+
+	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
+	// An empty string disables NAT traversal.
+	NAT string
+
+	// BootstrapNodes is a comma-separated list of enode URLs used for initial
+	// peer discovery. When non-empty, these are dialed before StaticNodes.
+	BootstrapNodes string
 }
 
 // Protocol represents a sub-protocol that runs on top of the devp2p connection.
