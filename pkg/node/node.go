@@ -3,6 +3,7 @@ package node
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"expvar"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/eth2030/eth2030/core"
 	"github.com/eth2030/eth2030/core/rawdb"
@@ -37,6 +40,7 @@ type Node struct {
 	engineServer  *engine.EngineAPI
 	p2pServer     *p2p.Server
 	metricsServer *http.Server
+	wsServer      *http.Server
 
 	mu      sync.Mutex
 	running bool
@@ -162,6 +166,21 @@ func (n *Node) Start() error {
 		}
 	}()
 
+	// Start WebSocket RPC server if enabled.
+	if n.config.WSEnabled {
+		wsHandler := buildWSHandler(n.rpcHandler, n.config.WSOrigins)
+		n.wsServer = &http.Server{
+			Addr:    n.config.WSListenAddr(),
+			Handler: wsHandler,
+		}
+		go func() {
+			slog.Info("WebSocket RPC server listening", "addr", n.config.WSListenAddr())
+			if err := n.wsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("WebSocket server error", "err", err)
+			}
+		}()
+	}
+
 	// Start metrics server if enabled.
 	if n.config.Metrics {
 		mux := http.NewServeMux()
@@ -207,6 +226,13 @@ func (n *Node) Stop() error {
 	if n.rpcServer != nil {
 		if err := n.rpcServer.Close(); err != nil {
 			slog.Warn("RPC server stop error", "err", err)
+		}
+	}
+
+	// Stop WebSocket server.
+	if n.wsServer != nil {
+		if err := n.wsServer.Close(); err != nil {
+			slog.Warn("WebSocket server stop error", "err", err)
 		}
 	}
 
@@ -316,6 +342,102 @@ func ensureJWTSecret(config *Config) error {
 
 	slog.Info("generated JWT secret", "path", path)
 	return nil
+}
+
+// buildWSHandler creates an http.Handler that accepts WebSocket upgrade
+// requests and serves JSON-RPC 2.0 over the persistent connection.
+// The origins list restricts which Origin headers are allowed;
+// an empty list or ["*"] allows all origins.
+func buildWSHandler(handler *rpc.Server, origins []string) http.Handler {
+	allowAll := len(origins) == 0 || (len(origins) == 1 && origins[0] == "*")
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin: func(r *http.Request) bool {
+			if allowAll {
+				return true
+			}
+			return sliceContains(origins, r.Header.Get("Origin"))
+		},
+	}
+	httpHandler := handler.Handler()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !websocket.IsWebSocketUpgrade(r) {
+			httpHandler.ServeHTTP(w, r)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			slog.Debug("ws upgrade error", "err", err)
+			return
+		}
+		defer conn.Close()
+		serveWSConn(conn, handler)
+	})
+}
+
+// serveWSConn processes JSON-RPC requests over a WebSocket connection by
+// forwarding each message to the rpc.Server handler via an in-memory HTTP round-trip.
+func serveWSConn(conn *websocket.Conn, handler *rpc.Server) {
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				slog.Debug("ws read error", "err", err)
+			}
+			return
+		}
+		// Forward the JSON-RPC request to the handler and capture the response.
+		// We use an in-memory ResponseWriter to collect the output.
+		respBytes := dispatchWSRequest(handler, msg)
+		if err := conn.WriteMessage(websocket.TextMessage, respBytes); err != nil {
+			slog.Debug("ws write error", "err", err)
+			return
+		}
+	}
+}
+
+// dispatchWSRequest routes a single JSON-RPC payload through the rpc.Server
+// and returns the serialised response.
+func dispatchWSRequest(handler *rpc.Server, body []byte) []byte {
+	req, err := http.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
+	if err != nil {
+		return errorResponse("parse error")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rw := &bufResponseWriter{header: make(http.Header)}
+	handler.Handler().ServeHTTP(rw, req)
+	return rw.buf
+}
+
+// errorResponse returns a minimal JSON-RPC error response.
+func errorResponse(msg string) []byte {
+	type rpcErr struct {
+		JSONRPC string `json:"jsonrpc"`
+		Error   struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	r := rpcErr{JSONRPC: "2.0"}
+	r.Error.Code = -32700
+	r.Error.Message = msg
+	b, _ := json.Marshal(r)
+	return b
+}
+
+// bufResponseWriter is an in-memory http.ResponseWriter.
+type bufResponseWriter struct {
+	header http.Header
+	buf    []byte
+	status int
+}
+
+func (b *bufResponseWriter) Header() http.Header       { return b.header }
+func (b *bufResponseWriter) WriteHeader(status int)    { b.status = status }
+func (b *bufResponseWriter) Write(p []byte) (int, error) {
+	b.buf = append(b.buf, p...)
+	return len(p), nil
 }
 
 // corsMiddleware wraps handler with CORS headers and virtual-host checking.

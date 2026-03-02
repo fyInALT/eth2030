@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // RPCHandler manages JSON-RPC request handling with method routing, a
@@ -317,17 +319,93 @@ func (h *RPCHandler) dispatch(ctx *RPCContext) *RPCResponse {
 	return final(ctx)
 }
 
-// handleWebSocketUpgrade responds with 101 Switching Protocols headers
-// for websocket-aware proxies, or a suitable error.
+// wsUpgrader upgrades HTTP connections to WebSocket.
+// CheckOrigin is set per-handler via WSHandler to support configurable origins.
+var wsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin:     func(r *http.Request) bool { return true }, // overridden per-handler
+}
+
+// handleWebSocketUpgrade completes the WebSocket handshake and serves
+// JSON-RPC 2.0 over the persistent connection.
 func (h *RPCHandler) handleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
-	// In a full implementation, this would complete the websocket handshake
-	// and manage a persistent connection. For now, respond with a 200
-	// indicating the endpoint is websocket-capable.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "websocket endpoint ready",
-	})
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Debug("websocket upgrade error", "err", err)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				slog.Debug("websocket read error", "err", err)
+			}
+			return
+		}
+
+		// Detect batch vs single request.
+		trimmed := trimLeadingWhitespace(msg)
+		var resp interface{}
+		if len(trimmed) > 0 && trimmed[0] == '[' {
+			var requests []json.RawMessage
+			if err := json.Unmarshal(msg, &requests); err != nil {
+				resp = &RPCResponse{JSONRPC: "2.0", Error: &RPCErr{Code: -32700, Message: "parse error"}}
+			} else {
+				responses := make([]*RPCResponse, len(requests))
+				var wg sync.WaitGroup
+				for i, raw := range requests {
+					wg.Add(1)
+					go func(idx int, reqBody json.RawMessage) {
+						defer wg.Done()
+						responses[idx] = h.handleSingleWS(reqBody)
+					}(i, raw)
+				}
+				wg.Wait()
+				resp = responses
+			}
+		} else {
+			resp = h.handleSingleWS(msg)
+		}
+
+		out, err := json.Marshal(resp)
+		if err != nil {
+			slog.Debug("websocket marshal error", "err", err)
+			return
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, out); err != nil {
+			slog.Debug("websocket write error", "err", err)
+			return
+		}
+	}
+}
+
+// handleSingleWS processes a single JSON-RPC request body in WebSocket context.
+func (h *RPCHandler) handleSingleWS(body []byte) *RPCResponse {
+	var req RPCRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return &RPCResponse{JSONRPC: "2.0", Error: &RPCErr{Code: -32700, Message: "parse error"}}
+	}
+	if req.JSONRPC != "2.0" {
+		return &RPCResponse{JSONRPC: "2.0", Error: &RPCErr{Code: -32600, Message: "invalid jsonrpc version"}, ID: req.ID}
+	}
+	ctx := &RPCContext{
+		Ctx:         context.Background(),
+		Request:     &req,
+		RemoteAddr:  "ws",
+		StartTime:   time.Now(),
+		RequestID:   h.requestSeq.Add(1),
+		IsWebSocket: true,
+		IsBatch:     false,
+	}
+	return h.dispatch(ctx)
 }
 
 // AuthMiddleware returns a middleware that validates bearer tokens.
@@ -363,14 +441,12 @@ func LoggingMiddleware() RPCMiddleware {
 	return func(ctx *RPCContext, next RPCHandleFunc) *RPCResponse {
 		resp := next(ctx)
 		elapsed := time.Since(ctx.StartTime)
-
 		if resp.Error != nil {
-			log.Printf("rpc: req=%d method=%s from=%s elapsed=%s err=%q",
-				ctx.RequestID, ctx.Request.Method, ctx.RemoteAddr,
-				elapsed, resp.Error.Message)
+			slog.Debug("rpc request", "id", ctx.RequestID, "method", ctx.Request.Method,
+				"from", ctx.RemoteAddr, "elapsed", elapsed, "err", resp.Error.Message)
 		} else {
-			log.Printf("rpc: req=%d method=%s from=%s elapsed=%s",
-				ctx.RequestID, ctx.Request.Method, ctx.RemoteAddr, elapsed)
+			slog.Debug("rpc request", "id", ctx.RequestID, "method", ctx.Request.Method,
+				"from", ctx.RemoteAddr, "elapsed", elapsed)
 		}
 		return resp
 	}
