@@ -3,6 +3,7 @@ package types
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
 )
@@ -68,6 +69,21 @@ func (h Hash) IsZero() bool {
 // String implements fmt.Stringer.
 func (h Hash) String() string { return h.Hex() }
 
+// MarshalJSON implements json.Marshaler. Hash encodes as a 0x-prefixed hex string.
+func (h Hash) MarshalJSON() ([]byte, error) {
+	return json.Marshal(h.Hex())
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (h *Hash) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("types.Hash: %w", err)
+	}
+	h.SetBytes(fromHex(s))
+	return nil
+}
+
 // BytesToAddress converts bytes to Address, left-padding if shorter than 20 bytes.
 func BytesToAddress(b []byte) Address {
 	var a Address
@@ -101,6 +117,40 @@ func (a Address) IsZero() bool {
 
 // String implements fmt.Stringer.
 func (a Address) String() string { return a.Hex() }
+
+// MarshalJSON implements json.Marshaler. Address encodes as a 0x-prefixed hex string.
+func (a Address) MarshalJSON() ([]byte, error) {
+	return json.Marshal(a.Hex())
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (a *Address) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("types.Address: %w", err)
+	}
+	a.SetBytes(fromHex(s))
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler. Bloom encodes as a 0x-prefixed hex string.
+func (b Bloom) MarshalJSON() ([]byte, error) {
+	return json.Marshal("0x" + hex.EncodeToString(b[:]))
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (b *Bloom) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("types.Bloom: %w", err)
+	}
+	bs := fromHex(s)
+	if len(bs) > BloomLength {
+		bs = bs[len(bs)-BloomLength:]
+	}
+	copy(b[BloomLength-len(bs):], bs)
+	return nil
+}
 
 // Account represents an Ethereum account in the state trie.
 type Account struct {

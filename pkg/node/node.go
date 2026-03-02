@@ -122,6 +122,8 @@ func New(config *Config) (*Node, error) {
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)
 	n.engineServer = engine.NewEngineAPI(engineBackend)
+	// Forward eth_/web3_/net_/admin_ methods on the engine port to the RPC handler.
+	n.engineServer.SetEthHandler(n.rpcHandler.Handler())
 
 	return n, nil
 }

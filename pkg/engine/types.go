@@ -2,6 +2,7 @@
 package engine
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -15,6 +16,31 @@ type PayloadID [8]byte
 // String returns the hex representation of the PayloadID.
 func (id PayloadID) String() string {
 	return fmt.Sprintf("0x%x", id[:])
+}
+
+// MarshalJSON implements json.Marshaler. PayloadID encodes as a 0x-prefixed hex string.
+func (id PayloadID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("0x%x", id[:]))
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (id *PayloadID) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("PayloadID: %w", err)
+	}
+	if len(s) >= 2 && (s[:2] == "0x" || s[:2] == "0X") {
+		s = s[2:]
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return fmt.Errorf("PayloadID: invalid hex: %w", err)
+	}
+	if len(b) != 8 {
+		return fmt.Errorf("PayloadID: expected 8 bytes, got %d", len(b))
+	}
+	copy(id[:], b)
+	return nil
 }
 
 // Withdrawal represents a validator withdrawal.

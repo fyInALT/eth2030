@@ -1,12 +1,15 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -63,6 +66,7 @@ type EngineAPI struct {
 	builderRegistry *BuilderRegistry
 	server          *http.Server
 	listener        net.Listener
+	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
 	mu              sync.Mutex
 }
 
@@ -304,9 +308,18 @@ func (api *EngineAPI) GetClientVersionV1(peerVersion ClientVersionV1) []ClientVe
 			Code:    "ET",
 			Name:    "ETH2030",
 			Version: "v0.1.0",
-			Commit:  "000000",
+			Commit:  "00000000",
 		},
 	}
+}
+
+// SetEthHandler registers an HTTP handler for non-engine_ JSON-RPC methods.
+// The authenticated engine endpoint must also serve eth_ namespace methods
+// (e.g. eth_syncing, eth_getBlockByNumber) per the Engine API specification.
+func (api *EngineAPI) SetEthHandler(h http.Handler) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.ethHandler = h
 }
 
 // Start starts the HTTP JSON-RPC server on the given address.
@@ -366,6 +379,25 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
+
+	// Forward non-engine_ methods (eth_, web3_, net_, admin_) to the eth handler
+	// if one has been registered. Per the Engine API spec, the authenticated
+	// endpoint must also serve eth_syncing, eth_getBlockByNumber, etc.
+	api.mu.Lock()
+	ethH := api.ethHandler
+	api.mu.Unlock()
+
+	if ethH != nil {
+		var peek struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(body, &peek) == nil && !strings.HasPrefix(peek.Method, "engine_") {
+			r2 := r.Clone(r.Context())
+			r2.Body = io.NopCloser(bytes.NewReader(body))
+			ethH.ServeHTTP(w, r2)
+			return
+		}
+	}
 
 	resp := api.HandleRequest(body)
 
