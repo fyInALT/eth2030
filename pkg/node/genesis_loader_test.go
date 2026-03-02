@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/eth2030/eth2030/core/types"
 )
 
 // minimalGenesisJSON builds a small genesis.json payload for testing.
@@ -169,6 +171,77 @@ func TestLoadGenesisFile_HexStringNonce(t *testing.T) {
 	for _, acc := range genesis.Alloc {
 		if acc.Nonce != 1 {
 			t.Errorf("Nonce = %d, want 1", acc.Nonce)
+		}
+	}
+}
+
+func TestLoadGenesisFile_Storage(t *testing.T) {
+	// Genesis accounts with storage slots must have their storage parsed and
+	// included in the alloc so the state root matches geth's computation.
+	raw := []byte(`{
+		"config": {"chainId": 1, "homesteadBlock": 0, "eip155Block": 0,
+		           "eip158Block": 0, "byzantiumBlock": 0, "constantinopleBlock": 0,
+		           "petersburgBlock": 0, "istanbulBlock": 0, "berlinBlock": 0,
+		           "londonBlock": 0, "shanghaiTime": 0, "cancunTime": 0, "pragueTime": 0},
+		"nonce": "0x0", "timestamp": "0x0", "extraData": "0x",
+		"gasLimit": "0x1C9C380", "difficulty": "0x0",
+		"alloc": {
+			"0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02": {
+				"balance": "0x0",
+				"code": "0x3d602d80600a3d3981f3363d3d373d3d3d363d30545af43d82803e903d91601e57fd5bf3",
+				"storage": {
+					"0x0000000000000000000000000000000000000000000000000000000000000000": "0x000000000000000000000000000000000000000000000000000000000000000f",
+					"0x000000000000000000000000000000000000000000000000000000000000000b": "0x0000000000000000000000006d2b2e15339a2a3cc2fe8b7d28c92ea28c3e78ff"
+				}
+			}
+		}
+	}`)
+	dir := t.TempDir()
+	path := dir + "/genesis.json"
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatalf("write genesis: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dir
+	cfg.GenesisPath = path
+
+	genesis, err := loadGenesisFile(&cfg)
+	if err != nil {
+		t.Fatalf("loadGenesisFile() with storage: %v", err)
+	}
+
+	addr := types.HexToAddress("0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02")
+	acc, ok := genesis.Alloc[addr]
+	if !ok {
+		t.Fatal("expected alloc entry not found")
+	}
+	if len(acc.Storage) != 2 {
+		t.Errorf("storage len = %d, want 2", len(acc.Storage))
+	}
+
+	slot0 := types.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000")
+	if v := acc.Storage[slot0]; v != types.HexToHash("0x000000000000000000000000000000000000000000000000000000000000000f") {
+		t.Errorf("slot 0 value = %v, want 0x...0f", v)
+	}
+}
+
+func TestParseBalance(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string // decimal string
+	}{
+		{"0", "0"},
+		{"1000000000000000000000", "1000000000000000000000"},
+		{"0x0", "0"},
+		{"0xDE0B6B3A7640000", "1000000000000000000"},
+		{"0x3635C9ADC5DEA00000", "1000000000000000000000"},
+		{"", "0"},
+	}
+	for _, tc := range tests {
+		got := parseBalance(tc.input)
+		if got.String() != tc.want {
+			t.Errorf("parseBalance(%q) = %s, want %s", tc.input, got, tc.want)
 		}
 	}
 }

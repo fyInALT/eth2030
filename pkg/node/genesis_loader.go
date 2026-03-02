@@ -258,9 +258,25 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 		if _, err := fmt.Sscanf(addrStr, "%x", &addrBytes); err == nil {
 			copy(addr[:], addrBytes)
 		}
-		bal := new(big.Int)
-		bal.SetString(acc.Balance, 10)
-		alloc[addr] = core.GenesisAccount{Balance: bal, Code: acc.Code, Nonce: uint64(acc.Nonce)}
+		bal := parseBalance(acc.Balance)
+
+		// Parse storage slots (hex string -> hex string).
+		var storage map[types.Hash]types.Hash
+		if len(acc.Storage) > 0 {
+			storage = make(map[types.Hash]types.Hash, len(acc.Storage))
+			for slotStr, valStr := range acc.Storage {
+				slot := types.HexToHash(slotStr)
+				val := types.HexToHash(valStr)
+				storage[slot] = val
+			}
+		}
+
+		alloc[addr] = core.GenesisAccount{
+			Balance: bal,
+			Code:    acc.Code,
+			Nonce:   uint64(acc.Nonce),
+			Storage: storage,
+		}
 	}
 
 	difficulty := new(big.Int)
@@ -286,6 +302,21 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 		BaseFee:    baseFee,
 	}
 	return genesis, nil
+}
+
+// parseBalance parses a balance string that may be decimal ("12345") or
+// 0x-prefixed hex ("0x2FAF080"). Returns zero for empty or invalid input.
+func parseBalance(s string) *big.Int {
+	n := new(big.Int)
+	if s == "" {
+		return n
+	}
+	if len(s) >= 2 && (s[:2] == "0x" || s[:2] == "0X") {
+		n.SetString(s[2:], 16)
+	} else {
+		n.SetString(s, 10)
+	}
+	return n
 }
 
 // applyForkOverrides overwrites ChainConfig fork timestamps with CLI override
