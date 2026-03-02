@@ -21,67 +21,17 @@ func TestNewTxPoolAPI(t *testing.T) {
 	}
 }
 
-func TestComputeTxHash(t *testing.T) {
-	data := []byte{0xde, 0xad, 0xbe, 0xef}
-	hash := computeTxHash(data)
-	if hash.IsZero() {
-		t.Fatal("expected non-zero hash")
-	}
-	// Same data should produce the same hash.
-	hash2 := computeTxHash(data)
-	if hash != hash2 {
-		t.Fatal("expected deterministic hash")
-	}
-	// Different data should produce a different hash.
-	hash3 := computeTxHash([]byte{0x01, 0x02})
-	if hash == hash3 {
-		t.Fatal("expected different hash for different data")
-	}
-}
-
-func TestDecodeTxType_Legacy(t *testing.T) {
-	// RLP-encoded data starts with 0xc0+ range.
-	data := []byte{0xc0, 0x01, 0x02}
-	txType := decodeTxType(data)
-	if txType != types.LegacyTxType {
-		t.Fatalf("want LegacyTxType, got %d", txType)
-	}
-}
-
-func TestDecodeTxType_Typed(t *testing.T) {
-	// Type 0x02 (EIP-1559).
-	data := []byte{0x02, 0xc0, 0x01}
-	txType := decodeTxType(data)
-	if txType != types.DynamicFeeTxType {
-		t.Fatalf("want DynamicFeeTxType (0x02), got %d", txType)
-	}
-}
-
-func TestDecodeTxType_BlobTx(t *testing.T) {
-	data := []byte{0x03, 0xc0}
-	txType := decodeTxType(data)
-	if txType != types.BlobTxType {
-		t.Fatalf("want BlobTxType (0x03), got %d", txType)
-	}
-}
-
-func TestDecodeTxType_Empty(t *testing.T) {
-	txType := decodeTxType(nil)
-	if txType != types.LegacyTxType {
-		t.Fatalf("want LegacyTxType for nil, got %d", txType)
-	}
-}
-
 func TestDecodeRawTransaction_Valid(t *testing.T) {
-	tx, raw, err := decodeRawTransaction("0xdeadbeef")
+	rawHex := minTestRawTxHex(t)
+	tx, raw, err := decodeRawTransaction(rawHex)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if tx == nil {
 		t.Fatal("expected non-nil tx")
 	}
-	if len(raw) != 4 {
-		t.Fatalf("want 4 raw bytes, got %d", len(raw))
+	if len(raw) == 0 {
+		t.Fatal("expected non-empty raw bytes")
 	}
 }
 
@@ -104,8 +54,9 @@ func TestTxPoolAPI_SendRawTransaction(t *testing.T) {
 	api := NewTxPoolAPI(mb)
 	ethAPI := NewEthAPI(mb)
 
-	// Build a fake request.
-	params := []json.RawMessage{json.RawMessage(`"0xdeadbeef"`)}
+	// Build a request with a properly RLP-encoded transaction.
+	rawHex := minTestRawTxHex(t)
+	params := []json.RawMessage{json.RawMessage(`"` + rawHex + `"`)}
 	req := &Request{JSONRPC: "2.0", Method: "eth_sendRawTransaction", Params: params, ID: json.RawMessage(`1`)}
 	resp := api.SendRawTransaction(req)
 
