@@ -184,15 +184,32 @@ func (api *EthAPI) getLogs(req *Request) *Response {
 // getBlockReceipts returns all receipts for a given block number.
 func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 	if len(req.Params) < 1 {
-		return errorResponse(req.ID, ErrCodeInvalidParams, "missing block number")
+		return errorResponse(req.ID, ErrCodeInvalidParams, "missing block number or hash")
 	}
 
-	var bn BlockNumber
-	if err := json.Unmarshal(req.Params[0], &bn); err != nil {
+	var paramStr string
+	if err := json.Unmarshal(req.Params[0], &paramStr); err != nil {
 		return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
 	}
 
-	header := api.backend.HeaderByNumber(bn)
+	// Detect block hash vs block number: a hash is 0x-prefixed and 66 chars.
+	var (
+		header    *types.Header
+		blockHash types.Hash
+		byHash    bool
+	)
+	if len(paramStr) == 66 && (paramStr[:2] == "0x" || paramStr[:2] == "0X") {
+		blockHash = types.HexToHash(paramStr)
+		header = api.backend.HeaderByHash(blockHash)
+		byHash = true
+	} else {
+		var bn BlockNumber
+		if err := json.Unmarshal(req.Params[0], &bn); err != nil {
+			return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+		}
+		header = api.backend.HeaderByNumber(bn)
+	}
+
 	if header == nil {
 		return successResponse(req.ID, nil)
 	}
@@ -205,7 +222,12 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 			"historical receipts pruned (EIP-4444)")
 	}
 
-	receipts := api.backend.GetBlockReceipts(blockNum)
+	var receipts []*types.Receipt
+	if byHash {
+		receipts = api.backend.GetReceipts(blockHash)
+	} else {
+		receipts = api.backend.GetBlockReceipts(blockNum)
+	}
 	if receipts == nil {
 		return successResponse(req.ID, []*RPCReceipt{})
 	}
