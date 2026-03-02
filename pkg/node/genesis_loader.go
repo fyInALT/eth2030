@@ -13,16 +13,16 @@ import (
 // genesisJSON is the JSON-decodable representation of a genesis.json file
 // as produced by Kurtosis devnet tooling (compatible with geth genesis format).
 type genesisJSON struct {
-	Config     chainConfigJSON            `json:"config"`
-	Nonce      uint64JSON                 `json:"nonce"`
-	Timestamp  uint64JSON                 `json:"timestamp"`
-	ExtraData  hexBytes                   `json:"extraData"`
-	GasLimit   uint64JSON                 `json:"gasLimit"`
-	Difficulty *bigIntJSON                `json:"difficulty"`
-	MixHash    hashJSON                   `json:"mixHash"`
-	Coinbase   addressJSON                `json:"coinbase"`
+	Config     chainConfigJSON             `json:"config"`
+	Nonce      uint64JSON                  `json:"nonce"`
+	Timestamp  uint64JSON                  `json:"timestamp"`
+	ExtraData  hexBytes                    `json:"extraData"`
+	GasLimit   uint64JSON                  `json:"gasLimit"`
+	Difficulty *bigIntJSON                 `json:"difficulty"`
+	MixHash    hashJSON                    `json:"mixHash"`
+	Coinbase   addressJSON                 `json:"coinbase"`
 	Alloc      map[string]allocAccountJSON `json:"alloc"`
-	BaseFee    *bigIntJSON                `json:"baseFeePerGas"`
+	BaseFee    *bigIntJSON                 `json:"baseFeePerGas"`
 }
 
 // chainConfigJSON is the JSON-decodable form of core.ChainConfig.

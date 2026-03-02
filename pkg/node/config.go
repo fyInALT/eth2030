@@ -49,11 +49,11 @@ type Config struct {
 	MaxPeers int
 
 	// HTTP-RPC server.
-	RPCPort       int      // --http.port
-	HTTPAddr      string   // --http.addr
-	HTTPVhosts    []string // --http.vhosts
+	RPCPort        int      // --http.port
+	HTTPAddr       string   // --http.addr
+	HTTPVhosts     []string // --http.vhosts
 	HTTPCORSDomain []string // --http.corsdomain
-	HTTPModules   []string // --http.api
+	HTTPModules    []string // --http.api
 
 	// Engine API (authenticated RPC).
 	EnginePort int      // --authrpc.port
@@ -104,16 +104,16 @@ func defaultDataDir() string {
 // DefaultConfig returns a Config with sensible defaults matching eth2030-geth.
 func DefaultConfig() Config {
 	return Config{
-		DataDir:    defaultDataDir(),
-		Name:       "ETH2030",
-		Network:    "mainnet",
-		NetworkID:  1,
-		SyncMode:   "snap",
-		GCMode:     "full",
-		P2PPort:    30303,
-		MaxPeers:   50,
-		LogLevel:   "info",
-		Verbosity:  3,
+		DataDir:   defaultDataDir(),
+		Name:      "ETH2030",
+		Network:   "mainnet",
+		NetworkID: 1,
+		SyncMode:  "snap",
+		GCMode:    "full",
+		P2PPort:   30303,
+		MaxPeers:  50,
+		LogLevel:  "info",
+		Verbosity: 3,
 
 		// HTTP-RPC
 		RPCPort:        8545,

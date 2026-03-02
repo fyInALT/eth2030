@@ -441,8 +441,8 @@ type bufResponseWriter struct {
 	status int
 }
 
-func (b *bufResponseWriter) Header() http.Header       { return b.header }
-func (b *bufResponseWriter) WriteHeader(status int)    { b.status = status }
+func (b *bufResponseWriter) Header() http.Header    { return b.header }
+func (b *bufResponseWriter) WriteHeader(status int) { b.status = status }
 func (b *bufResponseWriter) Write(p []byte) (int, error) {
 	b.buf = append(b.buf, p...)
 	return len(p), nil
