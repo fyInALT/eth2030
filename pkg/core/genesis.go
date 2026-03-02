@@ -105,14 +105,16 @@ func (g *Genesis) ToBlock() *types.Block {
 			zero := uint64(0)
 			head.BlobGasUsed = &zero
 		}
-		emptyRoot := types.EmptyRootHash
-		head.ParentBeaconRoot = &emptyRoot
+		// Genesis block has parentBeaconBlockRoot = zero hash (not the trie empty root).
+		zeroHash := types.Hash{}
+		head.ParentBeaconRoot = &zeroHash
 	}
 
-	// Prague: requests hash.
+	// Prague: requests hash (EIP-7685).
+	// sha256 of empty requests list = sha256("").
 	if g.Config != nil && g.Config.IsPrague(g.Timestamp) {
-		emptyHash := types.EmptyRootHash
-		head.RequestsHash = &emptyHash
+		emptyReqHash := types.EmptyRequestsHash
+		head.RequestsHash = &emptyReqHash
 	}
 
 	// Glamsterdan / EIP-7706: calldata gas fields.

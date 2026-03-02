@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"sync"
@@ -356,6 +357,14 @@ func (b *engineBackend) ProcessBlock(
 ) (engine.PayloadStatusV1, error) {
 	bc := b.node.blockchain
 
+	slog.Debug("engine_newPayload",
+		"blockNumber", payload.BlockNumber,
+		"blockHash", payload.BlockHash,
+		"parentHash", payload.ParentHash,
+		"timestamp", payload.Timestamp,
+		"txCount", len(payload.Transactions),
+	)
+
 	// Convert payload to a block.
 	header := &types.Header{
 		ParentHash:  payload.ParentHash,
@@ -390,6 +399,10 @@ func (b *engineBackend) ProcessBlock(
 
 	// Verify block hash matches.
 	if block.Hash() != payload.BlockHash {
+		slog.Warn("engine_newPayload: block hash mismatch",
+			"computed", block.Hash(),
+			"payload", payload.BlockHash,
+		)
 		latestValid := payload.ParentHash
 		return engine.PayloadStatusV1{
 			Status:          engine.StatusInvalid,
@@ -399,6 +412,9 @@ func (b *engineBackend) ProcessBlock(
 
 	// Check if parent is known.
 	if !bc.HasBlock(payload.ParentHash) {
+		slog.Debug("engine_newPayload: parent unknown, returning SYNCING",
+			"parentHash", payload.ParentHash,
+		)
 		return engine.PayloadStatusV1{
 			Status: engine.StatusSyncing,
 		}, nil
@@ -406,6 +422,7 @@ func (b *engineBackend) ProcessBlock(
 
 	// Insert the block.
 	if err := bc.InsertBlock(block); err != nil {
+		slog.Warn("engine_newPayload: insert failed", "err", err)
 		latestValid := payload.ParentHash
 		return engine.PayloadStatusV1{
 			Status:          engine.StatusInvalid,
@@ -414,6 +431,10 @@ func (b *engineBackend) ProcessBlock(
 	}
 
 	blockHash := block.Hash()
+	slog.Info("engine_newPayload: accepted",
+		"blockNumber", payload.BlockNumber,
+		"blockHash", blockHash,
+	)
 	return engine.PayloadStatusV1{
 		Status:          engine.StatusValid,
 		LatestValidHash: &blockHash,
@@ -426,10 +447,23 @@ func (b *engineBackend) ForkchoiceUpdated(
 ) (engine.ForkchoiceUpdatedResult, error) {
 	bc := b.node.blockchain
 
+	slog.Debug("engine_forkchoiceUpdated",
+		"headBlockHash", fcState.HeadBlockHash,
+		"safeBlockHash", fcState.SafeBlockHash,
+		"finalizedBlockHash", fcState.FinalizedBlockHash,
+		"hasPayloadAttrs", payloadAttributes != nil,
+		"genesisHash", bc.Genesis().Hash(),
+	)
+
 	// Check if we know the head block.
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
 	var payloadStatus engine.PayloadStatusV1
 	if headBlock == nil {
+		slog.Warn("engine_forkchoiceUpdated: unknown head block, returning SYNCING",
+			"headBlockHash", fcState.HeadBlockHash,
+			"genesisHash", bc.Genesis().Hash(),
+			"currentHead", bc.CurrentBlock().Hash(),
+		)
 		// We don't know this block yet; report syncing.
 		payloadStatus = engine.PayloadStatusV1{
 			Status: engine.StatusSyncing,
@@ -445,6 +479,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 		Status:          engine.StatusValid,
 		LatestValidHash: &headHash,
 	}
+
+	slog.Debug("engine_forkchoiceUpdated: head known",
+		"headBlockHash", headHash,
+		"number", headBlock.NumberU64(),
+	)
 
 	// If no payload attributes, just return the forkchoice acknowledgment.
 	if payloadAttributes == nil {
@@ -479,6 +518,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 	block, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
 	if err != nil {
+		slog.Warn("engine_forkchoiceUpdated: build block failed", "err", err)
 		return engine.ForkchoiceUpdatedResult{
 			PayloadStatus: payloadStatus,
 		}, fmt.Errorf("build block: %w", err)
@@ -494,6 +534,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 		receipts: receipts,
 	}
 	b.mu.Unlock()
+
+	slog.Info("engine_forkchoiceUpdated: built payload",
+		"payloadID", payloadID,
+		"blockNumber", block.NumberU64(),
+		"blockHash", block.Hash(),
+		"txCount", len(block.Transactions()),
+	)
 
 	return engine.ForkchoiceUpdatedResult{
 		PayloadStatus: payloadStatus,
@@ -581,6 +628,8 @@ func (b *engineBackend) IsAmsterdam(timestamp uint64) bool {
 }
 
 func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadResponse, error) {
+	slog.Debug("engine_getPayload", "payloadID", id)
+
 	b.mu.Lock()
 	payload, ok := b.payloads[id]
 	if ok {
@@ -589,6 +638,7 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 	b.mu.Unlock()
 
 	if !ok {
+		slog.Warn("engine_getPayload: payload not found", "payloadID", id)
 		return nil, fmt.Errorf("payload %v not found", id)
 	}
 
@@ -642,6 +692,14 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 			}
 		}
 	}
+
+	slog.Debug("engine_getPayload: returning payload",
+		"payloadID", id,
+		"blockNumber", block.NumberU64(),
+		"blockHash", block.Hash(),
+		"txCount", len(block.Transactions()),
+		"blockValue", blockValue,
+	)
 
 	return &engine.GetPayloadResponse{
 		ExecutionPayload: execPayload,

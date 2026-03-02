@@ -191,6 +191,10 @@ var (
 
 	// EmptyUncleHash is the hash of an empty uncle list (keccak256 of RLP of empty list).
 	EmptyUncleHash = HexToHash("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
+
+	// EmptyRequestsHash is the hash of an empty Prague requests list (EIP-7685).
+	// Computed as sha256 of the empty byte string.
+	EmptyRequestsHash = HexToHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 )
 
 // fromHex decodes a hex string, stripping optional "0x" prefix.

@@ -71,6 +71,10 @@ func New(config *Config) (*Node, error) {
 	// Initialize in-memory database.
 	n.db = rawdb.NewMemoryDB()
 
+	// Initialize genesis state before resolving the genesis block so that
+	// SetupGenesisBlock can populate alloc accounts into it.
+	statedb := state.NewMemoryStateDB()
+
 	// Resolve chain config and genesis block.
 	var chainConfig *core.ChainConfig
 	var genesis *types.Block
@@ -80,7 +84,9 @@ func New(config *Config) (*Node, error) {
 			return nil, fmt.Errorf("load genesis file: %w", err)
 		}
 		chainConfig = genSpec.Config
-		genesis = genSpec.ToBlock()
+		// SetupGenesisBlock applies alloc to statedb and sets the correct
+		// state root in the genesis header, so our hash matches the CL's.
+		genesis = genSpec.SetupGenesisBlock(statedb)
 		// Derive network ID from genesis chain ID unless the user explicitly
 		// passed a non-default value (default is 1; 0 also means "auto").
 		if (config.NetworkID == 0 || config.NetworkID == 1) &&
@@ -93,7 +99,6 @@ func New(config *Config) (*Node, error) {
 		applyForkOverrides(chainConfig, config)
 		genesis = makeGenesisBlock()
 	}
-	statedb := state.NewMemoryStateDB()
 
 	bc, err := core.NewBlockchain(chainConfig, genesis, statedb, n.db)
 	if err != nil {
