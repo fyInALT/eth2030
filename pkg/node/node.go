@@ -117,6 +117,7 @@ func New(config *Config) (*Node, error) {
 	// Initialize RPC server with blockchain backend.
 	backend := newNodeBackend(n)
 	n.rpcHandler = rpc.NewServer(backend)
+	n.rpcHandler.SetAdminBackend(newNodeAdminBackend(n))
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"net"
 	"sync"
 
 	"github.com/eth2030/eth2030/core"
@@ -683,4 +684,99 @@ func encodeTxsRLP(txs []*types.Transaction) [][]byte {
 		encoded[i] = raw
 	}
 	return encoded
+}
+
+// nodeAdminBackend adapts the Node to the rpc.AdminBackend interface.
+type nodeAdminBackend struct {
+	node *Node
+}
+
+func newNodeAdminBackend(n *Node) rpc.AdminBackend {
+	return &nodeAdminBackend{node: n}
+}
+
+// NodeInfo returns information about the running node.
+func (b *nodeAdminBackend) NodeInfo() rpc.NodeInfoData {
+	p2p := b.node.p2pServer
+	nodeID := p2p.LocalID()
+
+	listenAddr := ""
+	ip := ""
+	port := 0
+	if addr := p2p.ListenAddr(); addr != nil {
+		listenAddr = addr.String()
+		host, portStr, err := net.SplitHostPort(listenAddr)
+		if err == nil {
+			ip = host
+			fmt.Sscanf(portStr, "%d", &port)
+		}
+	}
+
+	enode := fmt.Sprintf("enode://%s@%s:%d", nodeID, ip, port)
+
+	chainID := uint64(0)
+	if cfg := b.node.blockchain.Config(); cfg != nil && cfg.ChainID != nil {
+		chainID = cfg.ChainID.Uint64()
+	}
+
+	return rpc.NodeInfoData{
+		Name:       "eth2030",
+		ID:         nodeID,
+		ENR:        "",
+		Enode:      enode,
+		IP:         ip,
+		ListenAddr: listenAddr,
+		Ports: rpc.NodePorts{
+			Discovery: port,
+			Listener:  port,
+		},
+		Protocols: map[string]interface{}{
+			"eth": map[string]interface{}{
+				"network": chainID,
+				"genesis": "",
+			},
+		},
+	}
+}
+
+// Peers returns information about connected peers.
+func (b *nodeAdminBackend) Peers() []rpc.PeerInfoData {
+	peers := b.node.p2pServer.PeersList()
+	infos := make([]rpc.PeerInfoData, len(peers))
+	for i, p := range peers {
+		caps := make([]string, 0, len(p.Caps()))
+		for _, c := range p.Caps() {
+			caps = append(caps, fmt.Sprintf("%s/%d", c.Name, c.Version))
+		}
+		infos[i] = rpc.PeerInfoData{
+			ID:         p.ID(),
+			Name:       "",
+			RemoteAddr: p.RemoteAddr(),
+			Caps:       caps,
+		}
+	}
+	return infos
+}
+
+// AddPeer requests adding a new remote peer.
+func (b *nodeAdminBackend) AddPeer(url string) error {
+	return b.node.p2pServer.AddPeer(url)
+}
+
+// RemovePeer requests disconnection from a remote peer (stub).
+func (b *nodeAdminBackend) RemovePeer(_ string) error {
+	return nil
+}
+
+// ChainID returns the current chain ID.
+func (b *nodeAdminBackend) ChainID() uint64 {
+	if cfg := b.node.blockchain.Config(); cfg != nil && cfg.ChainID != nil {
+		return cfg.ChainID.Uint64()
+	}
+	return 0
+}
+
+// DataDir returns the node's data directory.
+func (b *nodeAdminBackend) DataDir() string {
+	return b.node.config.DataDir
 }

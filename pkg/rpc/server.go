@@ -8,8 +8,9 @@ import (
 
 // Server is a JSON-RPC HTTP server that dispatches requests to the EthAPI.
 type Server struct {
-	api *EthAPI
-	mux *http.ServeMux
+	api      *EthAPI
+	adminAPI *AdminDispatchAPI
+	mux      *http.ServeMux
 }
 
 // NewServer creates a new JSON-RPC server.
@@ -20,6 +21,11 @@ func NewServer(backend Backend) *Server {
 	}
 	s.mux.HandleFunc("/", s.handleRPC)
 	return s
+}
+
+// SetAdminBackend wires an AdminBackend so that admin_* methods are served.
+func (s *Server) SetAdminBackend(b AdminBackend) {
+	s.adminAPI = NewAdminDispatchAPI(b)
 }
 
 // Handler returns the HTTP handler for the server.
@@ -45,8 +51,18 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.api.HandleRequest(&req)
+	var resp *Response
+	if isAdminMethod(req.Method) && s.adminAPI != nil {
+		resp = s.adminAPI.HandleAdminRequest(&req)
+	} else {
+		resp = s.api.HandleRequest(&req)
+	}
 	writeJSON(w, resp)
+}
+
+// isAdminMethod reports whether the JSON-RPC method belongs to the admin namespace.
+func isAdminMethod(method string) bool {
+	return len(method) > 6 && method[:6] == "admin_"
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

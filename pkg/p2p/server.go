@@ -267,6 +267,11 @@ func (srv *Server) Running() bool {
 	return srv.running
 }
 
+// LocalID returns the local node identifier used in the devp2p handshake.
+func (srv *Server) LocalID() string {
+	return srv.localID
+}
+
 func (srv *Server) listenLoop() {
 	defer srv.wg.Done()
 
