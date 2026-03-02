@@ -552,6 +552,13 @@ func applyTransactionWithBAL(config *ChainConfig, getHash vm.GetHashFunc, stated
 // and applyTransactionWithBAL. When tracker is non-nil, it is passed to
 // applyMessage for EIP-7928 opcode-level state access recording.
 func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+	// Recover sender from ECDSA signature if not already cached.
+	if tx.Sender() == nil && config.ChainID != nil {
+		signer := types.NewLondonSigner(config.ChainID.Uint64())
+		if addr, err := signer.Sender(tx); err == nil {
+			tx.SetSender(addr)
+		}
+	}
 	msg := TransactionToMessage(tx)
 
 	snapshot := statedb.Snapshot()
