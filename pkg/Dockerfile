@@ -29,7 +29,7 @@ RUN ln -s /usr/local/bin/eth2030-geth /usr/local/bin/geth
 # P2P, HTTP-RPC, WS-RPC, Engine API, Metrics
 EXPOSE 30303 30303/udp 8545 8546 8551 9001
 
-ENTRYPOINT ["eth2030-geth"]
+ENTRYPOINT ["eth2030"]
 
 ARG COMMIT=""
 ARG VERSION=""

@@ -25,7 +25,7 @@ services:
         chmod 644 /jwt/jwtsecret
         echo "JWT secret ready"
 
-  # Execution Layer — eth2030-geth
+  # Execution Layer — eth2030
   execution:
     <<: *logging
     build:
@@ -42,12 +42,12 @@ services:
       - "${EL_P2P_PORT:-30303}:${EL_P2P_PORT:-30303}/udp"
       - "${EL_HTTP_PORT:-8545}:${EL_HTTP_PORT:-8545}/tcp"
     volumes:
-      - el-data:${EL_DATADIR:-/data/eth2030-geth}
+      - el-data:${EL_DATADIR:-/data/eth2030}
       - jwtsecret:/jwt:ro
-    entrypoint: eth2030-geth
+    entrypoint: eth2030
     command:
       - --network=${NETWORK:-sepolia}
-      - --datadir=${EL_DATADIR:-/data/eth2030-geth}
+      - --datadir=${EL_DATADIR:-/data/eth2030}
       - --port=${EL_P2P_PORT:-30303}
       - --http.addr=0.0.0.0
       - --http.port=${EL_HTTP_PORT:-8545}
