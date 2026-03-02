@@ -132,10 +132,8 @@ func toBigInt(h *hexBig) *big.Int {
 }
 
 // toHexBytesSlice converts [][]byte → []hexBytes.
+// Returns an empty (non-nil) slice for nil input so the JSON output is [] not null.
 func toHexBytesSlice(in [][]byte) []hexBytes {
-	if in == nil {
-		return nil
-	}
 	out := make([]hexBytes, len(in))
 	for i, b := range in {
 		out[i] = hexBytes(b)
@@ -236,6 +234,11 @@ type executionPayloadV3JSON struct {
 
 // toV3JSON builds the shadow struct for a V3 payload. Used by V4/V5 too.
 func (p *ExecutionPayloadV3) toV3JSON() executionPayloadV3JSON {
+	// Ensure withdrawals is never null (must be [] per Engine API spec).
+	withdrawals := p.Withdrawals
+	if withdrawals == nil {
+		withdrawals = []*Withdrawal{}
+	}
 	return executionPayloadV3JSON{
 		ParentHash:    p.ParentHash,
 		FeeRecipient:  p.FeeRecipient,
@@ -251,7 +254,7 @@ func (p *ExecutionPayloadV3) toV3JSON() executionPayloadV3JSON {
 		BaseFeePerGas: newHexBig(p.BaseFeePerGas),
 		BlockHash:     p.BlockHash,
 		Transactions:  toHexBytesSlice(p.Transactions),
-		Withdrawals:   p.Withdrawals,
+		Withdrawals:   withdrawals,
 		BlobGasUsed:   hexUint64(p.BlobGasUsed),
 		ExcessBlobGas: hexUint64(p.ExcessBlobGas),
 	}

@@ -727,16 +727,13 @@ func generatePayloadID(parentHash types.Hash, attrs *core.BuildBlockAttributes) 
 // encodeTxsRLP encodes a list of transactions to RLP byte slices
 // for inclusion in an Engine API ExecutionPayload.
 func encodeTxsRLP(txs []*types.Transaction) [][]byte {
-	if len(txs) == 0 {
-		return nil
-	}
-	encoded := make([][]byte, len(txs))
-	for i, tx := range txs {
+	encoded := make([][]byte, 0, len(txs))
+	for _, tx := range txs {
 		raw, err := tx.EncodeRLP()
 		if err != nil {
 			continue
 		}
-		encoded[i] = raw
+		encoded = append(encoded, raw)
 	}
 	return encoded
 }
