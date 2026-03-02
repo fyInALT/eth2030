@@ -645,7 +645,7 @@ func TestConformance_SendRawTransaction_Valid(t *testing.T) {
 	mb := newConformanceBackend()
 	api := NewEthAPI(mb)
 
-	resp := conformanceCall(t, api, "eth_sendRawTransaction", "0xdeadbeefcafe")
+	resp := conformanceCall(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
 	requireSuccess(t, resp)
 
 	txHash := mustString(t, resp)
@@ -676,7 +676,7 @@ func TestConformance_SendRawTransaction_BackendError(t *testing.T) {
 	mb2 := &sendErrBackend{mockBackend: mb, sendErr: errors.New("nonce too low")}
 
 	api := NewEthAPI(mb2)
-	resp := conformanceCall(t, api, "eth_sendRawTransaction", "0xdeadbeef")
+	resp := conformanceCall(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
 	requireError(t, resp, ErrCodeInternal)
 }
 

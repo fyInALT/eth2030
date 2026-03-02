@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,29 @@ import (
 )
 
 var errCallFailed = errors.New("execution reverted")
+
+// minTestRawTxHex returns a minimal valid RLP-encoded legacy transaction as a
+// 0x-prefixed hex string suitable for use in eth_sendRawTransaction tests.
+func minTestRawTxHex(t *testing.T) string {
+	t.Helper()
+	to := types.HexToAddress("0x1111111111111111111111111111111111111111")
+	inner := &types.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(1000000000),
+		Gas:      21000,
+		To:       &to,
+		Value:    big.NewInt(0),
+		V:        big.NewInt(27),
+		R:        big.NewInt(1),
+		S:        big.NewInt(1),
+	}
+	tx := types.NewTransaction(inner)
+	raw, err := tx.EncodeRLP()
+	if err != nil {
+		t.Fatalf("minTestRawTxHex: EncodeRLP: %v", err)
+	}
+	return "0x" + fmt.Sprintf("%x", raw)
+}
 
 // mockBackend implements Backend for testing.
 type mockBackend struct {
@@ -588,8 +612,7 @@ func TestSendRawTransaction(t *testing.T) {
 	mb := newMockBackend()
 	api := NewEthAPI(mb)
 
-	// Send some raw bytes (simplified - not a real RLP-encoded tx)
-	resp := callRPC(t, api, "eth_sendRawTransaction", "0xdeadbeef")
+	resp := callRPC(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
