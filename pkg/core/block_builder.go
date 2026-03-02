@@ -826,6 +826,9 @@ func DeriveTxsRoot(txs []*types.Transaction) types.Hash { return deriveTxsRoot(t
 // DeriveReceiptsRoot is the exported version of deriveReceiptsRoot.
 func DeriveReceiptsRoot(receipts []*types.Receipt) types.Hash { return deriveReceiptsRoot(receipts) }
 
+// DeriveWithdrawalsRoot is the exported version of deriveWithdrawalsRoot.
+func DeriveWithdrawalsRoot(ws []*types.Withdrawal) types.Hash { return deriveWithdrawalsRoot(ws) }
+
 // deriveTxsRoot computes the transactions root using a Merkle Patricia Trie.
 // Key: RLP(index), Value: RLP-encoded transaction.
 func deriveTxsRoot(txs []*types.Transaction) types.Hash {

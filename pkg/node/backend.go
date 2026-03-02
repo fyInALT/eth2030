@@ -355,6 +355,17 @@ func (b *engineBackend) ProcessBlock(
 	expectedBlobVersionedHashes []types.Hash,
 	parentBeaconBlockRoot types.Hash,
 ) (engine.PayloadStatusV1, error) {
+	return b.processBlockInternal(payload, parentBeaconBlockRoot, nil)
+}
+
+// processBlockInternal reconstructs the block from an Engine API payload and
+// inserts it. parentBeaconBlockRoot is included in the header hash (EIP-4788).
+// requestsHash is non-nil only for Prague (V4) payloads.
+func (b *engineBackend) processBlockInternal(
+	payload *engine.ExecutionPayloadV3,
+	parentBeaconBlockRoot types.Hash,
+	requestsHash *types.Hash,
+) (engine.PayloadStatusV1, error) {
 	bc := b.node.blockchain
 
 	slog.Debug("engine_newPayload",
@@ -364,22 +375,6 @@ func (b *engineBackend) ProcessBlock(
 		"timestamp", payload.Timestamp,
 		"txCount", len(payload.Transactions),
 	)
-
-	// Convert payload to a block.
-	header := &types.Header{
-		ParentHash:  payload.ParentHash,
-		Coinbase:    payload.FeeRecipient,
-		Root:        payload.StateRoot,
-		ReceiptHash: payload.ReceiptsRoot,
-		Bloom:       payload.LogsBloom,
-		Number:      new(big.Int).SetUint64(payload.BlockNumber),
-		GasLimit:    payload.GasLimit,
-		GasUsed:     payload.GasUsed,
-		Time:        payload.Timestamp,
-		Extra:       payload.ExtraData,
-		BaseFee:     payload.BaseFeePerGas,
-		MixDigest:   payload.PrevRandao,
-	}
 
 	// Decode transactions from raw bytes.
 	var txs []*types.Transaction
@@ -395,9 +390,63 @@ func (b *engineBackend) ProcessBlock(
 		txs = append(txs, tx)
 	}
 
-	block := types.NewBlock(header, &types.Body{Transactions: txs})
+	// Decode withdrawals.
+	var withdrawals []*types.Withdrawal
+	for _, w := range payload.Withdrawals {
+		withdrawals = append(withdrawals, &types.Withdrawal{
+			Index:          w.Index,
+			ValidatorIndex: w.ValidatorIndex,
+			Address:        w.Address,
+			Amount:         w.Amount,
+		})
+	}
 
-	// Verify block hash matches.
+	// Reconstruct the header with all fields that contribute to the block hash.
+	blobGasUsed := payload.BlobGasUsed
+	excessBlobGas := payload.ExcessBlobGas
+	header := &types.Header{
+		ParentHash:    payload.ParentHash,
+		UncleHash:     types.EmptyUncleHash, // always empty for PoS
+		Coinbase:      payload.FeeRecipient,
+		Root:          payload.StateRoot,
+		ReceiptHash:   payload.ReceiptsRoot,
+		Bloom:         payload.LogsBloom,
+		Difficulty:    new(big.Int), // always 0 for PoS
+		Number:        new(big.Int).SetUint64(payload.BlockNumber),
+		GasLimit:      payload.GasLimit,
+		GasUsed:       payload.GasUsed,
+		Time:          payload.Timestamp,
+		Extra:         payload.ExtraData,
+		BaseFee:       payload.BaseFeePerGas,
+		MixDigest:     payload.PrevRandao,
+		TxHash:        core.DeriveTxsRoot(txs),
+		BlobGasUsed:   &blobGasUsed,
+		ExcessBlobGas: &excessBlobGas,
+	}
+
+	// EIP-4788: set ParentBeaconRoot when provided (Cancun+).
+	if parentBeaconBlockRoot != (types.Hash{}) {
+		header.ParentBeaconRoot = &parentBeaconBlockRoot
+	}
+
+	// EIP-4895: compute WithdrawalsHash when withdrawals are present.
+	if payload.Withdrawals != nil {
+		ws := withdrawals
+		if ws == nil {
+			ws = []*types.Withdrawal{}
+		}
+		wHash := core.DeriveWithdrawalsRoot(ws)
+		header.WithdrawalsHash = &wHash
+	}
+
+	// EIP-7685: set RequestsHash for Prague blocks.
+	if requestsHash != nil {
+		header.RequestsHash = requestsHash
+	}
+
+	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
+
+	// Verify block hash matches what the CL provided.
 	if block.Hash() != payload.BlockHash {
 		slog.Warn("engine_newPayload: block hash mismatch",
 			"computed", block.Hash(),
@@ -554,7 +603,17 @@ func (b *engineBackend) ProcessBlockV4(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (engine.PayloadStatusV1, error) {
-	return b.ProcessBlock(payload, expectedBlobVersionedHashes, parentBeaconBlockRoot)
+	// EIP-7685: compute RequestsHash from the raw execution requests.
+	// Each element is [type_byte, ...data]; convert to types.Requests for hashing.
+	var reqs types.Requests
+	for _, reqBytes := range executionRequests {
+		if len(reqBytes) == 0 {
+			continue
+		}
+		reqs = append(reqs, &types.Request{Type: reqBytes[0], Data: reqBytes[1:]})
+	}
+	rHash := types.ComputeRequestsHash(reqs)
+	return b.processBlockInternal(payload, parentBeaconBlockRoot, &rHash)
 }
 
 func (b *engineBackend) ProcessBlockV5(
@@ -563,8 +622,16 @@ func (b *engineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (engine.PayloadStatusV1, error) {
-	// Delegate to V3 processing for the base payload.
-	return b.ProcessBlock(&payload.ExecutionPayloadV3, expectedBlobVersionedHashes, parentBeaconBlockRoot)
+	// Compute RequestsHash from execution requests (same as V4).
+	var reqs types.Requests
+	for _, reqBytes := range executionRequests {
+		if len(reqBytes) == 0 {
+			continue
+		}
+		reqs = append(reqs, &types.Request{Type: reqBytes[0], Data: reqBytes[1:]})
+	}
+	rHash := types.ComputeRequestsHash(reqs)
+	return b.processBlockInternal(&payload.ExecutionPayloadV3, parentBeaconBlockRoot, &rHash)
 }
 
 func (b *engineBackend) ForkchoiceUpdatedV4(

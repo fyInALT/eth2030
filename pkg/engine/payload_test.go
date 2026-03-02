@@ -73,7 +73,10 @@ func TestGetPayloadV4_Success(t *testing.T) {
 	}
 }
 
-func TestGetPayloadV4_UnsupportedFork(t *testing.T) {
+// TestGetPayloadV4_AlwaysSucceeds verifies that GetPayloadV4 does not perform
+// fork validation - it simply returns whatever payload was built. Fork checks
+// belong in NewPayload, not GetPayload.
+func TestGetPayloadV4_AlwaysSucceeds(t *testing.T) {
 	payloadID := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
 	backend := &mockBackend{
@@ -92,7 +95,7 @@ func TestGetPayloadV4_UnsupportedFork(t *testing.T) {
 			}, nil
 		},
 		isPragueFn: func(timestamp uint64) bool {
-			return false // Prague is NOT active
+			return false // Prague not active - GetPayloadV4 should still succeed
 		},
 	}
 
@@ -107,11 +110,11 @@ func TestGetPayloadV4_UnsupportedFork(t *testing.T) {
 	if err := json.Unmarshal(resp, &rpcResp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
-	if rpcResp.Error == nil {
-		t.Fatal("expected error for unsupported fork")
+	if rpcResp.Error != nil {
+		t.Fatalf("GetPayloadV4 returned unexpected error: %v", rpcResp.Error)
 	}
-	if rpcResp.Error.Code != UnsupportedForkCode {
-		t.Errorf("expected error code %d, got %d", UnsupportedForkCode, rpcResp.Error.Code)
+	if rpcResp.Result == nil {
+		t.Fatal("expected non-nil result from GetPayloadV4")
 	}
 }
 
@@ -565,7 +568,10 @@ func TestGetPayloadV6_Success(t *testing.T) {
 	}
 }
 
-func TestGetPayloadV6_UnsupportedFork(t *testing.T) {
+// TestGetPayloadV6_AlwaysSucceeds verifies that GetPayloadV6 does not perform
+// fork validation - it simply returns whatever payload was built. Fork checks
+// belong in NewPayload, not GetPayload.
+func TestGetPayloadV6_AlwaysSucceeds(t *testing.T) {
 	payloadID := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
 	backend := &mockBackend{
@@ -588,7 +594,7 @@ func TestGetPayloadV6_UnsupportedFork(t *testing.T) {
 			}, nil
 		},
 		isAmsterdamFn: func(timestamp uint64) bool {
-			return false // Amsterdam NOT active
+			return false // Amsterdam not active - GetPayloadV6 should still succeed
 		},
 	}
 
@@ -603,11 +609,11 @@ func TestGetPayloadV6_UnsupportedFork(t *testing.T) {
 	if err := json.Unmarshal(resp, &rpcResp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
-	if rpcResp.Error == nil {
-		t.Fatal("expected error for unsupported fork")
+	if rpcResp.Error != nil {
+		t.Fatalf("GetPayloadV6 returned unexpected error: %v", rpcResp.Error)
 	}
-	if rpcResp.Error.Code != UnsupportedForkCode {
-		t.Errorf("expected error code %d (-38005), got %d", UnsupportedForkCode, rpcResp.Error.Code)
+	if rpcResp.Result == nil {
+		t.Fatal("expected non-nil result from GetPayloadV6")
 	}
 }
 
