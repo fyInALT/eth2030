@@ -191,16 +191,20 @@ func (api *EthAPI) getBlockByNumber(req *Request) *Response {
 		return successResponse(req.ID, nil)
 	}
 
-	if fullTx {
-		// EIP-4444: check if block body has been pruned.
-		if api.historyPruned(header.Number.Uint64()) {
+	// EIP-4444: check if block body has been pruned.
+	if api.historyPruned(header.Number.Uint64()) {
+		if fullTx {
 			return errorResponse(req.ID, ErrCodeHistoryPruned,
 				"historical block body pruned (EIP-4444)")
 		}
-		block := api.backend.BlockByNumber(bn)
-		if block != nil {
-			return successResponse(req.ID, FormatBlock(block, true))
-		}
+		return successResponse(req.ID, FormatHeader(header))
+	}
+
+	// Load the full block so that body fields (transactions, withdrawals)
+	// are always populated per the Ethereum JSON-RPC spec.
+	block := api.backend.BlockByNumber(bn)
+	if block != nil {
+		return successResponse(req.ID, FormatBlock(block, fullTx))
 	}
 	return successResponse(req.ID, FormatHeader(header))
 }
@@ -227,16 +231,20 @@ func (api *EthAPI) getBlockByHash(req *Request) *Response {
 		return successResponse(req.ID, nil)
 	}
 
-	if fullTx {
-		// EIP-4444: check if block body has been pruned.
-		if api.historyPruned(header.Number.Uint64()) {
+	// EIP-4444: check if block body has been pruned.
+	if api.historyPruned(header.Number.Uint64()) {
+		if fullTx {
 			return errorResponse(req.ID, ErrCodeHistoryPruned,
 				"historical block body pruned (EIP-4444)")
 		}
-		block := api.backend.BlockByHash(hash)
-		if block != nil {
-			return successResponse(req.ID, FormatBlock(block, true))
-		}
+		return successResponse(req.ID, FormatHeader(header))
+	}
+
+	// Load the full block so that body fields (transactions, withdrawals)
+	// are always populated per the Ethereum JSON-RPC spec.
+	block := api.backend.BlockByHash(hash)
+	if block != nil {
+		return successResponse(req.ID, FormatBlock(block, fullTx))
 	}
 	return successResponse(req.ID, FormatHeader(header))
 }

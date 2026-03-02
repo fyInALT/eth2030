@@ -98,31 +98,36 @@ const (
 
 // RPCBlock is the JSON representation of a block.
 type RPCBlock struct {
-	Number           string   `json:"number"`
-	Hash             string   `json:"hash"`
-	ParentHash       string   `json:"parentHash"`
-	Sha3Uncles       string   `json:"sha3Uncles"`
-	Miner            string   `json:"miner"`
-	StateRoot        string   `json:"stateRoot"`
-	TxRoot           string   `json:"transactionsRoot"`
-	ReceiptsRoot     string   `json:"receiptsRoot"`
-	LogsBloom        string   `json:"logsBloom"`
-	Difficulty       string   `json:"difficulty"`
-	GasLimit         string   `json:"gasLimit"`
-	GasUsed          string   `json:"gasUsed"`
-	Timestamp        string   `json:"timestamp"`
-	ExtraData        string   `json:"extraData"`
-	MixHash          string   `json:"mixHash"`
-	Nonce            string   `json:"nonce"`
-	Size             string   `json:"size"`
-	BaseFeePerGas    *string  `json:"baseFeePerGas,omitempty"`
-	WithdrawalsRoot  *string  `json:"withdrawalsRoot,omitempty"`
-	BlobGasUsed      *string  `json:"blobGasUsed,omitempty"`
-	ExcessBlobGas    *string  `json:"excessBlobGas,omitempty"`
-	ParentBeaconRoot *string  `json:"parentBeaconBlockRoot,omitempty"`
-	RequestsHash     *string  `json:"requestsHash,omitempty"`
-	Transactions     []string `json:"transactions"` // tx hashes
-	Uncles           []string `json:"uncles"`
+	Number           string            `json:"number"`
+	Hash             string            `json:"hash"`
+	ParentHash       string            `json:"parentHash"`
+	Sha3Uncles       string            `json:"sha3Uncles"`
+	Miner            string            `json:"miner"`
+	StateRoot        string            `json:"stateRoot"`
+	TxRoot           string            `json:"transactionsRoot"`
+	ReceiptsRoot     string            `json:"receiptsRoot"`
+	LogsBloom        string            `json:"logsBloom"`
+	Difficulty       string            `json:"difficulty"`
+	GasLimit         string            `json:"gasLimit"`
+	GasUsed          string            `json:"gasUsed"`
+	Timestamp        string            `json:"timestamp"`
+	ExtraData        string            `json:"extraData"`
+	MixHash          string            `json:"mixHash"`
+	Nonce            string            `json:"nonce"`
+	Size             string            `json:"size"`
+	BaseFeePerGas    *string           `json:"baseFeePerGas,omitempty"`
+	WithdrawalsRoot  *string           `json:"withdrawalsRoot,omitempty"`
+	BlobGasUsed      *string           `json:"blobGasUsed,omitempty"`
+	ExcessBlobGas    *string           `json:"excessBlobGas,omitempty"`
+	ParentBeaconRoot *string           `json:"parentBeaconBlockRoot,omitempty"`
+	RequestsHash     *string           `json:"requestsHash,omitempty"`
+	Transactions     []string          `json:"transactions"` // tx hashes
+	Uncles           []string          `json:"uncles"`
+	// Withdrawals is nil for pre-Shanghai blocks and a (possibly empty) slice
+	// for post-Shanghai blocks. Using a pointer preserves the distinction so
+	// that post-Shanghai empty blocks emit "withdrawals": [] instead of
+	// omitting the field entirely (which breaks EIP-4895 clients).
+	Withdrawals *[]*RPCWithdrawal `json:"withdrawals,omitempty"`
 }
 
 // RPCTransaction is the JSON representation of a transaction.
@@ -234,9 +239,11 @@ type RPCBlockWithTxs struct {
 	ExcessBlobGas    *string           `json:"excessBlobGas,omitempty"`
 	ParentBeaconRoot *string           `json:"parentBeaconBlockRoot,omitempty"`
 	RequestsHash     *string           `json:"requestsHash,omitempty"`
-	Transactions     []*RPCTransaction `json:"transactions"`
-	Uncles           []string          `json:"uncles"`
-	Withdrawals      []*RPCWithdrawal  `json:"withdrawals,omitempty"`
+	Transactions []*RPCTransaction `json:"transactions"`
+	Uncles       []string          `json:"uncles"`
+	// Withdrawals is nil for pre-Shanghai blocks and a (possibly empty) slice
+	// for post-Shanghai blocks (see RPCBlock.Withdrawals).
+	Withdrawals *[]*RPCWithdrawal `json:"withdrawals,omitempty"`
 }
 
 // RPCWithdrawal is the JSON representation of a beacon-chain withdrawal.
@@ -260,6 +267,20 @@ func FormatBlock(block *types.Block, fullTx bool) interface{} {
 			rb.Transactions[i] = encodeHash(tx.Hash())
 		}
 		rb.Uncles = formatUncleHashes(block.Uncles())
+		// Withdrawals: always present (even empty) for post-Shanghai blocks.
+		if header.WithdrawalsHash != nil {
+			ws := block.Withdrawals()
+			wList := make([]*RPCWithdrawal, len(ws))
+			for i, w := range ws {
+				wList[i] = &RPCWithdrawal{
+					Index:          encodeUint64(w.Index),
+					ValidatorIndex: encodeUint64(w.ValidatorIndex),
+					Address:        encodeAddress(w.Address),
+					Amount:         encodeUint64(w.Amount),
+				}
+			}
+			rb.Withdrawals = &wList
+		}
 		return rb
 	}
 
@@ -321,16 +342,19 @@ func FormatBlock(block *types.Block, fullTx bool) interface{} {
 		result.Transactions[i] = FormatTransaction(tx, &blockHash, &blockNum, &idx)
 	}
 
-	if ws := block.Withdrawals(); len(ws) > 0 {
-		result.Withdrawals = make([]*RPCWithdrawal, len(ws))
+	// Withdrawals: always present (even empty) for post-Shanghai blocks.
+	if header.WithdrawalsHash != nil {
+		ws := block.Withdrawals()
+		wList := make([]*RPCWithdrawal, len(ws))
 		for i, w := range ws {
-			result.Withdrawals[i] = &RPCWithdrawal{
+			wList[i] = &RPCWithdrawal{
 				Index:          encodeUint64(w.Index),
 				ValidatorIndex: encodeUint64(w.ValidatorIndex),
 				Address:        encodeAddress(w.Address),
 				Amount:         encodeUint64(w.Amount),
 			}
 		}
+		result.Withdrawals = &wList
 	}
 
 	return result
