@@ -173,6 +173,126 @@ func TestLoadGenesisFile_HexStringNonce(t *testing.T) {
 	}
 }
 
+// kurtosisGenesisPath points to the real Kurtosis devnet genesis bundled in the repo.
+const kurtosisGenesisPath = "../devnet/kurtosis/el_cl_genesis_data/genesis.json"
+
+func TestLoadGenesisFile_Kurtosis(t *testing.T) {
+	if _, err := os.Stat(kurtosisGenesisPath); err != nil {
+		t.Skipf("kurtosis genesis not found: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.GenesisPath = kurtosisGenesisPath
+
+	genesis, err := loadGenesisFile(&cfg)
+	if err != nil {
+		t.Fatalf("loadGenesisFile() error: %v", err)
+	}
+
+	// Chain config.
+	if genesis.Config == nil {
+		t.Fatal("Config is nil")
+	}
+	if genesis.Config.ChainID == nil || genesis.Config.ChainID.Int64() != 3151908 {
+		t.Errorf("ChainID = %v, want 3151908", genesis.Config.ChainID)
+	}
+
+	// Fork timestamps — all zero in this devnet genesis.
+	for name, ts := range map[string]*uint64{
+		"Shanghai": genesis.Config.ShanghaiTime,
+		"Cancun":   genesis.Config.CancunTime,
+		"Prague":   genesis.Config.PragueTime,
+	} {
+		if ts == nil || *ts != 0 {
+			t.Errorf("%s time = %v, want 0", name, ts)
+		}
+	}
+
+	// Alloc: 282 entries.
+	if len(genesis.Alloc) != 282 {
+		t.Errorf("alloc len = %d, want 282", len(genesis.Alloc))
+	}
+
+	// Timestamp and gas limit from the file.
+	if genesis.Timestamp != 1772279152 {
+		t.Errorf("Timestamp = %d, want 1772279152", genesis.Timestamp)
+	}
+	if genesis.GasLimit != 0x3938700 {
+		t.Errorf("GasLimit = %x, want 3938700", genesis.GasLimit)
+	}
+}
+
+func TestLoadGenesisFile_Kurtosis_AllocDetails(t *testing.T) {
+	if _, err := os.Stat(kurtosisGenesisPath); err != nil {
+		t.Skipf("kurtosis genesis not found: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.GenesisPath = kurtosisGenesisPath
+
+	genesis, err := loadGenesisFile(&cfg)
+	if err != nil {
+		t.Fatalf("loadGenesisFile() error: %v", err)
+	}
+
+	// Accounts with code should have non-empty Code bytes.
+	codeCount := 0
+	for _, acc := range genesis.Alloc {
+		if len(acc.Code) > 0 {
+			codeCount++
+		}
+	}
+	if codeCount != 5 {
+		t.Errorf("accounts with code = %d, want 5", codeCount)
+	}
+
+	// Accounts with nonce > 0.
+	nonceCount := 0
+	for _, acc := range genesis.Alloc {
+		if acc.Nonce > 0 {
+			nonceCount++
+		}
+	}
+	if nonceCount != 4 {
+		t.Errorf("accounts with nonce > 0 = %d, want 4", nonceCount)
+	}
+
+	// All accounts must have a non-nil balance.
+	for addr, acc := range genesis.Alloc {
+		if acc.Balance == nil {
+			t.Errorf("account %s has nil balance", addr)
+		}
+	}
+}
+
+func TestNodeWithGenesisFile_Kurtosis(t *testing.T) {
+	if _, err := os.Stat(kurtosisGenesisPath); err != nil {
+		t.Skipf("kurtosis genesis not found: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.DataDir = dir
+	cfg.GenesisPath = kurtosisGenesisPath
+	cfg.P2PPort = 0
+	cfg.RPCPort = 0
+	cfg.EnginePort = 0
+	cfg.Network = ""
+
+	n, err := New(&cfg)
+	if err != nil {
+		t.Fatalf("New() with kurtosis genesis error: %v", err)
+	}
+	if n.Blockchain() == nil {
+		t.Error("blockchain should not be nil")
+	}
+	if n.Config().NetworkID != 3151908 {
+		t.Errorf("NetworkID = %d, want 3151908", n.Config().NetworkID)
+	}
+}
+
 func TestNodeWithGenesisFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "genesis.json")

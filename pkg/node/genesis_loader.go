@@ -19,8 +19,8 @@ type genesisJSON struct {
 	ExtraData  hexBytes                   `json:"extraData"`
 	GasLimit   uint64JSON                 `json:"gasLimit"`
 	Difficulty *bigIntJSON                `json:"difficulty"`
-	MixHash    types.Hash                 `json:"mixHash"`
-	Coinbase   types.Address              `json:"coinbase"`
+	MixHash    hashJSON                   `json:"mixHash"`
+	Coinbase   addressJSON                `json:"coinbase"`
 	Alloc      map[string]allocAccountJSON `json:"alloc"`
 	BaseFee    *bigIntJSON                `json:"baseFeePerGas"`
 }
@@ -114,6 +114,44 @@ func (u *uint64JSON) UnmarshalJSON(data []byte) error {
 		n.SetString(s, 10)
 		*u = uint64JSON(n.Uint64())
 	}
+	return nil
+}
+
+// addressJSON decodes a 0x-prefixed 20-byte hex string into types.Address.
+type addressJSON struct{ types.Address }
+
+func (a *addressJSON) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("addressJSON: %w", err)
+	}
+	if len(s) >= 2 && s[:2] == "0x" {
+		s = s[2:]
+	}
+	b := make([]byte, 20)
+	if _, err := fmt.Sscanf(s, "%x", &b); err != nil {
+		return fmt.Errorf("addressJSON: invalid address %q", s)
+	}
+	copy(a.Address[:], b)
+	return nil
+}
+
+// hashJSON decodes a 0x-prefixed 32-byte hex string into types.Hash.
+type hashJSON struct{ types.Hash }
+
+func (h *hashJSON) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("hashJSON: %w", err)
+	}
+	if len(s) >= 2 && s[:2] == "0x" {
+		s = s[2:]
+	}
+	b := make([]byte, 32)
+	if _, err := fmt.Sscanf(s, "%x", &b); err != nil {
+		return fmt.Errorf("hashJSON: invalid hash %q", s)
+	}
+	copy(h.Hash[:], b)
 	return nil
 }
 
@@ -242,8 +280,8 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 		ExtraData:  gj.ExtraData,
 		GasLimit:   uint64(gj.GasLimit),
 		Difficulty: difficulty,
-		MixHash:    gj.MixHash,
-		Coinbase:   gj.Coinbase,
+		MixHash:    gj.MixHash.Hash,
+		Coinbase:   gj.Coinbase.Address,
 		Alloc:      alloc,
 		BaseFee:    baseFee,
 	}
