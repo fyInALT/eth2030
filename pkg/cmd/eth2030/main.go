@@ -65,6 +65,9 @@ func run(args []string) int {
 		slog.Info("WebSocket RPC", "addr", cfg.WSListenAddr())
 	}
 
+	// Log any fork override timestamps so they appear in the startup banner.
+	logForkOverrides(&cfg)
+
 	if err := cfg.Validate(); err != nil {
 		slog.Error("invalid configuration", "err", err)
 		return 1
