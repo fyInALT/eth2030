@@ -371,7 +371,6 @@ func genesisForNetwork(network string) *core.Genesis {
 	}
 }
 
-
 // makeGenesisBlock creates a minimal genesis block.
 func makeGenesisBlock() *types.Block {
 	header := &types.Header{
