@@ -273,6 +273,41 @@ func (api *TxPoolAPI) Content(req *Request) *Response {
 	return successResponse(req.ID, result)
 }
 
+// TxPoolInspectResult is the response payload for txpool_inspect.
+type TxPoolInspectResult struct {
+	Pending map[string]map[string]string `json:"pending"`
+	Queued  map[string]map[string]string `json:"queued"`
+}
+
+// Inspect returns a textual summary of each transaction in the pool,
+// suitable for human inspection.
+func (api *TxPoolAPI) Inspect(req *Request) *Response {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+
+	result := &TxPoolInspectResult{
+		Pending: formatTxPoolInspect(api.pending),
+		Queued:  formatTxPoolInspect(api.queued),
+	}
+	return successResponse(req.ID, result)
+}
+
+// formatTxPoolInspect converts an internal sender->txs map into the human-readable
+// txpool_inspect format: address -> nonce -> "value: gasPrice gas".
+func formatTxPoolInspect(txMap map[types.Address][]*types.Transaction) map[string]map[string]string {
+	result := make(map[string]map[string]string)
+	for addr, txs := range txMap {
+		addrHex := encodeAddress(addr)
+		nonceMap := make(map[string]string)
+		for _, tx := range txs {
+			nonceStr := encodeUint64(tx.Nonce())
+			nonceMap[nonceStr] = fmt.Sprintf("%s: %s gas", encodeBigInt(tx.Value()), encodeUint64(tx.Gas()))
+		}
+		result[addrHex] = nonceMap
+	}
+	return result
+}
+
 // formatTxPoolMap converts an internal sender->txs map into the JSON-RPC
 // format: address -> nonce_string -> RPCTransaction.
 func formatTxPoolMap(txMap map[types.Address][]*types.Transaction) map[string]map[string]*RPCTransaction {

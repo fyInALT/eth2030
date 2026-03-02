@@ -12,10 +12,11 @@ import (
 // defaultPriorityFee is 1 Gwei, the suggested default max priority fee.
 var defaultPriorityFee = big.NewInt(1_000_000_000)
 
-// EthAPI implements the eth_, net_, and web3_ namespace JSON-RPC methods.
+// EthAPI implements the eth_, net_, web3_, and txpool_ namespace JSON-RPC methods.
 type EthAPI struct {
 	backend Backend
 	subs    *SubscriptionManager
+	txpool  *TxPoolAPI
 }
 
 // NewEthAPI creates a new API service with subscription support.
@@ -23,6 +24,7 @@ func NewEthAPI(backend Backend) *EthAPI {
 	return &EthAPI{
 		backend: backend,
 		subs:    NewSubscriptionManager(backend),
+		txpool:  NewTxPoolAPI(backend),
 	}
 }
 
@@ -137,6 +139,12 @@ func (api *EthAPI) HandleRequest(req *Request) *Response {
 		return api.netListening(req)
 	case "net_peerCount":
 		return api.netPeerCount(req)
+	case "txpool_status":
+		return api.txpool.Status(req)
+	case "txpool_content":
+		return api.txpool.Content(req)
+	case "txpool_inspect":
+		return api.txpool.Inspect(req)
 	default:
 		return errorResponse(req.ID, ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
 	}
