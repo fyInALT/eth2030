@@ -16,12 +16,22 @@ type AdminBackend interface {
 }
 
 // NodeInfoData contains information about the running node.
+// Fields match the geth admin_nodeInfo response so Kurtosis extractors work.
 type NodeInfoData struct {
 	Name       string                 `json:"name"`
 	ID         string                 `json:"id"`
+	ENR        string                 `json:"enr"`
 	Enode      string                 `json:"enode"`
+	IP         string                 `json:"ip"`
 	ListenAddr string                 `json:"listenAddr"`
+	Ports      NodePorts              `json:"ports"`
 	Protocols  map[string]interface{} `json:"protocols"`
+}
+
+// NodePorts holds the discovery and listener port numbers.
+type NodePorts struct {
+	Discovery int `json:"discovery"`
+	Listener  int `json:"listener"`
 }
 
 // PeerInfoData contains information about a connected peer.

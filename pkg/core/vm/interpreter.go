@@ -231,10 +231,14 @@ type ForkRules struct {
 	IsEIP158         bool // EIP-158: empty account cleanup
 	IsEIP7708        bool // EIP-7708: ETH transfers emit a log
 	IsEIP7954        bool // EIP-7954: increased max contract code size
+	IsIPlus          bool // I+ fork: NTT/NII precompiles (EIP-7885)
 }
 
 // SelectPrecompiles returns the correct precompile map for the given fork rules.
 func SelectPrecompiles(rules ForkRules) map[types.Address]PrecompiledContract {
+	if rules.IsIPlus {
+		return PrecompiledContractsIPlus
+	}
 	if rules.IsGlamsterdan {
 		return PrecompiledContractsGlamsterdan
 	}

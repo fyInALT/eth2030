@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math/big"
+	"net"
 	"sync"
 
 	"github.com/eth2030/eth2030/core"
@@ -353,23 +355,26 @@ func (b *engineBackend) ProcessBlock(
 	expectedBlobVersionedHashes []types.Hash,
 	parentBeaconBlockRoot types.Hash,
 ) (engine.PayloadStatusV1, error) {
+	return b.processBlockInternal(payload, parentBeaconBlockRoot, nil)
+}
+
+// processBlockInternal reconstructs the block from an Engine API payload and
+// inserts it. parentBeaconBlockRoot is included in the header hash (EIP-4788).
+// requestsHash is non-nil only for Prague (V4) payloads.
+func (b *engineBackend) processBlockInternal(
+	payload *engine.ExecutionPayloadV3,
+	parentBeaconBlockRoot types.Hash,
+	requestsHash *types.Hash,
+) (engine.PayloadStatusV1, error) {
 	bc := b.node.blockchain
 
-	// Convert payload to a block.
-	header := &types.Header{
-		ParentHash:  payload.ParentHash,
-		Coinbase:    payload.FeeRecipient,
-		Root:        payload.StateRoot,
-		ReceiptHash: payload.ReceiptsRoot,
-		Bloom:       payload.LogsBloom,
-		Number:      new(big.Int).SetUint64(payload.BlockNumber),
-		GasLimit:    payload.GasLimit,
-		GasUsed:     payload.GasUsed,
-		Time:        payload.Timestamp,
-		Extra:       payload.ExtraData,
-		BaseFee:     payload.BaseFeePerGas,
-		MixDigest:   payload.PrevRandao,
-	}
+	slog.Debug("engine_newPayload",
+		"blockNumber", payload.BlockNumber,
+		"blockHash", payload.BlockHash,
+		"parentHash", payload.ParentHash,
+		"timestamp", payload.Timestamp,
+		"txCount", len(payload.Transactions),
+	)
 
 	// Decode transactions from raw bytes.
 	var txs []*types.Transaction
@@ -385,10 +390,73 @@ func (b *engineBackend) ProcessBlock(
 		txs = append(txs, tx)
 	}
 
-	block := types.NewBlock(header, &types.Body{Transactions: txs})
+	// Decode withdrawals. When the CL sends withdrawals:[] (non-nil empty),
+	// the decoded slice must also be non-nil so the block passes Shanghai
+	// validation (which rejects nil withdrawals on Shanghai+ blocks).
+	var withdrawals []*types.Withdrawal
+	if payload.Withdrawals != nil {
+		withdrawals = make([]*types.Withdrawal, 0, len(payload.Withdrawals))
+		for _, w := range payload.Withdrawals {
+			withdrawals = append(withdrawals, &types.Withdrawal{
+				Index:          w.Index,
+				ValidatorIndex: w.ValidatorIndex,
+				Address:        w.Address,
+				Amount:         w.Amount,
+			})
+		}
+	}
 
-	// Verify block hash matches.
+	// Reconstruct the header with all fields that contribute to the block hash.
+	blobGasUsed := payload.BlobGasUsed
+	excessBlobGas := payload.ExcessBlobGas
+	header := &types.Header{
+		ParentHash:    payload.ParentHash,
+		UncleHash:     types.EmptyUncleHash, // always empty for PoS
+		Coinbase:      payload.FeeRecipient,
+		Root:          payload.StateRoot,
+		ReceiptHash:   payload.ReceiptsRoot,
+		Bloom:         payload.LogsBloom,
+		Difficulty:    new(big.Int), // always 0 for PoS
+		Number:        new(big.Int).SetUint64(payload.BlockNumber),
+		GasLimit:      payload.GasLimit,
+		GasUsed:       payload.GasUsed,
+		Time:          payload.Timestamp,
+		Extra:         payload.ExtraData,
+		BaseFee:       payload.BaseFeePerGas,
+		MixDigest:     payload.PrevRandao,
+		TxHash:        core.DeriveTxsRoot(txs),
+		BlobGasUsed:   &blobGasUsed,
+		ExcessBlobGas: &excessBlobGas,
+	}
+
+	// EIP-4788: set ParentBeaconRoot when provided (Cancun+).
+	if parentBeaconBlockRoot != (types.Hash{}) {
+		header.ParentBeaconRoot = &parentBeaconBlockRoot
+	}
+
+	// EIP-4895: compute WithdrawalsHash when withdrawals are present.
+	if payload.Withdrawals != nil {
+		ws := withdrawals
+		if ws == nil {
+			ws = []*types.Withdrawal{}
+		}
+		wHash := core.DeriveWithdrawalsRoot(ws)
+		header.WithdrawalsHash = &wHash
+	}
+
+	// EIP-7685: set RequestsHash for Prague blocks.
+	if requestsHash != nil {
+		header.RequestsHash = requestsHash
+	}
+
+	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
+
+	// Verify block hash matches what the CL provided.
 	if block.Hash() != payload.BlockHash {
+		slog.Warn("engine_newPayload: block hash mismatch",
+			"computed", block.Hash(),
+			"payload", payload.BlockHash,
+		)
 		latestValid := payload.ParentHash
 		return engine.PayloadStatusV1{
 			Status:          engine.StatusInvalid,
@@ -398,6 +466,9 @@ func (b *engineBackend) ProcessBlock(
 
 	// Check if parent is known.
 	if !bc.HasBlock(payload.ParentHash) {
+		slog.Debug("engine_newPayload: parent unknown, returning SYNCING",
+			"parentHash", payload.ParentHash,
+		)
 		return engine.PayloadStatusV1{
 			Status: engine.StatusSyncing,
 		}, nil
@@ -405,6 +476,7 @@ func (b *engineBackend) ProcessBlock(
 
 	// Insert the block.
 	if err := bc.InsertBlock(block); err != nil {
+		slog.Warn("engine_newPayload: insert failed", "err", err)
 		latestValid := payload.ParentHash
 		return engine.PayloadStatusV1{
 			Status:          engine.StatusInvalid,
@@ -413,6 +485,10 @@ func (b *engineBackend) ProcessBlock(
 	}
 
 	blockHash := block.Hash()
+	slog.Info("engine_newPayload: accepted",
+		"blockNumber", payload.BlockNumber,
+		"blockHash", blockHash,
+	)
 	return engine.PayloadStatusV1{
 		Status:          engine.StatusValid,
 		LatestValidHash: &blockHash,
@@ -425,10 +501,23 @@ func (b *engineBackend) ForkchoiceUpdated(
 ) (engine.ForkchoiceUpdatedResult, error) {
 	bc := b.node.blockchain
 
+	slog.Debug("engine_forkchoiceUpdated",
+		"headBlockHash", fcState.HeadBlockHash,
+		"safeBlockHash", fcState.SafeBlockHash,
+		"finalizedBlockHash", fcState.FinalizedBlockHash,
+		"hasPayloadAttrs", payloadAttributes != nil,
+		"genesisHash", bc.Genesis().Hash(),
+	)
+
 	// Check if we know the head block.
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
 	var payloadStatus engine.PayloadStatusV1
 	if headBlock == nil {
+		slog.Warn("engine_forkchoiceUpdated: unknown head block, returning SYNCING",
+			"headBlockHash", fcState.HeadBlockHash,
+			"genesisHash", bc.Genesis().Hash(),
+			"currentHead", bc.CurrentBlock().Hash(),
+		)
 		// We don't know this block yet; report syncing.
 		payloadStatus = engine.PayloadStatusV1{
 			Status: engine.StatusSyncing,
@@ -444,6 +533,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 		Status:          engine.StatusValid,
 		LatestValidHash: &headHash,
 	}
+
+	slog.Debug("engine_forkchoiceUpdated: head known",
+		"headBlockHash", headHash,
+		"number", headBlock.NumberU64(),
+	)
 
 	// If no payload attributes, just return the forkchoice acknowledgment.
 	if payloadAttributes == nil {
@@ -478,6 +572,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 	block, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
 	if err != nil {
+		slog.Warn("engine_forkchoiceUpdated: build block failed", "err", err)
 		return engine.ForkchoiceUpdatedResult{
 			PayloadStatus: payloadStatus,
 		}, fmt.Errorf("build block: %w", err)
@@ -494,6 +589,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 	}
 	b.mu.Unlock()
 
+	slog.Info("engine_forkchoiceUpdated: built payload",
+		"payloadID", payloadID,
+		"blockNumber", block.NumberU64(),
+		"blockHash", block.Hash(),
+		"txCount", len(block.Transactions()),
+	)
+
 	return engine.ForkchoiceUpdatedResult{
 		PayloadStatus: payloadStatus,
 		PayloadID:     &payloadID,
@@ -506,7 +608,17 @@ func (b *engineBackend) ProcessBlockV4(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (engine.PayloadStatusV1, error) {
-	return b.ProcessBlock(payload, expectedBlobVersionedHashes, parentBeaconBlockRoot)
+	// EIP-7685: compute RequestsHash from the raw execution requests.
+	// Each element is [type_byte, ...data]; convert to types.Requests for hashing.
+	var reqs types.Requests
+	for _, reqBytes := range executionRequests {
+		if len(reqBytes) == 0 {
+			continue
+		}
+		reqs = append(reqs, &types.Request{Type: reqBytes[0], Data: reqBytes[1:]})
+	}
+	rHash := types.ComputeRequestsHash(reqs)
+	return b.processBlockInternal(payload, parentBeaconBlockRoot, &rHash)
 }
 
 func (b *engineBackend) ProcessBlockV5(
@@ -515,8 +627,16 @@ func (b *engineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (engine.PayloadStatusV1, error) {
-	// Delegate to V3 processing for the base payload.
-	return b.ProcessBlock(&payload.ExecutionPayloadV3, expectedBlobVersionedHashes, parentBeaconBlockRoot)
+	// Compute RequestsHash from execution requests (same as V4).
+	var reqs types.Requests
+	for _, reqBytes := range executionRequests {
+		if len(reqBytes) == 0 {
+			continue
+		}
+		reqs = append(reqs, &types.Request{Type: reqBytes[0], Data: reqBytes[1:]})
+	}
+	rHash := types.ComputeRequestsHash(reqs)
+	return b.processBlockInternal(&payload.ExecutionPayloadV3, parentBeaconBlockRoot, &rHash)
 }
 
 func (b *engineBackend) ForkchoiceUpdatedV4(
@@ -580,14 +700,14 @@ func (b *engineBackend) IsAmsterdam(timestamp uint64) bool {
 }
 
 func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadResponse, error) {
+	slog.Debug("engine_getPayload", "payloadID", id)
+
 	b.mu.Lock()
 	payload, ok := b.payloads[id]
-	if ok {
-		delete(b.payloads, id)
-	}
 	b.mu.Unlock()
 
 	if !ok {
+		slog.Warn("engine_getPayload: payload not found", "payloadID", id)
 		return nil, fmt.Errorf("payload %v not found", id)
 	}
 
@@ -642,6 +762,14 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 		}
 	}
 
+	slog.Debug("engine_getPayload: returning payload",
+		"payloadID", id,
+		"blockNumber", block.NumberU64(),
+		"blockHash", block.Hash(),
+		"txCount", len(block.Transactions()),
+		"blockValue", blockValue,
+	)
+
 	return &engine.GetPayloadResponse{
 		ExecutionPayload: execPayload,
 		BlockValue:       blockValue,
@@ -671,16 +799,108 @@ func generatePayloadID(parentHash types.Hash, attrs *core.BuildBlockAttributes) 
 // encodeTxsRLP encodes a list of transactions to RLP byte slices
 // for inclusion in an Engine API ExecutionPayload.
 func encodeTxsRLP(txs []*types.Transaction) [][]byte {
-	if len(txs) == 0 {
-		return nil
-	}
-	encoded := make([][]byte, len(txs))
-	for i, tx := range txs {
+	encoded := make([][]byte, 0, len(txs))
+	for _, tx := range txs {
 		raw, err := tx.EncodeRLP()
 		if err != nil {
 			continue
 		}
-		encoded[i] = raw
+		encoded = append(encoded, raw)
 	}
 	return encoded
+}
+
+// nodeAdminBackend adapts the Node to the rpc.AdminBackend interface.
+type nodeAdminBackend struct {
+	node *Node
+}
+
+func newNodeAdminBackend(n *Node) rpc.AdminBackend {
+	return &nodeAdminBackend{node: n}
+}
+
+// NodeInfo returns information about the running node.
+func (b *nodeAdminBackend) NodeInfo() rpc.NodeInfoData {
+	p2p := b.node.p2pServer
+	nodeID := p2p.LocalID()
+
+	listenAddr := ""
+	ip := ""
+	port := 0
+	if addr := p2p.ListenAddr(); addr != nil {
+		listenAddr = addr.String()
+		host, portStr, err := net.SplitHostPort(listenAddr)
+		if err == nil {
+			ip = host
+			fmt.Sscanf(portStr, "%d", &port)
+		}
+	}
+
+	enode := fmt.Sprintf("enode://%s@%s:%d", nodeID, ip, port)
+
+	chainID := uint64(0)
+	if cfg := b.node.blockchain.Config(); cfg != nil && cfg.ChainID != nil {
+		chainID = cfg.ChainID.Uint64()
+	}
+
+	return rpc.NodeInfoData{
+		Name:       "eth2030",
+		ID:         nodeID,
+		ENR:        "",
+		Enode:      enode,
+		IP:         ip,
+		ListenAddr: listenAddr,
+		Ports: rpc.NodePorts{
+			Discovery: port,
+			Listener:  port,
+		},
+		Protocols: map[string]interface{}{
+			"eth": map[string]interface{}{
+				"network": chainID,
+				"genesis": "",
+			},
+		},
+	}
+}
+
+// Peers returns information about connected peers.
+func (b *nodeAdminBackend) Peers() []rpc.PeerInfoData {
+	peers := b.node.p2pServer.PeersList()
+	infos := make([]rpc.PeerInfoData, len(peers))
+	for i, p := range peers {
+		caps := make([]string, 0, len(p.Caps()))
+		for _, c := range p.Caps() {
+			caps = append(caps, fmt.Sprintf("%s/%d", c.Name, c.Version))
+		}
+		infos[i] = rpc.PeerInfoData{
+			ID:         p.ID(),
+			Name:       "",
+			RemoteAddr: p.RemoteAddr(),
+			Caps:       caps,
+		}
+	}
+	return infos
+}
+
+// AddPeer requests adding a new remote peer.
+func (b *nodeAdminBackend) AddPeer(url string) error {
+	return b.node.p2pServer.AddPeer(url)
+}
+
+// RemovePeer requests disconnection from a remote peer (stub).
+func (b *nodeAdminBackend) RemovePeer(_ string) error {
+	return nil
+}
+
+// ChainID returns the current chain ID.
+func (b *nodeAdminBackend) ChainID() uint64 {
+	if cfg := b.node.blockchain.Config(); cfg != nil && cfg.ChainID != nil {
+		return cfg.ChainID.Uint64()
+	}
+	return 0
+}
+
+// DataDir returns the node's data directory.
+func (b *nodeAdminBackend) DataDir() string {
+	return b.node.config.DataDir
 }

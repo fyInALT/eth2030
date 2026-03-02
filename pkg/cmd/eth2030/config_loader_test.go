@@ -325,3 +325,42 @@ func TestConfigExtraFlags(t *testing.T) {
 		t.Errorf("ExtraFlags len = %d, want 0", len(cfg.ExtraFlags))
 	}
 }
+
+func TestApplyEnvironment_NewFields(t *testing.T) {
+	cfg := &Config{
+		Node:       node.DefaultConfig(),
+		ExtraFlags: make(map[string]string),
+	}
+
+	t.Setenv("ETH2030_HTTP_ADDR", "0.0.0.0")
+	t.Setenv("ETH2030_AUTH_ADDR", "0.0.0.0")
+	t.Setenv("ETH2030_JWT_SECRET", "/tmp/jwt.hex")
+	t.Setenv("ETH2030_BOOTNODES", "enode://abc@1.2.3.4:30303")
+	t.Setenv("ETH2030_GENESIS_PATH", "/tmp/genesis.json")
+	t.Setenv("ETH2030_METRICS_ADDR", "0.0.0.0")
+	t.Setenv("ETH2030_METRICS_PORT", "9002")
+
+	ApplyEnvironment(cfg)
+
+	if cfg.Node.HTTPAddr != "0.0.0.0" {
+		t.Errorf("HTTPAddr = %q, want 0.0.0.0", cfg.Node.HTTPAddr)
+	}
+	if cfg.Node.AuthAddr != "0.0.0.0" {
+		t.Errorf("AuthAddr = %q, want 0.0.0.0", cfg.Node.AuthAddr)
+	}
+	if cfg.Node.JWTSecret != "/tmp/jwt.hex" {
+		t.Errorf("JWTSecret = %q, want /tmp/jwt.hex", cfg.Node.JWTSecret)
+	}
+	if cfg.Node.Bootnodes != "enode://abc@1.2.3.4:30303" {
+		t.Errorf("Bootnodes = %q, want enode://abc@1.2.3.4:30303", cfg.Node.Bootnodes)
+	}
+	if cfg.Node.GenesisPath != "/tmp/genesis.json" {
+		t.Errorf("GenesisPath = %q, want /tmp/genesis.json", cfg.Node.GenesisPath)
+	}
+	if cfg.Node.MetricsAddr != "0.0.0.0" {
+		t.Errorf("MetricsAddr = %q, want 0.0.0.0", cfg.Node.MetricsAddr)
+	}
+	if cfg.Node.MetricsPort != 9002 {
+		t.Errorf("MetricsPort = %d, want 9002", cfg.Node.MetricsPort)
+	}
+}

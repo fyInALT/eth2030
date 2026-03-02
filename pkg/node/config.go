@@ -5,7 +5,6 @@ package node
 import (
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,20 +19,31 @@ type Config struct {
 	Name string
 
 	// Network selects the Ethereum network (mainnet, sepolia, holesky).
+	// Ignored when GenesisPath is set.
 	Network string
 
-	// NetworkID is the numeric network identifier. Common values:
-	// 1 = mainnet, 11155111 = sepolia, 17000 = holesky.
+	// NetworkID is the numeric network identifier.
+	// 0 means derive from genesis chain ID.
 	NetworkID uint64
 
 	// SyncMode selects the sync strategy (full, snap).
 	SyncMode string
 
+	// GCMode controls state pruning: "full" (default) or "archive" (no pruning).
+	GCMode string
+
 	// P2PPort is the TCP port for devp2p connections.
 	P2PPort int
 
-	// RPCPort is the HTTP port for the JSON-RPC server.
-	RPCPort int
+	// DiscoveryPort is the UDP port for node discovery.
+	// When 0, defaults to P2PPort.
+	DiscoveryPort int
+
+	// Bootnodes is a comma-separated list of enode URLs used for bootstrapping.
+	Bootnodes string
+
+	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
+	NAT string
 
 	// RPCHost is the interface that the HTTP-RPC server binds to.
 	RPCHost string
@@ -54,9 +64,6 @@ type Config struct {
 	// Use "*" to allow all.
 	RPCCORSOrigins string
 
-	// EnginePort is the HTTP port for the Engine API server.
-	EnginePort int
-
 	// EngineHost is the interface that the Engine API server binds to.
 	EngineHost string
 
@@ -72,20 +79,51 @@ type Config struct {
 	// MaxPeers is the maximum number of P2P peers.
 	MaxPeers int
 
+	// HTTP-RPC server.
+	RPCPort        int      // --http.port
+	HTTPAddr       string   // --http.addr
+	HTTPVhosts     []string // --http.vhosts
+	HTTPCORSDomain []string // --http.corsdomain
+	HTTPModules    []string // --http.api
+
+	// Engine API (authenticated RPC).
+	EnginePort int      // --authrpc.port
+	AuthAddr   string   // --authrpc.addr
+	AuthVhosts []string // --authrpc.vhosts
+	JWTSecret  string   // --authrpc.jwtsecret  (path to file or hex string)
+
+	// WebSocket RPC server.
+	WSEnabled bool     // --ws
+	WSAddr    string   // --ws.addr
+	WSPort    int      // --ws.port
+	WSModules []string // --ws.api
+	WSOrigins []string // --ws.origins
+
+	// Metrics server.
+	Metrics     bool   // --metrics
+	MetricsAddr string // --metrics.addr
+	MetricsPort int    // --metrics.port
+
+	// Genesis / fork overrides.
+	GenesisPath         string  // --override.genesis (path to genesis.json)
+	GlamsterdamOverride *uint64 // --override.glamsterdam
+	HogotaOverride      *uint64 // --override.hogota
+	IPlusOverride       *uint64 // --override.iplus
+
+	// Misc RPC / miner settings.
+	AllowUnprotectedTxs bool   // --rpc.allow-unprotected-txs
+	MinerGasPrice       uint64 // --miner.gasprice
+	MinerGasLimit       uint64 // --miner.gaslimit
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
 	// Verbosity controls numeric log level (0=silent, 1=error, 2=warn,
 	// 3=info, 4=debug, 5=trace). When set, overrides LogLevel.
 	Verbosity int
-
-	// Metrics enables the metrics collection subsystem.
-	Metrics bool
 }
 
 // defaultDataDir returns the platform-specific default data directory.
-// Falls back to ".ETH2030" in the current directory if the home directory
-// cannot be determined.
 func defaultDataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -94,31 +132,54 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".ETH2030")
 }
 
-// DefaultConfig returns a Config with sensible defaults.
+// DefaultConfig returns a Config with sensible defaults matching eth2030-geth.
 func DefaultConfig() Config {
 	return Config{
-		DataDir:              defaultDataDir(),
-		Name:                 "ETH2030",
-		Network:              "mainnet",
-		NetworkID:            1,
-		SyncMode:             "snap",
-		P2PPort:              30303,
-		RPCPort:              8545,
-		RPCHost:              "127.0.0.1",
-		RPCAuthSecret:        "",
-		RPCRateLimitPerSec:   100,
-		RPCMaxRequestSize:    5 * 1024 * 1024,
-		RPCMaxBatchSize:      100,
-		RPCCORSOrigins:       "*",
+		DataDir:   defaultDataDir(),
+		Name:      "ETH2030",
+		Network:   "mainnet",
+		NetworkID: 1,
+		SyncMode:  "snap",
+		GCMode:    "full",
+		P2PPort:   30303,
+		MaxPeers:  50,
+		LogLevel:  "info",
+		Verbosity: 3,
+
+		// HTTP-RPC
+		RPCPort:            8545,
+		HTTPAddr:           "127.0.0.1",
+		RPCHost:            "127.0.0.1",
+		RPCAuthSecret:      "",
+		RPCRateLimitPerSec: 100,
+		RPCMaxRequestSize:  5 * 1024 * 1024,
+		RPCMaxBatchSize:    100,
+		RPCCORSOrigins:     "*",
+		HTTPVhosts:         []string{"*"},
+		HTTPCORSDomain:     []string{"*"},
+		HTTPModules:        []string{"eth", "net", "web3", "engine", "admin", "debug", "txpool"},
+
+		// Engine API
 		EnginePort:           8551,
+		AuthAddr:             "127.0.0.1",
 		EngineHost:           "127.0.0.1",
 		EngineMaxRequestSize: 5 * 1024 * 1024,
 		EngineAuthToken:      "",
 		EngineAuthTokenPath:  "",
-		MaxPeers:             50,
-		LogLevel:             "info",
-		Verbosity:            3,
-		Metrics:              false,
+		AuthVhosts:           []string{"localhost"},
+		JWTSecret:            "",
+
+		// WebSocket
+		WSEnabled: false,
+		WSAddr:    "127.0.0.1",
+		WSPort:    8546,
+		WSModules: []string{},
+		WSOrigins: []string{},
+
+		// Metrics
+		Metrics:     false,
+		MetricsAddr: "127.0.0.1",
+		MetricsPort: 9001,
 	}
 }
 
@@ -136,8 +197,11 @@ func (c *Config) Validate() error {
 	if c.EnginePort < 0 || c.EnginePort > 65535 {
 		return fmt.Errorf("config: invalid engine port: %d", c.EnginePort)
 	}
-	if c.RPCHost == "" {
-		return errors.New("config: rpc host must not be empty")
+	if c.WSPort < 0 || c.WSPort > 65535 {
+		return fmt.Errorf("config: invalid websocket port: %d", c.WSPort)
+	}
+	if c.MetricsPort < 0 || c.MetricsPort > 65535 {
+		return fmt.Errorf("config: invalid metrics port: %d", c.MetricsPort)
 	}
 	if c.RPCMaxRequestSize <= 0 {
 		return fmt.Errorf("config: invalid rpc max request size: %d", c.RPCMaxRequestSize)
@@ -148,9 +212,6 @@ func (c *Config) Validate() error {
 	if c.RPCMaxBatchSize <= 0 {
 		return fmt.Errorf("config: invalid rpc max batch size: %d", c.RPCMaxBatchSize)
 	}
-	if c.EngineHost == "" {
-		return errors.New("config: engine host must not be empty")
-	}
 	if c.EngineMaxRequestSize <= 0 {
 		return fmt.Errorf("config: invalid engine max request size: %d", c.EngineMaxRequestSize)
 	}
@@ -160,15 +221,23 @@ func (c *Config) Validate() error {
 	if c.Verbosity < 0 || c.Verbosity > 5 {
 		return fmt.Errorf("config: verbosity must be 0-5, got %d", c.Verbosity)
 	}
-	switch c.Network {
-	case "mainnet", "sepolia", "holesky":
-	default:
-		return fmt.Errorf("config: unknown network %q", c.Network)
+	// Network is only validated when not using a custom genesis.
+	if c.GenesisPath == "" {
+		switch c.Network {
+		case "mainnet", "sepolia", "holesky":
+		default:
+			return fmt.Errorf("config: unknown network %q", c.Network)
+		}
 	}
 	switch c.SyncMode {
 	case "full", "snap":
 	default:
 		return fmt.Errorf("config: unknown sync mode %q", c.SyncMode)
+	}
+	switch c.GCMode {
+	case "", "full", "archive":
+	default:
+		return fmt.Errorf("config: unknown gc mode %q", c.GCMode)
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
@@ -181,16 +250,14 @@ func (c *Config) Validate() error {
 // VerbosityToLogLevel converts a numeric verbosity level to a log level string.
 func VerbosityToLogLevel(v int) string {
 	switch {
-	case v <= 0:
-		return "error" // silent maps to error-only
-	case v == 1:
+	case v <= 1:
 		return "error"
 	case v == 2:
 		return "warn"
 	case v == 3:
 		return "info"
 	default:
-		return "debug" // 4 and 5 both map to debug
+		return "debug"
 	}
 }
 
@@ -201,19 +268,14 @@ var dataDirSubdirs = []string{
 	"nodes",
 }
 
-// InitDataDir creates the data directory and its standard subdirectories
-// if they do not already exist. Returns an error if directory creation fails.
+// InitDataDir creates the data directory and its standard subdirectories.
 func (c *Config) InitDataDir() error {
 	if c.DataDir == "" {
 		return errors.New("config: datadir must not be empty")
 	}
-
-	// Create the root data directory.
 	if err := os.MkdirAll(c.DataDir, 0700); err != nil {
 		return fmt.Errorf("config: create datadir: %w", err)
 	}
-
-	// Create standard subdirectories.
 	for _, sub := range dataDirSubdirs {
 		dir := filepath.Join(c.DataDir, sub)
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -236,14 +298,66 @@ func (c *Config) P2PAddr() string {
 	return fmt.Sprintf(":%d", c.P2PPort)
 }
 
-// RPCAddr returns the RPC listen address string.
-func (c *Config) RPCAddr() string {
-	return net.JoinHostPort(c.RPCHost, fmt.Sprintf("%d", c.RPCPort))
+// HTTPListenAddr returns the HTTP-RPC listen address string.
+func (c *Config) HTTPListenAddr() string {
+	return fmt.Sprintf("%s:%d", c.HTTPAddr, c.RPCPort)
 }
 
-// EngineAddr returns the Engine API listen address string.
+// AuthListenAddr returns the Engine API listen address string.
+func (c *Config) AuthListenAddr() string {
+	return fmt.Sprintf("%s:%d", c.AuthAddr, c.EnginePort)
+}
+
+// WSListenAddr returns the WebSocket RPC listen address string.
+func (c *Config) WSListenAddr() string {
+	return fmt.Sprintf("%s:%d", c.WSAddr, c.WSPort)
+}
+
+// MetricsListenAddr returns the metrics HTTP server listen address string.
+func (c *Config) MetricsListenAddr() string {
+	return fmt.Sprintf("%s:%d", c.MetricsAddr, c.MetricsPort)
+}
+
+// RPCAddr returns the HTTP-RPC listen address (alias for HTTPListenAddr).
+func (c *Config) RPCAddr() string {
+	return c.HTTPListenAddr()
+}
+
+// EngineAddr returns the Engine API listen address (alias for AuthListenAddr).
 func (c *Config) EngineAddr() string {
-	return net.JoinHostPort(c.EngineHost, fmt.Sprintf("%d", c.EnginePort))
+	return c.AuthListenAddr()
+}
+
+// EffectiveDiscoveryPort returns the UDP discovery port, defaulting to P2PPort.
+func (c *Config) EffectiveDiscoveryPort() int {
+	if c.DiscoveryPort > 0 {
+		return c.DiscoveryPort
+	}
+	return c.P2PPort
+}
+
+// JWTSecretPath returns the path to the JWT secret file, defaulting to
+// <datadir>/jwtsecret when JWTSecret is empty.
+func (c *Config) JWTSecretPath() string {
+	if c.JWTSecret != "" {
+		return c.JWTSecret
+	}
+	return filepath.Join(c.DataDir, "jwtsecret")
+}
+
+// SplitModules splits a comma-separated module string into a trimmed slice.
+func SplitModules(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 // RPCCORSAllowedOrigins returns the parsed CORS origin allowlist.

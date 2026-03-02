@@ -189,6 +189,35 @@ cd pkg/devnet/kurtosis && ./scripts/cleanup.sh eth2030-devnet
 
 NOTE: The go.mod is in pkg/ (not project root) to avoid module conflicts with refs/ submodules.
 
+## Test devnet chain
+
+Use kurtosis to boot devnet then to check if blockchain is work well:
+
+```bash
+cd pkg/devnet/kurtosis && ./scripts/cleanup.sh eth2030-devnet && ./scripts/run-devnet.sh single-client
+```
+
+When run finished check cl node 's log no error:
+
+```bash
+kurtosis service logs eth2030-devnet cl-1-lighthouse-geth
+```
+
+it will show logs from cl node, if had errors and failed, it means have some bugs for chain, also for el node:
+
+```bash
+kurtosis service logs eth2030-devnet el-1-geth-lighthouse
+```
+
+we need use this logs to find where cause chain errors, and use cast to got newest block:
+
+```bash
+cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)
+```
+
+if always 0, it means devnet boot failed, should check log and codes.
+
+
 ## Coding Style & Naming Conventions
 
 - Prefer strict typing; avoid loose types.

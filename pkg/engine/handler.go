@@ -108,7 +108,7 @@ func (api *EngineAPI) dispatch(method string, params []json.RawMessage) (any, *j
 		return api.handleGetPayloadV3(params)
 	case "engine_getPayloadV4":
 		return api.handleGetPayloadV4(params)
-	case "engine_getPayloadV6":
+	case "engine_getPayloadV5", "engine_getPayloadV6":
 		return api.handleGetPayloadV6(params)
 	case "engine_exchangeCapabilities":
 		return api.handleExchangeCapabilities(params)

@@ -329,8 +329,13 @@ func TestGeneratePayloadID(t *testing.T) {
 }
 
 func TestEncodeTxsRLPEmpty(t *testing.T) {
+	// encodeTxsRLP must return a non-nil empty slice so JSON encodes as []
+	// rather than null (Engine API requires [] not null for transactions).
 	result := encodeTxsRLP(nil)
-	if result != nil {
-		t.Errorf("expected nil for empty txs, got %d entries", len(result))
+	if result == nil {
+		t.Error("expected non-nil empty slice for nil txs, got nil (would JSON-encode as null)")
+	}
+	if len(result) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(result))
 	}
 }

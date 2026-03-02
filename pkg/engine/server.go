@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -65,6 +67,7 @@ type EngineAPI struct {
 	builderRegistry *BuilderRegistry
 	server          *http.Server
 	listener        net.Listener
+	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
 	authSecret      string
 	maxRequestSize  int64
 	mu              sync.Mutex
@@ -212,10 +215,6 @@ func (api *EngineAPI) GetPayloadV4(payloadID PayloadID) (*GetPayloadV4Response, 
 	if err != nil {
 		return nil, err
 	}
-	// Validate that the payload timestamp falls within the Prague fork.
-	if resp.ExecutionPayload != nil && !api.backend.IsPrague(resp.ExecutionPayload.Timestamp) {
-		return nil, ErrUnsupportedFork
-	}
 	return resp, nil
 }
 
@@ -265,10 +264,6 @@ func (api *EngineAPI) GetPayloadV6(payloadID PayloadID) (*GetPayloadV6Response, 
 	if err != nil {
 		return nil, err
 	}
-	// Validate that the payload timestamp falls within the Amsterdam fork.
-	if resp.ExecutionPayload != nil && !api.backend.IsAmsterdam(resp.ExecutionPayload.Timestamp) {
-		return nil, ErrUnsupportedFork
-	}
 	return resp, nil
 }
 
@@ -300,6 +295,7 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_forkchoiceUpdatedV4",
 		"engine_getPayloadV3",
 		"engine_getPayloadV4",
+		"engine_getPayloadV5",
 		"engine_getPayloadV6",
 		"engine_exchangeCapabilities",
 		"engine_getClientVersionV1",
@@ -328,9 +324,18 @@ func (api *EngineAPI) GetClientVersionV1(peerVersion ClientVersionV1) []ClientVe
 			Code:    "ET",
 			Name:    "ETH2030",
 			Version: "v0.1.0",
-			Commit:  "000000",
+			Commit:  "00000000",
 		},
 	}
+}
+
+// SetEthHandler registers an HTTP handler for non-engine_ JSON-RPC methods.
+// The authenticated engine endpoint must also serve eth_ namespace methods
+// (e.g. eth_syncing, eth_getBlockByNumber) per the Engine API specification.
+func (api *EngineAPI) SetEthHandler(h http.Handler) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.ethHandler = h
 }
 
 // Start starts the HTTP JSON-RPC server on the given address.
@@ -409,7 +414,25 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
-	defer r.Body.Close()
+
+	// Forward non-engine_ methods (eth_, web3_, net_, admin_) to the eth handler
+	// if one has been registered. Per the Engine API spec, the authenticated
+	// endpoint must also serve eth_syncing, eth_getBlockByNumber, etc.
+	api.mu.Lock()
+	ethH := api.ethHandler
+	api.mu.Unlock()
+
+	if ethH != nil {
+		var peek struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(body, &peek) == nil && !strings.HasPrefix(peek.Method, "engine_") {
+			r2 := r.Clone(r.Context())
+			r2.Body = io.NopCloser(bytes.NewReader(body))
+			ethH.ServeHTTP(w, r2)
+			return
+		}
+	}
 
 	resp := api.HandleRequest(body)
 

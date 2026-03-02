@@ -974,6 +974,7 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 			IsEIP158:         rules.IsEIP158,
 			IsEIP7708:        rules.IsEIP7708,
 			IsEIP7954:        rules.IsEIP7954,
+			IsIPlus:          rules.IsIPlus,
 		}
 		evm.SetJumpTable(vm.SelectJumpTable(forkRules))
 		precompileAddrs = vm.SelectPrecompiles(forkRules)

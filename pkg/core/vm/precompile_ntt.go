@@ -326,12 +326,19 @@ func GoldilocksINTT(coefficients []*big.Int) ([]*big.Int, error) {
 	return computeNTT(coefficients, goldilocksField, goldilocksPrimitiveRoot, true)
 }
 
-// PrecompiledContractsIPlus adds NTT precompile for I+ fork.
+// PrecompiledContractsIPlus extends Glamsterdan with I+ fork precompiles:
+// EIP-7885 NTT precompile (0x15) and NII precompiles (0x0201-0x0204).
 var PrecompiledContractsIPlus = func() map[types.Address]PrecompiledContract {
-	m := make(map[types.Address]PrecompiledContract)
+	m := make(map[types.Address]PrecompiledContract, len(PrecompiledContractsGlamsterdan)+5)
 	for addr, c := range PrecompiledContractsGlamsterdan {
 		m[addr] = c
 	}
+	// EIP-7885: NTT precompile.
 	m[types.BytesToAddress([]byte{0x15})] = &nttPrecompile{}
+	// NII precompiles.
+	m[NiiModExpAddr] = &NiiModExpPrecompile{}
+	m[NiiFieldMulAddr] = &NiiFieldMulPrecompile{}
+	m[NiiFieldInvAddr] = &NiiFieldInvPrecompile{}
+	m[NiiBatchVerifyAddr] = &NiiBatchVerifyPrecompile{}
 	return m
 }()
