@@ -395,25 +395,68 @@ func formatBlockAsMap(block *types.Block, fullTxs bool) map[string]interface{} {
 		m["transactions"] = hashes
 	}
 
+	// Uncles (always empty post-merge).
+	m["uncles"] = []string{}
+
+	// Withdrawals (post-Shanghai).
+	if ws := block.Withdrawals(); ws != nil {
+		wList := make([]map[string]interface{}, len(ws))
+		for i, w := range ws {
+			wList[i] = map[string]interface{}{
+				"index":          encodeUint64(w.Index),
+				"validatorIndex": encodeUint64(w.ValidatorIndex),
+				"address":        encodeAddress(w.Address),
+				"amount":         encodeUint64(w.Amount),
+			}
+		}
+		m["withdrawals"] = wList
+	}
+
 	return m
 }
 
 // formatHeaderMap converts a header to a map[string]interface{}.
 func formatHeaderMap(h *types.Header) map[string]interface{} {
+	difficulty := "0x0"
+	if h.Difficulty != nil {
+		difficulty = encodeBigInt(h.Difficulty)
+	}
 	m := map[string]interface{}{
 		"number":           encodeUint64(h.Number.Uint64()),
 		"hash":             encodeHash(h.Hash()),
 		"parentHash":       encodeHash(h.ParentHash),
-		"timestamp":        encodeUint64(h.Time),
-		"gasLimit":         encodeUint64(h.GasLimit),
-		"gasUsed":          encodeUint64(h.GasUsed),
+		"sha3Uncles":       encodeHash(h.UncleHash),
 		"miner":            encodeAddress(h.Coinbase),
 		"stateRoot":        encodeHash(h.Root),
 		"transactionsRoot": encodeHash(h.TxHash),
 		"receiptsRoot":     encodeHash(h.ReceiptHash),
+		"logsBloom":        encodeBloom(h.Bloom),
+		"difficulty":       difficulty,
+		"gasLimit":         encodeUint64(h.GasLimit),
+		"gasUsed":          encodeUint64(h.GasUsed),
+		"timestamp":        encodeUint64(h.Time),
+		"extraData":        encodeBytes(h.Extra),
+		"mixHash":          encodeHash(h.MixDigest),
+		"nonce":            fmt.Sprintf("0x%016x", h.Nonce),
+		"size":             encodeUint64(h.Size()),
 	}
 	if h.BaseFee != nil {
 		m["baseFeePerGas"] = encodeBigInt(h.BaseFee)
+	}
+	if h.WithdrawalsHash != nil {
+		m["withdrawalsRoot"] = encodeHash(*h.WithdrawalsHash)
+	}
+	if h.BlobGasUsed != nil {
+		m["blobGasUsed"] = encodeUint64(*h.BlobGasUsed)
+	}
+	if h.ExcessBlobGas != nil {
+		m["excessBlobGas"] = encodeUint64(*h.ExcessBlobGas)
+	}
+	if h.ParentBeaconRoot != nil {
+		m["parentBeaconBlockRoot"] = encodeHash(*h.ParentBeaconRoot)
+	}
+	if h.RequestsHash != nil {
+		m["requestsHash"] = encodeHash(*h.RequestsHash)
 	}
 	return m
 }
