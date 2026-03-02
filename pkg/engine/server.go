@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -63,6 +65,8 @@ type EngineAPI struct {
 	builderRegistry *BuilderRegistry
 	server          *http.Server
 	listener        net.Listener
+	authSecret      string
+	maxRequestSize  int64
 	mu              sync.Mutex
 }
 
@@ -71,7 +75,27 @@ func NewEngineAPI(backend Backend) *EngineAPI {
 	return &EngineAPI{
 		backend:         backend,
 		builderRegistry: NewBuilderRegistry(),
+		maxRequestSize:  5 * 1024 * 1024,
 	}
+}
+
+// SetAuthSecret sets the bearer token required for Engine API authentication.
+// An empty token disables auth checks.
+func (api *EngineAPI) SetAuthSecret(secret string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.authSecret = secret
+}
+
+// SetMaxRequestSize updates the maximum allowed request body size.
+// A non-positive value restores the default of 5 MiB.
+func (api *EngineAPI) SetMaxRequestSize(bytes int64) {
+	if bytes <= 0 {
+		bytes = 5 * 1024 * 1024
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.maxRequestSize = bytes
 }
 
 // NewPayloadV3 validates and executes a new Cancun/Deneb payload.
@@ -355,14 +379,34 @@ func (api *EngineAPI) Stop() error {
 
 // httpHandler handles incoming HTTP requests and dispatches them as JSON-RPC.
 func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizedRequest(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32000,"message":"unauthorized"},"id":null}`))
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	api.mu.Lock()
+	maxRequestSize := api.maxRequestSize
+	api.mu.Unlock()
+	if r.ContentLength > maxRequestSize {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestSize+1))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if int64(len(body)) > maxRequestSize {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	defer r.Body.Close()
@@ -371,6 +415,22 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(resp)
+}
+
+func (api *EngineAPI) authorizedRequest(r *http.Request) bool {
+	api.mu.Lock()
+	secret := api.authSecret
+	api.mu.Unlock()
+
+	if secret == "" {
+		return true
+	}
+
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(secret)) == 1
 }
 
 // validateBlobHashes checks that the blob versioned hashes from the CL
