@@ -390,15 +390,20 @@ func (b *engineBackend) processBlockInternal(
 		txs = append(txs, tx)
 	}
 
-	// Decode withdrawals.
+	// Decode withdrawals. When the CL sends withdrawals:[] (non-nil empty),
+	// the decoded slice must also be non-nil so the block passes Shanghai
+	// validation (which rejects nil withdrawals on Shanghai+ blocks).
 	var withdrawals []*types.Withdrawal
-	for _, w := range payload.Withdrawals {
-		withdrawals = append(withdrawals, &types.Withdrawal{
-			Index:          w.Index,
-			ValidatorIndex: w.ValidatorIndex,
-			Address:        w.Address,
-			Amount:         w.Amount,
-		})
+	if payload.Withdrawals != nil {
+		withdrawals = make([]*types.Withdrawal, 0, len(payload.Withdrawals))
+		for _, w := range payload.Withdrawals {
+			withdrawals = append(withdrawals, &types.Withdrawal{
+				Index:          w.Index,
+				ValidatorIndex: w.ValidatorIndex,
+				Address:        w.Address,
+				Amount:         w.Amount,
+			})
+		}
 	}
 
 	// Reconstruct the header with all fields that contribute to the block hash.
