@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"expvar"
 	"fmt"
 	"log/slog"
 	"math/big"
 	"net/http"
+	_ "net/http/pprof" // register pprof handlers on DefaultServeMux
 	"os"
 	"strings"
 	"sync"
@@ -27,13 +29,14 @@ type Node struct {
 	config *Config
 
 	// Subsystems.
-	db           rawdb.Database
-	blockchain   *core.Blockchain
-	txPool       *txpool.TxPool
-	rpcServer    *http.Server
-	rpcHandler   *rpc.Server
-	engineServer *engine.EngineAPI
-	p2pServer    *p2p.Server
+	db            rawdb.Database
+	blockchain    *core.Blockchain
+	txPool        *txpool.TxPool
+	rpcServer     *http.Server
+	rpcHandler    *rpc.Server
+	engineServer  *engine.EngineAPI
+	p2pServer     *p2p.Server
+	metricsServer *http.Server
 
 	mu      sync.Mutex
 	running bool
@@ -159,6 +162,26 @@ func (n *Node) Start() error {
 		}
 	}()
 
+	// Start metrics server if enabled.
+	if n.config.Metrics {
+		mux := http.NewServeMux()
+		mux.Handle("/debug/vars", expvar.Handler())
+		mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			// Simple text metrics endpoint: delegate to expvar for now.
+			expvar.Handler().ServeHTTP(w, r)
+		})
+		n.metricsServer = &http.Server{
+			Addr:    n.config.MetricsListenAddr(),
+			Handler: mux,
+		}
+		go func() {
+			slog.Info("Metrics server listening", "addr", n.config.MetricsListenAddr())
+			if err := n.metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("Metrics server error", "err", err)
+			}
+		}()
+	}
+
 	n.running = true
 	slog.Info("node started successfully")
 	return nil
@@ -184,6 +207,13 @@ func (n *Node) Stop() error {
 	if n.rpcServer != nil {
 		if err := n.rpcServer.Close(); err != nil {
 			slog.Warn("RPC server stop error", "err", err)
+		}
+	}
+
+	// Stop metrics server.
+	if n.metricsServer != nil {
+		if err := n.metricsServer.Close(); err != nil {
+			slog.Warn("Metrics server stop error", "err", err)
 		}
 	}
 
