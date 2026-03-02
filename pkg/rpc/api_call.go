@@ -215,6 +215,9 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 	}
 
 	blockNum := header.Number.Uint64()
+	if !byHash {
+		blockHash = header.Hash()
+	}
 
 	// EIP-4444: check if receipts have been pruned.
 	if api.historyPruned(blockNum) {
@@ -232,9 +235,20 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 		return successResponse(req.ID, []*RPCReceipt{})
 	}
 
+	// Fetch the block to populate from/to in each receipt.
+	block := api.backend.BlockByHash(blockHash)
+	var txs []*types.Transaction
+	if block != nil {
+		txs = block.Transactions()
+	}
+
 	result := make([]*RPCReceipt, len(receipts))
 	for i, receipt := range receipts {
-		result[i] = FormatReceipt(receipt, nil)
+		var tx *types.Transaction
+		if i < len(txs) {
+			tx = txs[i]
+		}
+		result[i] = FormatReceipt(receipt, tx)
 	}
 
 	return successResponse(req.ID, result)
