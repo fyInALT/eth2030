@@ -24,7 +24,7 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /build/bin/eth2030 /usr/local/bin/
 COPY --from=builder /build/bin/eth2030-geth /usr/local/bin/
-RUN ln -s /usr/local/bin/eth2030-geth /usr/local/bin/geth
+RUN ln -s /usr/local/bin/eth2030 /usr/local/bin/geth
 
 # P2P, HTTP-RPC, WS-RPC, Engine API, Metrics
 EXPOSE 30303 30303/udp 8545 8546 8551 9001
