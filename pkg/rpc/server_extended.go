@@ -103,6 +103,7 @@ type MiddlewareFunc func(http.Handler) http.Handler
 type ExtServer struct {
 	config       ServerConfig
 	api          *EthAPI
+	adminAPI     *AdminDispatchAPI
 	batch        *BatchHandler
 	rateLimiter  *RateLimiter
 	httpServer   *http.Server
@@ -130,6 +131,12 @@ func NewExtServer(backend Backend, config ServerConfig) *ExtServer {
 	}
 	s.batch.SetMaxBatchSize(config.MaxBatchSize)
 	return s
+}
+
+// SetAdminBackend wires an AdminBackend so that admin_* methods are served.
+func (s *ExtServer) SetAdminBackend(b AdminBackend) {
+	s.adminAPI = NewAdminDispatchAPI(b)
+	s.batch.SetAdminBackend(b)
 }
 
 // Use adds a middleware to the server's middleware chain.
@@ -287,7 +294,12 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.api.HandleRequest(&req)
+	var resp *Response
+	if isAdminMethod(req.Method) && s.adminAPI != nil {
+		resp = s.adminAPI.HandleAdminRequest(&req)
+	} else {
+		resp = s.api.HandleRequest(&req)
+	}
 	writeExtJSON(w, resp)
 }
 

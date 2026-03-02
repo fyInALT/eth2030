@@ -126,8 +126,9 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize RPC server with blockchain backend.
 	backend := newNodeBackend(n)
+	adminBackend := newNodeAdminBackend(n)
 	n.rpcHandler = rpc.NewServer(backend)
-	n.rpcHandler.SetAdminBackend(newNodeAdminBackend(n))
+	n.rpcHandler.SetAdminBackend(adminBackend)
 	n.rpcServer = rpc.NewExtServer(backend, rpc.ServerConfig{
 		MaxRequestSize:   config.RPCMaxRequestSize,
 		ReadTimeout:      30 * time.Second,
@@ -139,6 +140,7 @@ func New(config *Config) (*Node, error) {
 		RateLimitPerSec:  config.RPCRateLimitPerSec,
 		MaxBatchSize:     config.RPCMaxBatchSize,
 	})
+	n.rpcServer.SetAdminBackend(adminBackend)
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)

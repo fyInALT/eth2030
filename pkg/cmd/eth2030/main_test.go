@@ -27,11 +27,11 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if cfg.EnginePort != 8551 {
 		t.Errorf("EnginePort = %d, want 8551", cfg.EnginePort)
 	}
-	if cfg.HTTPAddr != "127.0.0.1" {
-		t.Errorf("HTTPAddr = %q, want 127.0.0.1", cfg.HTTPAddr)
+	if cfg.HTTPAddr != "0.0.0.0" {
+		t.Errorf("HTTPAddr = %q, want 0.0.0.0", cfg.HTTPAddr)
 	}
-	if cfg.AuthAddr != "127.0.0.1" {
-		t.Errorf("AuthAddr = %q, want 127.0.0.1", cfg.AuthAddr)
+	if cfg.AuthAddr != "0.0.0.0" {
+		t.Errorf("AuthAddr = %q, want 0.0.0.0", cfg.AuthAddr)
 	}
 	if cfg.SyncMode != "snap" {
 		t.Errorf("SyncMode = %q, want snap", cfg.SyncMode)

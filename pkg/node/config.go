@@ -45,9 +45,6 @@ type Config struct {
 	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
 	NAT string
 
-	// RPCHost is the interface that the HTTP-RPC server binds to.
-	RPCHost string
-
 	// RPCAuthSecret requires this bearer token for JSON-RPC requests when set.
 	RPCAuthSecret string
 
@@ -63,9 +60,6 @@ type Config struct {
 	// RPCCORSOrigins is a comma-separated list of allowed Origin headers.
 	// Use "*" to allow all.
 	RPCCORSOrigins string
-
-	// EngineHost is the interface that the Engine API server binds to.
-	EngineHost string
 
 	// EngineMaxRequestSize is the max body size for Engine API requests, in bytes.
 	EngineMaxRequestSize int64
@@ -148,8 +142,7 @@ func DefaultConfig() Config {
 
 		// HTTP-RPC
 		RPCPort:            8545,
-		HTTPAddr:           "127.0.0.1",
-		RPCHost:            "127.0.0.1",
+		HTTPAddr:           "0.0.0.0",
 		RPCAuthSecret:      "",
 		RPCRateLimitPerSec: 100,
 		RPCMaxRequestSize:  5 * 1024 * 1024,
@@ -161,24 +154,23 @@ func DefaultConfig() Config {
 
 		// Engine API
 		EnginePort:           8551,
-		AuthAddr:             "127.0.0.1",
-		EngineHost:           "127.0.0.1",
+		AuthAddr:             "0.0.0.0",
 		EngineMaxRequestSize: 5 * 1024 * 1024,
 		EngineAuthToken:      "",
 		EngineAuthTokenPath:  "",
-		AuthVhosts:           []string{"localhost"},
+		AuthVhosts:           []string{"*"},
 		JWTSecret:            "",
 
 		// WebSocket
 		WSEnabled: false,
-		WSAddr:    "127.0.0.1",
+		WSAddr:    "0.0.0.0",
 		WSPort:    8546,
 		WSModules: []string{},
 		WSOrigins: []string{},
 
 		// Metrics
 		Metrics:     false,
-		MetricsAddr: "127.0.0.1",
+		MetricsAddr: "0.0.0.0",
 		MetricsPort: 9001,
 	}
 }

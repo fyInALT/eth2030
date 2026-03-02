@@ -139,11 +139,11 @@ func TestConfigAddrs(t *testing.T) {
 	if cfg.P2PAddr() != ":30303" {
 		t.Errorf("P2PAddr() = %s, want :30303", cfg.P2PAddr())
 	}
-	if cfg.RPCAddr() != "127.0.0.1:8545" {
-		t.Errorf("RPCAddr() = %s, want 127.0.0.1:8545", cfg.RPCAddr())
+	if cfg.RPCAddr() != "0.0.0.0:8545" {
+		t.Errorf("RPCAddr() = %s, want 0.0.0.0:8545", cfg.RPCAddr())
 	}
-	if cfg.EngineAddr() != "127.0.0.1:8551" {
-		t.Errorf("EngineAddr() = %s, want 127.0.0.1:8551", cfg.EngineAddr())
+	if cfg.EngineAddr() != "0.0.0.0:8551" {
+		t.Errorf("EngineAddr() = %s, want 0.0.0.0:8551", cfg.EngineAddr())
 	}
 }
 

@@ -110,7 +110,7 @@ func LoadConfig(path string) (*Config, error) {
 	cfg.Node.P2PPort = nodeCfg.P2P.Port
 	cfg.Node.MaxPeers = nodeCfg.P2P.MaxPeers
 	cfg.Node.RPCPort = nodeCfg.RPC.Port
-	cfg.Node.RPCHost = nodeCfg.RPC.Host
+	cfg.Node.HTTPAddr = nodeCfg.RPC.Host
 	cfg.Node.LogLevel = nodeCfg.Log.Level
 
 	MergeDefaults(cfg)
@@ -156,9 +156,6 @@ func MergeDefaults(cfg *Config) {
 	if cfg.Node.Verbosity == 0 {
 		cfg.Node.Verbosity = defaults.Verbosity
 	}
-	if cfg.Node.RPCHost == "" {
-		cfg.Node.RPCHost = defaults.RPCHost
-	}
 	if cfg.Node.RPCAuthSecret == "" {
 		cfg.Node.RPCAuthSecret = defaults.RPCAuthSecret
 	}
@@ -173,9 +170,6 @@ func MergeDefaults(cfg *Config) {
 	}
 	if cfg.Node.RPCCORSOrigins == "" {
 		cfg.Node.RPCCORSOrigins = defaults.RPCCORSOrigins
-	}
-	if cfg.Node.EngineHost == "" {
-		cfg.Node.EngineHost = defaults.EngineHost
 	}
 	if cfg.Node.EngineMaxRequestSize == 0 {
 		cfg.Node.EngineMaxRequestSize = defaults.EngineMaxRequestSize
@@ -308,14 +302,8 @@ func ApplyEnvironment(cfg *Config) {
 	if v := envStr("ETH2030_HTTP_ADDR"); v != "" {
 		cfg.Node.HTTPAddr = v
 	}
-	if v := envStr("ETH2030_RPC_HOST"); v != "" {
-		cfg.Node.RPCHost = v
-	}
 	if n, ok := envInt("ETH2030_ENGINE_PORT", "ETH2028_ENGINE_PORT"); ok {
 		cfg.Node.EnginePort = n
-	}
-	if v := envStr("ETH2030_ENGINE_HOST"); v != "" {
-		cfg.Node.EngineHost = v
 	}
 	if n, ok := envInt64("ETH2030_ENGINE_MAX_REQUEST_SIZE"); ok {
 		cfg.Node.EngineMaxRequestSize = n

@@ -171,7 +171,7 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.IntVar(&cfg.EnginePort, "authrpc.port", cfg.EnginePort, "Engine API port")
 	fs.StringSliceVar(&cfg.AuthVhosts, "authrpc.vhosts", cfg.AuthVhosts, "comma-separated virtual hostnames for Engine API")
 	fs.StringVar(&cfg.JWTSecret, "authrpc.jwtsecret", cfg.JWTSecret, "path to JWT secret for Engine API auth")
-	fs.StringVar(&cfg.EngineHost, "engine.addr", cfg.EngineHost, "Engine API bind address (PR#10 compat)")
+	fs.StringVar(&cfg.AuthAddr, "engine.addr", cfg.AuthAddr, "Engine API bind address (alias for --authrpc.addr)")
 	fs.Int64Var(&cfg.EngineMaxRequestSize, "engine.max_request_size", cfg.EngineMaxRequestSize, "Engine API max request body size (bytes)")
 	fs.StringVar(&cfg.EngineAuthToken, "engine.auth_secret", cfg.EngineAuthToken, "Engine API bearer token (empty = disabled)")
 	fs.StringVar(&cfg.EngineAuthTokenPath, "engine.auth_secret_file", cfg.EngineAuthTokenPath, "Engine API bearer token file path")

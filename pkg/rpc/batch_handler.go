@@ -44,6 +44,7 @@ type BatchResponse struct {
 // in the original request order.
 type BatchHandler struct {
 	api          *EthAPI
+	adminAPI     *AdminDispatchAPI
 	parallelism  int
 	maxBatchSize int
 }
@@ -55,6 +56,11 @@ func NewBatchHandler(api *EthAPI) *BatchHandler {
 		parallelism:  DefaultParallelism,
 		maxBatchSize: MaxBatchSize,
 	}
+}
+
+// SetAdminBackend wires an AdminBackend for admin_ method dispatch in batches.
+func (bh *BatchHandler) SetAdminBackend(b AdminBackend) {
+	bh.adminAPI = NewAdminDispatchAPI(b)
 }
 
 // SetMaxBatchSize sets the maximum supported batch size.
@@ -143,7 +149,12 @@ func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 		Params:  req.Params,
 		ID:      req.ID,
 	}
-	resp := bh.api.HandleRequest(apiReq)
+	var resp *Response
+	if isAdminMethod(req.Method) && bh.adminAPI != nil {
+		resp = bh.adminAPI.HandleAdminRequest(apiReq)
+	} else {
+		resp = bh.api.HandleRequest(apiReq)
+	}
 
 	return BatchResponse{
 		JSONRPC: resp.JSONRPC,
