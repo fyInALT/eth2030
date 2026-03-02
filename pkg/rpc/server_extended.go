@@ -60,9 +60,10 @@ type RateLimiter struct {
 }
 
 // NewRateLimiter creates a rate limiter that allows rps requests per second.
+// When rps is 0, no rate limiting is applied (nil is returned).
 func NewRateLimiter(rps int) *RateLimiter {
 	if rps <= 0 {
-		rps = 100
+		return nil
 	}
 	return &RateLimiter{
 		tokens:     rps,
@@ -115,11 +116,13 @@ type ExtServer struct {
 }
 
 // NewExtServer creates a new extended JSON-RPC server.
+// When config.RateLimitPerSec is 0, rate limiting is disabled.
 func NewExtServer(backend Backend, config ServerConfig) *ExtServer {
 	if config.MaxRequestSize <= 0 {
 		config.MaxRequestSize = DefaultServerConfig().MaxRequestSize
 	}
-	if config.RateLimitPerSec <= 0 {
+	// Negative values use the default; 0 means unlimited (no rate limit).
+	if config.RateLimitPerSec < 0 {
 		config.RateLimitPerSec = DefaultServerConfig().RateLimitPerSec
 	}
 	api := NewEthAPI(backend)
@@ -254,8 +257,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Rate limit check.
-	if !s.rateLimiter.Allow() {
+	// Rate limit check (nil limiter means unlimited).
+	if s.rateLimiter != nil && !s.rateLimiter.Allow() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		writeExtError(w, nil, ErrCodeInternal, "rate limited")
@@ -379,10 +382,11 @@ func ExtAuthMiddleware(secret string) MiddlewareFunc {
 }
 
 // ExtRateLimitMiddleware creates a middleware that enforces rate limiting.
+// When rl is nil, all requests are allowed (no rate limiting).
 func ExtRateLimitMiddleware(rl *RateLimiter) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !rl.Allow() {
+			if rl != nil && !rl.Allow() {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				json.NewEncoder(w).Encode(map[string]interface{}{

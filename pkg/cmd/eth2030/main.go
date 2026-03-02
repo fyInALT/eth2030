@@ -161,7 +161,7 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.StringSliceVar(&cfg.HTTPCORSDomain, "http.corsdomain", cfg.HTTPCORSDomain, "comma-separated CORS domains")
 	fs.StringSliceVar(&cfg.HTTPModules, "http.api", cfg.HTTPModules, "comma-separated HTTP-RPC API modules")
 	fs.StringVar(&cfg.RPCAuthSecret, "rpc.auth_secret", cfg.RPCAuthSecret, "Bearer token required by HTTP-RPC (empty = disabled)")
-	fs.IntVar(&cfg.RPCRateLimitPerSec, "rpc.rate_limit", cfg.RPCRateLimitPerSec, "HTTP-RPC request rate limit (req/s, 0 = default)")
+	fs.IntVar(&cfg.RPCRateLimitPerSec, "rpc.rate_limit", cfg.RPCRateLimitPerSec, "HTTP-RPC request rate limit (req/s, 0 = unlimited)")
 	fs.Int64Var(&cfg.RPCMaxRequestSize, "rpc.max_request_size", cfg.RPCMaxRequestSize, "HTTP-RPC max request body size (bytes)")
 	fs.IntVar(&cfg.RPCMaxBatchSize, "rpc.max_batch_size", cfg.RPCMaxBatchSize, "HTTP-RPC max batch size")
 	fs.StringVar(&cfg.RPCCORSOrigins, "rpc.cors_origin", cfg.RPCCORSOrigins, "HTTP-RPC allowed CORS origins (comma-separated, * = all)")
