@@ -294,21 +294,18 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			statedb.SetTxContext(ilTx.Hash(), txIndex)
 
 			// EIP-7928: create per-transaction BAL tracker before execution.
-			var tracker *bal.AccessTracker
-			if balActive {
-				tracker = bal.NewTracker()
-			}
-
 			var (
 				preBalances map[types.Address]*big.Int
 				preNonces   map[types.Address]uint64
 			)
+			var tracker *bal.AccessTracker
 			if balActive {
+				tracker = bal.NewTracker()
 				preBalances, preNonces = capturePreState(statedb, ilTx)
 			}
 
 			snap := statedb.Snapshot()
-			receipt, used, applyErr := ApplyTransactionWithBAL(b.config, statedb, header, ilTx, gasPool, tracker)
+			receipt, used, applyErr := ApplyTransactionWithBAL(b.config, statedb, header, ilTx, gasPool, balTrackerOrNil(tracker))
 			if applyErr != nil {
 				statedb.RevertToSnapshot(snap)
 				continue
@@ -384,23 +381,19 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		statedb.SetTxContext(tx.Hash(), txIndex)
 
 		// EIP-7928: create per-transaction BAL tracker before execution.
-		var tracker *bal.AccessTracker
-		if balActive {
-			tracker = bal.NewTracker()
-		}
-
-		// Capture pre-state for BAL tracking.
 		var (
 			preBalances map[types.Address]*big.Int
 			preNonces   map[types.Address]uint64
 		)
+		var tracker *bal.AccessTracker
 		if balActive {
+			tracker = bal.NewTracker()
 			preBalances, preNonces = capturePreState(statedb, tx)
 		}
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := ApplyTransactionWithBAL(b.config, statedb, header, tx, gasPool, tracker)
+		receipt, used, err := ApplyTransactionWithBAL(b.config, statedb, header, tx, gasPool, balTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -672,23 +665,19 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		statedb.SetTxContext(tx.Hash(), txIndex)
 
 		// EIP-7928: create per-transaction BAL tracker before execution.
-		var tracker *bal.AccessTracker
-		if balActive {
-			tracker = bal.NewTracker()
-		}
-
-		// Capture pre-state for BAL tracking.
 		var (
 			preBalances map[types.Address]*big.Int
 			preNonces   map[types.Address]uint64
 		)
+		var tracker *bal.AccessTracker
 		if balActive {
+			tracker = bal.NewTracker()
 			preBalances, preNonces = capturePreState(statedb, tx)
 		}
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := ApplyTransactionWithBAL(b.config, statedb, header, tx, gasPool, tracker)
+		receipt, used, err := ApplyTransactionWithBAL(b.config, statedb, header, tx, gasPool, balTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
