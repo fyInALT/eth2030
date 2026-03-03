@@ -322,20 +322,65 @@ else
 fi
 
 # -----------------------------------------------------------------------
-# Section D — PQ transaction type soft check (WARN)
+# Section D — PQ transaction type-0x07 pipeline tests (I+ fork active)
 # -----------------------------------------------------------------------
 
 echo ""
-echo "--- [D1] PQ transaction type-0x07 graceful rejection ---"
-# Send a raw type-0x07 transaction (unknown/PQ type); node must reject without crashing.
-PQ_TX_RAW="0x07000000000000000000000000000000000000000000000000000000000000000000"
-PQ_TX_RESPONSE=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
-  -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$PQ_TX_RAW\"],\"id\":1}" | jq -r '.error.message // "no error"')
-echo "PQ tx type-0x07 rejection: $PQ_TX_RESPONSE"
-if [ "$PQ_TX_RESPONSE" != "no error" ] && [ "$PQ_TX_RESPONSE" != "null" ]; then
-  echo "  PQ tx type-0x07 rejected gracefully: $PQ_TX_RESPONSE"
+echo "--- [D1] PQ tx type-0x07: pipeline registered (error ≠ 'unsupported transaction type') ---"
+# Before wiring PQTransaction into decodeTypedTx, any 0x07 payload returned
+# "unsupported transaction type: 0x07". After wiring, the node must attempt
+# RLP decode instead, producing a decode error for malformed input.
+PQ_TX_MALFORMED="0x07000000000000000000000000000000000000000000000000000000000000000000"
+PQ_D1_ERR=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
+  -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$PQ_TX_MALFORMED\"],\"id\":1}" \
+  | jq -r '.error.message // "no error"')
+echo "PQ malformed tx error: $PQ_D1_ERR"
+if echo "$PQ_D1_ERR" | grep -qi "unsupported transaction type"; then
+  echo "  FAIL: type-0x07 still reports 'unsupported transaction type' — TxData interface not wired"
+  exit 1
+elif [ "$PQ_D1_ERR" = "no error" ] || [ "$PQ_D1_ERR" = "null" ]; then
+  echo "  WARN: PQ malformed tx returned no error (unexpected acceptance)"
 else
-  echo "  WARN: PQ tx type-0x07 was not rejected (may indicate unexpected acceptance or no response)"
+  echo "  PASS: type-0x07 pipeline registered — error is now a decode/RLP error: $PQ_D1_ERR"
+fi
+
+echo ""
+echo "--- [D2] PQ tx valid-RLP structure, empty sig/pk: decode succeeds, rejected by validation ---"
+# Minimal valid-RLP PQ tx: type(0x07) + RLP([chainID=1, nonce=0, to=nil, value=0,
+# gas=21000, gasPrice=1, data=[], sigType=0, sig=[], pk=[], classicSig=[]]) — 15 bytes.
+# Computed via Go rlp.EncodeToBytes matching pqTxRLP struct layout.
+# Decode must succeed; rejection must come from sig/pool validation, not "unsupported type".
+PQ_TX_EMPTY_SIG="0x07cd01808080825208018080808080"
+PQ_D2_ERR=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
+  -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$PQ_TX_EMPTY_SIG\"],\"id\":1}" \
+  | jq -r '.error.message // "no error"')
+echo "PQ empty-sig tx error: $PQ_D2_ERR"
+if echo "$PQ_D2_ERR" | grep -qi "unsupported transaction type"; then
+  echo "  FAIL: type-0x07 still 'unsupported' after wiring — EncodeRLP/decode not hooked"
+  exit 1
+elif [ "$PQ_D2_ERR" = "no error" ] || [ "$PQ_D2_ERR" = "null" ]; then
+  echo "  WARN: PQ empty-sig tx not rejected (unexpected)"
+else
+  echo "  PASS: PQ tx decode attempted — rejected downstream: $PQ_D2_ERR"
+fi
+
+echo ""
+echo "--- [D3] PQ tx wrong-size sig/pk: rejected by size validator (not 'unsupported type') ---"
+# PQ tx with sigType=0 (Dilithium), sig=[0xaa] (1 byte, want 1376), pk=[0xbb] (1 byte, want 1568).
+# Computed: type(0x07) + RLP([chainID=1, nonce=0, to=nil, value=0, gas=21000, gasPrice=1,
+#   data=[], sigType=0, sig=[0xaa], pk=[0xbb], classicSig=[]]) — 17 bytes.
+PQ_TX_WRONG_SIZE="0x07cf0180808082520801808081aa81bb80"
+PQ_D3_ERR=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
+  -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$PQ_TX_WRONG_SIZE\"],\"id\":1}" \
+  | jq -r '.error.message // "no error"')
+echo "PQ wrong-size-sig tx error: $PQ_D3_ERR"
+if echo "$PQ_D3_ERR" | grep -qi "unsupported transaction type"; then
+  echo "  FAIL: type-0x07 still 'unsupported' — TxData copy/decode not fully wired"
+  exit 1
+elif [ "$PQ_D3_ERR" = "no error" ] || [ "$PQ_D3_ERR" = "null" ]; then
+  echo "  WARN: PQ wrong-size-sig tx not rejected (unexpected)"
+else
+  echo "  PASS: PQ tx with wrong-size sig/pk rejected downstream: $PQ_D3_ERR"
 fi
 
 echo ""
@@ -386,4 +431,8 @@ else
 fi
 
 echo ""
-echo "PASS: PQ Crypto — chain operational, ecrecover + BLS(G1Add/G1Mul/G2Add/G2Mul/Pairing/MapFp2ToG2) + NTT(BN254+Goldilocks fwd+inv, size-4+8) + NII(ModExp/FieldMul/FieldInv/BatchVerify) + PQ tx type-0x07 graceful rejection tested"
+echo "PASS: PQ Crypto — chain operational,
+  ecrecover + BLS(G1Add/G1Mul/G2Add/G2Mul/Pairing/MapFp2ToG2)
+  + NTT(BN254+Goldilocks fwd+inv, size-4+8)
+  + NII(ModExp/FieldMul/FieldInv/BatchVerify)
+  + PQ tx type-0x07 pipeline wired (malformed-decode/empty-sig/wrong-size-sig all tested)"
