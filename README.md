@@ -69,10 +69,10 @@ go build ./...
 go build -o eth2030-geth ./cmd/eth2030-geth/
 
 # Sync with Sepolia testnet (requires a consensus client on port 8551)
-./eth2030-geth --network sepolia --datadir ~/.eth2030-sepolia
+./eth2030-geth -network sepolia -datadir ~/.eth2030-sepolia
 
 # Sync with mainnet
-./eth2030-geth --datadir ~/.eth2030-geth --authrpc.jwtsecret /path/to/jwt.hex
+./eth2030-geth -datadir ~/.eth2030-geth -authrpc.jwtsecret /path/to/jwt.hex
 
 # Run all tests (48 packages, 18,400+ tests)
 go test ./...
@@ -83,18 +83,20 @@ go test ./core/eftest/ -run TestGethCategorySummary -timeout=10m
 
 ### eth2030-geth Flags
 
+> **Note:** eth2030-geth uses Go's `flag` package. Flags are shown with single-dash (`-flag`) to match `--help` output, but double-dash (`--flag`) also works.
+
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--datadir` | `~/.eth2030-geth` | Data directory for chain data |
-| `--network` | `mainnet` | Network: mainnet, sepolia, holesky |
-| `--syncmode` | `snap` | Sync mode: snap, full |
-| `--port` | `30303` | P2P listening port |
-| `--http.port` | `8545` | HTTP-RPC server port |
-| `--authrpc.port` | `8551` | Engine API port (for CL client) |
-| `--authrpc.jwtsecret` | auto | Path to JWT secret for Engine API auth |
-| `--maxpeers` | `50` | Maximum P2P peers |
-| `--verbosity` | `3` | Log level (0=silent, 5=trace) |
-| `--override.glamsterdam` | - | Test Glamsterdam fork at timestamp |
+| `-datadir` | `~/.eth2030-geth` | Data directory for chain data |
+| `-network` | `mainnet` | Network: mainnet, sepolia, holesky |
+| `-syncmode` | `snap` | Sync mode: snap, full |
+| `-port` | `30303` | P2P listening port |
+| `-http.port` | `8545` | HTTP-RPC server port |
+| `-authrpc.port` | `8551` | Engine API port (for CL client) |
+| `-authrpc.jwtsecret` | auto | Path to JWT secret for Engine API auth |
+| `-maxpeers` | `50` | Maximum P2P peers |
+| `-verbosity` | `3` | Log level (0=silent, 5=trace) |
+| `-override.glamsterdam` | - | Test Glamsterdam fork at timestamp |
 
 ## Devnet Testing (Kurtosis)
 
