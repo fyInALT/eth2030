@@ -220,7 +220,7 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 			byHash = true
 		} else if obj.BlockNumber != nil {
 			var bn BlockNumber
-			if err := json.Unmarshal([]byte(`"` + *obj.BlockNumber + `"`), &bn); err != nil {
+			if err := json.Unmarshal([]byte(`"`+*obj.BlockNumber+`"`), &bn); err != nil {
 				return errorResponse(req.ID, ErrCodeInvalidParams, "invalid blockNumber: "+err.Error())
 			}
 			header = api.backend.HeaderByNumber(bn)
