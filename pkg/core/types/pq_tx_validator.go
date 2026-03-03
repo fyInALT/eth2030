@@ -33,16 +33,16 @@ const (
 
 // Expected public key sizes per PQ algorithm for the real validator.
 var pqRealPubKeySizes = map[uint8]int{
-	PQSigTypeMLDSA:   1568, // MLDSAPublicKeySize
-	PQSigTypeFalcon:  897,  // Falcon512PubKeySize
-	PQSigTypeSPHINCS: 32,   // SPHINCSSha256PubKeySize
+	PQSigTypeMLDSA:   DilithiumPubKeySize,   // 1952
+	PQSigTypeFalcon:  FalconPubKeySize,       // 897
+	PQSigTypeSPHINCS: SPHINCSPlusPubKeySize,  // 32
 }
 
 // Expected signature sizes per PQ algorithm for the real validator.
 var pqRealSigSizes = map[uint8]int{
-	PQSigTypeMLDSA:   1376,  // MLDSASignatureSize
-	PQSigTypeFalcon:  690,   // Falcon512SigSize
-	PQSigTypeSPHINCS: 49216, // SPHINCSSha256SigSize
+	PQSigTypeMLDSA:   DilithiumSigSize,   // 3293
+	PQSigTypeFalcon:  FalconSigSize,       // 690
+	PQSigTypeSPHINCS: SPHINCSPlusSigSize,  // 49216
 }
 
 // PQRealVerifyFunc verifies a PQ signature: (pubkey, message, signature) -> valid.
@@ -110,6 +110,10 @@ func NewPQTxValidatorReal() *PQTxValidatorReal {
 	}
 	return v
 }
+
+// DefaultPQValidator is the package-level shared PQ transaction validator.
+// Real PQ signers are wired by the node at startup via RegisterSigner.
+var DefaultPQValidator = NewPQTxValidatorReal()
 
 // RegisterSigner registers a real PQ verifier function for the given algorithm.
 func (v *PQTxValidatorReal) RegisterSigner(sigType uint8, verify PQRealVerifyFunc) {

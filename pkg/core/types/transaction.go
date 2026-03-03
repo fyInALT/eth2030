@@ -14,6 +14,7 @@ const (
 	BlobTxType       = 0x03
 	SetCodeTxType    = 0x04
 	// FrameTxType is defined in tx_frame.go as 0x06.
+	// PQTransactionType is defined in pq_transaction.go as 0x07.
 )
 
 // Transaction represents an Ethereum transaction.
@@ -452,6 +453,24 @@ func (tx *Transaction) Frames() []Frame {
 		return ftx.Frames
 	}
 	return nil
+}
+
+// PQPublicKey returns the post-quantum public key for type-0x07 transactions.
+// Returns nil for all other transaction types.
+func (tx *Transaction) PQPublicKey() []byte {
+	if pq, ok := tx.inner.(*PQTransaction); ok {
+		return pq.PQPublicKey
+	}
+	return nil
+}
+
+// PQSigType returns the PQ signature algorithm identifier for type-0x07 transactions.
+// Returns 0 for all other transaction types.
+func (tx *Transaction) PQSigType() uint8 {
+	if pq, ok := tx.inner.(*PQTransaction); ok {
+		return pq.PQSignatureType
+	}
+	return 0
 }
 
 // FrameSender returns the sender address for EIP-8141 frame transactions.

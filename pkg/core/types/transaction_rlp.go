@@ -133,6 +133,8 @@ func (tx *Transaction) EncodeRLP() ([]byte, error) {
 		return encodeTypedTx(SetCodeTxType, inner)
 	case *FrameTx:
 		return EncodeFrameTx(inner)
+	case *PQTransaction:
+		return inner.EncodePQ()
 	default:
 		return nil, errUnknownTxType
 	}
@@ -306,9 +308,32 @@ func decodeTypedTx(txType byte, payload []byte) (*Transaction, error) {
 		return decodeSetCodeTx(payload)
 	case FrameTxType:
 		return decodeFrameTxWrapped(payload)
+	case PQTransactionType:
+		return decodePQFromPayload(payload)
 	default:
 		return nil, fmt.Errorf("unsupported transaction type: 0x%02x", txType)
 	}
+}
+
+func decodePQFromPayload(data []byte) (*Transaction, error) {
+	var dec pqTxRLP
+	if err := rlp.DecodeBytes(data, &dec); err != nil {
+		return nil, fmt.Errorf("decode PQ tx: %w", err)
+	}
+	inner := &PQTransaction{
+		ChainID:          dec.ChainID,
+		Nonce:            dec.Nonce,
+		To:               bytesToAddressPtr(dec.To),
+		Value:            dec.Value,
+		Gas:              dec.Gas,
+		GasPrice:         dec.GasPrice,
+		Data:             dec.Data,
+		PQSignatureType:  dec.PQSignatureType,
+		PQSignature:      dec.PQSignature,
+		PQPublicKey:      dec.PQPublicKey,
+		ClassicSignature: dec.ClassicSignature,
+	}
+	return NewTransaction(inner), nil
 }
 
 func decodeAccessListTx(data []byte) (*Transaction, error) {
@@ -525,6 +550,10 @@ func (tx *Transaction) SigningHash() Hash {
 		return signingHashSetCode(t)
 	case *FrameTx:
 		return ComputeFrameSigHash(t)
+	case *PQTransaction:
+		var h Hash
+		copy(h[:], pqRealSigningHash(t))
+		return h
 	default:
 		return Hash{}
 	}

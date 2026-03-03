@@ -19,11 +19,15 @@ const (
 	PQSigSPHINCS   uint8 = 2 // SPHINCS+
 )
 
-// Expected PQ signature sizes per algorithm (NIST level 3 parameter sets).
+// Expected PQ key and signature sizes per algorithm.
+// Dilithium sizes use the schoolbook ML-DSA implementation (N=64, k=6).
 const (
-	DilithiumSigSize   = 3293
-	FalconSigSize      = 1280
-	SPHINCSPlusSigSize = 17088
+	DilithiumPubKeySize   = 1568  // MLDSAPublicKeySize: rho(32) + k*N*4 = 32 + 6*64*4
+	DilithiumSigSize      = 1376  // MLDSASignatureSize: cTilde(32) + z + hint
+	FalconPubKeySize      = 897   // Falcon512PubKeySize
+	FalconSigSize         = 690   // Falcon512SigSize
+	SPHINCSPlusPubKeySize = 32    // SPHINCSSha256PubKeySize
+	SPHINCSPlusSigSize    = 49216 // SPHINCSSha256SigSize
 )
 
 // PQ transaction errors.
@@ -209,4 +213,40 @@ func (tx *PQTransaction) VerifyPQSignature() bool {
 	default:
 		return false
 	}
+}
+
+// TxData interface implementation for PQTransaction.
+func (pq *PQTransaction) txType() byte          { return PQTransactionType }
+func (pq *PQTransaction) chainID() *big.Int      { return pq.ChainID }
+func (pq *PQTransaction) accessList() AccessList { return nil }
+func (pq *PQTransaction) data() []byte           { return pq.Data }
+func (pq *PQTransaction) gas() uint64            { return pq.Gas }
+func (pq *PQTransaction) gasPrice() *big.Int     { return pq.GasPrice }
+func (pq *PQTransaction) gasTipCap() *big.Int    { return pq.GasPrice }
+func (pq *PQTransaction) gasFeeCap() *big.Int    { return pq.GasPrice }
+func (pq *PQTransaction) value() *big.Int        { return pq.Value }
+func (pq *PQTransaction) nonce() uint64          { return pq.Nonce }
+func (pq *PQTransaction) to() *Address           { return pq.To }
+
+func (pq *PQTransaction) copy() TxData {
+	cpy := &PQTransaction{
+		Nonce:           pq.Nonce,
+		Gas:             pq.Gas,
+		PQSignatureType: pq.PQSignatureType,
+	}
+	if pq.ChainID != nil {
+		cpy.ChainID = new(big.Int).Set(pq.ChainID)
+	}
+	cpy.To = copyAddressPtr(pq.To)
+	if pq.Value != nil {
+		cpy.Value = new(big.Int).Set(pq.Value)
+	}
+	if pq.GasPrice != nil {
+		cpy.GasPrice = new(big.Int).Set(pq.GasPrice)
+	}
+	cpy.Data = copyBytes(pq.Data)
+	cpy.PQSignature = copyBytes(pq.PQSignature)
+	cpy.PQPublicKey = copyBytes(pq.PQPublicKey)
+	cpy.ClassicSignature = copyBytes(pq.ClassicSignature)
+	return cpy
 }
