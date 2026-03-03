@@ -43,7 +43,6 @@ func NewTxPoolAPI(backend Backend) *TxPoolAPI {
 	}
 }
 
-
 // decodeRawTransaction decodes a hex-encoded raw transaction into a
 // Transaction object. It performs basic structural validation.
 func decodeRawTransaction(rawHex string) (*types.Transaction, []byte, error) {

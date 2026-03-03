@@ -769,6 +769,12 @@ func criteriaToQuery(c FilterCriteria, backend Backend) FilterQuery {
 }
 
 func successResponse(id json.RawMessage, result interface{}) *Response {
+	// JSON-RPC 2.0 requires "result" to be present even when null.
+	// Using json.RawMessage("null") as a non-nil interface keeps omitempty
+	// from dropping the field while still serialising as JSON null.
+	if result == nil {
+		result = json.RawMessage("null")
+	}
 	return &Response{
 		JSONRPC: "2.0",
 		Result:  result,
