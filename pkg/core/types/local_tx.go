@@ -26,16 +26,16 @@ type LocalTx struct {
 	ScopeHint []byte
 }
 
-func (tx *LocalTx) txType() byte      { return LocalTxType }
-func (tx *LocalTx) chainID() *big.Int  { return tx.ChainID_ }
+func (tx *LocalTx) txType() byte           { return LocalTxType }
+func (tx *LocalTx) chainID() *big.Int      { return tx.ChainID_ }
 func (tx *LocalTx) accessList() AccessList { return nil }
-func (tx *LocalTx) data() []byte       { return tx.Data_ }
-func (tx *LocalTx) gas() uint64        { return tx.Gas_ }
-func (tx *LocalTx) gasPrice() *big.Int  { return tx.GasFeeCap_ }
-func (tx *LocalTx) gasTipCap() *big.Int { return tx.GasTipCap_ }
-func (tx *LocalTx) gasFeeCap() *big.Int { return tx.GasFeeCap_ }
-func (tx *LocalTx) value() *big.Int     { return tx.Value_ }
-func (tx *LocalTx) nonce() uint64       { return tx.Nonce_ }
+func (tx *LocalTx) data() []byte           { return tx.Data_ }
+func (tx *LocalTx) gas() uint64            { return tx.Gas_ }
+func (tx *LocalTx) gasPrice() *big.Int     { return tx.GasFeeCap_ }
+func (tx *LocalTx) gasTipCap() *big.Int    { return tx.GasTipCap_ }
+func (tx *LocalTx) gasFeeCap() *big.Int    { return tx.GasFeeCap_ }
+func (tx *LocalTx) value() *big.Int        { return tx.Value_ }
+func (tx *LocalTx) nonce() uint64          { return tx.Nonce_ }
 
 func (tx *LocalTx) to() *Address {
 	return tx.To_

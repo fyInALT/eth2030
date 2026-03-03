@@ -213,6 +213,31 @@ func (b *nodeBackend) EVMCall(from types.Address, to *types.Address, data []byte
 
 	evm := vm.NewEVMWithState(blockCtx, txCtx, vm.Config{}, statedb)
 
+	// Apply fork rules so the correct precompile map and jump table are used.
+	if chainCfg := bc.Config(); chainCfg != nil {
+		rules := chainCfg.Rules(header.Number, chainCfg.IsMerge(), header.Time)
+		forkRules := vm.ForkRules{
+			IsGlamsterdan:    rules.IsGlamsterdan,
+			IsPrague:         rules.IsPrague,
+			IsCancun:         rules.IsCancun,
+			IsShanghai:       rules.IsShanghai,
+			IsMerge:          rules.IsMerge,
+			IsLondon:         rules.IsLondon,
+			IsBerlin:         rules.IsBerlin,
+			IsIstanbul:       rules.IsIstanbul,
+			IsConstantinople: rules.IsConstantinople,
+			IsByzantium:      rules.IsByzantium,
+			IsHomestead:      rules.IsHomestead,
+			IsEIP158:         rules.IsEIP158,
+			IsEIP7708:        rules.IsEIP7708,
+			IsEIP7954:        rules.IsEIP7954,
+			IsIPlus:          rules.IsIPlus,
+		}
+		evm.SetJumpTable(vm.SelectJumpTable(forkRules))
+		evm.SetPrecompiles(vm.SelectPrecompiles(forkRules))
+		evm.SetForkRules(forkRules)
+	}
+
 	if to == nil {
 		// Contract creation call - just return empty.
 		return nil, gas, nil

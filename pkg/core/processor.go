@@ -552,11 +552,23 @@ func applyTransactionWithBAL(config *ChainConfig, getHash vm.GetHashFunc, stated
 // and applyTransactionWithBAL. When tracker is non-nil, it is passed to
 // applyMessage for EIP-7928 opcode-level state access recording.
 func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
-	// Recover sender from ECDSA signature if not already cached.
-	if tx.Sender() == nil && config.ChainID != nil {
-		signer := types.NewLondonSigner(config.ChainID.Uint64())
-		if addr, err := signer.Sender(tx); err == nil {
-			tx.SetSender(addr)
+	// Enforce I+ fork guard for PQ transactions.
+	rules := config.Rules(header.Number, config.IsMerge(), header.Time)
+	if tx.Type() == types.PQTransactionType && !rules.IsIPlus {
+		return nil, 0, fmt.Errorf("PQ transactions require I+ fork")
+	}
+
+	// Recover sender if not already cached.
+	if tx.Sender() == nil {
+		if tx.Type() == types.PQTransactionType {
+			if pk := tx.PQPublicKey(); len(pk) > 0 {
+				tx.SetSender(types.PQPubKeyToAddress(pk))
+			}
+		} else if config.ChainID != nil {
+			signer := types.NewLondonSigner(config.ChainID.Uint64())
+			if addr, err := signer.Sender(tx); err == nil {
+				tx.SetSender(addr)
+			}
 		}
 	}
 	msg := TransactionToMessage(tx)

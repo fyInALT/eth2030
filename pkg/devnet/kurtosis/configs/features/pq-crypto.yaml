@@ -1,12 +1,11 @@
-# Post-Quantum Crypto — Dilithium3, ML-DSA-65, PQ Attestations
-# Tests: PQ signature generation/verification, PQ attestation processing
-# Verify: PQ signatures verify correctly, attestations with PQ sigs accepted
+# Post-Quantum Crypto — NTT (EIP-7885), NII field arithmetic, BLS12-381 suite, PQ attestations
+# Forks: Glamsterdam (BLS), Hogota, I+ (NTT 0x15 + NII 0x0201-0x0204)
+# Verify: ecrecover, BLS G1/G2/Pairing/MapFp2ToG2, NTT BN254+Goldilocks fwd+inv, NII ModExp/FieldMul/FieldInv/BatchVerify, PQ tx rejection
 participants:
   - el_type: geth
     el_image: eth2030:local
+    el_log_level: debug
     el_extra_params:
-      - "--override.glamsterdam=0"
-      - "--override.hogota=0"
       - "--override.iplus=0"
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
