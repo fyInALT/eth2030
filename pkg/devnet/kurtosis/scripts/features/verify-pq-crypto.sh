@@ -121,11 +121,11 @@ if [[ "$NTT_GOLD_RESULT" == 0x* ]] && [ ${#NTT_GOLD_RESULT} -gt 10 ]; then
   echo "NTT Goldilocks Inverse (0x15, op=3): $NTT_GOLD_INV_RESULT"
   if [[ "$NTT_GOLD_INV_RESULT" == 0x* ]] && [ ${#NTT_GOLD_INV_RESULT} -ge 258 ]; then
     # Validate last byte of each 32-byte chunk recovers [1, 2, 3, 4].
-    # Result layout: 0x + 4 × 64 hex chars; each chunk ends at offset 64+2, 128+2, 192+2, 256+2
-    E0="${NTT_GOLD_INV_RESULT:62:2}"   # last byte of element 0 (chars 2..65)
-    E1="${NTT_GOLD_INV_RESULT:126:2}"  # last byte of element 1
-    E2="${NTT_GOLD_INV_RESULT:190:2}"  # last byte of element 2
-    E3="${NTT_GOLD_INV_RESULT:254:2}"  # last byte of element 3
+    # Result layout: 0x(2) + 4 × 64 hex chars; last byte of element N is at 2+N*64+62 = N*64+64
+    E0="${NTT_GOLD_INV_RESULT:64:2}"   # last byte of element 0
+    E1="${NTT_GOLD_INV_RESULT:128:2}"  # last byte of element 1
+    E2="${NTT_GOLD_INV_RESULT:192:2}"  # last byte of element 2
+    E3="${NTT_GOLD_INV_RESULT:256:2}"  # last byte of element 3
     echo "  Elements last bytes: $E0 $E1 $E2 $E3 (expect 01 02 03 04)"
     if [ "$E0" = "01" ] && [ "$E1" = "02" ] && [ "$E2" = "03" ] && [ "$E3" = "04" ]; then
       echo "  Goldilocks inverse round-trip OK — recovered [1,2,3,4]"
@@ -154,9 +154,10 @@ if [[ "$NTT_BN254_8_RESULT" == 0x* ]] && [ ${#NTT_BN254_8_RESULT} -ge 514 ]; the
   echo "NTT BN254 size-8 inverse (0x15, op=1): $NTT_BN254_8_INV_RESULT"
   if [[ "$NTT_BN254_8_INV_RESULT" == 0x* ]] && [ ${#NTT_BN254_8_INV_RESULT} -ge 514 ]; then
     # Validate last bytes of elements [0], [1], [7] = 01, 02, 08
-    EB0="${NTT_BN254_8_INV_RESULT:62:2}"
-    EB1="${NTT_BN254_8_INV_RESULT:126:2}"
-    EB7="${NTT_BN254_8_INV_RESULT:510:2}"
+    # Result layout: 0x(2) + 8 × 64 hex chars; last byte of element N at 2+N*64+62 = N*64+64
+    EB0="${NTT_BN254_8_INV_RESULT:64:2}"
+    EB1="${NTT_BN254_8_INV_RESULT:128:2}"
+    EB7="${NTT_BN254_8_INV_RESULT:512:2}"
     echo "  Elements[0,1,7] last bytes: $EB0 $EB1 $EB7 (expect 01 02 08)"
     if [ "$EB0" = "01" ] && [ "$EB1" = "02" ] && [ "$EB7" = "08" ]; then
       echo "  BN254 size-8 inverse round-trip OK — recovered [1..8]"
