@@ -118,3 +118,9 @@
 [submodule "refs/prysm"]
 	path = refs/prysm
 	url = https://github.com/OffchainLabs/prysm.git
+[submodule "refs/prysm-documentation"]
+	path = refs/prysm-documentation
+	url = https://github.com/OffchainLabs/prysm-documentation.git
+[submodule "refs/ethereum-org-website"]
+	path = refs/ethereum-org-website
+	url = https://github.com/ethereum/ethereum-org-website.git
