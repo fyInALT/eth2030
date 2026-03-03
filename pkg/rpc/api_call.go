@@ -266,6 +266,7 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 	} else {
 		receipts = api.backend.GetBlockReceipts(blockNum)
 	}
+
 	if receipts == nil {
 		return successResponse(req.ID, []*RPCReceipt{})
 	}
