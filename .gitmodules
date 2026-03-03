@@ -109,3 +109,6 @@
 [submodule "refs/fiat-shamir"]
 	path = refs/fiat-shamir
 	url = https://github.com/leanEthereum/fiat-shamir
+[submodule "refs/spamoor"]
+	path = refs/spamoor
+	url = https://github.com/ethpandaops/spamoor.git
