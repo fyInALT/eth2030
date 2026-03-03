@@ -270,7 +270,7 @@ func TestGetUncleByBlockHashAndIndex(t *testing.T) {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
 	// Post-merge: always returns null.
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatalf("want nil (no uncles post-merge), got %v", resp.Result)
 	}
 }
@@ -286,7 +286,7 @@ func TestGetUncleByBlockNumberAndIndex(t *testing.T) {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
 	// Post-merge: always returns null.
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatalf("want nil (no uncles post-merge), got %v", resp.Result)
 	}
 }

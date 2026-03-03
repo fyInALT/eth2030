@@ -161,7 +161,7 @@ func TestTxPoolAPI_GetTransactionByHash_NotFound(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil for non-existent tx")
 	}
 }
@@ -220,7 +220,7 @@ func TestTxPoolAPI_GetTransactionReceipt_NotFound(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil for non-existent receipt")
 	}
 }
