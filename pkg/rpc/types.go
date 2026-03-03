@@ -98,18 +98,52 @@ const (
 
 // RPCBlock is the JSON representation of a block.
 type RPCBlock struct {
-	Number        string   `json:"number"`
-	Hash          string   `json:"hash"`
-	ParentHash    string   `json:"parentHash"`
-	Timestamp     string   `json:"timestamp"`
-	GasLimit      string   `json:"gasLimit"`
-	GasUsed       string   `json:"gasUsed"`
-	Miner         string   `json:"miner"`
-	BaseFeePerGas *string  `json:"baseFeePerGas,omitempty"`
-	StateRoot     string   `json:"stateRoot"`
-	TxRoot        string   `json:"transactionsRoot"`
-	ReceiptsRoot  string   `json:"receiptsRoot"`
-	Transactions  []string `json:"transactions"` // tx hashes
+	Number           string   `json:"number"`
+	Hash             string   `json:"hash"`
+	ParentHash       string   `json:"parentHash"`
+	Sha3Uncles       string   `json:"sha3Uncles"`
+	Miner            string   `json:"miner"`
+	StateRoot        string   `json:"stateRoot"`
+	TxRoot           string   `json:"transactionsRoot"`
+	ReceiptsRoot     string   `json:"receiptsRoot"`
+	LogsBloom        string   `json:"logsBloom"`
+	Difficulty       string   `json:"difficulty"`
+	GasLimit         string   `json:"gasLimit"`
+	GasUsed          string   `json:"gasUsed"`
+	Timestamp        string   `json:"timestamp"`
+	ExtraData        string   `json:"extraData"`
+	MixHash          string   `json:"mixHash"`
+	Nonce            string   `json:"nonce"`
+	Size             string   `json:"size"`
+	BaseFeePerGas    *string  `json:"baseFeePerGas,omitempty"`
+	WithdrawalsRoot  *string  `json:"withdrawalsRoot,omitempty"`
+	BlobGasUsed      *string  `json:"blobGasUsed,omitempty"`
+	ExcessBlobGas    *string  `json:"excessBlobGas,omitempty"`
+	ParentBeaconRoot *string  `json:"parentBeaconBlockRoot,omitempty"`
+	RequestsHash     *string  `json:"requestsHash,omitempty"`
+	Transactions     []string `json:"transactions"` // tx hashes
+	Uncles           []string `json:"uncles"`
+	// Withdrawals is nil for pre-Shanghai blocks and a (possibly empty) slice
+	// for post-Shanghai blocks. Using a pointer preserves the distinction so
+	// that post-Shanghai empty blocks emit "withdrawals": [] instead of
+	// omitting the field entirely (which breaks EIP-4895 clients).
+	Withdrawals *[]*RPCWithdrawal `json:"withdrawals,omitempty"`
+}
+
+// RPCAccessTuple is the JSON representation of an EIP-2930 access list entry.
+type RPCAccessTuple struct {
+	Address     string   `json:"address"`
+	StorageKeys []string `json:"storageKeys"`
+}
+
+// RPCAuthorization is the JSON representation of an EIP-7702 authorization entry.
+type RPCAuthorization struct {
+	ChainID string `json:"chainId"`
+	Address string `json:"address"`
+	Nonce   string `json:"nonce"`
+	V       string `json:"v"`
+	R       string `json:"r"`
+	S       string `json:"s"`
 }
 
 // RPCTransaction is the JSON representation of a transaction.
@@ -129,6 +163,14 @@ type RPCTransaction struct {
 	V                string  `json:"v"`
 	R                string  `json:"r"`
 	S                string  `json:"s"`
+	// EIP-2930 / EIP-1559 / EIP-4844 / EIP-7702 fields (omitted for legacy txs).
+	ChainID              *string            `json:"chainId,omitempty"`
+	MaxFeePerGas         *string            `json:"maxFeePerGas,omitempty"`
+	MaxPriorityFeePerGas *string            `json:"maxPriorityFeePerGas,omitempty"`
+	AccessList           []RPCAccessTuple   `json:"accessList,omitempty"`
+	MaxFeePerBlobGas     *string            `json:"maxFeePerBlobGas,omitempty"`
+	BlobVersionedHashes  []string           `json:"blobVersionedHashes,omitempty"`
+	AuthorizationList    []RPCAuthorization `json:"authorizationList,omitempty"`
 }
 
 // RPCReceipt is the JSON representation of a transaction receipt.
@@ -198,18 +240,42 @@ type FilterCriteria struct {
 
 // RPCBlockWithTxs is the JSON representation of a block with full transaction objects.
 type RPCBlockWithTxs struct {
-	Number        string            `json:"number"`
-	Hash          string            `json:"hash"`
-	ParentHash    string            `json:"parentHash"`
-	Timestamp     string            `json:"timestamp"`
-	GasLimit      string            `json:"gasLimit"`
-	GasUsed       string            `json:"gasUsed"`
-	Miner         string            `json:"miner"`
-	BaseFeePerGas *string           `json:"baseFeePerGas,omitempty"`
-	StateRoot     string            `json:"stateRoot"`
-	TxRoot        string            `json:"transactionsRoot"`
-	ReceiptsRoot  string            `json:"receiptsRoot"`
-	Transactions  []*RPCTransaction `json:"transactions"`
+	Number           string            `json:"number"`
+	Hash             string            `json:"hash"`
+	ParentHash       string            `json:"parentHash"`
+	Sha3Uncles       string            `json:"sha3Uncles"`
+	Miner            string            `json:"miner"`
+	StateRoot        string            `json:"stateRoot"`
+	TxRoot           string            `json:"transactionsRoot"`
+	ReceiptsRoot     string            `json:"receiptsRoot"`
+	LogsBloom        string            `json:"logsBloom"`
+	Difficulty       string            `json:"difficulty"`
+	GasLimit         string            `json:"gasLimit"`
+	GasUsed          string            `json:"gasUsed"`
+	Timestamp        string            `json:"timestamp"`
+	ExtraData        string            `json:"extraData"`
+	MixHash          string            `json:"mixHash"`
+	Nonce            string            `json:"nonce"`
+	Size             string            `json:"size"`
+	BaseFeePerGas    *string           `json:"baseFeePerGas,omitempty"`
+	WithdrawalsRoot  *string           `json:"withdrawalsRoot,omitempty"`
+	BlobGasUsed      *string           `json:"blobGasUsed,omitempty"`
+	ExcessBlobGas    *string           `json:"excessBlobGas,omitempty"`
+	ParentBeaconRoot *string           `json:"parentBeaconBlockRoot,omitempty"`
+	RequestsHash     *string           `json:"requestsHash,omitempty"`
+	Transactions     []*RPCTransaction `json:"transactions"`
+	Uncles           []string          `json:"uncles"`
+	// Withdrawals is nil for pre-Shanghai blocks and a (possibly empty) slice
+	// for post-Shanghai blocks (see RPCBlock.Withdrawals).
+	Withdrawals *[]*RPCWithdrawal `json:"withdrawals,omitempty"`
+}
+
+// RPCWithdrawal is the JSON representation of a beacon-chain withdrawal.
+type RPCWithdrawal struct {
+	Index          string `json:"index"`
+	ValidatorIndex string `json:"validatorIndex"`
+	Address        string `json:"address"`
+	Amount         string `json:"amount"`
 }
 
 // FormatBlock converts a block to its JSON-RPC representation.
@@ -217,24 +283,78 @@ type RPCBlockWithTxs struct {
 func FormatBlock(block *types.Block, fullTx bool) interface{} {
 	header := block.Header()
 	if !fullTx {
-		return FormatHeader(header)
+		rb := FormatHeader(header)
+		// Populate tx hashes from block body.
+		txs := block.Transactions()
+		rb.Transactions = make([]string, len(txs))
+		for i, tx := range txs {
+			rb.Transactions[i] = encodeHash(tx.Hash())
+		}
+		rb.Uncles = formatUncleHashes(block.Uncles())
+		// Withdrawals: always present (even empty) for post-Shanghai blocks.
+		if header.WithdrawalsHash != nil {
+			ws := block.Withdrawals()
+			wList := make([]*RPCWithdrawal, len(ws))
+			for i, w := range ws {
+				wList[i] = &RPCWithdrawal{
+					Index:          encodeUint64(w.Index),
+					ValidatorIndex: encodeUint64(w.ValidatorIndex),
+					Address:        encodeAddress(w.Address),
+					Amount:         encodeUint64(w.Amount),
+				}
+			}
+			rb.Withdrawals = &wList
+		}
+		return rb
 	}
 
+	difficulty := "0x0"
+	if header.Difficulty != nil {
+		difficulty = encodeBigInt(header.Difficulty)
+	}
 	result := &RPCBlockWithTxs{
 		Number:       encodeUint64(header.Number.Uint64()),
 		Hash:         encodeHash(header.Hash()),
 		ParentHash:   encodeHash(header.ParentHash),
-		Timestamp:    encodeUint64(header.Time),
-		GasLimit:     encodeUint64(header.GasLimit),
-		GasUsed:      encodeUint64(header.GasUsed),
+		Sha3Uncles:   encodeHash(header.UncleHash),
 		Miner:        encodeAddress(header.Coinbase),
 		StateRoot:    encodeHash(header.Root),
 		TxRoot:       encodeHash(header.TxHash),
 		ReceiptsRoot: encodeHash(header.ReceiptHash),
+		LogsBloom:    encodeBloom(header.Bloom),
+		Difficulty:   difficulty,
+		GasLimit:     encodeUint64(header.GasLimit),
+		GasUsed:      encodeUint64(header.GasUsed),
+		Timestamp:    encodeUint64(header.Time),
+		ExtraData:    encodeBytes(header.Extra),
+		MixHash:      encodeHash(header.MixDigest),
+		Nonce:        fmt.Sprintf("0x%016x", header.Nonce),
+		Size:         encodeUint64(header.Size()),
+		Uncles:       formatUncleHashes(block.Uncles()),
 	}
 	if header.BaseFee != nil {
 		s := encodeBigInt(header.BaseFee)
 		result.BaseFeePerGas = &s
+	}
+	if header.WithdrawalsHash != nil {
+		s := encodeHash(*header.WithdrawalsHash)
+		result.WithdrawalsRoot = &s
+	}
+	if header.BlobGasUsed != nil {
+		s := encodeUint64(*header.BlobGasUsed)
+		result.BlobGasUsed = &s
+	}
+	if header.ExcessBlobGas != nil {
+		s := encodeUint64(*header.ExcessBlobGas)
+		result.ExcessBlobGas = &s
+	}
+	if header.ParentBeaconRoot != nil {
+		s := encodeHash(*header.ParentBeaconRoot)
+		result.ParentBeaconRoot = &s
+	}
+	if header.RequestsHash != nil {
+		s := encodeHash(*header.RequestsHash)
+		result.RequestsHash = &s
 	}
 
 	txs := block.Transactions()
@@ -246,28 +366,88 @@ func FormatBlock(block *types.Block, fullTx bool) interface{} {
 		result.Transactions[i] = FormatTransaction(tx, &blockHash, &blockNum, &idx)
 	}
 
+	// Withdrawals: always present (even empty) for post-Shanghai blocks.
+	if header.WithdrawalsHash != nil {
+		ws := block.Withdrawals()
+		wList := make([]*RPCWithdrawal, len(ws))
+		for i, w := range ws {
+			wList[i] = &RPCWithdrawal{
+				Index:          encodeUint64(w.Index),
+				ValidatorIndex: encodeUint64(w.ValidatorIndex),
+				Address:        encodeAddress(w.Address),
+				Amount:         encodeUint64(w.Amount),
+			}
+		}
+		result.Withdrawals = &wList
+	}
+
 	return result
 }
 
 // FormatHeader converts a header to JSON-RPC representation.
 func FormatHeader(h *types.Header) *RPCBlock {
+	difficulty := "0x0"
+	if h.Difficulty != nil {
+		difficulty = encodeBigInt(h.Difficulty)
+	}
 	block := &RPCBlock{
 		Number:       encodeUint64(h.Number.Uint64()),
 		Hash:         encodeHash(h.Hash()),
 		ParentHash:   encodeHash(h.ParentHash),
-		Timestamp:    encodeUint64(h.Time),
-		GasLimit:     encodeUint64(h.GasLimit),
-		GasUsed:      encodeUint64(h.GasUsed),
+		Sha3Uncles:   encodeHash(h.UncleHash),
 		Miner:        encodeAddress(h.Coinbase),
 		StateRoot:    encodeHash(h.Root),
 		TxRoot:       encodeHash(h.TxHash),
 		ReceiptsRoot: encodeHash(h.ReceiptHash),
+		LogsBloom:    encodeBloom(h.Bloom),
+		Difficulty:   difficulty,
+		GasLimit:     encodeUint64(h.GasLimit),
+		GasUsed:      encodeUint64(h.GasUsed),
+		Timestamp:    encodeUint64(h.Time),
+		ExtraData:    encodeBytes(h.Extra),
+		MixHash:      encodeHash(h.MixDigest),
+		Nonce:        fmt.Sprintf("0x%016x", h.Nonce),
+		Size:         encodeUint64(h.Size()),
+		Transactions: []string{},
+		Uncles:       []string{},
 	}
 	if h.BaseFee != nil {
 		s := encodeBigInt(h.BaseFee)
 		block.BaseFeePerGas = &s
 	}
+	if h.WithdrawalsHash != nil {
+		s := encodeHash(*h.WithdrawalsHash)
+		block.WithdrawalsRoot = &s
+	}
+	if h.BlobGasUsed != nil {
+		s := encodeUint64(*h.BlobGasUsed)
+		block.BlobGasUsed = &s
+	}
+	if h.ExcessBlobGas != nil {
+		s := encodeUint64(*h.ExcessBlobGas)
+		block.ExcessBlobGas = &s
+	}
+	if h.ParentBeaconRoot != nil {
+		s := encodeHash(*h.ParentBeaconRoot)
+		block.ParentBeaconRoot = &s
+	}
+	if h.RequestsHash != nil {
+		s := encodeHash(*h.RequestsHash)
+		block.RequestsHash = &s
+	}
 	return block
+}
+
+// formatUncleHashes returns uncle hashes as hex strings (empty post-merge).
+func formatUncleHashes(uncles []*types.Header) []string {
+	if len(uncles) == 0 {
+		return []string{}
+	}
+	hashes := make([]string, len(uncles))
+	for i, u := range uncles {
+		hashes[i] = encodeHash(u.Hash())
+	}
+	return hashes
 }
 
 func encodeUint64(n uint64) string {
@@ -381,12 +561,112 @@ func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber
 		rpcTx.TransactionIndex = &idx
 	}
 
-	// V, R, S - use "0x0" as default if not available
-	rpcTx.V = "0x0"
-	rpcTx.R = "0x0"
-	rpcTx.S = "0x0"
+	// V, R, S from signature.
+	v, r, s := tx.RawSignatureValues()
+	if v != nil {
+		rpcTx.V = encodeBigInt(v)
+	} else {
+		rpcTx.V = "0x0"
+	}
+	if r != nil {
+		rpcTx.R = encodeBigInt(r)
+	} else {
+		rpcTx.R = "0x0"
+	}
+	if s != nil {
+		rpcTx.S = encodeBigInt(s)
+	} else {
+		rpcTx.S = "0x0"
+	}
+
+	// EIP-2930+: chainId and accessList (types 1, 2, 3, 4).
+	txType := tx.Type()
+	if txType >= types.AccessListTxType {
+		chainID := tx.ChainId()
+		if chainID != nil {
+			cid := encodeBigInt(chainID)
+			rpcTx.ChainID = &cid
+		}
+		rpcTx.AccessList = formatAccessList(tx.AccessList())
+	}
+
+	// EIP-1559+: maxFeePerGas and maxPriorityFeePerGas (types 2, 3, 4).
+	if txType >= types.DynamicFeeTxType {
+		mfpg := encodeBigInt(tx.GasFeeCap())
+		rpcTx.MaxFeePerGas = &mfpg
+		mpfpg := encodeBigInt(tx.GasTipCap())
+		rpcTx.MaxPriorityFeePerGas = &mpfpg
+	}
+
+	// EIP-4844: blob fields (type 3).
+	if txType == types.BlobTxType {
+		if blobFeeCap := tx.BlobGasFeeCap(); blobFeeCap != nil {
+			mfpbg := encodeBigInt(blobFeeCap)
+			rpcTx.MaxFeePerBlobGas = &mfpbg
+		}
+		blobHashes := tx.BlobHashes()
+		rpcTx.BlobVersionedHashes = make([]string, len(blobHashes))
+		for i, h := range blobHashes {
+			rpcTx.BlobVersionedHashes[i] = encodeHash(h)
+		}
+	}
+
+	// EIP-7702: authorization list (type 4).
+	if txType == types.SetCodeTxType {
+		rpcTx.AuthorizationList = formatAuthorizationList(tx.AuthorizationList())
+	}
 
 	return rpcTx
+}
+
+// formatAccessList converts an AccessList to its JSON-RPC representation.
+func formatAccessList(al types.AccessList) []RPCAccessTuple {
+	result := make([]RPCAccessTuple, len(al))
+	for i, entry := range al {
+		keys := make([]string, len(entry.StorageKeys))
+		for j, k := range entry.StorageKeys {
+			keys[j] = encodeHash(k)
+		}
+		result[i] = RPCAccessTuple{
+			Address:     encodeAddress(entry.Address),
+			StorageKeys: keys,
+		}
+	}
+	return result
+}
+
+// formatAuthorizationList converts an AuthorizationList to its JSON-RPC representation.
+func formatAuthorizationList(auths []types.Authorization) []RPCAuthorization {
+	result := make([]RPCAuthorization, len(auths))
+	for i, auth := range auths {
+		av, ar, as_ := auth.V, auth.R, auth.S
+		authEntry := RPCAuthorization{
+			Address: encodeAddress(auth.Address),
+			Nonce:   encodeUint64(auth.Nonce),
+		}
+		if auth.ChainID != nil {
+			authEntry.ChainID = encodeBigInt(auth.ChainID)
+		} else {
+			authEntry.ChainID = "0x0"
+		}
+		if av != nil {
+			authEntry.V = encodeBigInt(av)
+		} else {
+			authEntry.V = "0x0"
+		}
+		if ar != nil {
+			authEntry.R = encodeBigInt(ar)
+		} else {
+			authEntry.R = "0x0"
+		}
+		if as_ != nil {
+			authEntry.S = encodeBigInt(as_)
+		} else {
+			authEntry.S = "0x0"
+		}
+		result[i] = authEntry
+	}
+	return result
 }
 
 // FormatReceipt converts a receipt to its JSON-RPC representation.

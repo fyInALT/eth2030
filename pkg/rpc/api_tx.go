@@ -93,11 +93,10 @@ func (api *EthAPI) sendRawTransaction(req *Request) *Response {
 		return errorResponse(req.ID, ErrCodeInvalidParams, "empty transaction data")
 	}
 
-	// For now, create a minimal legacy transaction from the raw bytes.
-	// A full implementation would RLP-decode the transaction.
-	tx := types.NewTransaction(&types.LegacyTx{
-		Data: rawBytes,
-	})
+	tx, err := types.DecodeTxRLP(rawBytes)
+	if err != nil {
+		return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+	}
 
 	if err := api.backend.SendTransaction(tx); err != nil {
 		return errorResponse(req.ID, ErrCodeInternal, err.Error())

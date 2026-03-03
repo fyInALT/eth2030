@@ -181,23 +181,78 @@ func (api *EthAPI) getLogs(req *Request) *Response {
 	return successResponse(req.ID, result)
 }
 
+// blockNumberOrHashParam mirrors the go-ethereum ethclient BlockNumberOrHash
+// JSON encoding: {"blockHash":"0x...","requireCanonical":false} or
+// {"blockNumber":"0x..."}.
+type blockNumberOrHashParam struct {
+	BlockHash   *string `json:"blockHash"`
+	BlockNumber *string `json:"blockNumber"`
+}
+
 // getBlockReceipts returns all receipts for a given block number.
+// The first parameter accepts:
+//   - a hex block hash string "0x..." (66 chars)
+//   - a hex block number string "0x..."
+//   - a named tag "latest", "earliest", "pending"
+//   - a BlockNumberOrHash object {"blockHash":"0x..."} or {"blockNumber":"0x..."}
 func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 	if len(req.Params) < 1 {
-		return errorResponse(req.ID, ErrCodeInvalidParams, "missing block number")
+		return errorResponse(req.ID, ErrCodeInvalidParams, "missing block number or hash")
 	}
 
-	var bn BlockNumber
-	if err := json.Unmarshal(req.Params[0], &bn); err != nil {
-		return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+	// Detect block hash vs block number: a hash is 0x-prefixed and 66 chars.
+	var (
+		header    *types.Header
+		blockHash types.Hash
+		byHash    bool
+	)
+
+	// Try object form {"blockHash":"0x..."} / {"blockNumber":"0x..."} first.
+	raw := req.Params[0]
+	if len(raw) > 0 && raw[0] == '{' {
+		var obj blockNumberOrHashParam
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return errorResponse(req.ID, ErrCodeInvalidParams, "invalid block param: "+err.Error())
+		}
+		if obj.BlockHash != nil {
+			blockHash = types.HexToHash(*obj.BlockHash)
+			header = api.backend.HeaderByHash(blockHash)
+			byHash = true
+		} else if obj.BlockNumber != nil {
+			var bn BlockNumber
+			if err := json.Unmarshal([]byte(`"`+*obj.BlockNumber+`"`), &bn); err != nil {
+				return errorResponse(req.ID, ErrCodeInvalidParams, "invalid blockNumber: "+err.Error())
+			}
+			header = api.backend.HeaderByNumber(bn)
+		} else {
+			return errorResponse(req.ID, ErrCodeInvalidParams, "object must have blockHash or blockNumber")
+		}
+	} else {
+		var paramStr string
+		if err := json.Unmarshal(raw, &paramStr); err != nil {
+			return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+		}
+		if len(paramStr) == 66 && (paramStr[:2] == "0x" || paramStr[:2] == "0X") {
+			blockHash = types.HexToHash(paramStr)
+			header = api.backend.HeaderByHash(blockHash)
+			byHash = true
+		} else {
+			var bn BlockNumber
+			if err := json.Unmarshal(raw, &bn); err != nil {
+				return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+			}
+			header = api.backend.HeaderByNumber(bn)
+		}
 	}
 
-	header := api.backend.HeaderByNumber(bn)
 	if header == nil {
 		return successResponse(req.ID, nil)
 	}
 
 	blockNum := header.Number.Uint64()
+	if !byHash {
+		blockHash = header.Hash()
+	}
 
 	// EIP-4444: check if receipts have been pruned.
 	if api.historyPruned(blockNum) {
@@ -205,14 +260,31 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 			"historical receipts pruned (EIP-4444)")
 	}
 
-	receipts := api.backend.GetBlockReceipts(blockNum)
+	var receipts []*types.Receipt
+	if byHash {
+		receipts = api.backend.GetReceipts(blockHash)
+	} else {
+		receipts = api.backend.GetBlockReceipts(blockNum)
+	}
+
 	if receipts == nil {
 		return successResponse(req.ID, []*RPCReceipt{})
 	}
 
+	// Fetch the block to populate from/to in each receipt.
+	block := api.backend.BlockByHash(blockHash)
+	var txs []*types.Transaction
+	if block != nil {
+		txs = block.Transactions()
+	}
+
 	result := make([]*RPCReceipt, len(receipts))
 	for i, receipt := range receipts {
-		result[i] = FormatReceipt(receipt, nil)
+		var tx *types.Transaction
+		if i < len(txs) {
+			tx = txs[i]
+		}
+		result[i] = FormatReceipt(receipt, tx)
 	}
 
 	return successResponse(req.ID, result)

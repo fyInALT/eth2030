@@ -60,9 +60,10 @@ type RateLimiter struct {
 }
 
 // NewRateLimiter creates a rate limiter that allows rps requests per second.
+// When rps is 0, no rate limiting is applied (nil is returned).
 func NewRateLimiter(rps int) *RateLimiter {
 	if rps <= 0 {
-		rps = 100
+		return nil
 	}
 	return &RateLimiter{
 		tokens:     rps,
@@ -103,6 +104,7 @@ type MiddlewareFunc func(http.Handler) http.Handler
 type ExtServer struct {
 	config       ServerConfig
 	api          *EthAPI
+	adminAPI     *AdminDispatchAPI
 	batch        *BatchHandler
 	rateLimiter  *RateLimiter
 	httpServer   *http.Server
@@ -114,11 +116,13 @@ type ExtServer struct {
 }
 
 // NewExtServer creates a new extended JSON-RPC server.
+// When config.RateLimitPerSec is 0, rate limiting is disabled.
 func NewExtServer(backend Backend, config ServerConfig) *ExtServer {
 	if config.MaxRequestSize <= 0 {
 		config.MaxRequestSize = DefaultServerConfig().MaxRequestSize
 	}
-	if config.RateLimitPerSec <= 0 {
+	// Negative values use the default; 0 means unlimited (no rate limit).
+	if config.RateLimitPerSec < 0 {
 		config.RateLimitPerSec = DefaultServerConfig().RateLimitPerSec
 	}
 	api := NewEthAPI(backend)
@@ -130,6 +134,12 @@ func NewExtServer(backend Backend, config ServerConfig) *ExtServer {
 	}
 	s.batch.SetMaxBatchSize(config.MaxBatchSize)
 	return s
+}
+
+// SetAdminBackend wires an AdminBackend so that admin_* methods are served.
+func (s *ExtServer) SetAdminBackend(b AdminBackend) {
+	s.adminAPI = NewAdminDispatchAPI(b)
+	s.batch.SetAdminBackend(b)
 }
 
 // Use adds a middleware to the server's middleware chain.
@@ -247,8 +257,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Rate limit check.
-	if !s.rateLimiter.Allow() {
+	// Rate limit check (nil limiter means unlimited).
+	if s.rateLimiter != nil && !s.rateLimiter.Allow() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		writeExtError(w, nil, ErrCodeInternal, "rate limited")
@@ -287,7 +297,12 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.api.HandleRequest(&req)
+	var resp *Response
+	if isAdminMethod(req.Method) && s.adminAPI != nil {
+		resp = s.adminAPI.HandleAdminRequest(&req)
+	} else {
+		resp = s.api.HandleRequest(&req)
+	}
 	writeExtJSON(w, resp)
 }
 
@@ -367,10 +382,11 @@ func ExtAuthMiddleware(secret string) MiddlewareFunc {
 }
 
 // ExtRateLimitMiddleware creates a middleware that enforces rate limiting.
+// When rl is nil, all requests are allowed (no rate limiting).
 func ExtRateLimitMiddleware(rl *RateLimiter) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !rl.Allow() {
+			if rl != nil && !rl.Allow() {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				json.NewEncoder(w).Encode(map[string]interface{}{

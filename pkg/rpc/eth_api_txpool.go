@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/crypto"
 )
 
 // TxPoolBackend extends the base Backend interface with transaction pool
@@ -44,27 +43,6 @@ func NewTxPoolAPI(backend Backend) *TxPoolAPI {
 	}
 }
 
-// computeTxHash computes the keccak256 hash of a raw transaction byte slice.
-// For typed transactions (EIP-2718), the hash covers the type byte + payload.
-// For legacy transactions, it covers the full RLP encoding.
-func computeTxHash(rawBytes []byte) types.Hash {
-	return types.BytesToHash(crypto.Keccak256(rawBytes))
-}
-
-// decodeTxType returns the transaction type byte for typed transactions,
-// or LegacyTxType for legacy RLP-encoded transactions.
-func decodeTxType(rawBytes []byte) byte {
-	if len(rawBytes) == 0 {
-		return types.LegacyTxType
-	}
-	// EIP-2718: if the first byte is in [0x00, 0x7f], it's a typed tx envelope.
-	if rawBytes[0] <= 0x7f {
-		return rawBytes[0]
-	}
-	// Otherwise it's a legacy RLP-encoded transaction (starts with 0xc0+).
-	return types.LegacyTxType
-}
-
 // decodeRawTransaction decodes a hex-encoded raw transaction into a
 // Transaction object. It performs basic structural validation.
 func decodeRawTransaction(rawHex string) (*types.Transaction, []byte, error) {
@@ -73,17 +51,10 @@ func decodeRawTransaction(rawHex string) (*types.Transaction, []byte, error) {
 		return nil, nil, fmt.Errorf("empty transaction data")
 	}
 
-	// Determine transaction type.
-	txType := decodeTxType(rawBytes)
-
-	// For now, wrap the raw bytes into a LegacyTx.
-	// A complete implementation would RLP-decode each tx type properly.
-	// We preserve the raw bytes for hash computation.
-	tx := types.NewTransaction(&types.LegacyTx{
-		Data: rawBytes,
-	})
-
-	_ = txType // acknowledged; full decoding deferred
+	tx, err := types.DecodeTxRLP(rawBytes)
+	if err != nil {
+		return nil, nil, err
+	}
 	return tx, rawBytes, nil
 }
 
@@ -129,13 +100,10 @@ func (api *TxPoolAPI) SendRawTransaction(req *Request) *Response {
 		return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
 	}
 
-	tx, rawBytes, err := decodeRawTransaction(dataHex)
+	tx, _, err := decodeRawTransaction(dataHex)
 	if err != nil {
 		return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
 	}
-
-	// Compute the proper hash from the raw bytes for consistency.
-	txHash := computeTxHash(rawBytes)
 
 	// Submit to the backend pool.
 	if err := api.backend.SendTransaction(tx); err != nil {
@@ -151,7 +119,7 @@ func (api *TxPoolAPI) SendRawTransaction(req *Request) *Response {
 	api.addToPending(sender, tx)
 	api.mu.Unlock()
 
-	return successResponse(req.ID, encodeHash(txHash))
+	return successResponse(req.ID, encodeHash(tx.Hash()))
 }
 
 // GetTransactionByHash returns transaction info by hash, checking both
@@ -271,6 +239,41 @@ func (api *TxPoolAPI) Content(req *Request) *Response {
 		Queued:  formatTxPoolMap(api.queued),
 	}
 	return successResponse(req.ID, result)
+}
+
+// TxPoolInspectResult is the response payload for txpool_inspect.
+type TxPoolInspectResult struct {
+	Pending map[string]map[string]string `json:"pending"`
+	Queued  map[string]map[string]string `json:"queued"`
+}
+
+// Inspect returns a textual summary of each transaction in the pool,
+// suitable for human inspection.
+func (api *TxPoolAPI) Inspect(req *Request) *Response {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+
+	result := &TxPoolInspectResult{
+		Pending: formatTxPoolInspect(api.pending),
+		Queued:  formatTxPoolInspect(api.queued),
+	}
+	return successResponse(req.ID, result)
+}
+
+// formatTxPoolInspect converts an internal sender->txs map into the human-readable
+// txpool_inspect format: address -> nonce -> "value: gasPrice gas".
+func formatTxPoolInspect(txMap map[types.Address][]*types.Transaction) map[string]map[string]string {
+	result := make(map[string]map[string]string)
+	for addr, txs := range txMap {
+		addrHex := encodeAddress(addr)
+		nonceMap := make(map[string]string)
+		for _, tx := range txs {
+			nonceStr := encodeUint64(tx.Nonce())
+			nonceMap[nonceStr] = fmt.Sprintf("%s: %s gas", encodeBigInt(tx.Value()), encodeUint64(tx.Gas()))
+		}
+		result[addrHex] = nonceMap
+	}
+	return result
 }
 
 // formatTxPoolMap converts an internal sender->txs map into the JSON-RPC

@@ -484,6 +484,9 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
+	// Sync txpool state with the new head so pending/queued txs are re-evaluated.
+	b.node.txPool.Reset(bc.State())
+
 	blockHash := block.Hash()
 	slog.Info("engine_newPayload: accepted",
 		"blockNumber", payload.BlockNumber,

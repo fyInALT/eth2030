@@ -11,6 +11,17 @@ import (
 	"github.com/eth2030/eth2030/core/vm"
 )
 
+// balTrackerOrNil converts a typed *bal.AccessTracker to the vm.BALTracker
+// interface. When t is nil it returns a true nil interface, preventing the
+// classic Go typed-nil-interface pitfall that would make a nil check pass
+// while the underlying pointer is nil.
+func balTrackerOrNil(t *bal.AccessTracker) vm.BALTracker {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
 const (
 	// TxGas is the base gas cost of a transaction (21000).
 	TxGas uint64 = 21000
@@ -167,21 +178,17 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		// The tracker is created BEFORE execution so opcodes record state
 		// accesses (storage reads, storage changes, address touches) during
 		// EVM interpretation.
-		var tracker *bal.AccessTracker
-		if balActive {
-			tracker = bal.NewTracker()
-		}
-
-		// Capture pre-state for balance/nonce diffing (existing behavior).
 		var (
 			preBalances map[types.Address]*big.Int
 			preNonces   map[types.Address]uint64
 		)
+		var tracker *bal.AccessTracker
 		if balActive {
+			tracker = bal.NewTracker()
 			preBalances, preNonces = capturePreState(statedb, tx)
 		}
 
-		receipt, usedGas, err := applyTransactionWithBAL(p.config, p.getHash, statedb, header, tx, gasPool, tracker)
+		receipt, usedGas, err := applyTransactionWithBAL(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker))
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx, err)
 		}
@@ -545,6 +552,13 @@ func applyTransactionWithBAL(config *ChainConfig, getHash vm.GetHashFunc, stated
 // and applyTransactionWithBAL. When tracker is non-nil, it is passed to
 // applyMessage for EIP-7928 opcode-level state access recording.
 func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+	// Recover sender from ECDSA signature if not already cached.
+	if tx.Sender() == nil && config.ChainID != nil {
+		signer := types.NewLondonSigner(config.ChainID.Uint64())
+		if addr, err := signer.Sender(tx); err == nil {
+			tx.SetSender(addr)
+		}
+	}
 	msg := TransactionToMessage(tx)
 
 	snapshot := statedb.Snapshot()

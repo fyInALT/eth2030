@@ -89,7 +89,7 @@ func TestEthGetBlockByNumber_NonExistent(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent block")
 	}
 }
@@ -127,7 +127,7 @@ func TestEthGetBlockByHash_Invalid(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for invalid block hash")
 	}
 }
@@ -533,7 +533,7 @@ func TestEthGetTransactionByHash_NotFound(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
 	}
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent tx")
 	}
 }

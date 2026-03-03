@@ -249,7 +249,7 @@ func TestConformance_GetBlockByHash_NotFound(t *testing.T) {
 	resp := conformanceCall(t, api, "eth_getBlockByHash",
 		"0x0000000000000000000000000000000000000000000000000000000000000000", false)
 	requireSuccess(t, resp)
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent block")
 	}
 }
@@ -291,7 +291,7 @@ func TestConformance_GetBlockByNumber_NotFound(t *testing.T) {
 
 	resp := conformanceCall(t, api, "eth_getBlockByNumber", "0x9999", false)
 	requireSuccess(t, resp)
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for non-existent block")
 	}
 }
@@ -369,7 +369,7 @@ func TestConformance_GetTransactionByHash_NotFound(t *testing.T) {
 	resp := conformanceCall(t, api, "eth_getTransactionByHash",
 		"0x0000000000000000000000000000000000000000000000000000000000001234")
 	requireSuccess(t, resp)
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for missing transaction")
 	}
 }
@@ -431,7 +431,7 @@ func TestConformance_GetTransactionReceipt_NotFound(t *testing.T) {
 	resp := conformanceCall(t, api, "eth_getTransactionReceipt",
 		"0x0000000000000000000000000000000000000000000000000000000000000000")
 	requireSuccess(t, resp)
-	if resp.Result != nil {
+	if !isNullResult(resp.Result) {
 		t.Fatal("expected nil result for missing receipt")
 	}
 }
@@ -645,7 +645,7 @@ func TestConformance_SendRawTransaction_Valid(t *testing.T) {
 	mb := newConformanceBackend()
 	api := NewEthAPI(mb)
 
-	resp := conformanceCall(t, api, "eth_sendRawTransaction", "0xdeadbeefcafe")
+	resp := conformanceCall(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
 	requireSuccess(t, resp)
 
 	txHash := mustString(t, resp)
@@ -676,7 +676,7 @@ func TestConformance_SendRawTransaction_BackendError(t *testing.T) {
 	mb2 := &sendErrBackend{mockBackend: mb, sendErr: errors.New("nonce too low")}
 
 	api := NewEthAPI(mb2)
-	resp := conformanceCall(t, api, "eth_sendRawTransaction", "0xdeadbeef")
+	resp := conformanceCall(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
 	requireError(t, resp, ErrCodeInternal)
 }
 

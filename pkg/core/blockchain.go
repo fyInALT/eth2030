@@ -101,11 +101,15 @@ func NewBlockchain(config *ChainConfig, genesis *types.Block, statedb *state.Mem
 	bc.blockCache[hash] = genesis
 	bc.canonCache[genesis.NumberU64()] = hash
 
-	// Persist genesis to rawdb.
-	bc.writeBlock(genesis)
-	rawdb.WriteCanonicalHash(db, genesis.NumberU64(), hash)
-	rawdb.WriteHeadBlockHash(db, hash)
-	rawdb.WriteHeadHeaderHash(db, hash)
+	// Check if chain already exists in rawdb (e.g. after restart).
+	existing, err := rawdb.ReadCanonicalHash(db, 0)
+	if err != nil || existing != hash {
+		// Fresh start: persist genesis and set head pointers.
+		bc.writeBlock(genesis)
+		rawdb.WriteCanonicalHash(db, genesis.NumberU64(), hash)
+		rawdb.WriteHeadBlockHash(db, hash)
+		rawdb.WriteHeadHeaderHash(db, hash)
+	}
 
 	return bc, nil
 }
@@ -128,8 +132,14 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 
 	header := block.Header()
 
-	// Find parent.
+	// Find parent: check cache first, then fall back to rawdb.
 	parent := bc.blockCache[header.ParentHash]
+	if parent == nil {
+		parent = bc.readBlock(header.ParentHash)
+		if parent != nil {
+			bc.blockCache[header.ParentHash] = parent
+		}
+	}
 	if parent == nil {
 		return fmt.Errorf("%w: parent %v", ErrUnknownParent, header.ParentHash)
 	}
@@ -303,9 +313,17 @@ func (bc *Blockchain) GetBlockByNumber(number uint64) *types.Block {
 	defer bc.mu.RUnlock()
 	hash, ok := bc.canonCache[number]
 	if !ok {
-		return nil
+		// Fallback: try rawdb canonical hash.
+		h, err := rawdb.ReadCanonicalHash(bc.db, number)
+		if err != nil {
+			return nil
+		}
+		hash = h
 	}
-	return bc.blockCache[hash]
+	if b, ok2 := bc.blockCache[hash]; ok2 {
+		return b
+	}
+	return bc.readBlock(hash)
 }
 
 // CurrentBlock returns the head of the canonical chain.
@@ -453,6 +471,13 @@ func (bc *Blockchain) stateAt(block *types.Block) (state.StateDB, error) {
 		chain = append(chain, current)
 		parent, ok := bc.blockCache[current.ParentHash()]
 		if !ok {
+			// Fallback: try rawdb.
+			parent = bc.readBlock(current.ParentHash())
+			if parent != nil {
+				bc.blockCache[current.ParentHash()] = parent
+			}
+		}
+		if parent == nil {
 			return nil, fmt.Errorf("%w: missing ancestor at %v", ErrStateNotFound, current.ParentHash())
 		}
 		current = parent
@@ -802,7 +827,20 @@ func (bc *Blockchain) ChainLength() uint64 {
 func (bc *Blockchain) GetReceipts(blockHash types.Hash) []*types.Receipt {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	return bc.receiptCache[blockHash]
+	if r, ok := bc.receiptCache[blockHash]; ok {
+		return r
+	}
+	// Fallback: read from rawdb (e.g. after restart).
+	num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
+	if err != nil {
+		return nil
+	}
+	block := bc.readBlock(blockHash)
+	var txs []*types.Transaction
+	if block != nil {
+		txs = block.Transactions()
+	}
+	return bc.readReceiptsFromDB(num, blockHash, txs)
 }
 
 // GetBlockReceipts returns the receipts for the canonical block at the given number.
@@ -811,16 +849,42 @@ func (bc *Blockchain) GetBlockReceipts(number uint64) []*types.Receipt {
 	defer bc.mu.RUnlock()
 	hash, ok := bc.canonCache[number]
 	if !ok {
-		return nil
+		// Fallback: try rawdb canonical hash.
+		h, err := rawdb.ReadCanonicalHash(bc.db, number)
+		if err != nil {
+			return nil
+		}
+		hash = h
 	}
-	return bc.receiptCache[hash]
+	if r, ok2 := bc.receiptCache[hash]; ok2 {
+		return r
+	}
+	// Fallback: read from rawdb.
+	block := bc.readBlock(hash)
+	var txs []*types.Transaction
+	if block != nil {
+		txs = block.Transactions()
+	}
+	return bc.readReceiptsFromDB(number, hash, txs)
 }
 
 // GetLogs returns all logs from receipts for the block identified by hash.
 func (bc *Blockchain) GetLogs(blockHash types.Hash) []*types.Log {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	receipts := bc.receiptCache[blockHash]
+	receipts, ok := bc.receiptCache[blockHash]
+	if !ok {
+		// Fallback: read from rawdb.
+		num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
+		if err == nil {
+			block := bc.readBlock(blockHash)
+			var txs []*types.Transaction
+			if block != nil {
+				txs = block.Transactions()
+			}
+			receipts = bc.readReceiptsFromDB(num, blockHash, txs)
+		}
+	}
 	var logs []*types.Log
 	for _, receipt := range receipts {
 		logs = append(logs, receipt.Logs...)
@@ -832,11 +896,29 @@ func (bc *Blockchain) GetLogs(blockHash types.Hash) []*types.Log {
 func (bc *Blockchain) GetTransactionLookup(txHash types.Hash) (blockHash types.Hash, blockNumber uint64, txIndex uint64, found bool) {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	entry, ok := bc.txLookup[txHash]
-	if !ok {
+	if entry, ok := bc.txLookup[txHash]; ok {
+		return entry.BlockHash, entry.BlockNumber, entry.TxIndex, true
+	}
+	// Fallback: try rawdb tx lookup index.
+	num, err := rawdb.ReadTxLookup(bc.db, txHash)
+	if err != nil {
 		return types.Hash{}, 0, 0, false
 	}
-	return entry.BlockHash, entry.BlockNumber, entry.TxIndex, true
+	hash, err := rawdb.ReadCanonicalHash(bc.db, num)
+	if err != nil {
+		return types.Hash{}, 0, 0, false
+	}
+	// Find the transaction index within the block.
+	block := bc.readBlock(hash)
+	if block == nil {
+		return types.Hash{}, 0, 0, false
+	}
+	for i, tx := range block.Transactions() {
+		if tx.Hash() == txHash {
+			return hash, num, uint64(i), true
+		}
+	}
+	return types.Hash{}, 0, 0, false
 }
 
 // HistoryOldestBlock returns the oldest block number for which block bodies
@@ -883,6 +965,106 @@ func (bc *Blockchain) writeTxLookups(txs []*types.Transaction, blockNumber uint6
 	for _, tx := range txs {
 		rawdb.WriteTxLookup(bc.db, tx.Hash(), blockNumber)
 	}
+}
+
+// rlpItemSize returns the encoded byte length of the next RLP item in data.
+// Returns 0 for empty or malformed input.
+func rlpItemSize(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	b := data[0]
+	switch {
+	case b < 0x80:
+		return 1
+	case b <= 0xB7:
+		return 1 + int(b-0x80)
+	case b <= 0xBF:
+		lenOfLen := int(b - 0xB7)
+		if len(data) < 1+lenOfLen {
+			return 0
+		}
+		var l int
+		for i := 0; i < lenOfLen; i++ {
+			l = (l << 8) | int(data[1+i])
+		}
+		return 1 + lenOfLen + l
+	case b <= 0xF7:
+		return 1 + int(b-0xC0)
+	default:
+		lenOfLen := int(b - 0xF7)
+		if len(data) < 1+lenOfLen {
+			return 0
+		}
+		var l int
+		for i := 0; i < lenOfLen; i++ {
+			l = (l << 8) | int(data[1+i])
+		}
+		return 1 + lenOfLen + l
+	}
+}
+
+// readReceiptsFromDB reads and decodes receipts from rawdb for the given block.
+// txs is used to restore derived fields (TxHash, GasUsed) not stored in RLP.
+// Called with bc.mu held (read or write).
+func (bc *Blockchain) readReceiptsFromDB(num uint64, hash types.Hash, txs []*types.Transaction) []*types.Receipt {
+	data, err := rawdb.ReadReceipts(bc.db, num, hash)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	// Decode the concatenated receipt RLP encodings produced by writeReceipts.
+	var receipts []*types.Receipt
+	for len(data) > 0 {
+		var itemSize int
+		if data[0] < 0x80 {
+			// Typed receipt: type byte followed by an RLP list.
+			if len(data) < 2 {
+				break
+			}
+			listSize := rlpItemSize(data[1:])
+			if listSize <= 0 || 1+listSize > len(data) {
+				break
+			}
+			itemSize = 1 + listSize
+		} else {
+			// Legacy receipt: plain RLP list.
+			itemSize = rlpItemSize(data)
+			if itemSize <= 0 || itemSize > len(data) {
+				break
+			}
+		}
+		r, err := types.DecodeReceiptRLP(data[:itemSize])
+		if err != nil {
+			break
+		}
+		receipts = append(receipts, r)
+		data = data[itemSize:]
+	}
+	if len(receipts) == 0 {
+		return nil
+	}
+	// Restore derived fields not persisted in the consensus RLP encoding.
+	for i, r := range receipts {
+		r.BlockHash = hash
+		r.BlockNumber = new(big.Int).SetUint64(num)
+		r.TransactionIndex = uint(i)
+		if i < len(txs) {
+			r.TxHash = txs[i].Hash()
+		}
+		if i == 0 {
+			r.GasUsed = r.CumulativeGasUsed
+		} else {
+			r.GasUsed = r.CumulativeGasUsed - receipts[i-1].CumulativeGasUsed
+		}
+		for j, log := range r.Logs {
+			log.BlockHash = hash
+			log.BlockNumber = num
+			log.TxHash = r.TxHash
+			log.TxIndex = uint(i)
+			log.Index = uint(j)
+		}
+	}
+	return receipts
 }
 
 // makeGenesis is a helper for creating a genesis block with the given gas limit and base fee.
