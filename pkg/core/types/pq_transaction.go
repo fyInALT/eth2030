@@ -216,7 +216,7 @@ func (tx *PQTransaction) VerifyPQSignature() bool {
 }
 
 // TxData interface implementation for PQTransaction.
-func (pq *PQTransaction) txType() byte          { return PQTransactionType }
+func (pq *PQTransaction) txType() byte           { return PQTransactionType }
 func (pq *PQTransaction) chainID() *big.Int      { return pq.ChainID }
 func (pq *PQTransaction) accessList() AccessList { return nil }
 func (pq *PQTransaction) data() []byte           { return pq.Data }

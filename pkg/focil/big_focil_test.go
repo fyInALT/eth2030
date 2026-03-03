@@ -44,9 +44,9 @@ func testTxWithPrice(sender types.Address, gas uint64, price int64) *types.Trans
 
 func TestSenderHexPartition(t *testing.T) {
 	tests := []struct {
-		name      string
-		addr      types.Address
-		wantPart  uint8
+		name     string
+		addr     types.Address
+		wantPart uint8
 	}{
 		{"0x0_ prefix", addrWithPrefix(0x00), 0},
 		{"0x1_ prefix", addrWithPrefix(0x10), 1},
