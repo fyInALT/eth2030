@@ -56,6 +56,7 @@ var (
 type StateProcessor struct {
 	config  *ChainConfig
 	getHash vm.GetHashFunc
+	slasher PaymasterSlasher // optional: slashes paymasters on bad settlement (AA-1.3)
 }
 
 // NewStateProcessor creates a new state processor.
@@ -66,6 +67,13 @@ func NewStateProcessor(config *ChainConfig) *StateProcessor {
 // SetGetHash sets the block hash lookup function for the BLOCKHASH opcode.
 func (p *StateProcessor) SetGetHash(fn vm.GetHashFunc) {
 	p.getHash = fn
+}
+
+// SetSlasher wires a PaymasterSlasher into the processor. When set, the
+// processor will call SlashOnBadSettlement whenever a frame tx paymaster
+// fails to cover gas after execution (AA-1.3).
+func (p *StateProcessor) SetSlasher(s PaymasterSlasher) {
+	p.slasher = s
 }
 
 // Process executes all transactions in a block sequentially and returns the receipts.
@@ -188,7 +196,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 			preBalances, preNonces = capturePreState(statedb, tx)
 		}
 
-		receipt, usedGas, err := applyTransactionWithBAL(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker))
+		receipt, usedGas, err := applyTransactionFull(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker), p.slasher)
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx, err)
 		}
@@ -539,19 +547,25 @@ func ApplyTransactionWithBAL(config *ChainConfig, statedb state.StateDB, header 
 
 // applyTransaction is the internal implementation that accepts an optional GetHash function.
 func applyTransaction(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
-	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil)
+	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil, nil)
 }
 
 // applyTransactionWithBAL is like applyTransaction but injects the BAL tracker
 // into the EVM so that opcodes record state accesses for EIP-7928.
 func applyTransactionWithBAL(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
-	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker)
+	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker, nil)
 }
 
-// applyTransactionInternal is the shared implementation for applyTransaction
-// and applyTransactionWithBAL. When tracker is non-nil, it is passed to
-// applyMessage for EIP-7928 opcode-level state access recording.
-func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+// applyTransactionFull is like applyTransactionWithBAL but also accepts a
+// PaymasterSlasher for EIP-8141 paymaster slashing (AA-1.3).
+func applyTransactionFull(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher PaymasterSlasher) (*types.Receipt, uint64, error) {
+	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker, slasher)
+}
+
+// applyTransactionInternal is the shared implementation for all applyTransaction
+// variants. tracker enables EIP-7928 BAL recording; slasher enables EIP-8141
+// paymaster slashing on bad gas settlement.
+func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher PaymasterSlasher) (*types.Receipt, uint64, error) {
 	// Enforce I+ fork guard for PQ transactions.
 	rules := config.Rules(header.Number, config.IsMerge(), header.Time)
 	if tx.Type() == types.PQTransactionType && !rules.IsIPlus {
@@ -572,6 +586,8 @@ func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, state
 		}
 	}
 	msg := TransactionToMessage(tx)
+	// AA-1.3: wire slasher so applyMessage can slash paymasters on bad settlement.
+	msg.Slasher = slasher
 
 	snapshot := statedb.Snapshot()
 
@@ -1181,6 +1197,13 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 			if frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
 				statedb.AddBalance(msg.From, deduction)
 				statedb.SubBalance(frameCtx.Payer, deduction)
+				// AA-1.3: if the payer's balance went negative, they failed to cover
+				// gas — slash the paymaster.
+				if msg.Slasher != nil {
+					if bal := statedb.GetBalance(frameCtx.Payer); bal.Sign() < 0 {
+						_ = msg.Slasher.SlashOnBadSettlement(frameCtx.Payer)
+					}
+				}
 			}
 		}
 	} else if isCreate {

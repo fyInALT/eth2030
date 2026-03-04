@@ -109,6 +109,11 @@ type Config struct {
 	MinerGasPrice       uint64 // --miner.gasprice
 	MinerGasLimit       uint64 // --miner.gaslimit
 
+	// FrameMempoolTier selects the frame tx ruleset: "conservative" (default) or "aggressive".
+	// conservative: VERIFY frame gas capped at 50K, no external calls.
+	// aggressive:   VERIFY frame gas capped at 200K when a staked paymaster is detected.
+	FrameMempoolTier string // --frame-mempool
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -172,6 +177,9 @@ func DefaultConfig() Config {
 		Metrics:     false,
 		MetricsAddr: "0.0.0.0",
 		MetricsPort: 9001,
+
+		// Frame mempool (EIP-8141 AA-2.3)
+		FrameMempoolTier: "conservative",
 	}
 }
 
@@ -209,6 +217,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxPeers < 0 {
 		return fmt.Errorf("config: invalid max peers: %d", c.MaxPeers)
+	}
+	if c.FrameMempoolTier != "" && c.FrameMempoolTier != "conservative" && c.FrameMempoolTier != "aggressive" {
+		return fmt.Errorf("config: invalid frame-mempool tier %q (must be conservative or aggressive)", c.FrameMempoolTier)
 	}
 	if c.Verbosity < 0 || c.Verbosity > 5 {
 		return fmt.Errorf("config: verbosity must be 0-5, got %d", c.Verbosity)
