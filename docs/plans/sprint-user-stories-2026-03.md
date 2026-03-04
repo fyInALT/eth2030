@@ -24,14 +24,14 @@
 
 | Epic | Title | Stories | Total SP |
 |------|-------|---------|----------|
-| EP-1 | Account Abstraction & EIP-8141 | US-AA-1 … US-AA-5 | 42 |
-| EP-2 | EL State Tree & RISC-V VM | US-EL-1 … US-EL-4 | 36 |
-| EP-3 | Post-Quantum Cryptography | US-PQ-1 … US-PQ-6 (incl. 5a/5b split) | 55 |
-| EP-4 | leanConsensus & leanroadmap | US-LEAN-1 … US-LEAN-8 | 68 |
-| EP-5 | Vitalik Roadmap Gaps | US-GAP-1 … US-GAP-7 | 73 |
+| EP-1 | Account Abstraction & EIP-8141 | US-AA-1 … US-AA-5 | 47 |
+| EP-2 | EL State Tree, BLAKE3 & RISC-V VM | US-BL-1, US-EL-2 … US-EL-4 | 45 |
+| EP-3 | Post-Quantum Cryptography | US-PQ-2 … US-PQ-6 (incl. 5a/5b split) | 58 |
+| EP-4 | leanConsensus & leanroadmap | US-LEAN-1 … US-LEAN-6, US-LEAN-3a/3b, US-LEAN-8 | 69 |
+| EP-5 | Vitalik Roadmap Gaps | US-GAP-1 … US-GAP-5, US-GAP-7 | 70 |
 | EP-6 | Block Building Pipeline | US-BB-1 … US-BB-2 | 18 |
-| EP-7 | EIP Specification Compliance | US-SPEC-1 … US-SPEC-7 | 63 |
-| **Total** | | **40 stories** | **355 SP** |
+| EP-7 | EIP Specification Compliance | US-SPEC-1, US-SPEC-3 … US-SPEC-7 | 63 |
+| **Total** | | **37 stories** | **370 SP** |
 
 ---
 
@@ -48,7 +48,27 @@ The following corrections were applied after cross-checking all stories against 
 | EP-4/EP-6 | EIP-7805 IL equivocation detection, satisfaction algorithm, engine API status — not covered | Added US-SPEC-4 in EP-7 |
 | EP-5 | EIP-7928 BAL ordering, ITEM_COST=2000 sizing, BlockAccessIndex assignment, retention policy — not covered | Added US-SPEC-5 in EP-7 |
 | (missing) | EIP-7706 3D fee vector transaction type — **entirely absent** | Added US-SPEC-6 in EP-7 |
-| EP-2 | EIP-7864 get_tree_key correctness, header data packing, code chunking accuracy — not covered by US-EL-1 (which only covers hash function) | Added US-SPEC-7 in EP-7 |
+| EP-2 | EIP-7864 get_tree_key correctness, header data packing, code chunking accuracy — not covered by US-BL-1 (which covers hash function) | Added US-SPEC-7 in EP-7 |
+
+### Consolidation Pass (2026-03-04)
+
+| Change | Stories Affected | Result |
+|--------|-----------------|--------|
+| **Merge A** | US-EL-1 (BLAKE3 trie, 8 SP) + US-PQ-1 (BLAKE3 PQ crypto, 5 SP) | Combined into **US-BL-1** "BLAKE3 Hash Backend Integration" (12 SP). Moved out of EP-2 and EP-3; added as first story of EP-2 (renamed to "EL State Tree, BLAKE3 & RISC-V VM"). |
+| **Merge B** | US-SPEC-1 (frame receipt, 8 SP) + US-SPEC-2 (TXPARAM*, 5 SP) | Combined into **US-SPEC-1** "EIP-8141 Frame TX Full Compliance" (13 SP). SPEC-2.1 → SPEC-1.5, SPEC-2.2 → SPEC-1.6. US-SPEC-2 removed from EP-7. |
+| **Merge C** | US-GAP-3 (Random attesters, 13 SP) + US-LEAN-7 (Reduced committee fork-choice, 8 SP) | **US-GAP-3** retained at 13 SP; LEAN-7 devnet test content absorbed into GAP-3.4 DoD. LEAN-7.1 and LEAN-7.2 were duplicates of GAP-3.1 and GAP-3.3. US-LEAN-7 removed from EP-4. |
+| **Merge D** | US-GAP-5 (Minimmit, 13 SP) + US-GAP-6 (3SF backoff, 5 SP) | **US-GAP-5** retained at 13 SP; GAP-6.2 simulation content absorbed into GAP-5.3 acceptance criteria. GAP-5 description and acceptance criteria updated to mention is_justifiable_slot backoff and 1000-slot simulation. US-GAP-6 removed from EP-5. |
+| **Split E** | US-LEAN-3 "Separate PQ Aggregator Role" (labeled 13 SP, tasks summed to 14 SP) | Split into **US-LEAN-3a** "PQ Aggregator Role — Types & Duty Selection" (6 SP, LEAN-3.1 + LEAN-3.2) and **US-LEAN-3b** "PQ Aggregator Role — Collection & Aggregation" (8 SP, LEAN-3.3 + LEAN-3.4). |
+
+### SP Label Fixes
+
+| Story | Old SP Label | Correct SP (task sum) |
+|-------|--------------|-----------------------|
+| US-AA-3 | 13 | 12 (3+5+1+2+1=12) |
+| US-AA-5 | 8 | 9 (2+5+2=9) |
+| US-EL-3 | 8 | 10 (2+5+3=10) |
+| US-EL-4 | 8 | 10 (5+2+3=10) |
+| US-GAP-7 | 8 | 10 (5+2+3=10) |
 
 ---
 
@@ -164,7 +184,7 @@ The following corrections were applied after cross-checking all stories against 
 **User Story**:
 > As a **mempool operator**, I want the txpool to execute VERIFY frames in a read-only EVM before admitting frame transactions, so that transactions that never call APPROVE are rejected before wasting block gas.
 
-**Priority**: P0 | **Story Points**: 13 | **Sprint Target**: Sprint 1
+**Priority**: P0 | **Story Points**: 12 | **Sprint Target**: Sprint 1
 
 ### Tasks
 
@@ -240,7 +260,7 @@ The following corrections were applied after cross-checking all stories against 
 **User Story**:
 > As a **wallet developer**, I want Falcon-512 signature verification in VERIFY frames to use the NTT precompile for acceleration, so that PQ-secured accounts have gas costs competitive with ECDSA accounts (~200K gas vs 3000).
 
-**Priority**: P2 | **Story Points**: 8 | **Sprint Target**: Sprint 3
+**Priority**: P2 | **Story Points**: 9 | **Sprint Target**: Sprint 3
 
 ### Tasks
 
@@ -269,50 +289,57 @@ The following corrections were applied after cross-checking all stories against 
 
 ---
 
-# EPIC 2 — EL State Tree & RISC-V VM
+# EPIC 2 — EL State Tree, BLAKE3 & RISC-V VM
 
-**Goal**: Align the binary trie hash with EIP-7864 spec, implement RISC-V precompile guests, and wire the RISC-V execution path for production deployment.
+**Goal**: Integrate BLAKE3 as a shared hash backend for both the binary trie and PQ crypto layer, align the binary trie with EIP-7864 spec, implement RISC-V precompile guests, and wire the RISC-V execution path for production deployment.
 
 ---
 
-## US-EL-1: Blake3 Hash Backend for Binary Trie
+## US-BL-1: BLAKE3 Hash Backend Integration
 
 **INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
 
 **User Story**:
-> As a **light client developer**, I want the binary trie to use BLAKE3 as its node hash function (per EIP-7864 draft spec), so that Merkle branch verification is 3× faster than Keccak-256 and compatible with the spec test vectors.
+> As a **protocol engineer**, I want BLAKE3 integrated as a shared hash backend for both the binary trie (EIP-7864) and the PQ crypto layer (hash-based signatures), so that both subsystems benefit from the same vetted dependency (lukechampine.com/blake3) without duplicated work.
 
-**Priority**: P0 | **Story Points**: 8 | **Sprint Target**: Sprint 1
+**Priority**: P0 | **Story Points**: 12 | **Sprint Target**: Sprint 1
 
 ### Tasks
 
-#### Task EL-1.1 — Implement `hasher_blake3.go`
-- **Description**: Create `pkg/trie/bintrie/hasher_blake3.go` using `lukechampine.com/blake3`. Implement `BinaryHasher.hashInternalBLAKE3(left, right []byte) []byte` following the EIP-7864 spec hash rule: `hash(left || right)` where hash = BLAKE3-256. Add `HashFunctionBlake3` constant to the hasher config enum.
+#### Task BL-1.1 — Implement binary trie BLAKE3 hasher
+- **Description**: Create `pkg/trie/bintrie/hasher_blake3.go` using `lukechampine.com/blake3`. Implement `BinaryHasher.hashBLAKE3(left, right []byte)` following the EIP-7864 hash rule: `hash(left||right)=BLAKE3-256`. Add `HashFunctionBlake3` constant. Add `lukechampine.com/blake3` to `pkg/go.mod`.
 - **Estimated Effort**: 3 SP
 - **Assignee**: Go Engineer (trie)
-- **Testing Method**: Unit test: known binary tree of 4 leaves, verify BLAKE3 root matches reference vector. Run `go test ./trie/bintrie/... -run TestBlake3Hasher`.
-- **Definition of Done**: BLAKE3 hasher passes reference vector test. `go test ./trie/bintrie/...` fully green. `go get lukechampine.com/blake3` added to `pkg/go.mod`.
+- **Testing Method**: Unit test: known 4-leaf tree BLAKE3 root matches reference vector. `go test ./trie/bintrie/... -run TestBlake3Hasher`.
+- **Definition of Done**: `go test ./trie/bintrie/...` green. Dependency in `go.mod`.
 
-#### Task EL-1.2 — Benchmark BLAKE3 vs SHA-256 for binary trie
-- **Description**: Add `pkg/trie/bintrie/hasher_bench_test.go` benchmarking BLAKE3 vs SHA-256 for: single-node hash, 1000-leaf subtree hash, parallel hashing with goroutines. Expected: BLAKE3 ≥ 2× throughput on modern hardware.
+#### Task BL-1.2 — Implement PQ crypto BLAKE3 backend
+- **Description**: In `pkg/crypto/pqc/hash_backend.go`, replace `Blake3Backend.Hash()` stub (SHA-256 approximation) with `blake3.Sum256(data)` from `lukechampine.com/blake3`.
 - **Estimated Effort**: 2 SP
-- **Assignee**: QA Engineer
-- **Testing Method**: `go test -bench=BenchmarkBinaryHasher ./trie/bintrie/`. Results logged to CI artifact.
-- **Definition of Done**: Benchmark table in `docs/plans/bintrie-hash-comparison.md`. BLAKE3 result ≥ 2× SHA-256 or deviation explained.
+- **Assignee**: Go Engineer (pqc)
+- **Testing Method**: Unit test: BLAKE3 of empty string = `AF1349B9...` (known vector). Compare with `refs/hash-sig/`. `go test ./crypto/pqc/... -run TestBlake3Backend` green.
+- **Definition of Done**: `go test ./crypto/pqc/... -run TestBlake3Backend` green.
 
-#### Task EL-1.3 — Fork-configurable hash function
-- **Description**: Add `BinaryTreeHashFunc` field to chain config (default `SHA256` for backward-compat, `BLAKE3` when `EIP7864FinalHash` fork is active). Wire into `pkg/trie/bintrie/bintrie.go` `NewBinaryTrie()` constructor. No existing test tree roots should change unless the fork is explicitly activated.
+#### Task BL-1.3 — Fork-configurable hash function for trie
+- **Description**: Add `BinaryTreeHashFunc` field to chain config (default `SHA256`, `BLAKE3` when `EIP7864FinalHash` fork active). Wire into `pkg/trie/bintrie/bintrie.go` `NewBinaryTrie()`. No existing tree roots change unless fork explicitly activated.
 - **Estimated Effort**: 2 SP
 - **Assignee**: Go Engineer (trie + core)
-- **Testing Method**: Test: create trie with SHA-256, switch config to BLAKE3, verify tree hashes differ. Verify no regression in existing EF state tests (36,126 passing).
+- **Testing Method**: Fork switch test; verify 36,126 EF state tests still pass.
 - **Definition of Done**: Fork gate working. `go test ./core/eftest/...` still 36,126/36,126. Config documented.
 
-#### Task EL-1.4 — Wire state expiry epoch into StemNode read path
-- **Description**: In `pkg/core/state/state_expiry.go` `TouchAccount()` and `TouchStorage()`, call `bintrie.UpdateLeafMetadata(stem, subindex=2, epoch)` to record last-access epoch in the reserved metadata slot (subindex 2–63). This wires the expiry tracking mentioned as TODO in `vitalik-el-state-vm-status-2026-03.md`.
+#### Task BL-1.4 — Wire state expiry epoch into StemNode
+- **Description**: In `pkg/core/state/state_expiry.go` `TouchAccount()` and `TouchStorage()`, call `bintrie.UpdateLeafMetadata(stem, subindex=2, epoch)` to record last-access epoch in the reserved metadata slot (subindex 2–63).
 - **Estimated Effort**: 3 SP
 - **Assignee**: Go Engineer (state + trie)
-- **Testing Method**: Unit test: read account → TouchAccount called → StemNode subindex 2 updated with current epoch. Integration test: expire account after N epochs, verify subindex 2 reflects last access correctly.
+- **Testing Method**: Unit test: read account → `TouchAccount` called → StemNode subindex 2 updated. `go test ./core/state/... -run TestStateExpiryEpochTracking` green.
 - **Definition of Done**: `go test ./core/state/... -run TestStateExpiryEpochTracking` green. No regression in existing state tests.
+
+#### Task BL-1.5 — BLAKE3 benchmark and hash recommendation doc
+- **Description**: Add `pkg/trie/bintrie/hasher_bench_test.go` and `pkg/crypto/pqc/hash_bench_test.go` benchmarking BLAKE3 vs SHA-256 for trie hashing and PQ signing respectively. Document results in `docs/plans/blake3-benchmark-2026-03.md`.
+- **Estimated Effort**: 2 SP
+- **Assignee**: QA Engineer
+- **Testing Method**: `go test -bench=. ./trie/bintrie/ ./crypto/pqc/`.
+- **Definition of Done**: BLAKE3 ≥ 2× SHA-256 or deviation explained. Benchmark doc created.
 
 ---
 
@@ -357,7 +384,7 @@ The following corrections were applied after cross-checking all stories against 
 **User Story**:
 > As a **DApp developer**, I want to deploy RISC-V bytecode to a contract address using a `RVCREATE` opcode, so that users can write high-performance contracts in RISC-V without going through the precompile registry.
 
-**Priority**: P1 | **Story Points**: 8 | **Sprint Target**: Sprint 2
+**Priority**: P1 | **Story Points**: 10 | **Sprint Target**: Sprint 2
 
 ### Tasks
 
@@ -391,7 +418,7 @@ The following corrections were applied after cross-checking all stories against 
 **User Story**:
 > As a **validator node operator**, I want the KZG backend to use the official Ethereum trusted setup (from `go-eth-kzg`) instead of the placeholder test SRS (s=42), so that blob commitments, proofs, and PeerDAS cell operations are cryptographically valid on mainnet.
 
-**Priority**: P0 | **Story Points**: 8 | **Sprint Target**: Sprint 1
+**Priority**: P0 | **Story Points**: 10 | **Sprint Target**: Sprint 1
 
 ### Tasks
 
@@ -422,41 +449,7 @@ The following corrections were applied after cross-checking all stories against 
 
 # EPIC 3 — Post-Quantum Cryptography
 
-**Goal**: Complete the PQ cryptography stack — real BLAKE3, Lean Available Chain mode, NTT precompile alignment, STARK mempool wiring — so ETH2030 is ready for the PQ-available chain milestone.
-
----
-
-## US-PQ-1: Real BLAKE3 Hash Backend Integration
-
-**INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
-
-**User Story**:
-> As a **validator running PQ attestations**, I want the BLAKE3 hash backend to use the real BLAKE3 algorithm (not a SHA-256 approximation), so that hash-based signatures achieve the performance targets (≤ 500 μs signing) that leanroadmap has proven achievable.
-
-**Priority**: P1 | **Story Points**: 5 | **Sprint Target**: Sprint 1
-
-### Tasks
-
-#### Task PQ-1.1 — Replace `Blake3Backend` stub with real implementation
-- **Description**: In `pkg/crypto/pqc/hash_backend.go`, replace the `Blake3Backend.Hash()` stub (which uses two rounds of SHA-256 with domain labels) with `blake3.Sum256(data)` from `lukechampine.com/blake3`. Update `go.mod` to add the dependency.
-- **Estimated Effort**: 2 SP
-- **Assignee**: Go Engineer (pqc)
-- **Testing Method**: Unit test: BLAKE3 of empty string `= AF1349B9...` (known vector). Compare with reference from `refs/hash-sig/`. `go test ./crypto/pqc/... -run TestBlake3Backend`.
-- **Definition of Done**: BLAKE3 output matches reference vectors. `go get lukechampine.com/blake3` in `pkg/go.mod`. Tests green.
-
-#### Task PQ-1.2 — Hash backend comparative benchmark
-- **Description**: Add `pkg/crypto/pqc/hash_bench_test.go` benchmarking Poseidon1, Poseidon2, BLAKE3, SHA-256, Keccak-256 at 32-byte input size and 1KB input size. Document in `docs/plans/pq-hash-benchmark-2026-03.md`.
-- **Estimated Effort**: 2 SP
-- **Assignee**: QA Engineer
-- **Testing Method**: `go test -bench=BenchmarkHashBackends ./crypto/pqc/`. Verify BLAKE3 ≥ 2× SHA-256 throughput.
-- **Definition of Done**: Benchmark doc created. Results archived as CI artifact. Team reviews and documents hash function recommendation.
-
-#### Task PQ-1.3 — Add Poseidon2 extra-rounds conservative variant
-- **Description**: In `pkg/zkvm/poseidon2.go`, add `Poseidon2ExtraRoundsParams` struct with `ExternalRounds=12` (up from 8) and `InternalRounds=84` (up from 56). Expose `NewPoseidon2Conservative()` constructor. Document security margin.
-- **Estimated Effort**: 2 SP
-- **Assignee**: ZK Engineer (zkvm)
-- **Testing Method**: Unit test: extra-rounds hash of known input matches expected output from an external reference. Regression test: standard Poseidon2 unchanged.
-- **Definition of Done**: `go test ./zkvm/... -run TestPoseidon2ExtraRounds` green. Godoc explains security rationale.
+**Goal**: Complete the PQ cryptography stack — Lean Available Chain mode, NTT precompile alignment, STARK mempool wiring — so ETH2030 is ready for the PQ-available chain milestone. BLAKE3 backend is implemented in US-BL-1 (EP-2).
 
 ---
 
@@ -753,14 +746,14 @@ The following corrections were applied after cross-checking all stories against 
 
 ---
 
-## US-LEAN-3: Separate PQ Aggregator Role
+## US-LEAN-3a: PQ Aggregator Role — Types & Duty Selection
 
 **INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
 
 **User Story**:
-> As a **consensus protocol engineer**, I want a distinct "PQ aggregator" network role that collects per-validator XMSS signatures and produces a single aggregate — decoupled from block production — so that ETH2030 can participate in pq-devnet-3 which requires this separation.
+> As a **consensus protocol engineer**, I want the PQ aggregator role types and duty selection logic defined, so that we can run the pq-devnet-3 configuration which requires this separation.
 
-**Priority**: P1 | **Story Points**: 13 | **Sprint Target**: Sprint 3
+**Priority**: P1 | **Story Points**: 6 | **Sprint Target**: Sprint 3
 
 ### Tasks
 
@@ -777,6 +770,20 @@ The following corrections were applied after cross-checking all stories against 
 - **Assignee**: Consensus Engineer
 - **Testing Method**: Unit test: 1000 validators, 100 slots → verify each slot has 1–4 aggregators, proposer ≠ aggregator in all cases. Verify determinism: same seed → same selection.
 - **Definition of Done**: `go test ./consensus/... -run TestAggregatorDutySelection` green. Determinism verified.
+
+---
+
+## US-LEAN-3b: PQ Aggregator Role — Collection & Aggregation
+
+**INVEST**: I⚠ N✓ V✓ E✓ S✓ T✓
+> **I-note**: Depends on **US-LEAN-3a** for the types and interfaces (can use stubs during parallel development). Within Sprint 3 it is schedulable after LEAN-3a's types land.
+
+**User Story**:
+> As a **consensus protocol engineer**, I want the PQ aggregator to collect per-validator XMSS signatures and produce a STARK aggregate, so that the aggregation phase is fully decoupled from block production as required by pq-devnet-3.
+
+**Priority**: P1 | **Story Points**: 8 | **Sprint Target**: Sprint 3
+
+### Tasks
 
 #### Task LEAN-3.3 — Implement `XMSSSignatureBundle` collection protocol
 - **Description**: In `pkg/consensus/pq_aggregator.go`, implement `CollectSignatures(ctx, slot, validators) ([]XMSSSignatureBundle, error)`: broadcasts an aggregation request on P2P topic `pq-agg-request/1`, collects XMSS signature bundles from validators via response, waits up to `t=3s` of slot. Wire to `pkg/p2p/gossip_topics.go`.
@@ -896,40 +903,6 @@ The following corrections were applied after cross-checking all stories against 
 
 ---
 
-## US-LEAN-7: LMD GHOST with ~256 Validators (Reduced-Committee Fork Choice)
-
-**INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
-
-**User Story**:
-> As a **consensus protocol researcher**, I want a reduced-committee LMD GHOST variant supporting ~256 validators per slot, so that 4-second slots remain viable at scale by limiting the attestation set that fork-choice must process each slot.
-
-**Priority**: P2 | **Story Points**: 8 | **Sprint Target**: Sprint 5
-
-### Tasks
-
-#### Task LEAN-7.1 — Implement random attester subset sampling
-- **Description**: In `pkg/consensus/committee_assignment.go`, add `SampleRandomAttesters(slot, beaconState, n int) []ValidatorIndex` that selects `n` validators from the full committee using a Fisher-Yates shuffle seeded by `keccak(slot || epoch_randao)`. This replaces the full 128K committee when in reduced-committee mode.
-- **Estimated Effort**: 3 SP
-- **Assignee**: Consensus Engineer
-- **Testing Method**: Unit test: 1000 validators, sample 256 → verify 256 unique indices, uniform distribution (Chi-squared p > 0.05). Determinism test: same seed → same sample. `go test ./consensus/... -run TestRandomAttesterSampling`.
-- **Definition of Done**: Sampling correct. Uniform distribution. Deterministic. Tests green.
-
-#### Task LEAN-7.2 — Update fork-choice weight for sampled attesters
-- **Description**: In `pkg/consensus/ssf.go` and LMD GHOST fork-choice, when `ReducedCommitteeMode` is enabled, scale attestation weights by `full_committee_size / sample_size` to maintain correct vote weight accounting. This ensures 256 sampled validators have the same effective weight as the full committee.
-- **Estimated Effort**: 3 SP
-- **Assignee**: Consensus Engineer
-- **Testing Method**: Fork-choice test: 256 sampled validators all voting for block A → block A wins. 128 for A, 128 for B → A wins (50%+ needed). `go test ./consensus/... -run TestReducedCommitteeForkChoice`.
-- **Definition of Done**: Fork-choice weight scaling correct. Liveness and safety properties maintained in simulation. Tests green.
-
-#### Task LEAN-7.3 — Config flag and devnet test
-- **Description**: Add `--reduced-committee-size=256` CLI flag (default 0 = disabled, uses full committee). Kurtosis devnet config `4s-slots-reduced-committee.yaml` with 256-validator sample. Run 100 slots, verify no finality failures.
-- **Estimated Effort**: 2 SP
-- **Assignee**: DevOps Engineer + Consensus Engineer
-- **Testing Method**: Devnet: 100 slots, 4s, 256-validator sample. `cast bn` shows advancing block number. CL logs show `finalized_slot` progressing every 3 slots (3SF).
-- **Definition of Done**: Devnet test passes. Finality achieved consistently.
-
----
-
 ## US-LEAN-8: Exit Queue Flexibility (Minslack)
 
 **INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
@@ -1042,7 +1015,7 @@ The following corrections were applied after cross-checking all stories against 
 
 **Priority**: Medium | **Story Points**: 13 | **Sprint Target**: Sprint 2
 
-_Note: This story has significant overlap with US-LEAN-7. Where that story focuses on fork-choice, this story focuses on the attestation format and aggregation changes._
+_Note: US-LEAN-7 (Reduced-Committee Fork Choice) has been merged into this story. GAP-3.3 covers fork-choice weight for sampled attesters (previously LEAN-7.2), and GAP-3.4 covers the config flag and devnet validation (previously LEAN-7.3). LEAN-7.1 was a duplicate of GAP-3.1._
 
 ### Tasks
 
@@ -1067,12 +1040,12 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 - **Testing Method**: Fork-choice test: 256 sampled attesters, all vote for head → head has full effective weight. `go test ./consensus/... -run TestSampledForkChoiceWeight`.
 - **Definition of Done**: Weight scaling correct. 2-phase slot mode working. Tests green.
 
-#### Task GAP-3.4 — Config flag and backward-compatibility
-- **Description**: Add `--attester-sample-size=0|256|512|1024` flag (0 = full committee, default). Attestation format detection: full committee mode uses existing `Attestation` type; sampled mode uses `SampledAttestation`. Both must coexist during transition period.
+#### Task GAP-3.4 — Config flag, backward-compatibility, and devnet validation
+- **Description**: Add `--attester-sample-size=0|256|512|1024` flag (0 = full committee, default). Attestation format detection: full committee mode uses existing `Attestation` type; sampled mode uses `SampledAttestation`. Both must coexist during transition period. Add Kurtosis devnet config `4s-slots-reduced-committee.yaml` with 256-validator sample, run 100 slots, verify no finality failures.
 - **Estimated Effort**: 2 SP
 - **Assignee**: Go Engineer (consensus + cmd)
-- **Testing Method**: Test: node in full committee mode sends attestations → peer in sampled mode accepts and weights correctly. `go test ./consensus/... -run TestAttesterModeInterop`.
-- **Definition of Done**: Both modes work. Interop test passes.
+- **Testing Method**: Test: node in full committee mode sends attestations → peer in sampled mode accepts and weights correctly. `go test ./consensus/... -run TestAttesterModeInterop`. Devnet: 100 slots, 4s, 256-validator sample — `cast bn` shows advancing block number, CL logs show `finalized_slot` progressing every 3 slots.
+- **Definition of Done**: Both modes work. Interop test passes. Devnet test passes with finality achieved consistently.
 
 ---
 
@@ -1110,12 +1083,12 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 
 ---
 
-## US-GAP-5: Minimmit One-Round BFT (EP-4, US-4.1)
+## US-GAP-5: Minimmit One-Round BFT + 3SF Backoff (EP-4, US-4.1)
 
 **INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
 
 **User Story**:
-> As a **consensus protocol researcher**, I want a `MinimmitEngine` implementing one-round BFT for faster finality, so that ETH2030 has an alternative to the 4-phase SSF when sub-1-second finality is the priority.
+> As a **consensus protocol researcher**, I want a `MinimmitEngine` implementing one-round BFT with the `is_justifiable_slot` backoff algorithm from 3SF-mini integrated, so that ETH2030 has an alternative to the 4-phase SSF when sub-1-second finality is the priority, with the bounded-finality guarantee preserved via the square/oblong slot progression.
 
 **Priority**: Low | **Story Points**: 13 | **Sprint Target**: Sprint 5
 
@@ -1135,39 +1108,12 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 - **Testing Method**: Test: switch finality mode via config → correct engine instantiated. `go test ./consensus/... -run TestFinalityModeSelection`.
 - **Definition of Done**: Mode selection working. Default SSF mode unchanged. Tests pass.
 
-#### Task GAP-5.3 — Minimmit + 3SF integration
-- **Description**: Wire `MinimmitEngine` to use the 3SF `is_justifiable_slot()` backoff algorithm from `refs/research/3sf-mini/consensus.py`: only trigger finality vote at slots where `delta <= 5 || is_perfect_square(delta) || is_oblong(delta)`. This prevents premature finality votes during network partitions.
+#### Task GAP-5.3 — Minimmit + 3SF integration and bounded-finality simulation
+- **Description**: Wire `MinimmitEngine` to use the 3SF `is_justifiable_slot()` backoff algorithm from `refs/research/3sf-mini/consensus.py`: only trigger finality vote at slots where `delta <= 5 || is_perfect_square(delta) || is_oblong(delta)`. This prevents premature finality votes during network partitions. Also add `isJustifiableSlot(delta uint64) bool` to `pkg/consensus/ssf.go` replacing the always-on justification trigger. Validate with a 1000-slot simulation: worst-case honest network must achieve finality within `delta ≤ 25` slots (oblong/square progression), validating the bounded-finality guarantee.
 - **Estimated Effort**: 2 SP
 - **Assignee**: Consensus Engineer
-- **Testing Method**: Unit test: 100 consecutive slots, verify Minimmit only fires at justifiable slots (delta ≤5, 1,4,9,16,25,2,6,12,20). `go test ./consensus/... -run TestMinimmit3SFBackoff`.
-- **Definition of Done**: Backoff algorithm correct. Tests pass. Timing matches `refs/research/3sf-mini/consensus.py` output.
-
----
-
-## US-GAP-6: 3SF `is_justifiable_slot` Backoff Implementation
-
-**INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
-
-**User Story**:
-> As a **consensus protocol engineer**, I want the `is_justifiable_slot()` backoff algorithm from the 3SF-mini reference implementation integrated into ETH2030's SSF, so that justification is not attempted every slot (reducing BFT overhead) while maintaining finality within bounded time.
-
-**Priority**: Medium | **Story Points**: 5 | **Sprint Target**: Sprint 3
-
-### Tasks
-
-#### Task GAP-6.1 — Implement `is_justifiable_slot` in Go
-- **Description**: In `pkg/consensus/ssf.go`, add `isJustifiableSlot(delta uint64) bool` following the 3SF-mini Python reference: `return delta <= 5 || isPerfectSquare(delta) || isOblong(delta)` where `isOblong(n)` means n = k*(k+1) for some integer k. Replace the current always-on justification trigger with this function.
-- **Estimated Effort**: 3 SP
-- **Assignee**: Consensus Engineer
-- **Testing Method**: Unit test: verify output for delta = 0,1,2,3,4,5,6,9,12,16,20,25 matches `refs/research/3sf-mini/consensus.py` output. `go test ./consensus/... -run TestIsJustifiableSlot`.
-- **Definition of Done**: Function output matches Python reference for all test inputs. SSF phase-2 only triggers at justifiable slots.
-
-#### Task GAP-6.2 — Validate finality timing with backoff
-- **Description**: Simulation test: 1000 slots, worst-case honest network → verify finality is always achieved within `delta ≤ 25` slots (from the oblong/square progression). This validates the bounded finality guarantee.
-- **Estimated Effort**: 2 SP
-- **Assignee**: QA Engineer (consensus)
-- **Testing Method**: Simulation in `pkg/consensus/ssf_simulation_test.go`. Every 1000-slot simulation must achieve finality. `go test ./consensus/... -run TestSSFBackoffBoundedFinality`.
-- **Definition of Done**: Bounded finality guaranteed. Simulation passes 10 runs without finality failures.
+- **Testing Method**: Unit test: 100 consecutive slots, verify Minimmit only fires at justifiable slots (delta ≤5, 1,4,9,16,25,2,6,12,20). `go test ./consensus/... -run TestMinimmit3SFBackoff`. Simulation: `pkg/consensus/ssf_simulation_test.go`, 1000 slots, 10 runs — all must achieve finality. `go test ./consensus/... -run TestSSFBackoffBoundedFinality`.
+- **Definition of Done**: Backoff algorithm correct. Timing matches `refs/research/3sf-mini/consensus.py` output. Bounded finality simulation passes 10 runs without failures.
 
 ---
 
@@ -1178,7 +1124,7 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 **User Story**:
 > As a **mainnet validator operator**, I want the BLS backend to use the `blst` library (supranational/blst) instead of the pure-Go backend, so that aggregate BLS verification reaches production-grade throughput (10K+ aggregates/sec needed for 1M attestations/slot).
 
-**Priority**: P0 | **Story Points**: 8 | **Sprint Target**: Sprint 1
+**Priority**: P0 | **Story Points**: 10 | **Sprint Target**: Sprint 1
 
 ### Tasks
 
@@ -1289,20 +1235,26 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 
 ---
 
-## US-SPEC-1: EIP-8141 Frame TX Receipt Structure & Cross-Frame Semantics
+## US-SPEC-1: EIP-8141 Frame TX Full Compliance
 
 **INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
 
 **User Story**:
-> As an **EVM engineer**, I want frame transaction receipts to use the correct 3-layer structure `[cumulative_gas_used, payer, [frame_receipt...]]` and TSTORE/TLOAD transient storage to be discarded between frames, so that ETH2030 is fully spec-compliant with EIP-8141 and produces receipts compatible with all block explorers and tooling.
+> As an **EVM engineer**, I want frame transaction receipts to use the correct 3-layer structure, TSTORE/TLOAD discarded between frames, and all 16 TXPARAM* parameter indices correctly implemented, so that ETH2030 is fully EIP-8141 spec-compliant.
 
-**Priority**: P0 | **Story Points**: 8 | **Sprint Target**: Sprint 1
+**Priority**: P0 | **Story Points**: 13 | **Sprint Target**: Sprint 2
 
 ### Acceptance Criteria
 - Frame tx receipt RLP encodes as `[cumulative_gas_used, payer, [[status, gas_used, logs], ...]]`
 - `TSTORE` written in frame N is not visible to frame N+1 (`TLOAD` returns zero)
 - `ORIGIN` opcode inside a frame returns the frame caller address, not the traditional tx sender
 - Frame mode SENDER (0x02) reverts immediately if `sender_approved == false` at entry
+- All 16 parameter indices from the EIP-8141 spec table are implemented and testable
+- `TXPARAMLOAD(0x08, 0)` returns `compute_sig_hash(tx)` — 32-byte signing hash
+- `TXPARAMLOAD(0x09, 0)` returns `len(tx.frames)`
+- `TXPARAMLOAD(0x10, 0)` returns currently executing frame index
+- `TXPARAMLOAD(0x15, frame_index)` returns frame execution status (0=fail, 1=success)
+- `TXPARAMSIZE` returns correct byte length for each parameter
 
 ### Tasks
 
@@ -1334,35 +1286,14 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 - **Testing Method**: Test: frame tx with SENDER frame before a VERIFY+APPROVE frame → SENDER frame reverts. After VERIFY+APPROVE, SENDER frame executes. `go test ./core/vm/... -run TestFrameSenderModePrecondition`.
 - **Definition of Done**: Precondition enforced. Error message matches spec text. Test green.
 
----
-
-## US-SPEC-2: EIP-8141 TXPARAM* Complete Opcode Table
-
-**INVEST**: I✓ N✓ V✓ E✓ S✓ T✓
-
-**User Story**:
-> As a **smart contract developer**, I want all 16 EIP-8141 TXPARAM* parameter indices correctly implemented (including `compute_sig_hash` at 0x08, `len(frames)` at 0x09, frame status at 0x15), so that wallets and AA accounts can reliably introspect any field of the current frame transaction.
-
-**Priority**: P1 | **Story Points**: 5 | **Sprint Target**: Sprint 2
-
-### Acceptance Criteria
-- All 16 parameter indices from the EIP-8141 spec table are implemented and testable
-- `TXPARAMLOAD(0x08, 0)` returns `compute_sig_hash(tx)` — 32-byte signing hash
-- `TXPARAMLOAD(0x09, 0)` returns `len(tx.frames)`
-- `TXPARAMLOAD(0x10, 0)` returns currently executing frame index
-- `TXPARAMLOAD(0x15, frame_index)` returns frame execution status (0=fail, 1=success)
-- `TXPARAMSIZE` returns correct byte length for each parameter
-
-### Tasks
-
-#### Task SPEC-2.1 — Audit and implement missing TXPARAM indices
+#### Task SPEC-1.5 — Audit and implement missing TXPARAM indices
 - **Description**: In `pkg/core/vm/eip8141_opcodes.go`, compare the existing `TXPARAMLOAD` switch against the 16-entry spec table. Add any missing cases: particularly `in1=0x06` (max cost), `in1=0x07` (blob hash count), `in1=0x08` (`compute_sig_hash`), `in1=0x09` (`len(frames)`), `in1=0x10` (current frame index), `in1=0x15` (frame status). Implement `compute_sig_hash(tx)` as `keccak256(RLP(chain_id, nonce, sender, frames, ...))`.
 - **Estimated Effort**: 3 SP
 - **Assignee**: Go Engineer (vm)
 - **Testing Method**: Table-driven test in `pkg/core/vm/eip8141_txparam_test.go` covering all 16 parameter indices. Each test case: construct a frame tx with known fields, execute `TXPARAMLOAD(in1, in2)`, assert expected value. `go test ./core/vm/... -run TestTXPARAMAllIndices`.
 - **Definition of Done**: All 16 parameter indices covered. Table-driven test passes. EF state tests unaffected.
 
-#### Task SPEC-2.2 — TXPARAMCOPY and TXPARAMSIZE completeness
+#### Task SPEC-1.6 — TXPARAMCOPY and TXPARAMSIZE completeness
 - **Description**: In `pkg/core/vm/eip8141_opcodes.go`, verify `TXPARAMCOPY` (0xb2) correctly handles variable-size parameters (frame data via `in1=0x12`). Verify `TXPARAMSIZE` (0xb1) returns 32 for all fixed-size params and the correct dynamic size for `in1=0x12` (frame data) and blob hashes. Add tests for dynamic-size copy.
 - **Estimated Effort**: 2 SP
 - **Assignee**: Go Engineer (vm)
@@ -1605,14 +1536,14 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 
 | Sprint | Focus | Stories | SP |
 |--------|-------|---------|-----|
-| Sprint 1 | Critical P0 blockers + EIP receipt/cross-frame | US-AA-1, US-AA-3, US-EL-4, US-PQ-1, US-PQ-3, US-LEAN-1, US-GAP-7, US-SPEC-1 | 79 |
-| Sprint 2 | Lean interop + EIP spec compliance | US-AA-2, US-EL-2, US-EL-3, US-PQ-2, US-LEAN-2, US-GAP-3, US-SPEC-2, US-SPEC-3, US-SPEC-4, US-SPEC-5, US-SPEC-7 | 79 |
-| Sprint 3 | PQ hardening + 3D gas + gap fixes | US-AA-4, US-AA-5, US-PQ-4, US-PQ-6, US-GAP-1, US-GAP-2, US-GAP-6, US-SPEC-6 | 70 |
-| Sprint 4 | Lean consensus + STARK circuit | US-PQ-5a, US-PQ-5b, US-LEAN-3, US-LEAN-5, US-LEAN-6, US-GAP-4 | 67 |
-| Sprint 5 | Networking + finality | US-LEAN-4, US-LEAN-7, US-LEAN-8, US-GAP-5, US-BB-1 | 47 |
-| Sprint 6 | Research + polish | US-EL-1, US-BB-2 | 13 |
+| Sprint 1 | P0 blockers | US-AA-1(13), US-AA-3(12), US-BL-1(12), US-EL-4(10), US-PQ-3(13), US-GAP-7(10), US-LEAN-1(8) | 78 |
+| Sprint 2 | Interop + core spec | US-AA-2(8), US-EL-2(13), US-EL-3(10), US-PQ-2(8), US-LEAN-2(8), US-GAP-3(13), US-SPEC-1(13) | 73 |
+| Sprint 3 | Spec compliance + gaps | US-PQ-4(8), US-SPEC-3(8), US-SPEC-4(8), US-SPEC-5(13), US-SPEC-7(8), US-GAP-1(13), US-GAP-2(8) | 66 |
+| Sprint 4 | PQ hardening + 3D gas | US-AA-4(5), US-AA-5(9), US-PQ-6(8), US-GAP-5(13), US-SPEC-6(13), US-LEAN-3a(6), US-LEAN-3b(8) | 62 |
+| Sprint 5 | STARK + networking | US-PQ-5a(8), US-PQ-5b(13), US-LEAN-5(8), US-LEAN-6(13), US-GAP-4(13) | 55 |
+| Sprint 6 | Research + finality + P2P | US-LEAN-4(13), US-LEAN-8(5), US-BB-1(13), US-BB-2(5) | 36 |
 
-> **Note**: Sprints 1 and 2 are each ~79 SP — teams should plan for 2-week sprints with 6–8 engineers, or split further. Sprint 1 P0 stories (US-PQ-3 NTT address fix, US-EL-4 KZG backend, US-SPEC-1 frame receipts) are hard blockers and should be tackled by senior engineers first.
+> **Note**: Sprint 1 (78 SP) contains the hard P0 blockers: US-PQ-3 (NTT address fix), US-EL-4 (KZG backend), US-BL-1 (BLAKE3 backend), US-GAP-7 (BLS backend). These should be tackled by senior engineers first. US-SPEC-1 (frame TX full compliance, 13 SP) moved to Sprint 2 — it was previously a Sprint 1 entry but was deprioritised to keep Sprint 1 focused on infrastructure. US-GAP-6 and US-LEAN-7 have been merged into US-GAP-5 and US-GAP-3 respectively and are no longer separate sprint items.
 
 ---
 
@@ -1620,12 +1551,12 @@ _Note: This story has significant overlap with US-LEAN-7. Where that story focus
 
 | Role | Primary Stories |
 |------|----------------|
-| **Go Engineer (vm/core)** | US-GAP-1, US-GAP-2, US-EL-2, US-EL-3, US-PQ-3, US-AA-3, US-BB-2 |
-| **Consensus Engineer** | US-LEAN-1, US-LEAN-2, US-LEAN-3, US-LEAN-6, US-LEAN-7, US-LEAN-8, US-GAP-3, US-GAP-5, US-GAP-6 |
-| **ZK Engineer** | US-PQ-5, US-PQ-6, US-EL-2, US-PQ-1 |
+| **Go Engineer (vm/core)** | US-GAP-1, US-GAP-2, US-EL-2, US-EL-3, US-PQ-3, US-AA-3, US-BB-2, US-BL-1 |
+| **Consensus Engineer** | US-LEAN-1, US-LEAN-2, US-LEAN-3a, US-LEAN-3b, US-LEAN-6, US-LEAN-8, US-GAP-3, US-GAP-5 |
+| **ZK Engineer** | US-PQ-5a, US-PQ-5b, US-PQ-6, US-EL-2 |
 | **P2P Engineer** | US-LEAN-4, US-LEAN-5, US-GAP-4, US-PQ-4, US-BB-1 |
 | **Security Engineer** | US-AA-5, US-PQ-3, US-AA-1 |
-| **Protocol Researcher** | US-BB-2, US-LEAN-6, US-GAP-6 |
+| **Protocol Researcher** | US-BB-2, US-LEAN-6 |
 | **QA / DevOps Engineer** | US-EL-4, US-LEAN-1, US-GAP-7, US-PQ-4, all benchmark tasks |
 
 ---
