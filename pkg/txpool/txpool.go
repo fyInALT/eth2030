@@ -58,23 +58,27 @@ var (
 	ErrBlobFeeCapBelowBaseFee = errors.New("blob fee cap less than blob base fee")
 	ErrNegativeGasPrice       = errors.New("negative gas price or fee cap")
 	ErrOversizedRLP           = errors.New("encoded transaction too large")
+	ErrUnstakedPaymaster      = errors.New("frame tx: VERIFY target is not a staked paymaster")
 )
 
 // Config holds TxPool configuration.
 type Config struct {
-	MaxSize       int      // Maximum number of transactions in pool
-	MaxPerSender  int      // Maximum pending per sender
-	MinGasPrice   *big.Int // Minimum gas price to accept
-	BlockGasLimit uint64   // Current block gas limit
+	MaxSize           int               // Maximum number of transactions in pool
+	MaxPerSender      int               // Maximum pending per sender
+	MinGasPrice       *big.Int          // Minimum gas price to accept
+	BlockGasLimit     uint64            // Current block gas limit
+	PaymasterRegistry PaymasterApprover // optional: nil disables paymaster check (AA-1.2)
+	PaymasterStrict   bool              // true = strict (default), false = off (AA-1.2)
 }
 
 // DefaultConfig returns sensible defaults for the pool.
 func DefaultConfig() Config {
 	return Config{
-		MaxSize:       MaxPoolSize,
-		MaxPerSender:  MaxPerSender,
-		MinGasPrice:   big.NewInt(1), // 1 wei minimum
-		BlockGasLimit: 30_000_000,
+		MaxSize:         MaxPoolSize,
+		MaxPerSender:    MaxPerSender,
+		MinGasPrice:     big.NewInt(1), // 1 wei minimum
+		BlockGasLimit:   30_000_000,
+		PaymasterStrict: true,
 	}
 }
 
@@ -171,8 +175,9 @@ func (l *txSortedList) Ready(baseNonce uint64) []*types.Transaction {
 type TxPool struct {
 	config      Config
 	state       StateReader
-	baseFee     *big.Int // current base fee, nil if unknown
-	blobBaseFee *big.Int // current blob base fee (EIP-4844), nil if unknown
+	codeReader  FrameStateReader // optional: enables VERIFY frame code check (AA-3.1)
+	baseFee     *big.Int         // current base fee, nil if unknown
+	blobBaseFee *big.Int         // current blob base fee (EIP-4844), nil if unknown
 
 	mu      sync.RWMutex
 	pending map[types.Address]*txSortedList // processable transactions
@@ -189,6 +194,15 @@ func New(config Config, state StateReader) *TxPool {
 		queue:   make(map[types.Address]*txSortedList),
 		lookup:  newTxLookup(),
 	}
+}
+
+// SetCodeReader wires a FrameStateReader into the pool, enabling lightweight
+// VERIFY frame pre-flight validation (code-existence check) per AA-3.1.
+// Must be called before the pool starts accepting frame transactions.
+func (pool *TxPool) SetCodeReader(r FrameStateReader) {
+	pool.mu.Lock()
+	pool.codeReader = r
+	pool.mu.Unlock()
 }
 
 // AddLocal adds a locally-submitted transaction to the pool.
@@ -427,6 +441,36 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		}
 		if hasSender && !hasVerify {
 			return errors.New("frame tx: SENDER frames require at least one VERIFY frame for approval")
+		}
+
+		// AA-1.2: Paymaster registry check — reject frame txs whose VERIFY
+		// target is an external address not in the staked paymaster registry.
+		// Only active when PaymasterRegistry is non-nil and PaymasterStrict is set.
+		if pool.config.PaymasterStrict && pool.config.PaymasterRegistry != nil {
+			sender := tx.FrameSender()
+			for _, f := range frames {
+				if f.Mode != types.ModeVerify || f.Target == nil {
+					continue
+				}
+				// External VERIFY target (different from sender) acts as paymaster.
+				if *f.Target != sender {
+					if !pool.config.PaymasterRegistry.IsApprovedPaymaster(*f.Target) {
+						return ErrUnstakedPaymaster
+					}
+				}
+			}
+		}
+
+		// AA-3.1: VERIFY frame code check — reject frame txs whose VERIFY
+		// target is an EOA (has no deployed code). Requires codeReader to be set.
+		if pool.codeReader != nil {
+			ftx := &types.FrameTx{
+				Sender: tx.FrameSender(),
+				Frames: frames,
+			}
+			if err := SimulateVerifyFrame(ftx, pool.codeReader); err != nil {
+				return err
+			}
 		}
 	}
 

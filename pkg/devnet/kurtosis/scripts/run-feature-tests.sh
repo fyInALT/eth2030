@@ -2,7 +2,7 @@
 # run-feature-tests.sh — Run devnet tests for ETH2030 features one by one.
 #
 # Usage:
-#   ./run-feature-tests.sh              # Run all 30 feature tests
+#   ./run-feature-tests.sh              # Run all 31 feature tests
 #   ./run-feature-tests.sh epbs focil   # Run specific features
 #   ./run-feature-tests.sh --list       # List available features
 #
@@ -54,6 +54,7 @@ FEATURES=(
   el-state
   el-tx-advanced
   el-gas-futures
+  frame-mempool
 )
 
 FEATURE_DESCRIPTIONS=(
@@ -87,6 +88,7 @@ FEATURE_DESCRIPTIONS=(
   "EL State — Binary Tree + VOPS + Endgame State + Misc Purges"
   "EL Tx Advanced — Tx Assertions + NTT Precompile + PQ Tx + Sharded Mempool"
   "EL Gas Futures — Long-Dated Gas Futures + Gigagas L1"
+  "Frame Mempool — EIP-8141 Frame Transactions (dual-tier, paymaster registry, VERIFY simulation)"
 )
 
 # Show usage

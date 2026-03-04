@@ -204,6 +204,9 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.Uint64Var(&cfg.MinerGasPrice, "miner.gasprice", cfg.MinerGasPrice, "minimum gas price for mining (wei)")
 	fs.Uint64Var(&cfg.MinerGasLimit, "miner.gaslimit", cfg.MinerGasLimit, "target gas ceiling for mined blocks")
 
+	// --- EIP-8141 Frame Mempool (AA-2.3) ---
+	fs.StringVar(&cfg.FrameMempoolTier, "frame-mempool", cfg.FrameMempoolTier, "frame tx mempool ruleset: conservative (50K VERIFY gas cap) or aggressive (200K with staked paymaster)")
+
 	return fs
 }
 

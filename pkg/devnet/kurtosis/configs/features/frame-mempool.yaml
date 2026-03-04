@@ -1,0 +1,31 @@
+# Frame Mempool — EIP-8141 Frame Transaction Support
+# Tests: frame tx type-0x6 acceptance, conservative/aggressive gas caps, paymaster registry, VERIFY simulation
+# Verify: blocks produced, txpool API healthy, EntryPoint accessible, frame tx type recognized
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - spamoor
+  - assertoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "Frame Mempool Load"
+      config:
+        throughput: 50
+        max_pending: 100
+        max_wallets: 50
+
+assertoor_params:
+  run_stability_check: true

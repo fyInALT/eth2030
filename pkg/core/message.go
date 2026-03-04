@@ -6,6 +6,13 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
+// PaymasterSlasher is called after a frame tx payer fails to cover gas (AA-1.3).
+// Implemented by core.PaymasterRegistry. Defined here alongside Message to keep
+// the interface in the same package as its consumer.
+type PaymasterSlasher interface {
+	SlashOnBadSettlement(addr types.Address) error
+}
+
 // Message represents a transaction message prepared for EVM execution.
 type Message struct {
 	From        types.Address
@@ -24,6 +31,9 @@ type Message struct {
 	FrameSender types.Address         // EIP-8141 frame tx sender (from FrameTx.Sender)
 	TxType      uint8                 // transaction type (for fork-specific processing)
 	TxHash      types.Hash            // transaction hash for log attribution
+	// Slasher is optional; when set it is called if a frame tx paymaster fails
+	// to cover gas (balance goes negative after deduction). See AA-1.3.
+	Slasher PaymasterSlasher
 }
 
 // TransactionToMessage converts a transaction into a Message for execution.
