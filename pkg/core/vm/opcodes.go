@@ -169,6 +169,10 @@ const (
 	RETURN       OpCode = 0xf3
 	DELEGATECALL OpCode = 0xf4
 	CREATE2      OpCode = 0xf5
+	// RVCREATE deploys RISC-V RV32IM bytecode to a deterministic address.
+	// initcode must begin with magic bytes 0xFE 0x52 0x56 (RV magic).
+	// Gas: 32,000 base + 200 × code_size (I+ fork, EL-3.1).
+	RVCREATE     OpCode = 0xf6
 	STATICCALL   OpCode = 0xfa
 	REVERT       OpCode = 0xfd
 	INVALID      OpCode = 0xfe
@@ -225,7 +229,7 @@ var opCodeNames = map[OpCode]string{
 	APPROVE:     "APPROVE",
 	TXPARAMLOAD: "TXPARAMLOAD", TXPARAMSIZE: "TXPARAMSIZE", TXPARAMCOPY: "TXPARAMCOPY",
 	CREATE: "CREATE", CALL: "CALL", CALLCODE: "CALLCODE", RETURN: "RETURN",
-	DELEGATECALL: "DELEGATECALL", CREATE2: "CREATE2",
+	DELEGATECALL: "DELEGATECALL", CREATE2: "CREATE2", RVCREATE: "RVCREATE",
 	STATICCALL: "STATICCALL", REVERT: "REVERT",
 	INVALID: "INVALID", SELFDESTRUCT: "SELFDESTRUCT",
 	DUPN: "DUPN", SWAPN: "SWAPN", EXCHANGE: "EXCHANGE",
