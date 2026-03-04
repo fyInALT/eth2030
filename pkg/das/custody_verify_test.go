@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -796,5 +797,92 @@ func TestFullChallengeResponseLifecycle(t *testing.T) {
 	p2 := cv.CalculatePenalty(nodeID, 2)
 	if p2 <= p1 {
 		t.Errorf("penalty should grow: p1=%d, p2=%d", p1, p2)
+	}
+}
+
+// --- VerifyCellKZGBatch tests (EL-4.2) ---
+
+// mockKZGBackend is a configurable KZGCeremonyBackend for testing.
+type mockKZGBackend struct {
+	cellProofResult bool
+	cellProofErr    error
+}
+
+func (m *mockKZGBackend) Name() string { return "mock" }
+func (m *mockKZGBackend) BlobToCommitment(blob []byte) ([crypto.KZGBytesPerCommitment]byte, error) {
+	return [crypto.KZGBytesPerCommitment]byte{}, nil
+}
+func (m *mockKZGBackend) VerifyBlobProof(blob, commitment, proof []byte) (bool, error) {
+	return true, nil
+}
+func (m *mockKZGBackend) ComputeCells(blob []byte) ([][crypto.KZGBytesPerCell]byte, error) {
+	return nil, nil
+}
+func (m *mockKZGBackend) VerifyCellProof(commitment, cell, proof []byte, cellIndex uint64) (bool, error) {
+	return m.cellProofResult, m.cellProofErr
+}
+
+func TestVerifyCellKZGBatchSuccess(t *testing.T) {
+	cv := NewCustodyVerifier(DefaultCustodyVerifyConfig())
+	cv.SetKZGBackend(&mockKZGBackend{cellProofResult: true})
+
+	comm := make([]byte, crypto.KZGBytesPerCommitment)
+	comm[0] = 0x80 // compression flag
+	cell := make([]byte, crypto.KZGBytesPerCell)
+	proof := make([]byte, crypto.KZGBytesPerProof)
+	proof[0] = 0x80
+
+	err := cv.VerifyCellKZGBatch(
+		[][]byte{comm, comm},
+		[][]byte{cell, cell},
+		[][]byte{proof, proof},
+		[]uint64{0, 1},
+	)
+	if err != nil {
+		t.Errorf("expected success, got %v", err)
+	}
+}
+
+func TestVerifyCellKZGBatchFailure(t *testing.T) {
+	cv := NewCustodyVerifier(DefaultCustodyVerifyConfig())
+	cv.SetKZGBackend(&mockKZGBackend{cellProofResult: false})
+
+	comm := make([]byte, crypto.KZGBytesPerCommitment)
+	comm[0] = 0x80
+	cell := make([]byte, crypto.KZGBytesPerCell)
+	proof := make([]byte, crypto.KZGBytesPerProof)
+	proof[0] = 0x80
+
+	err := cv.VerifyCellKZGBatch(
+		[][]byte{comm},
+		[][]byte{cell},
+		[][]byte{proof},
+		[]uint64{0},
+	)
+	if err == nil {
+		t.Error("expected failure for invalid proof, got nil")
+	}
+}
+
+func TestVerifyCellKZGBatchLengthMismatch(t *testing.T) {
+	cv := NewCustodyVerifier(DefaultCustodyVerifyConfig())
+	err := cv.VerifyCellKZGBatch(
+		[][]byte{nil, nil},
+		[][]byte{nil},
+		[][]byte{nil},
+		[]uint64{0},
+	)
+	if err == nil {
+		t.Error("expected length mismatch error")
+	}
+}
+
+func TestSetKZGBackendNilResetsToDefault(t *testing.T) {
+	cv := NewCustodyVerifier(DefaultCustodyVerifyConfig())
+	cv.SetKZGBackend(&mockKZGBackend{})
+	cv.SetKZGBackend(nil) // should reset to default
+	// Just ensure it doesn't panic and backend is non-nil.
+	if cv.kzg == nil {
+		t.Error("kzg backend should not be nil after SetKZGBackend(nil)")
 	}
 }

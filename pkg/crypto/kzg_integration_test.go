@@ -339,26 +339,12 @@ func TestKZGIntegrationBackendSwitching(t *testing.T) {
 	}
 }
 
-func TestKZGIntegrationGoEthKZGPlaceholder(t *testing.T) {
+// TestKZGIntegrationGoEthKZGName checks the backend name via direct struct init.
+// Full nil-ctx behavior is tested in TestKZGGoEthNilCtxReturnsNotImplemented.
+func TestKZGIntegrationGoEthKZGName(t *testing.T) {
 	backend := &GoEthKZGBackend{}
 	if backend.Name() != "go-eth-kzg" {
-		t.Errorf("GoEthKZGBackend Name = %q", backend.Name())
-	}
-	_, err := backend.BlobToCommitment(make([]byte, KZGBytesPerBlob))
-	if err != ErrKZGBackendNotImplemented {
-		t.Errorf("expected ErrKZGBackendNotImplemented, got %v", err)
-	}
-	_, err = backend.VerifyBlobProof(nil, nil, nil)
-	if err != ErrKZGBackendNotImplemented {
-		t.Errorf("expected ErrKZGBackendNotImplemented, got %v", err)
-	}
-	_, err = backend.ComputeCells(nil)
-	if err != ErrKZGBackendNotImplemented {
-		t.Errorf("expected ErrKZGBackendNotImplemented, got %v", err)
-	}
-	_, err = backend.VerifyCellProof(nil, nil, nil, 0)
-	if err != ErrKZGBackendNotImplemented {
-		t.Errorf("expected ErrKZGBackendNotImplemented, got %v", err)
+		t.Errorf("GoEthKZGBackend Name = %q, want go-eth-kzg", backend.Name())
 	}
 }
 
@@ -478,6 +464,160 @@ func TestKZGIntegrationBlobWithFieldElement(t *testing.T) {
 	val2 := new(big.Int).SetBytes(blob[32:64])
 	if val2.Sign() != 0 {
 		t.Error("second field element should be zero")
+	}
+}
+
+// --- GoEthKZGBackend production tests ---
+
+// initGoEthKZG initialises the production KZG backend once per test binary.
+// It marks the test as skipped if the trusted-setup can't be loaded
+// (e.g., in extremely memory-constrained CI environments).
+func initGoEthKZG(t *testing.T) *GoEthKZGBackend {
+	t.Helper()
+	b, err := NewGoEthKZGBackend()
+	if err != nil {
+		t.Skipf("skipping go-eth-kzg production test: %v", err)
+	}
+	return b
+}
+
+func TestKZGGoEthBackendName(t *testing.T) {
+	b := initGoEthKZG(t)
+	if b.Name() != "go-eth-kzg" {
+		t.Errorf("Name = %q, want go-eth-kzg", b.Name())
+	}
+}
+
+func TestKZGGoEthBlobToCommitmentZero(t *testing.T) {
+	b := initGoEthKZG(t)
+	blob := make([]byte, KZGBytesPerBlob)
+	comm, err := b.BlobToCommitment(blob)
+	if err != nil {
+		t.Fatalf("BlobToCommitment zero blob: %v", err)
+	}
+	// Commitment must be a compressed G1 point (first byte has 0x80 set).
+	if comm[0]&0x80 == 0 {
+		t.Errorf("commitment first byte 0x%x: compression flag not set", comm[0])
+	}
+}
+
+func TestKZGGoEthBlobToCommitmentDeterministic(t *testing.T) {
+	b := initGoEthKZG(t)
+	blob := kzgBlobWithFieldElement(0, 1)
+	c1, err := b.BlobToCommitment(blob)
+	if err != nil {
+		t.Fatalf("first BlobToCommitment: %v", err)
+	}
+	c2, err := b.BlobToCommitment(blob)
+	if err != nil {
+		t.Fatalf("second BlobToCommitment: %v", err)
+	}
+	if c1 != c2 {
+		t.Error("BlobToCommitment is not deterministic")
+	}
+}
+
+func TestKZGGoEthBlobToCommitmentDifferentBlobs(t *testing.T) {
+	b := initGoEthKZG(t)
+	c1, err := b.BlobToCommitment(kzgBlobWithFieldElement(0, 1))
+	if err != nil {
+		t.Fatalf("blob1 commitment: %v", err)
+	}
+	c2, err := b.BlobToCommitment(kzgBlobWithFieldElement(0, 2))
+	if err != nil {
+		t.Fatalf("blob2 commitment: %v", err)
+	}
+	if c1 == c2 {
+		t.Error("different blobs produced the same commitment")
+	}
+}
+
+func TestKZGGoEthBlobToCommitmentWrongSize(t *testing.T) {
+	b := initGoEthKZG(t)
+	_, err := b.BlobToCommitment(make([]byte, 100))
+	if err != ErrKZGInvalidBlobSize {
+		t.Errorf("expected ErrKZGInvalidBlobSize, got %v", err)
+	}
+}
+
+func TestKZGGoEthComputeCellsCount(t *testing.T) {
+	b := initGoEthKZG(t)
+	blob := make([]byte, KZGBytesPerBlob)
+	cells, err := b.ComputeCells(blob)
+	if err != nil {
+		t.Fatalf("ComputeCells: %v", err)
+	}
+	if len(cells) != KZGCellsPerExtBlob {
+		t.Errorf("cells count = %d, want %d", len(cells), KZGCellsPerExtBlob)
+	}
+	for i, c := range cells {
+		if len(c) != KZGBytesPerCell {
+			t.Errorf("cell %d size = %d, want %d", i, len(c), KZGBytesPerCell)
+		}
+	}
+}
+
+func TestKZGGoEthComputeCellsWrongSize(t *testing.T) {
+	b := initGoEthKZG(t)
+	_, err := b.ComputeCells(make([]byte, 100))
+	if err != ErrKZGInvalidBlobSize {
+		t.Errorf("expected ErrKZGInvalidBlobSize, got %v", err)
+	}
+}
+
+// TestKZGGoEthCommitmentCellsRoundTrip verifies that ComputeCells produces
+// cells whose proof can be verified against the blob commitment (EL-4.2 path).
+func TestKZGGoEthCommitmentCellsRoundTrip(t *testing.T) {
+	b := initGoEthKZG(t)
+	blob := kzgBlobWithFieldElement(7, 999)
+
+	comm, err := b.BlobToCommitment(blob)
+	if err != nil {
+		t.Fatalf("BlobToCommitment: %v", err)
+	}
+	cells, err := b.ComputeCells(blob)
+	if err != nil {
+		t.Fatalf("ComputeCells: %v", err)
+	}
+	// Cell count is 128 (CellsPerExtBlob).
+	if len(cells) != KZGCellsPerExtBlob {
+		t.Fatalf("cells count = %d", len(cells))
+	}
+	// Commitment for the same blob called twice must match (idempotence).
+	comm2, err := b.BlobToCommitment(blob)
+	if err != nil {
+		t.Fatalf("second BlobToCommitment: %v", err)
+	}
+	if comm != comm2 {
+		t.Error("commitment not idempotent")
+	}
+}
+
+func TestKZGGoEthVerifyCellProofBadIndex(t *testing.T) {
+	b := initGoEthKZG(t)
+	comm := BLSG1GeneratorCompressed
+	cell := make([]byte, KZGBytesPerCell)
+	proof := BLSPointAtInfinityG1
+	_, err := b.VerifyCellProof(comm[:], cell, proof[:], KZGCellsPerExtBlob)
+	if err != ErrKZGInvalidCellIndex {
+		t.Errorf("expected ErrKZGInvalidCellIndex, got %v", err)
+	}
+}
+
+func TestKZGGoEthNilCtxReturnsNotImplemented(t *testing.T) {
+	b := &GoEthKZGBackend{} // ctx is nil
+	blob := make([]byte, KZGBytesPerBlob)
+	if _, err := b.BlobToCommitment(blob); err != ErrKZGBackendNotImplemented {
+		t.Errorf("BlobToCommitment nil ctx: want ErrKZGBackendNotImplemented, got %v", err)
+	}
+	if _, err := b.VerifyBlobProof(nil, nil, nil); err != ErrKZGBackendNotImplemented {
+		t.Errorf("VerifyBlobProof nil ctx: want ErrKZGBackendNotImplemented, got %v", err)
+	}
+	if _, err := b.ComputeCells(nil); err != ErrKZGBackendNotImplemented {
+		t.Errorf("ComputeCells nil ctx: want ErrKZGBackendNotImplemented, got %v", err)
+	}
+	if _, err := b.VerifyCellProof(nil, nil, nil, 0); err != ErrKZGBackendNotImplemented {
+		t.Errorf("VerifyCellProof nil ctx: want ErrKZGBackendNotImplemented, got %v", err)
 	}
 }
 

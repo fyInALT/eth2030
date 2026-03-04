@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -157,17 +158,61 @@ func (pc *PenaltyCalculator) CalculatePenalty(nodeID types.Hash, failedChallenge
 type CustodyVerifier struct {
 	config     CustodyVerifyConfig
 	penalty    *PenaltyCalculator
+	kzg        crypto.KZGCeremonyBackend
 	mu         sync.RWMutex
 	challenges map[types.Hash]*CustodyChallengeV2
 }
 
 // NewCustodyVerifier creates a new verifier with the given configuration.
+// It uses the default KZG backend (placeholder or production, depending on
+// what was set via crypto.SetKZGBackend).
 func NewCustodyVerifier(config CustodyVerifyConfig) *CustodyVerifier {
 	return &CustodyVerifier{
 		config:     config,
 		penalty:    NewPenaltyCalculator(config.PenaltyBase, config.PenaltyMultiplier),
+		kzg:        crypto.DefaultKZGBackend(),
 		challenges: make(map[types.Hash]*CustodyChallengeV2),
 	}
+}
+
+// SetKZGBackend replaces the KZG backend used for cell proof verification.
+// Pass nil to fall back to crypto.DefaultKZGBackend().
+func (cv *CustodyVerifier) SetKZGBackend(b crypto.KZGCeremonyBackend) {
+	cv.mu.Lock()
+	defer cv.mu.Unlock()
+	if b == nil {
+		b = crypto.DefaultKZGBackend()
+	}
+	cv.kzg = b
+}
+
+// VerifyCellKZGBatch verifies KZG cell proofs for a batch of (commitment, cell,
+// proof, cellIndex) tuples using VerifyCellKZGProofBatch (EL-4.2 PeerDAS path).
+// All slices must have the same length. Returns an error for the first failing
+// cell, or nil if all pass.
+func (cv *CustodyVerifier) VerifyCellKZGBatch(
+	commitments [][]byte,
+	cells [][]byte,
+	proofs [][]byte,
+	indices []uint64,
+) error {
+	if len(commitments) != len(cells) || len(cells) != len(proofs) || len(proofs) != len(indices) {
+		return errors.New("das: batch slice length mismatch")
+	}
+	cv.mu.RLock()
+	kzg := cv.kzg
+	cv.mu.RUnlock()
+
+	for i := range commitments {
+		ok, err := kzg.VerifyCellProof(commitments[i], cells[i], proofs[i], indices[i])
+		if err != nil {
+			return fmt.Errorf("das: cell %d proof verification: %w", i, err)
+		}
+		if !ok {
+			return fmt.Errorf("das: cell %d proof invalid", i)
+		}
+	}
+	return nil
 }
 
 // VerifyCustodyProof validates a CustodyProofV2 for structural correctness and
