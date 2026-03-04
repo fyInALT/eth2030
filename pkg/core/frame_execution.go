@@ -15,7 +15,7 @@ var (
 	ErrFramePayerNotApproved  = errors.New("frame tx: payer not approved after all frames")
 	ErrFrameNonceMismatch     = errors.New("frame tx: nonce mismatch")
 	ErrFrameInvalidMode       = errors.New("frame tx: invalid frame mode")
-	ErrFrameVerifyNoCode      = errors.New("frame tx: VERIFY target has no code (use EIP-7702 delegation)")
+	ErrFrameVerifyNoCode      = errors.New("frame tx: VERIFY target has no code (EOA)")
 )
 
 // FrameExecutionContext tracks transaction-scoped state for EIP-8141 frame execution.
