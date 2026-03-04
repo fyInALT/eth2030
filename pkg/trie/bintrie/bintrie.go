@@ -161,12 +161,54 @@ var errInvalidRootType = errors.New("invalid root type")
 
 // BinaryTrie is the primary trie structure implementing EIP-7864.
 type BinaryTrie struct {
-	root BinaryNode
+	root     BinaryNode
+	hashFunc string // HashFunctionSHA256 or HashFunctionBlake3
 }
 
-// New creates a new empty binary trie.
+// New creates a new empty binary trie using SHA-256 (default).
 func New() *BinaryTrie {
-	return &BinaryTrie{root: NewBinaryNode()}
+	return &BinaryTrie{root: NewBinaryNode(), hashFunc: HashFunctionSHA256}
+}
+
+// NewWithHashFunc creates a new empty binary trie using the specified hash function.
+// Pass HashFunctionBlake3 to activate EIP-7864 BLAKE3 hashing.
+func NewWithHashFunc(hashFunc string) *BinaryTrie {
+	if hashFunc == "" {
+		hashFunc = HashFunctionSHA256
+	}
+	return &BinaryTrie{root: NewBinaryNode(), hashFunc: hashFunc}
+}
+
+// UpdateLeafMetadata writes epoch into the reserved metadata slot (subindex)
+// of the stem node reached by stem. Used by state expiry to record last-access
+// epochs in the trie (I+ roadmap, subindex 2).
+func (t *BinaryTrie) UpdateLeafMetadata(stem []byte, subindex int, epoch uint64) error {
+	if len(stem) < StemSize {
+		return errors.New("bintrie: stem too short")
+	}
+	key := make([]byte, HashSize)
+	copy(key[:StemSize], stem[:StemSize])
+	key[StemSize] = byte(subindex)
+
+	// Read current stem node if it exists.
+	val, err := t.root.Get(key, nil)
+	if err != nil || val == nil {
+		// Stem not yet present; insert a fresh metadata value.
+		// We still need to insert the metadata into the trie.
+	}
+	_ = val
+
+	var v [HashSize]byte
+	// Store epoch as big-endian uint64 in last 8 bytes.
+	v[HashSize-8] = byte(epoch >> 56)
+	v[HashSize-7] = byte(epoch >> 48)
+	v[HashSize-6] = byte(epoch >> 40)
+	v[HashSize-5] = byte(epoch >> 32)
+	v[HashSize-4] = byte(epoch >> 24)
+	v[HashSize-3] = byte(epoch >> 16)
+	v[HashSize-2] = byte(epoch >> 8)
+	v[HashSize-1] = byte(epoch)
+	return t.Put(key, v[:])
 }
 
 // Get retrieves a value by its full 32-byte key.

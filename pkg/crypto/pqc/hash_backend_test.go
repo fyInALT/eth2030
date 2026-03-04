@@ -2,6 +2,7 @@ package pqc
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 )
 
@@ -81,6 +82,37 @@ func TestHashBackendByName(t *testing.T) {
 				t.Errorf("got name %q, want %q", b.Name(), tt.wantName)
 			}
 		}
+	}
+}
+
+// TestBlake3Backend verifies Blake3Backend produces a consistent BLAKE3-256
+// output. The expected vector is the actual output of lukechampine.com/blake3
+// Sum256 for the empty input.
+func TestBlake3Backend(t *testing.T) {
+	// BLAKE3("") via lukechampine.com/blake3 Sum256.
+	const emptyVec = "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+	expected, err := hex.DecodeString(emptyVec)
+	if err != nil {
+		t.Fatalf("decode hex: %v", err)
+	}
+
+	b := &Blake3Backend{}
+	got := b.Hash([]byte{})
+	if !bytes.Equal(got[:], expected) {
+		t.Errorf("BLAKE3(\"\") = %x, want %x", got, expected)
+	}
+
+	// nil and empty slice must produce the same result (BLAKE3 XOF property).
+	got2 := b.Hash(nil)
+	if got != got2 {
+		t.Errorf("BLAKE3(nil) != BLAKE3([]byte{})")
+	}
+
+	// Must differ from SHA-256 of the same input.
+	sha := &SHA256Backend{}
+	sha256Out := sha.Hash([]byte{})
+	if bytes.Equal(got[:], sha256Out[:]) {
+		t.Error("BLAKE3 and SHA-256 must not produce the same output for empty input")
 	}
 }
 

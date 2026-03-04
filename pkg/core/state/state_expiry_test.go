@@ -7,6 +7,89 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
+// mockTrieEpochUpdater records UpdateAccountEpoch and UpdateStorageEpoch calls.
+type mockTrieEpochUpdater struct {
+	mu           sync.Mutex
+	accountCalls map[types.Address]uint64
+	storageCalls map[types.Hash]uint64
+}
+
+func newMockTrieEpochUpdater() *mockTrieEpochUpdater {
+	return &mockTrieEpochUpdater{
+		accountCalls: make(map[types.Address]uint64),
+		storageCalls: make(map[types.Hash]uint64),
+	}
+}
+
+func (m *mockTrieEpochUpdater) UpdateAccountEpoch(addr types.Address, epoch uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.accountCalls[addr] = epoch
+}
+
+func (m *mockTrieEpochUpdater) UpdateStorageEpoch(addr types.Address, key types.Hash, epoch uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.storageCalls[key] = epoch
+}
+
+func (m *mockTrieEpochUpdater) getAccountEpoch(addr types.Address) (uint64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.accountCalls[addr]
+	return v, ok
+}
+
+func (m *mockTrieEpochUpdater) getStorageEpoch(key types.Hash) (uint64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.storageCalls[key]
+	return v, ok
+}
+
+// TestStateExpiryEpochTracking verifies that TouchAccount and TouchStorage
+// call the TrieEpochUpdater when one is set (BL-1.4).
+func TestStateExpiryEpochTracking(t *testing.T) {
+	updater := newMockTrieEpochUpdater()
+	m := NewStateExpiryManager(DefaultStateExpiryConfig())
+	m.SetTrieUpdater(updater)
+
+	addr := types.BytesToAddress([]byte{0xAB, 0xCD})
+	const epoch uint64 = 42
+
+	// TouchAccount should call UpdateAccountEpoch.
+	m.TouchAccount(addr, epoch)
+
+	if got, ok := updater.getAccountEpoch(addr); !ok {
+		t.Error("UpdateAccountEpoch was not called after TouchAccount")
+	} else if got != epoch {
+		t.Errorf("UpdateAccountEpoch epoch = %d, want %d", got, epoch)
+	}
+
+	// A lower epoch must not overwrite the updater.
+	m.TouchAccount(addr, epoch-1)
+	if got, _ := updater.getAccountEpoch(addr); got != epoch {
+		t.Errorf("epoch regressed to %d after touch with lower epoch", got)
+	}
+
+	// A higher epoch must update.
+	const newEpoch uint64 = 100
+	m.TouchAccount(addr, newEpoch)
+	if got, _ := updater.getAccountEpoch(addr); got != newEpoch {
+		t.Errorf("epoch not updated: got %d, want %d", got, newEpoch)
+	}
+
+	// TouchStorage should call both UpdateAccountEpoch and UpdateStorageEpoch.
+	storageKey := types.HexToHash("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+	m.TouchStorage(addr, storageKey, newEpoch+10)
+
+	if got, ok := updater.getStorageEpoch(storageKey); !ok {
+		t.Error("UpdateStorageEpoch was not called after TouchStorage")
+	} else if got != newEpoch+10 {
+		t.Errorf("UpdateStorageEpoch epoch = %d, want %d", got, newEpoch+10)
+	}
+}
+
 func TestDefaultStateExpiryConfig(t *testing.T) {
 	cfg := DefaultStateExpiryConfig()
 	if cfg.ExpiryPeriod != 256 {

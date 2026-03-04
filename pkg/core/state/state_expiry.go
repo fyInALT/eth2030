@@ -45,6 +45,14 @@ type ExpiryStats struct {
 	LastExpiredEpoch uint64
 }
 
+// TrieEpochUpdater records last-access epochs in an external data structure
+// (e.g., binary trie leaf metadata subindex 2). Implementations are provided
+// by the trie layer (bintrie.BinaryTrieEpochUpdater).
+type TrieEpochUpdater interface {
+	UpdateAccountEpoch(addr types.Address, epoch uint64)
+	UpdateStorageEpoch(addr types.Address, key types.Hash, epoch uint64)
+}
+
 // StateExpiryManager tracks access epochs for accounts and storage keys,
 // expires stale state, and handles revival with witness proofs.
 // All operations are thread-safe.
@@ -55,6 +63,10 @@ type StateExpiryManager struct {
 
 	// lastExpiredEpoch tracks the most recent epoch at which state was expired.
 	lastExpiredEpoch uint64
+
+	// trieUpdater optionally records epochs into the binary trie (BL-1.4).
+	// Nil disables trie epoch tracking.
+	trieUpdater TrieEpochUpdater
 }
 
 // NewStateExpiryManager creates a new StateExpiryManager with the given config.
@@ -65,9 +77,18 @@ func NewStateExpiryManager(config StateExpiryConfig) *StateExpiryManager {
 	}
 }
 
+// SetTrieUpdater attaches an optional TrieEpochUpdater. When set, TouchAccount
+// and TouchStorage will also write the epoch to the binary trie metadata slot.
+func (m *StateExpiryManager) SetTrieUpdater(u TrieEpochUpdater) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.trieUpdater = u
+}
+
 // TouchAccount marks an account as accessed at the given epoch. If the account
 // is already expired, touching it has no effect (use ReviveAccount instead).
-// If the account is not yet tracked, it is added.
+// If the account is not yet tracked, it is added. If a TrieEpochUpdater is
+// set, the epoch is also recorded in the binary trie (BL-1.4).
 func (m *StateExpiryManager) TouchAccount(addr types.Address, epoch uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -79,6 +100,9 @@ func (m *StateExpiryManager) TouchAccount(addr types.Address, epoch uint64) {
 			LastAccessEpoch: epoch,
 			StorageKeys:     make(map[types.Hash]uint64),
 		}
+		if m.trieUpdater != nil {
+			m.trieUpdater.UpdateAccountEpoch(addr, epoch)
+		}
 		return
 	}
 
@@ -88,12 +112,16 @@ func (m *StateExpiryManager) TouchAccount(addr types.Address, epoch uint64) {
 	}
 	if epoch > rec.LastAccessEpoch {
 		rec.LastAccessEpoch = epoch
+		if m.trieUpdater != nil {
+			m.trieUpdater.UpdateAccountEpoch(addr, epoch)
+		}
 	}
 }
 
 // TouchStorage marks a storage key under the given account as accessed
 // at the given epoch. The account is also touched. If the account is
-// expired, the touch is ignored.
+// expired, the touch is ignored. If a TrieEpochUpdater is set, the epoch
+// is also recorded in the binary trie (BL-1.4).
 func (m *StateExpiryManager) TouchStorage(addr types.Address, key types.Hash, epoch uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -114,9 +142,15 @@ func (m *StateExpiryManager) TouchStorage(addr types.Address, key types.Hash, ep
 
 	if epoch > rec.LastAccessEpoch {
 		rec.LastAccessEpoch = epoch
+		if m.trieUpdater != nil {
+			m.trieUpdater.UpdateAccountEpoch(addr, epoch)
+		}
 	}
 	if existing, found := rec.StorageKeys[key]; !found || epoch > existing {
 		rec.StorageKeys[key] = epoch
+		if m.trieUpdater != nil {
+			m.trieUpdater.UpdateStorageEpoch(addr, key, epoch)
+		}
 	}
 }
 

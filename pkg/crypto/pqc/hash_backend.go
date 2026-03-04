@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 
 	"github.com/eth2030/eth2030/crypto"
+	"lukechampine.com/blake3"
 )
 
 // HashBackend is a pluggable hash function interface for hash-based signatures.
@@ -39,26 +40,13 @@ func (s *SHA256Backend) Hash(data []byte) [32]byte {
 func (s *SHA256Backend) Name() string   { return "sha256" }
 func (s *SHA256Backend) BlockSize() int { return 64 }
 
-// Blake3Backend implements a minimal BLAKE3-like hash using iterative SHA-256 mixing.
-// NOTE: This is a structural placeholder; production use should integrate
-// lukechampine.com/blake3 or zeebo/blake3 via go.mod.
+// Blake3Backend uses the real BLAKE3-256 hash (lukechampine.com/blake3).
+// BLAKE3 is a fast, parallel cryptographic hash function that is
+// 2–4× faster than SHA-256 on modern CPUs.
 type Blake3Backend struct{}
 
 func (b *Blake3Backend) Hash(data []byte) [32]byte {
-	// Iterative mixing: hash with domain separation to approximate BLAKE3 structure.
-	// Round 1: SHA256("blake3-r1" || data)
-	h1 := sha256.New()
-	h1.Write([]byte("blake3-r1"))
-	h1.Write(data)
-	var r1 [32]byte
-	copy(r1[:], h1.Sum(nil))
-	// Round 2: SHA256("blake3-r2" || r1)
-	h2 := sha256.New()
-	h2.Write([]byte("blake3-r2"))
-	h2.Write(r1[:])
-	var result [32]byte
-	copy(result[:], h2.Sum(nil))
-	return result
+	return blake3.Sum256(data)
 }
 func (b *Blake3Backend) Name() string   { return "blake3" }
 func (b *Blake3Backend) BlockSize() int { return 64 }
