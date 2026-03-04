@@ -124,3 +124,18 @@
 [submodule "refs/ethereum-org-website"]
 	path = refs/ethereum-org-website
 	url = https://github.com/ethereum/ethereum-org-website.git
+[submodule "refs/research"]
+	path = refs/research
+	url = https://github.com/ethereum/research.git
+[submodule "refs/leanroadmap"]
+	path = refs/leanroadmap
+	url = https://github.com/ReamLabs/leanroadmap.git
+[submodule "refs/ream"]
+	path = refs/ream
+	url = https://github.com/ReamLabs/ream.git
+[submodule "refs/ream-study-group"]
+	path = refs/ream-study-group
+	url = https://github.com/ReamLabs/ream-study-group.git
+[submodule "refs/lean-spec-tests"]
+	path = refs/lean-spec-tests
+	url = https://github.com/ReamLabs/lean-spec-tests.git

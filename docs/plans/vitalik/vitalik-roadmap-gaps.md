@@ -182,3 +182,81 @@ Each story file follows the same format as `docs/plans/eip-7928/` and `docs/plan
 - Implementation status (verified against code)
 - Gap analysis with proposed solutions
 - Spec reference excerpts
+
+---
+
+## Spec References (from `refs/`)
+
+### 3SF — Reference Implementation
+
+Source: `refs/research/3sf-mini/consensus.py` (Vitalik's 164-line Python ref impl)
+
+**Justification backoff** (key algorithm unique to 3SF, not in ETH2030's SSF):
+```python
+def is_justifiable_slot(delta):
+    # Justification allowed if slot delta is:
+    # ≤5, OR a perfect square (1,4,9,16,...), OR oblong (x²+x = 2,6,12,20,...)
+    return delta <= 5 or is_perfect_square(delta) or is_oblong(delta)
+```
+
+**ETH2030 status**: `pkg/consensus/ssf.go` uses 4-phase SSF which is functionally equivalent to 3SF but uses a different finality mechanism (multi-round BFT vs. 3SF's backoff-based single-round). GAP-15 (Minimmit) in this doc is the planned resolution.
+
+**P2P simulation** (`refs/research/3sf-mini/p2p.py`, 224 lines):
+- Safe target: `t=2/4` of slot
+- View merge: attestations at `t≤1/4` OR inside latest block
+- Dependencies queue for orphaned blocks/votes
+
+---
+
+### EP-4: Poseidon2 — Reference Implementation
+
+Source: `refs/research/circlestark/poseidon.py`
+
+Circle STARK Poseidon variant (M31 field, not BN254):
+- Field: `M31 = 2³¹−1`
+- State: 16 elements
+- Full rounds: 8 (rounds 0-3 and 60-63)
+- Partial rounds: 56 (rounds 4-59), SBox on `state[0]` only
+- Output: `state[8:16] + input[8:16]`
+
+ETH2030 `pkg/zkvm/poseidon2.go` uses BN254 scalar field (t=3). For ZK circuit compatibility with Circle STARKs, an M31-field Poseidon2 is needed. The Python reference is at `refs/research/circlestark/poseidon.py`.
+
+For US-4.2 (Poseidon2 Hash Backend): both the BN254 variant (`pkg/zkvm/poseidon2.go`) and the M31 variant (for Circle STARK compatibility) should be available.
+
+---
+
+### EP-3: Block-Level Erasure — Reed-Solomon Reference
+
+Source: `refs/go-eth-kzg/internal/erasure_code/` + `refs/research/erasure_code/`
+
+ETH2030's RS encoder (`pkg/das/erasure/reed_solomon_encoder.go`) uses GF(2⁸) for blob-level columns. The block-level erasure coding (GAP-14) needs a similar encoder:
+
+```go
+// From refs/go-eth-kzg/api.go (can be reused for block-level RS):
+ctx, _ := goethkzg.NewContext4096Secure()
+// DataRecovery is exposed — can recover from partial cells
+// Same approach applies for block pieces
+```
+
+For block-level erasure (`pkg/das/block_erasure.go`), use the same GF(2⁸) RS encoder already in `pkg/das/erasure/` — wrap it for 8-piece block encoding.
+
+---
+
+### EP-1/EP-2: go-eth-kzg / gnark Production Upgrades
+
+**To upgrade `PlaceholderKZGBackend`** (test SRS s=42):
+```go
+// refs/go-eth-kzg/api.go
+ctx, err := goethkzg.NewContext4096Secure()
+commitment, err := ctx.BlobToKZGCommitment(blob, numGoRoutines)
+proof, err := ctx.ComputeBlobKZGProof(blob, commitment, numGoRoutines)
+```
+
+**To upgrade Groth16 placeholder** (`pkg/proofs/groth16_verifier.go`):
+```go
+// refs/gnark/backend/groth16/groth16.go
+func Verify(proof Proof, vk VerifyingKey, publicWitness witness.Witness,
+    opts ...backend.VerifierOption) error
+```
+
+Both upgrades are production-readiness items (not feature gaps) and are noted in §6 of `vitalik-scaling-gap-analysis.md`.
