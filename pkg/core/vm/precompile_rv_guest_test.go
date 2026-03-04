@@ -117,11 +117,11 @@ func TestIsPrecompileRISCVBoundaryAddresses(t *testing.T) {
 		addr types.Address
 		want bool
 	}{
-		{types.BytesToAddress([]byte{0}), false},  // 0x00 — not RISC-V
-		{types.BytesToAddress([]byte{1}), true},   // 0x01 — ECRECOVER
-		{types.BytesToAddress([]byte{2}), true},   // 0x02 — SHA-256
-		{types.BytesToAddress([]byte{3}), false},  // 0x03 — RIPEMD-160
-		{types.BytesToAddress([]byte{9}), false},  // 0x09 — Blake2b
+		{types.BytesToAddress([]byte{0}), false},    // 0x00 — not RISC-V
+		{types.BytesToAddress([]byte{1}), true},     // 0x01 — ECRECOVER
+		{types.BytesToAddress([]byte{2}), true},     // 0x02 — SHA-256
+		{types.BytesToAddress([]byte{3}), false},    // 0x03 — RIPEMD-160
+		{types.BytesToAddress([]byte{9}), false},    // 0x09 — Blake2b
 		{types.BytesToAddress([]byte{0xff}), false}, // 0xFF — not a precompile
 	}
 	for _, tc := range cases {
