@@ -105,7 +105,7 @@ Three layers, each with sub-tracks:
 - `cmd/eth2030/` - CLI binary with flags, signal handling
   - `cmd/eth2030-geth/` - Production binary embedding go-ethereum v1.17.0 as a library for real mainnet/testnet sync (Pebble DB, RLPx P2P, snap/full sync, Engine API on port 8551, JSON-RPC on port 8545, 13 custom precompiles injected at Glamsterdam/Hegotá/I+ fork levels; supports mainnet, sepolia, holesky)
 - `internal/testutil/` - Shared test utilities
-- `refs/` - Reference submodules (37 total, read-only, do NOT modify). Main upstream: https://github.com/orgs/ethereum/repositories
+- `refs/` - Reference submodules (47 total, read-only, do NOT modify). See **[`refs/REFERENCES.md`](refs/REFERENCES.md)** for the full catalog: per-submodule details, ETH2030 relevance, and a priority matrix mapping each North Star goal to the relevant refs. Main upstream: https://github.com/orgs/ethereum/repositories
   - **Ethereum specs**: consensus-specs, execution-specs, consensus-spec-tests, execution-spec-tests, execution-apis, beacon-APIs, builder-specs, EIPs, ERCs
   - **Ethereum core**: go-ethereum
   - **Cryptography**: blst (BLS12-381), circl (PQC: ML-DSA/ML-KEM/SLH-DSA), go-eth-kzg (KZG commitments), gnark (ZK proofs), gnark-crypto (ZK curves), c-kzg-4844 (C-based KZG)
@@ -114,6 +114,8 @@ Three layers, each with sub-tracks:
   - **Governance**: pm, eip-review-bot, iptf-pocs
   - **Devops**: benchmarkoor, benchmarkoor-tests, ethereum-package, erigone, xatu, execution-processor, consensoor
   - **Audited**: leanMultisig, leanSig, leanSpec, fiat-shamir (leanEthereum — 18-finding security audit)
+  - **Lean Consensus**: ream (Rust Lean CL client), leanroadmap (research progress tracker), ream-study-group (study notes + 60 weekly meeting notes), lean-spec-tests (Lean spec test vectors)
+  - **EF Research**: research (Vitalik's PoCs: 3SF, erasure codes, KZG, Verkle, ZK, etc.)
 - `tools/` - Research and data fetching tools
 - `data/` - Downloaded research data (gitignored)
 - `docs/` - Design docs, roadmap, deep-dive
@@ -244,10 +246,13 @@ if always 0, it means devnet boot failed, should check log and codes.
 
 ## Reusable Libraries (refs/ submodules & ecosystem)
 
+> **Full reference catalog**: [`refs/REFERENCES.md`](refs/REFERENCES.md) — details, ETH2030 relevance, and a North Star priority matrix for all 47 submodules across 8 categories (Specs, Test Vectors, Clients, Research, Crypto, Lean Ethereum, DevOps, Utilities).
+
 When implementing missing functionality, check these production-grade Go libraries first before writing from scratch. All are in `refs/` or available as Go module dependencies.
 
 ### How to find reusable code for missing libs
-1. Check `refs/` submodules first (already cloned, read-only): `ls refs/` then explore relevant dirs
+1. Check `refs/REFERENCES.md` first for a quick map of which submodule to use for a given feature
+2. Check `refs/` submodules directly (already cloned, read-only): `ls refs/` then explore relevant dirs
 2. Search GitHub orgs: ethereum, consensys, ethpandaops, prysmaticlabs, cloudflare, supranational
 3. Check go-ethereum's `go.sum` for vetted dependencies: `grep <lib> refs/go-ethereum/go.sum`
 4. Validate license compatibility (Apache-2.0, MIT, BSD-3 are OK; GPL/AGPL are NOT)
