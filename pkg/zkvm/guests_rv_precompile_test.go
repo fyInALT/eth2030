@@ -285,3 +285,206 @@ func TestRVCPUUnknownEcallHalts(t *testing.T) {
 		t.Errorf("exit code = 0x%x, want 0xFF", cpu.ExitCode)
 	}
 }
+
+// --- Edge-case / additional unit tests ---
+
+// TestKeccak256HandlerInputPosAdvances ensures inputPos reaches len(InputBuf)
+// after the handler consumes all remaining bytes.
+func TestKeccak256HandlerInputPosAdvances(t *testing.T) {
+	cpu := NewRVCPU(1000)
+	cpu.InputBuf = []byte("advance test")
+	cpu.inputPos = 0
+	if err := Keccak256EcallHandler(cpu); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if cpu.inputPos != len(cpu.InputBuf) {
+		t.Errorf("inputPos = %d, want %d", cpu.inputPos, len(cpu.InputBuf))
+	}
+	if len(cpu.OutputBuf) != 32 {
+		t.Errorf("OutputBuf len = %d, want 32", len(cpu.OutputBuf))
+	}
+}
+
+// TestKeccak256HandlerPartialBuf verifies only bytes from inputPos onward
+// are hashed when inputPos > 0.
+func TestKeccak256HandlerPartialBuf(t *testing.T) {
+	prefix := []byte("skip")
+	rest := []byte(" used")
+	cpu := NewRVCPU(1000)
+	cpu.InputBuf = append(prefix, rest...)
+	cpu.inputPos = len(prefix)
+
+	if err := Keccak256EcallHandler(cpu); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	h := sha3.NewLegacyKeccak256()
+	h.Write(rest)
+	want := h.Sum(nil)
+	if !bytes.Equal(cpu.OutputBuf, want) {
+		t.Errorf("partial keccak: got %x, want %x", cpu.OutputBuf, want)
+	}
+}
+
+// TestSHA256HandlerLargeInput verifies SHA-256 on a 4 KB input.
+func TestSHA256HandlerLargeInput(t *testing.T) {
+	data := make([]byte, 4096)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	cpu := NewRVCPU(1_000_000)
+	cpu.InputBuf = data
+	if err := SHA256EcallHandler(cpu); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	want := sha256.Sum256(data)
+	if !bytes.Equal(cpu.OutputBuf, want[:]) {
+		t.Errorf("sha256 large: got %x, want %x", cpu.OutputBuf, want)
+	}
+}
+
+// TestSHA256HandlerInputPosAdvances ensures inputPos reaches end after call.
+func TestSHA256HandlerInputPosAdvances(t *testing.T) {
+	cpu := NewRVCPU(1000)
+	cpu.InputBuf = []byte("sha256 pos test")
+	if err := SHA256EcallHandler(cpu); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if cpu.inputPos != len(cpu.InputBuf) {
+		t.Errorf("inputPos = %d, want %d", cpu.inputPos, len(cpu.InputBuf))
+	}
+}
+
+// TestECRecoverHandlerInvalidV verifies that v < 27 returns an error.
+func TestECRecoverHandlerInvalidV(t *testing.T) {
+	cpu := NewRVCPU(1000)
+	cpu.InputBuf = make([]byte, 128)
+	cpu.InputBuf[63] = 26 // v = 26, must be 27 or 28
+	if err := ECRecoverEcallHandler(cpu); err == nil {
+		t.Error("expected error for v < 27")
+	}
+}
+
+// TestECRecoverHandlerShortInput verifies that < 128 bytes returns an error.
+func TestECRecoverHandlerShortInput(t *testing.T) {
+	cpu := NewRVCPU(1000)
+	cpu.InputBuf = make([]byte, 64) // too short
+	if err := ECRecoverEcallHandler(cpu); err == nil {
+		t.Error("expected error for input shorter than 128 bytes")
+	}
+}
+
+// TestECRecoverHandlerBadRecovery verifies the fallback zero output on
+// irrecoverable signature (all-zero hash and sig with valid v=27).
+func TestECRecoverHandlerBadRecovery(t *testing.T) {
+	cpu := NewRVCPU(1000)
+	cpu.InputBuf = make([]byte, 128)
+	cpu.InputBuf[63] = 27 // v = 27, r=s=hash=0 → recovery fails
+	if err := ECRecoverEcallHandler(cpu); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	// Output must be 32 zero bytes.
+	if len(cpu.OutputBuf) != 32 {
+		t.Fatalf("output len = %d, want 32", len(cpu.OutputBuf))
+	}
+	for i, b := range cpu.OutputBuf {
+		if b != 0 {
+			t.Errorf("byte %d = 0x%x, want 0 on bad recovery", i, b)
+		}
+	}
+	// inputPos must advance past the 128-byte record.
+	if cpu.inputPos != 128 {
+		t.Errorf("inputPos = %d after bad recovery, want 128", cpu.inputPos)
+	}
+}
+
+// TestRunPrecompileGuestTinyGasProducesNoOutput verifies that a gasLimit of 1
+// (less than the 5 instructions in the guest) prevents the ECALL from running,
+// yielding an empty output. CPU-level exhaustion does not bubble as an error
+// from RunPrecompileGuest (ExitCode stays 0); EVM-level accounting in
+// runRVContract is the authoritative gas gate.
+func TestRunPrecompileGuestTinyGasProducesNoOutput(t *testing.T) {
+	// GasLimit=1 allows only 1 instruction before gas is exhausted.
+	// The Keccak ECALL is instruction 2, so it won't execute.
+	out, _ := RunPrecompileGuest(RVEcallKeccak256, []byte("data"), 1)
+	if len(out) != 0 {
+		t.Errorf("tiny gas: expected empty output, got %d bytes", len(out))
+	}
+}
+
+// TestRunPrecompileGuestProgramEmpty ensures an empty program returns nil output.
+func TestRunPrecompileGuestProgramEmpty(t *testing.T) {
+	out, err := RunPrecompileGuestProgram([]byte{}, []byte("input"), 1000)
+	if err != nil {
+		t.Fatalf("empty program: unexpected error: %v", err)
+	}
+	if out != nil {
+		t.Errorf("empty program: expected nil output, got %x", out)
+	}
+}
+
+// TestRunPrecompileGuestProgramKeccak verifies RunPrecompileGuestProgram
+// executes the Keccak-256 guest program directly.
+func TestRunPrecompileGuestProgramKeccak(t *testing.T) {
+	input := []byte("direct program test")
+	out, err := RunPrecompileGuestProgram(RVKeccak256Program, input, 100_000)
+	if err != nil {
+		t.Fatalf("RunPrecompileGuestProgram: %v", err)
+	}
+	h := sha3.NewLegacyKeccak256()
+	h.Write(input)
+	want := h.Sum(nil)
+	if !bytes.Equal(out, want) {
+		t.Errorf("got %x, want %x", out, want)
+	}
+}
+
+// TestPrecompileGuestSequentialIndependence verifies that two consecutive
+// RunPrecompileGuest calls produce independent, correct results.
+func TestPrecompileGuestSequentialIndependence(t *testing.T) {
+	in1 := []byte("first call")
+	in2 := []byte("second call")
+
+	out1, err := RunPrecompileGuest(RVEcallKeccak256, in1, 100_000)
+	if err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+	out2, err := RunPrecompileGuest(RVEcallKeccak256, in2, 100_000)
+	if err != nil {
+		t.Fatalf("call 2: %v", err)
+	}
+
+	h := sha3.NewLegacyKeccak256()
+	h.Write(in1)
+	want1 := h.Sum(nil)
+	h = sha3.NewLegacyKeccak256()
+	h.Write(in2)
+	want2 := h.Sum(nil)
+
+	if !bytes.Equal(out1, want1) {
+		t.Errorf("call 1 output mismatch: got %x, want %x", out1, want1)
+	}
+	if !bytes.Equal(out2, want2) {
+		t.Errorf("call 2 output mismatch: got %x, want %x", out2, want2)
+	}
+	if bytes.Equal(out1, out2) {
+		t.Error("distinct inputs must produce distinct outputs")
+	}
+}
+
+// TestPrecompileGuestRegistryDuplicateErrors verifies that registering the
+// same program twice returns an error on the second call, and count stays 1.
+func TestPrecompileGuestRegistryDuplicateErrors(t *testing.T) {
+	r := NewGuestRegistry()
+	_, err := r.RegisterGuest(RVKeccak256Program)
+	if err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	_, err = r.RegisterGuest(RVKeccak256Program)
+	if err == nil {
+		t.Error("second register of same program: expected error, got nil")
+	}
+	// Count must not grow on duplicate.
+	if r.Count() != 1 {
+		t.Errorf("registry count = %d after duplicate, want 1", r.Count())
+	}
+}

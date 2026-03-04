@@ -3,6 +3,7 @@
 package vm
 
 import (
+	gosha256 "crypto/sha256"
 	"math/big"
 	"testing"
 
@@ -386,6 +387,147 @@ func TestRVCallRoutingEVMCodeNotRerouted(t *testing.T) {
 	}
 	if len(ret) != 1 || ret[0] != 0x42 {
 		t.Errorf("EVM output = %x, want [0x42]", ret)
+	}
+}
+
+// TestRVCallRoutingSHA256GuestRISCV verifies EVM.Call routes to the SHA-256
+// RISC-V guest and returns the correct hash.
+func TestRVCallRoutingSHA256GuestRISCV(t *testing.T) {
+	sdb := newRVTestStateDB()
+	contractAddr := types.HexToAddress("0xdead03")
+
+	// SHA-256 RISC-V guest: magic + RVSHA256Program.
+	magicProgram := append([]byte{RVMagic0, RVMagic1, RVMagic2}, zkvm.RVSHA256Program...)
+	sdb.SetCode(contractAddr, magicProgram)
+	sdb.CreateAccount(contractAddr)
+
+	evm := newRVCreateEVM(sdb)
+
+	input := []byte("sha256 via rv call")
+	ret, _, err := evm.Call(
+		types.HexToAddress("0xbeef03"),
+		contractAddr,
+		input,
+		1_000_000,
+		big.NewInt(0),
+	)
+	if err != nil {
+		t.Fatalf("EVM.Call SHA256 RV: %v", err)
+	}
+	if len(ret) != 32 {
+		t.Fatalf("SHA256 RV output len = %d, want 32", len(ret))
+	}
+	wantArr := gosha256.Sum256(input)
+	for i, b := range wantArr {
+		if ret[i] != b {
+			t.Errorf("SHA256 byte %d: got 0x%x, want 0x%x", i, ret[i], b)
+		}
+	}
+}
+
+// TestOpRVCreateReadOnly verifies RVCREATE returns ErrWriteProtection
+// when the EVM is in read-only mode.
+func TestOpRVCreateReadOnly(t *testing.T) {
+	sdb := newRVTestStateDB()
+	evm := newRVCreateEVM(sdb)
+	evm.readOnly = true
+
+	mem := NewMemory()
+	mem.Resize(4)
+	copy(mem.store, minValidRVInitcode)
+
+	stk := NewStack()
+	pushStack(stk,
+		new(big.Int).SetUint64(4),
+		new(big.Int).SetUint64(0),
+		new(big.Int).SetUint64(0),
+	)
+	contract := NewContract(types.HexToAddress("0xdead"), types.HexToAddress("0xdead"), big.NewInt(0), 0)
+	pc := uint64(0)
+	_, err := opRVCreate(&pc, evm, contract, mem, stk)
+	if err != ErrWriteProtection {
+		t.Errorf("readOnly opRVCreate: got %v, want ErrWriteProtection", err)
+	}
+}
+
+// TestOpRVCreateRedeployOverwrites verifies deploying the same initcode
+// twice produces the same deterministic address and overwrites code.
+func TestOpRVCreateRedeployOverwrites(t *testing.T) {
+	sdb := newRVTestStateDB()
+	evm := newRVCreateEVM(sdb)
+	caller := types.HexToAddress("0xcafe")
+
+	r1 := invokeRVCreate(t, evm, caller, big.NewInt(0), minValidRVInitcode)
+	r2 := invokeRVCreate(t, evm, caller, big.NewInt(0), minValidRVInitcode)
+	if r1.Cmp(r2) != 0 {
+		t.Errorf("redeploy produced different addresses: %s vs %s", r1, r2)
+	}
+}
+
+// TestOpRVCreateRegistersInGuestRegistry verifies the guestRegistry is
+// populated when RVCREATE succeeds.
+func TestOpRVCreateRegistersInGuestRegistry(t *testing.T) {
+	sdb := newRVTestStateDB()
+	evm := newRVCreateEVM(sdb)
+	caller := types.HexToAddress("0xcafe")
+
+	reg := zkvm.NewGuestRegistry()
+	evm.SetGuestRegistry(reg)
+
+	result := invokeRVCreate(t, evm, caller, big.NewInt(0), minValidRVInitcode)
+	if result.Sign() == 0 {
+		t.Fatal("expected non-zero address")
+	}
+	if reg.Count() != 1 {
+		t.Errorf("guest registry count = %d after RVCREATE, want 1", reg.Count())
+	}
+}
+
+// TestGasRVCreateTableSizes verifies the 200×size formula across multiple sizes.
+func TestGasRVCreateTableSizes(t *testing.T) {
+	evm := newRVCreateEVM(newRVTestStateDB())
+	contract := NewContract(types.HexToAddress("0xaa"), types.HexToAddress("0xaa"), big.NewInt(0), 0)
+	cases := []uint64{0, 4, 8, 100, 1024, 10_000}
+	for _, size := range cases {
+		stk := NewStack()
+		pushStack(stk,
+			new(big.Int).SetUint64(size),
+			new(big.Int).SetUint64(0),
+			new(big.Int).SetUint64(0),
+		)
+		gas, err := gasRVCreate(evm, contract, stk, NewMemory(), 0)
+		if err != nil {
+			t.Fatalf("size %d: %v", size, err)
+		}
+		if gas != 200*size {
+			t.Errorf("size %d: gas = %d, want %d", size, gas, 200*size)
+		}
+	}
+}
+
+// TestRVCallRoutingOutOfGas verifies that calling an RISC-V contract with
+// insufficient gas (< 200 × instructions) returns ErrOutOfGas.
+// runRVContract charges 200 gas per 4-byte instruction; a 20-byte program
+// (5 instructions) requires 1000 gas.
+func TestRVCallRoutingOutOfGas(t *testing.T) {
+	sdb := newRVTestStateDB()
+	contractAddr := types.HexToAddress("0xdead04")
+
+	magicProgram := append([]byte{RVMagic0, RVMagic1, RVMagic2}, zkvm.RVKeccak256Program...)
+	sdb.SetCode(contractAddr, magicProgram)
+	sdb.CreateAccount(contractAddr)
+
+	evm := newRVCreateEVM(sdb)
+	// 999 < 1000 (5 instrs × 200) → ErrOutOfGas
+	_, _, err := evm.Call(
+		types.HexToAddress("0xbeef04"),
+		contractAddr,
+		[]byte("data"),
+		999,
+		big.NewInt(0),
+	)
+	if err == nil {
+		t.Error("expected out-of-gas error with gas=999 for 5-instruction program (requires 1000)")
 	}
 }
 
