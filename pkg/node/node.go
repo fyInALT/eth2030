@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,6 +25,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/p2p"
+	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/txpool"
 )
@@ -42,6 +44,12 @@ type Node struct {
 	p2pServer     *p2p.Server
 	metricsServer *http.Server
 	wsServer      *http.Server
+
+	// EP-3: STARK mempool P2P subsystem.
+	topicMgr         *p2p.TopicManager
+	starkAgg         *txpool.STARKAggregator
+	starkFrameProver proofs.ValidationFrameProver // non-nil when StarkValidationFrames=true
+	currentSlot      atomic.Uint64                // updated on each FCU; used for peer-tick TTL eviction
 
 	mu      sync.Mutex
 	running bool
@@ -115,6 +123,53 @@ func New(config *Config) (*Node, error) {
 	poolCfg := txpool.DefaultConfig()
 	n.txPool = txpool.New(poolCfg, bc.State())
 
+	// Initialize EP-3 STARK mempool gossip subsystem.
+	n.topicMgr = p2p.NewTopicManager(p2p.DefaultTopicParams())
+	broadcaster := p2p.NewMempoolBroadcaster(n.topicMgr)
+	n.starkAgg = txpool.NewSTARKAggregator("eth2030-node")
+	n.starkAgg.SetBroadcaster(broadcaster)
+	// Subscribe to incoming STARK ticks from peers.
+	if err := n.topicMgr.Subscribe(p2p.STARKMempoolTick, func(_ p2p.GossipTopic, _ p2p.MessageID, data []byte) {
+		var tick txpool.MempoolAggregationTick
+		if err := tick.UnmarshalBinary(data); err != nil {
+			slog.Debug("stark tick decode error", "err", err)
+			return
+		}
+		slot := n.currentSlot.Load()
+		if err := n.starkAgg.MergeTickAtSlot(&tick, slot); err != nil {
+			slog.Debug("stark tick merge error", "err", err)
+		}
+	}); err != nil {
+		slog.Warn("stark mempool tick subscribe failed", "err", err)
+	}
+
+	// EP-3 US-PQ-6: compile AA proof circuit on startup (non-fatal; logs result).
+	go func() {
+		circuit, err := proofs.CompileAACircuit()
+		if err != nil {
+			slog.Warn("AA circuit compile failed", "err", err)
+			return
+		}
+		_, _, err = proofs.SetupKeys(circuit)
+		if err != nil {
+			slog.Warn("AA circuit key setup failed", "err", err)
+			return
+		}
+		slog.Info("AA proof circuit ready", "name", circuit.Name, "inputs", circuit.PublicInputCount)
+	}()
+
+	// Create STARK validation frame prover when enabled.
+	if config.StarkValidationFrames {
+		n.starkFrameProver = proofs.NewSTARKValidationFrameProver()
+	}
+
+	// Log EP-3 configuration.
+	slog.Info("EP-3 post-quantum config",
+		"lean_chain", config.LeanAvailableChainMode,
+		"lean_validators", config.LeanAvailableChainValidators,
+		"stark_frames", config.StarkValidationFrames,
+	)
+
 	// Initialize P2P server with bootnodes, discovery port, and NAT.
 	n.p2pServer = p2p.NewServer(p2p.Config{
 		ListenAddr:     config.P2PAddr(),
@@ -167,6 +222,11 @@ func (n *Node) Start() error {
 	}
 
 	slog.Info("starting ETH2030 node", "network", n.config.Network)
+
+	// Start STARK mempool aggregator.
+	if err := n.starkAgg.Start(); err != nil {
+		return fmt.Errorf("start stark aggregator: %w", err)
+	}
 
 	// Start P2P server.
 	if err := n.p2pServer.Start(); err != nil {
@@ -252,6 +312,9 @@ func (n *Node) Stop() error {
 	}
 
 	slog.Info("stopping ETH2030 node")
+
+	// Stop STARK mempool aggregator.
+	n.starkAgg.Stop()
 
 	// Stop Engine API.
 	if err := n.engineServer.Stop(); err != nil {

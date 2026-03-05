@@ -3,6 +3,7 @@ package consensus
 import (
 	"encoding/binary"
 	"errors"
+	"math/rand"
 	"sync/atomic"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -201,6 +202,49 @@ func CreatePQAttestation(
 		PQPublicKey:     pqKey.PublicKey,
 		ValidatorIndex:  validatorIndex,
 	}, nil
+}
+
+// SelectLeanPQAttestors selects a deterministic subset of validators for lean
+// available chain PQ attestation. The selection uses a keccak256-based seed
+// derived from the slot and epoch seed, then applies Fisher-Yates shuffle.
+func SelectLeanPQAttestors(validators []uint64, count int, slot uint64, epochSeed types.Hash) []uint64 {
+	if count >= len(validators) {
+		out := make([]uint64, len(validators))
+		copy(out, validators)
+		return out
+	}
+
+	// Compute seed = keccak256(big-endian slot || epochSeed[:]).
+	buf := make([]byte, 8+len(epochSeed))
+	binary.BigEndian.PutUint64(buf[0:8], slot)
+	copy(buf[8:], epochSeed[:])
+	seed := crypto.Keccak256(buf)
+
+	// Derive int64 from first 8 bytes.
+	seedInt := int64(seed[0])<<56 | int64(seed[1])<<48 | int64(seed[2])<<40 |
+		int64(seed[3])<<32 | int64(seed[4])<<24 | int64(seed[5])<<16 |
+		int64(seed[6])<<8 | int64(seed[7])
+
+	// Copy and shuffle.
+	shuffled := make([]uint64, len(validators))
+	copy(shuffled, validators)
+	rng := rand.New(rand.NewSource(seedInt))
+	for i := len(shuffled) - 1; i > 0; i-- {
+		j := rng.Intn(i + 1)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+
+	return shuffled[:count]
+}
+
+// LeanAvailablePQAttestors returns the set of validators that should participate
+// in PQ attestation for the given slot. In lean mode, a deterministic subset is
+// selected; otherwise all validators are returned unchanged.
+func (v *PQAttestationVerifier) LeanAvailablePQAttestors(slot uint64, allValidators []uint64, epochSeed types.Hash, cfg *ConsensusConfig) []uint64 {
+	if cfg == nil || !cfg.LeanAvailableChainMode {
+		return allValidators
+	}
+	return SelectLeanPQAttestors(allValidators, cfg.LeanAvailableChainValidators, slot, epochSeed)
 }
 
 // STARKAggregateVerify uses STARK-based batch verification for PQ attestations.

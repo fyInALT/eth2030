@@ -1,0 +1,36 @@
+# STARK Frame Replacement devnet (PQ-5b.3)
+# Tests block compression via STARK proofs for EIP-8141 VERIFY frames.
+# --stark-validation-frames enables sealing + import-side STARK verification.
+# Run 50+ slots and verify: chain advances, no state divergence between nodes,
+# block sizes smaller than without STARK replacement.
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    el_log_level: debug
+    el_extra_params:
+      - "--override.iplus=0"
+      - "--stark-validation-frames"
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - spamoor
+  - assertoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "STARK Frame Load"
+      config:
+        throughput: 20
+        max_pending: 100
+        max_wallets: 50
+
+assertoor_params:
+  run_stability_check: true

@@ -606,6 +606,15 @@ func (b *engineBackend) ForkchoiceUpdated(
 		}, fmt.Errorf("build block: %w", err)
 	}
 
+	// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
+	if prover := b.node.starkFrameProver; prover != nil {
+		if sealed, _, err := vm.ReplaceValidationFrames(block, prover); err != nil {
+			slog.Warn("frame stark replacement failed", "err", err)
+		} else {
+			block = sealed
+		}
+	}
+
 	// Generate a payload ID from the block parameters.
 	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
 

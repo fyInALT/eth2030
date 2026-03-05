@@ -96,11 +96,41 @@ func customPrecompiles() []customPrecompileEntry {
 			minFork:  ForkLevelGlamsterdam,
 		},
 
-		// I+ fork: NTT precompile.
+		// I+ fork: Split NTT precompiles (EIP-7885 aligned).
 		{
-			addr:     gethcommon.BytesToAddress([]byte{0x15}),
-			name:     "ntt",
-			contract: &vm.NTTPrecompileAdapter{},
+			addr:     gethcommon.BytesToAddress([]byte{0x0f}),
+			name:     "nttFW",
+			contract: &vm.NTTFWAdapter{},
+			minFork:  ForkLevelIPlus,
+		},
+		{
+			addr:     gethcommon.BytesToAddress([]byte{0x10}),
+			name:     "nttINV",
+			contract: &vm.NTTINVAdapter{},
+			minFork:  ForkLevelIPlus,
+		},
+		{
+			addr:     gethcommon.BytesToAddress([]byte{0x11}),
+			name:     "nttVecMulMod",
+			contract: &vm.NTTVecMulModAdapter{},
+			minFork:  ForkLevelIPlus,
+		},
+		{
+			addr:     gethcommon.BytesToAddress([]byte{0x12}),
+			name:     "nttVecAddMod",
+			contract: &vm.NTTVecAddModAdapter{},
+			minFork:  ForkLevelIPlus,
+		},
+		{
+			addr:     gethcommon.BytesToAddress([]byte{0x13}),
+			name:     "nttDotProduct",
+			contract: &vm.NTTDotProductAdapter{},
+			minFork:  ForkLevelIPlus,
+		},
+		{
+			addr:     gethcommon.BytesToAddress([]byte{0x14}),
+			name:     "nttButterfly",
+			contract: &vm.NTTButterflyAdapter{},
 			minFork:  ForkLevelIPlus,
 		},
 
@@ -299,7 +329,7 @@ func ListCustomPrecompiles() []Eth2028PrecompileInfo {
 			e.addr == gethcommon.BytesToAddress([]byte{0x09}) ||
 			e.addr == gethcommon.BytesToAddress([]byte{0x0a}):
 			cat = "repricing"
-		case e.addr == gethcommon.BytesToAddress([]byte{0x15}):
+		case e.addr[19] >= 0x0f && e.addr[19] <= 0x14 && e.addr[18] == 0x00:
 			cat = "ntt"
 		case e.addr[18] == niiBase[18] && e.addr[19] >= 0x01 && e.addr[19] <= 0x04:
 			cat = "nii"

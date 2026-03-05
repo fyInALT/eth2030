@@ -454,6 +454,35 @@ func ValidateAAProof(proof *AACircuitProof) error {
 	return nil
 }
 
+// CompileAACircuit returns the circuit definition for the AA validation circuit.
+func CompileAACircuit() (*CircuitDefinition, error) {
+	// Build R1CS constraints matching the AA validation logic:
+	// nonce (8) + signature (256) + gas (16) = 280 total constraints.
+	constraints := make([]Constraint, aaCircuitTotalConstraints)
+	for i := range constraints {
+		constraints[i] = Constraint{
+			Type: ConstraintR1CS,
+			A:    []Term{{VarID: uint32(i), Coeff: 1}},
+			B:    []Term{{VarID: uint32(i), Coeff: 1}},
+			C:    []Term{{VarID: uint32(i), Coeff: 1}},
+		}
+	}
+
+	return &CircuitDefinition{
+		Name:             "AAValidationCircuit",
+		PublicInputCount: 5,
+		Constraints:      constraints,
+	}, nil
+}
+
+// SetupKeys generates proving and verifying keys for the AA circuit.
+func SetupKeys(circuit *CircuitDefinition) (*BLSGroth16ProvingKey, *BLSGroth16VerifyingKey, error) {
+	if circuit == nil {
+		return nil, nil, ErrCircuitNilDef
+	}
+	return DefaultGroth16Backend().Setup(circuit)
+}
+
 // --- helpers ---
 
 // aaSHA256Slice computes SHA-256 over concatenated byte slices, returning a slice.

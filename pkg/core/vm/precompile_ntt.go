@@ -10,7 +10,7 @@ import (
 )
 
 // NTT precompile over BN254 scalar field.
-// Address: 0x15 (registered for I+ fork).
+// Split precompiles at addresses 0x0f-0x14 (registered for I+ fork).
 //
 // EIP-7885 NTT Precompile Alignment
 //
@@ -326,15 +326,263 @@ func GoldilocksINTT(coefficients []*big.Int) ([]*big.Int, error) {
 	return computeNTT(coefficients, goldilocksField, goldilocksPrimitiveRoot, true)
 }
 
+// Split NTT precompile structs (EIP-7885 aligned addresses 0x0f-0x14).
+
+// nttFWPrecompile performs forward NTT over BN254 scalar field.
+// Address: 0x0f
+type nttFWPrecompile struct{}
+
+func (c *nttFWPrecompile) RequiredGas(input []byte) uint64 {
+	n := uint64(len(input) / 32)
+	if n == 0 {
+		return 0
+	}
+	log2n := uint64(bits.Len(uint(n)) - 1)
+	if log2n == 0 {
+		log2n = 1
+	}
+	gas := n * log2n / 8
+	if gas < 600 {
+		return 600
+	}
+	return gas
+}
+
+func (c *nttFWPrecompile) Run(input []byte) ([]byte, error) {
+	return runNTTSplit(input, false)
+}
+
+// nttINVPrecompile performs inverse NTT over BN254 scalar field.
+// Address: 0x10
+type nttINVPrecompile struct{}
+
+func (c *nttINVPrecompile) RequiredGas(input []byte) uint64 {
+	return (&nttFWPrecompile{}).RequiredGas(input)
+}
+
+func (c *nttINVPrecompile) Run(input []byte) ([]byte, error) {
+	return runNTTSplit(input, true)
+}
+
+// runNTTSplit is the common implementation for forward/inverse NTT precompiles.
+func runNTTSplit(input []byte, inverse bool) ([]byte, error) {
+	if len(input) == 0 || len(input)%32 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	n := len(input) / 32
+	if n == 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	if n > NTTMaxDegree {
+		return nil, ErrNTTTooLarge
+	}
+	if n&(n-1) != 0 {
+		return nil, ErrNTTNotPowerOfTwo
+	}
+
+	coeffs := make([]*big.Int, n)
+	for i := 0; i < n; i++ {
+		val := new(big.Int).SetBytes(input[i*32 : (i+1)*32])
+		val.Mod(val, bn254ScalarField)
+		coeffs[i] = val
+	}
+
+	result, err := computeNTT(coeffs, bn254ScalarField, bn254PrimitiveRoot, inverse)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, n*32)
+	for i, val := range result {
+		b := val.Bytes()
+		copy(out[i*32+(32-len(b)):], b)
+	}
+	return out, nil
+}
+
+// nttVecMulModPrecompile performs element-wise multiplication mod BN254.
+// Address: 0x11
+// Input: 2N 32-byte elements (A[0..N-1] || B[0..N-1]).
+// Output: N 32-byte elements where result[i] = A[i]*B[i] mod BN254.
+type nttVecMulModPrecompile struct{}
+
+func (c *nttVecMulModPrecompile) RequiredGas(input []byte) uint64 {
+	n := uint64(len(input) / 64) // half-input element count
+	if n == 0 {
+		return 0
+	}
+	log2n := uint64(bits.Len(uint(n)) - 1)
+	if log2n == 0 {
+		log2n = 1
+	}
+	gas := n * log2n / 8
+	if gas < 600 {
+		return 600
+	}
+	return gas
+}
+
+func (c *nttVecMulModPrecompile) Run(input []byte) ([]byte, error) {
+	if len(input) == 0 || len(input)%32 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	totalElems := len(input) / 32
+	if totalElems%2 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	n := totalElems / 2
+
+	out := make([]byte, n*32)
+	for i := 0; i < n; i++ {
+		a := new(big.Int).SetBytes(input[i*32 : (i+1)*32])
+		b := new(big.Int).SetBytes(input[(n+i)*32 : (n+i+1)*32])
+		r := new(big.Int).Mul(a, b)
+		r.Mod(r, bn254ScalarField)
+		rb := r.Bytes()
+		copy(out[i*32+(32-len(rb)):], rb)
+	}
+	return out, nil
+}
+
+// nttVecAddModPrecompile performs element-wise addition mod BN254.
+// Address: 0x12
+// Input: 2N 32-byte elements (A[0..N-1] || B[0..N-1]).
+// Output: N 32-byte elements where result[i] = A[i]+B[i] mod BN254.
+type nttVecAddModPrecompile struct{}
+
+func (c *nttVecAddModPrecompile) RequiredGas(input []byte) uint64 {
+	n := uint64(len(input) / 64)
+	if n == 0 {
+		return 0
+	}
+	log2n := uint64(bits.Len(uint(n)) - 1)
+	if log2n == 0 {
+		log2n = 1
+	}
+	gas := n * log2n / 32
+	if gas < 100 {
+		return 100
+	}
+	return gas
+}
+
+func (c *nttVecAddModPrecompile) Run(input []byte) ([]byte, error) {
+	if len(input) == 0 || len(input)%32 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	totalElems := len(input) / 32
+	if totalElems%2 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	n := totalElems / 2
+
+	out := make([]byte, n*32)
+	for i := 0; i < n; i++ {
+		a := new(big.Int).SetBytes(input[i*32 : (i+1)*32])
+		b := new(big.Int).SetBytes(input[(n+i)*32 : (n+i+1)*32])
+		r := new(big.Int).Add(a, b)
+		r.Mod(r, bn254ScalarField)
+		rb := r.Bytes()
+		copy(out[i*32+(32-len(rb)):], rb)
+	}
+	return out, nil
+}
+
+// nttDotProductPrecompile computes the dot product of two vectors mod BN254.
+// Address: 0x13
+// Input: 2N 32-byte elements (A[0..N-1] || B[0..N-1]).
+// Output: single 32-byte result = sum(A[i]*B[i]) mod BN254.
+type nttDotProductPrecompile struct{}
+
+func (c *nttDotProductPrecompile) RequiredGas(input []byte) uint64 {
+	n := uint64(len(input) / 64)
+	if n == 0 {
+		return 0
+	}
+	if n < 600 {
+		return 600
+	}
+	return n
+}
+
+func (c *nttDotProductPrecompile) Run(input []byte) ([]byte, error) {
+	if len(input) == 0 || len(input)%32 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	totalElems := len(input) / 32
+	if totalElems%2 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	n := totalElems / 2
+
+	sum := new(big.Int)
+	for i := 0; i < n; i++ {
+		a := new(big.Int).SetBytes(input[i*32 : (i+1)*32])
+		b := new(big.Int).SetBytes(input[(n+i)*32 : (n+i+1)*32])
+		prod := new(big.Int).Mul(a, b)
+		prod.Mod(prod, bn254ScalarField)
+		sum.Add(sum, prod)
+		sum.Mod(sum, bn254ScalarField)
+	}
+
+	out := make([]byte, 32)
+	sb := sum.Bytes()
+	copy(out[32-len(sb):], sb)
+	return out, nil
+}
+
+// nttButterflyPrecompile applies bit-reversal permutation to input elements.
+// Address: 0x14
+// Input: N 32-byte elements (power-of-two N).
+// Output: N 32-byte elements with bit-reversal permutation applied.
+type nttButterflyPrecompile struct{}
+
+func (c *nttButterflyPrecompile) RequiredGas(input []byte) uint64 {
+	n := uint64(len(input) / 32)
+	if n == 0 {
+		return 0
+	}
+	if n < 300 {
+		return 300
+	}
+	return n
+}
+
+func (c *nttButterflyPrecompile) Run(input []byte) ([]byte, error) {
+	if len(input) == 0 || len(input)%32 != 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	n := len(input) / 32
+	if n == 0 {
+		return nil, ErrNTTInvalidInput
+	}
+	if n&(n-1) != 0 {
+		return nil, ErrNTTNotPowerOfTwo
+	}
+
+	logN := bits.Len(uint(n)) - 1
+	out := make([]byte, n*32)
+	for i := 0; i < n; i++ {
+		j := bitReverse(i, logN)
+		copy(out[i*32:(i+1)*32], input[j*32:(j+1)*32])
+	}
+	return out, nil
+}
+
 // PrecompiledContractsIPlus extends Glamsterdan with I+ fork precompiles:
-// EIP-7885 NTT precompile (0x15) and NII precompiles (0x0201-0x0204).
+// EIP-7885 NTT precompiles (0x0f-0x14) and NII precompiles (0x0201-0x0204).
 var PrecompiledContractsIPlus = func() map[types.Address]PrecompiledContract {
-	m := make(map[types.Address]PrecompiledContract, len(PrecompiledContractsGlamsterdan)+5)
+	m := make(map[types.Address]PrecompiledContract, len(PrecompiledContractsGlamsterdan)+10)
 	for addr, c := range PrecompiledContractsGlamsterdan {
 		m[addr] = c
 	}
-	// EIP-7885: NTT precompile.
-	m[types.BytesToAddress([]byte{0x15})] = &nttPrecompile{}
+	// EIP-7885: Split NTT precompiles.
+	m[types.BytesToAddress([]byte{0x0f})] = &nttFWPrecompile{}
+	m[types.BytesToAddress([]byte{0x10})] = &nttINVPrecompile{}
+	m[types.BytesToAddress([]byte{0x11})] = &nttVecMulModPrecompile{}
+	m[types.BytesToAddress([]byte{0x12})] = &nttVecAddModPrecompile{}
+	m[types.BytesToAddress([]byte{0x13})] = &nttDotProductPrecompile{}
+	m[types.BytesToAddress([]byte{0x14})] = &nttButterflyPrecompile{}
 	// NII precompiles.
 	m[NiiModExpAddr] = &NiiModExpPrecompile{}
 	m[NiiFieldMulAddr] = &NiiFieldMulPrecompile{}

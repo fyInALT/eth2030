@@ -17,8 +17,26 @@ type Blake2FGlamsterdanAdapter struct{ blake2FGlamsterdan }
 // KZGPointEvalGlamsterdanAdapter exposes the Glamsterdam-repriced kzgPointEval.
 type KZGPointEvalGlamsterdanAdapter struct{ kzgPointEvaluationGlamsterdan }
 
-// NTTPrecompileAdapter exposes the NTT precompile (0x15).
+// NTTPrecompileAdapter exposes the legacy NTT precompile (kept for adapter compatibility).
 type NTTPrecompileAdapter struct{ nttPrecompile }
+
+// NTTFWAdapter exposes the forward NTT precompile (0x0f).
+type NTTFWAdapter struct{ nttFWPrecompile }
+
+// NTTINVAdapter exposes the inverse NTT precompile (0x10).
+type NTTINVAdapter struct{ nttINVPrecompile }
+
+// NTTVecMulModAdapter exposes the vector mul mod precompile (0x11).
+type NTTVecMulModAdapter struct{ nttVecMulModPrecompile }
+
+// NTTVecAddModAdapter exposes the vector add mod precompile (0x12).
+type NTTVecAddModAdapter struct{ nttVecAddModPrecompile }
+
+// NTTDotProductAdapter exposes the dot product precompile (0x13).
+type NTTDotProductAdapter struct{ nttDotProductPrecompile }
+
+// NTTButterflyAdapter exposes the butterfly precompile (0x14).
+type NTTButterflyAdapter struct{ nttButterflyPrecompile }
 
 // NiiModExpAdapter exposes the NII modexp precompile (0x0201).
 type NiiModExpAdapter struct{ NiiModExpPrecompile }

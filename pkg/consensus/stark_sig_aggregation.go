@@ -236,6 +236,54 @@ func BatchVerifyPQAttestations(attestations []PQAttestation) (*STARKSignatureAgg
 	return agg, nil
 }
 
+// MerklePQAggregation holds a lightweight Merkle-only aggregation of PQ
+// attestations, used in lean available chain mode where STARK proofs are skipped.
+type MerklePQAggregation struct {
+	MerkleRoot    types.Hash
+	NumValidators int
+	Slot          uint64
+}
+
+// MerkleAggregatePQAttestations computes a SHA-256 Merkle tree over the
+// attestation public key hashes and returns the root. No STARK proof is produced.
+func MerkleAggregatePQAttestations(attestations []PQAttestation) (*MerklePQAggregation, error) {
+	if len(attestations) == 0 {
+		return nil, ErrSTARKAggNoSigs
+	}
+	pubkeys := make([][]byte, len(attestations))
+	for i, att := range attestations {
+		pubkeys[i] = att.PQPublicKey
+	}
+	root := computeCommitteeRoot(pubkeys)
+	return &MerklePQAggregation{
+		MerkleRoot:    root,
+		NumValidators: len(attestations),
+		Slot:          attestations[0].Slot,
+	}, nil
+}
+
+// AggregateWithConfig creates a signature aggregation using the appropriate
+// strategy based on config. In lean available chain mode, only a Merkle root
+// is computed (no STARK proof). Otherwise, the full STARK aggregation is used.
+func (sa *STARKSignatureAggregator) AggregateWithConfig(attestations []PQAttestation, cfg *ConsensusConfig) (*STARKSignatureAggregation, error) {
+	if cfg != nil && cfg.LeanAvailableChainMode {
+		merkle, err := MerkleAggregatePQAttestations(attestations)
+		if err != nil {
+			return nil, err
+		}
+		return &STARKSignatureAggregation{
+			Signatures:     attestations,
+			AggregateProof: nil,
+			CommitteeRoot:  merkle.MerkleRoot,
+			Message:        attestations[0].BeaconBlockRoot,
+			NumValidators:  merkle.NumValidators,
+			Slot:           merkle.Slot,
+			TargetEpoch:    attestations[0].TargetEpoch,
+		}, nil
+	}
+	return sa.Aggregate(attestations)
+}
+
 // AggregationStats holds statistics about a STARK signature aggregation.
 type AggregationStats struct {
 	NumSignatures     int

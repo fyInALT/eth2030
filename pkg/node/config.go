@@ -114,6 +114,15 @@ type Config struct {
 	// aggressive:   VERIFY frame gas capped at 200K when a staked paymaster is detected.
 	FrameMempoolTier string // --frame-mempool
 
+	// LeanAvailableChainMode enables PQ attestation for a per-slot validator subset (US-PQ-2).
+	LeanAvailableChainMode bool // --lean-available-chain
+
+	// LeanAvailableChainValidators is the per-slot PQ attestor count [256,1024] (default 512).
+	LeanAvailableChainValidators int // --lean-available-validators
+
+	// StarkValidationFrames enables STARK proof sealing for VERIFY frame transactions (US-PQ-5b).
+	StarkValidationFrames bool // --stark-validation-frames
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -180,6 +189,9 @@ func DefaultConfig() Config {
 
 		// Frame mempool (EIP-8141 AA-2.3)
 		FrameMempoolTier: "conservative",
+
+		// EP-3 Post-Quantum defaults.
+		LeanAvailableChainValidators: 512,
 	}
 }
 
@@ -241,6 +253,12 @@ func (c *Config) Validate() error {
 	case "", "full", "archive":
 	default:
 		return fmt.Errorf("config: unknown gc mode %q", c.GCMode)
+	}
+	// Validate lean available chain validator count when mode is enabled.
+	if c.LeanAvailableChainMode {
+		if c.LeanAvailableChainValidators < 256 || c.LeanAvailableChainValidators > 1024 {
+			return fmt.Errorf("config: lean-available-validators must be in [256,1024], got %d", c.LeanAvailableChainValidators)
+		}
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":

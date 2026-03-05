@@ -8,15 +8,19 @@ type ConsensusConfig struct {
 	SlotsPerEpoch     uint64 // number of slots per epoch
 	MinGenesisTime    uint64 // minimum genesis timestamp
 	EpochsForFinality uint64 // epochs required for finalization (2 = Casper FFG, 1 = single-epoch)
+
+	LeanAvailableChainMode       bool // enables lean available chain mode (PQ subset attestation)
+	LeanAvailableChainValidators int  // number of PQ attestors per slot; range [256,1024], default 512
 }
 
 // DefaultConfig returns the standard Ethereum mainnet consensus config.
 func DefaultConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		SecondsPerSlot:    12,
-		SlotsPerEpoch:     32,
-		MinGenesisTime:    0,
-		EpochsForFinality: 2,
+		SecondsPerSlot:               12,
+		SlotsPerEpoch:                32,
+		MinGenesisTime:               0,
+		EpochsForFinality:            2,
+		LeanAvailableChainValidators: 512,
 	}
 }
 
@@ -40,6 +44,11 @@ func (c *ConsensusConfig) Validate() error {
 	}
 	if c.EpochsForFinality == 0 {
 		return fmt.Errorf("consensus: EpochsForFinality must be > 0")
+	}
+	if c.LeanAvailableChainMode && c.LeanAvailableChainValidators != 0 {
+		if c.LeanAvailableChainValidators < 256 || c.LeanAvailableChainValidators > 1024 {
+			return fmt.Errorf("consensus: LeanAvailableChainValidators must be in [256, 1024], got %d", c.LeanAvailableChainValidators)
+		}
 	}
 	return nil
 }
