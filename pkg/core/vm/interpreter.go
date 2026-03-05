@@ -7,6 +7,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/zkvm"
 )
 
 var (
@@ -108,22 +109,23 @@ type Config struct {
 
 // EVM is the Ethereum Virtual Machine execution environment.
 type EVM struct {
-	Context     BlockContext
-	TxContext   TxContext
-	Config      Config
-	StateDB     StateDB
-	chainID     uint64
-	depth       int
-	readOnly    bool
-	jumpTable   JumpTable
-	precompiles map[types.Address]PrecompiledContract
-	returnData  []byte             // return data from the last CALL/CREATE
-	callGasTemp uint64             // temporary storage for CALL gas (set by dynamic gas, read by opCall)
-	witnessGas  *WitnessGasTracker // EIP-4762: witness gas tracking (nil if not Verkle)
-	balTracker  BALTracker         // EIP-7928: BAL state access tracking (nil if not active)
-	txIndex     uint64             // EIP-7928: current transaction index for BAL
-	forkRules   ForkRules          // active fork rules for this block
-	FrameCtx    *FrameContext      // EIP-8141: frame transaction approval context (nil if not frame tx)
+	Context       BlockContext
+	TxContext     TxContext
+	Config        Config
+	StateDB       StateDB
+	chainID       uint64
+	depth         int
+	readOnly      bool
+	jumpTable     JumpTable
+	precompiles   map[types.Address]PrecompiledContract
+	returnData    []byte              // return data from the last CALL/CREATE
+	callGasTemp   uint64              // temporary storage for CALL gas (set by dynamic gas, read by opCall)
+	witnessGas    *WitnessGasTracker  // EIP-4762: witness gas tracking (nil if not Verkle)
+	balTracker    BALTracker          // EIP-7928: BAL state access tracking (nil if not active)
+	txIndex       uint64              // EIP-7928: current transaction index for BAL
+	forkRules     ForkRules           // active fork rules for this block
+	FrameCtx      *FrameContext       // EIP-8141: frame transaction approval context (nil if not frame tx)
+	guestRegistry *zkvm.GuestRegistry // EL-3: RISC-V guest registry for RVCREATE (nil if not I+)
 }
 
 // NewEVM creates a new EVM instance.
@@ -155,6 +157,12 @@ func (evm *EVM) SetJumpTable(jt JumpTable) {
 // SetPrecompiles replaces the EVM's precompile map.
 func (evm *EVM) SetPrecompiles(p map[types.Address]PrecompiledContract) {
 	evm.precompiles = p
+}
+
+// SetGuestRegistry sets the RISC-V guest registry used by RVCREATE (EL-3).
+// Pass nil to disable RISC-V contract routing.
+func (evm *EVM) SetGuestRegistry(r *zkvm.GuestRegistry) {
+	evm.guestRegistry = r
 }
 
 // SetForkRules sets the active fork rules for this EVM instance.
@@ -248,6 +256,8 @@ func SelectPrecompiles(rules ForkRules) map[types.Address]PrecompiledContract {
 // SelectJumpTable returns the correct jump table for the given fork rules.
 func SelectJumpTable(rules ForkRules) JumpTable {
 	switch {
+	case rules.IsIPlus:
+		return NewIPlusJumpTable()
 	case rules.IsVerkle:
 		return NewVerkleJumpTable()
 	case rules.IsGlamsterdan:
@@ -471,6 +481,19 @@ func (evm *EVM) Call(caller types.Address, addr types.Address, input []byte, gas
 			evm.Config.Tracer.CaptureEnd(nil, 0, nil)
 		}
 		return nil, gas, nil
+	}
+
+	// EL-3.3: if code starts with RISC-V magic bytes and I+ fork is active,
+	// route execution through the RISC-V CPU emulator instead of the EVM.
+	if evm.forkRules.IsIPlus && IsRVCode(code) {
+		ret, gasLeft, rvErr := runRVContract(code, input, gas)
+		if rvErr != nil {
+			evm.StateDB.RevertToSnapshot(snapshot)
+		}
+		if debug && evm.depth == 0 {
+			evm.Config.Tracer.CaptureEnd(ret, gas-gasLeft, rvErr)
+		}
+		return ret, gasLeft, rvErr
 	}
 
 	// Create the contract for execution.

@@ -700,6 +700,22 @@ func NewGlamsterdanJumpTable() JumpTable {
 	return tbl
 }
 
+// NewIPlusJumpTable returns the I+ fork jump table extending Glamsterdan
+// with RVCREATE (0xF6) for RISC-V contract deployment (EL-3.1).
+func NewIPlusJumpTable() JumpTable {
+	tbl := NewGlamsterdanJumpTable()
+	tbl[RVCREATE] = &operation{
+		execute:     opRVCreate,
+		constantGas: GasCreate,
+		dynamicGas:  gasRVCreate,
+		minStack:    3,
+		maxStack:    1024,
+		memorySize:  memoryCreate,
+		writes:      true,
+	}
+	return tbl
+}
+
 // NewFrameVerifyJumpTable returns a restricted jump table for VERIFY frames.
 // Per EIP-8141 spec, VERIFY frames MUST NOT use state-modifying opcodes
 // to prevent mempool DoS attacks.

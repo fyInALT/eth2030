@@ -37,6 +37,17 @@ type ChainConfig struct {
 	// BPO (Blob Parameter Optimization) fork timestamps for blob schedule upgrades.
 	BPO1Time *uint64
 	BPO2Time *uint64
+
+	// EIP7864FinalHashTime is the timestamp at which the binary trie switches
+	// from SHA-256 to BLAKE3-256 as the canonical hash function (BL-1.3).
+	// Nil means the fork is not yet activated; SHA-256 remains default.
+	EIP7864FinalHashTime *uint64
+
+	// BinaryTreeHashFunc overrides the hash function used by the binary trie.
+	// Accepted values: "sha256" (default), "blake3".
+	// This field is derived from EIP7864FinalHashTime but can be set directly
+	// for testing.
+	BinaryTreeHashFunc string
 }
 
 // Block-number fork checks
@@ -145,6 +156,26 @@ func (c *ChainConfig) IsHogota(time uint64) bool {
 // I+ includes NTT precompile (EIP-7885), native rollups, zkVM, proof aggregation.
 func (c *ChainConfig) IsIPlus(time uint64) bool {
 	return isTimestampForked(c.IPlusTime, time)
+}
+
+// IsEIP7864FinalHash returns whether the binary trie BLAKE3 hash function
+// fork is active at the given timestamp (BL-1.3). When active, the binary
+// trie uses BLAKE3-256 instead of SHA-256 for internal node hashing.
+func (c *ChainConfig) IsEIP7864FinalHash(time uint64) bool {
+	return isTimestampForked(c.EIP7864FinalHashTime, time)
+}
+
+// BinaryTrieHashFunc returns the hash function name to use for the binary trie
+// at the given block timestamp. Returns HashFunctionBlake3 when the
+// EIP-7864 final-hash fork is active, otherwise HashFunctionSHA256.
+func (c *ChainConfig) BinaryTrieHashFuncAt(time uint64) string {
+	if c.BinaryTreeHashFunc != "" {
+		return c.BinaryTreeHashFunc
+	}
+	if c.IsEIP7864FinalHash(time) {
+		return "blake3"
+	}
+	return "sha256"
 }
 
 // IsBPO1 returns whether the given block time is at or past BPO1.

@@ -24,10 +24,18 @@ var (
 
 // ECALL function codes (placed in a7/x17 register).
 const (
-	RVEcallHalt   uint32 = 0 // Halt execution. Exit code in a0.
-	RVEcallOutput uint32 = 1 // Output byte from a0.
-	RVEcallInput  uint32 = 2 // Read input byte into a0.
+	RVEcallHalt      uint32 = 0 // Halt execution. Exit code in a0.
+	RVEcallOutput    uint32 = 1 // Output byte from a0.
+	RVEcallInput     uint32 = 2 // Read input byte into a0.
+	RVEcallKeccak256 uint32 = 3 // Hash InputBuf with Keccak-256; append 32-byte digest to OutputBuf.
+	RVEcallSHA256    uint32 = 4 // Hash InputBuf with SHA-256; append 32-byte digest to OutputBuf.
+	RVEcallECRecover uint32 = 5 // secp256k1 ECDSA recover from InputBuf; append 32-byte address to OutputBuf.
 )
+
+// EcallHandler is a function that handles a custom ECALL code.
+// It receives the CPU state and returns an error on failure.
+// On error the CPU is halted with exit code 0xFF.
+type EcallHandler func(cpu *RVCPU) error
 
 // RVRegCount is the number of general-purpose registers.
 const RVRegCount = 32
@@ -54,14 +62,29 @@ type RVCPU struct {
 
 	// Witness collector (optional).
 	Witness *RVWitnessCollector
+
+	// EcallHandlers maps custom ECALL codes to handler functions.
+	// Built-in codes (0–2) are always handled internally.
+	// Register crypto handlers (3–5) via RegisterEcallHandler.
+	EcallHandlers map[uint32]EcallHandler
 }
 
 // NewRVCPU creates a new RISC-V CPU with the given gas limit.
 func NewRVCPU(gasLimit uint64) *RVCPU {
 	return &RVCPU{
-		Memory:   NewRVMemory(),
-		GasLimit: gasLimit,
+		Memory:        NewRVMemory(),
+		GasLimit:      gasLimit,
+		EcallHandlers: make(map[uint32]EcallHandler),
 	}
+}
+
+// RegisterEcallHandler installs a custom ECALL handler for the given code.
+// Built-in codes (0–2) cannot be overridden.
+func (cpu *RVCPU) RegisterEcallHandler(code uint32, h EcallHandler) {
+	if cpu.EcallHandlers == nil {
+		cpu.EcallHandlers = make(map[uint32]EcallHandler)
+	}
+	cpu.EcallHandlers[code] = h
 }
 
 // LoadProgram loads machine code into memory at the given base address
@@ -456,9 +479,17 @@ func (cpu *RVCPU) handleEcall() {
 			cpu.Regs[10] = 0xFFFFFFFF // EOF
 		}
 	default:
-		// Unknown syscall: halt with error code.
-		cpu.ExitCode = 0xFF
-		cpu.Halted = true
+		// Check registered custom handlers.
+		if h, ok := cpu.EcallHandlers[syscall]; ok {
+			if err := h(cpu); err != nil {
+				cpu.ExitCode = 0xFF
+				cpu.Halted = true
+			}
+		} else {
+			// Unknown syscall: halt with error code.
+			cpu.ExitCode = 0xFF
+			cpu.Halted = true
+		}
 	}
 }
 

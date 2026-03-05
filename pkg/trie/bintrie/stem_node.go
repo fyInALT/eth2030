@@ -3,11 +3,13 @@ package bintrie
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/eth2030/eth2030/core/types"
+	"lukechampine.com/blake3"
 )
 
 // StemNode represents a group of StemNodeWidth values sharing the same stem.
@@ -186,4 +188,55 @@ func (bt *StemNode) Key(i int) []byte {
 	copy(ret[:], bt.Stem)
 	ret[StemSize] = byte(i)
 	return ret[:]
+}
+
+// HashBlake3 computes the BLAKE3-256 Merkle hash of this stem node.
+// It mirrors Hash() but uses BLAKE3 instead of SHA-256 for each step,
+// as required when the EIP-7864 final-hash fork is active.
+func (bt *StemNode) HashBlake3() types.Hash {
+	var data [StemNodeWidth]types.Hash
+	for i, v := range bt.Values {
+		if v != nil {
+			h := blake3.Sum256(v)
+			data[i] = types.BytesToHash(h[:])
+		}
+	}
+
+	for level := 1; level <= 8; level++ {
+		for i := range StemNodeWidth / (1 << level) {
+			if data[i*2] == (types.Hash{}) && data[i*2+1] == (types.Hash{}) {
+				data[i] = types.Hash{}
+				continue
+			}
+			h := blake3.New(32, nil)
+			h.Write(data[i*2][:])
+			h.Write(data[i*2+1][:])
+			var out [32]byte
+			h.Sum(out[:0])
+			data[i] = types.BytesToHash(out[:])
+		}
+	}
+
+	h := blake3.New(32, nil)
+	h.Write(bt.Stem)
+	h.Write([]byte{0})
+	h.Write(data[0][:])
+	var out [32]byte
+	h.Sum(out[:0])
+	return types.BytesToHash(out[:])
+}
+
+// UpdateLeafMetadata writes the given epoch into the reserved metadata slot
+// at subindex (2–63) of this stem node. The epoch is stored as an 8-byte
+// big-endian value padded to HashSize bytes.
+//
+// subindex 2 is the last-access epoch slot as specified by the I+ roadmap.
+func (bt *StemNode) UpdateLeafMetadata(subindex int, epoch uint64) error {
+	if subindex < 2 || subindex >= StemNodeWidth {
+		return errors.New("bintrie: metadata subindex must be in range [2, 255]")
+	}
+	var v [HashSize]byte
+	binary.BigEndian.PutUint64(v[HashSize-8:], epoch)
+	bt.Values[subindex] = v[:]
+	return nil
 }

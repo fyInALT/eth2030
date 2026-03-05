@@ -19,8 +19,11 @@ package crypto
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
+
+	goethkzg "github.com/crate-crypto/go-eth-kzg"
 )
 
 // EIP-4844 constants matching the consensus spec and go-eth-kzg/serialization.go.
@@ -311,87 +314,137 @@ func (b *PlaceholderKZGBackend) VerifyCellProof(commitment, cell, proof []byte, 
 
 // --- GoEthKZGBackend ---
 
-// GoEthKZGBackend is a build-tag-ready adapter for the go-eth-kzg library
-// (github.com/crate-crypto/go-eth-kzg). It documents the exact API calls
-// that would be used in a production deployment.
+// GoEthKZGBackend implements KZGCeremonyBackend using the production
+// go-eth-kzg library (github.com/crate-crypto/go-eth-kzg) with the
+// real Ethereum KZG ceremony SRS. This replaces the placeholder backend
+// for mainnet-valid blob commitments and PeerDAS cell proofs (EL-4.1).
 //
-// To enable this backend, build with `-tags goethkzg` and provide an
-// implementation that wraps a go-eth-kzg Context:
-//
-//	type GoEthKZGBackend struct {
-//	    ctx *goethkzg.Context
-//	}
-//
-//	func NewGoEthKZGBackend() (*GoEthKZGBackend, error) {
-//	    ctx, err := goethkzg.NewContext4096Secure()
-//	    if err != nil { return nil, err }
-//	    return &GoEthKZGBackend{ctx: ctx}, nil
-//	}
-//
-//	func (b *GoEthKZGBackend) BlobToCommitment(blob []byte) ([48]byte, error) {
-//	    var blobArr goethkzg.Blob
-//	    copy(blobArr[:], blob)
-//	    comm, err := b.ctx.BlobToKZGCommitment(&blobArr, 0)
-//	    return [48]byte(comm), err
-//	}
-//
-//	func (b *GoEthKZGBackend) VerifyBlobProof(blob, commitment, proof []byte) (bool, error) {
-//	    var blobArr goethkzg.Blob
-//	    copy(blobArr[:], blob)
-//	    var comm goethkzg.KZGCommitment
-//	    copy(comm[:], commitment)
-//	    var p goethkzg.KZGProof
-//	    copy(p[:], proof)
-//	    err := b.ctx.VerifyBlobKZGProof(&blobArr, comm, p)
-//	    return err == nil, err
-//	}
-//
-//	func (b *GoEthKZGBackend) ComputeCells(blob []byte) ([][2048]byte, error) {
-//	    var blobArr goethkzg.Blob
-//	    copy(blobArr[:], blob)
-//	    cellPtrs, err := b.ctx.ComputeCells(&blobArr, 0)
-//	    if err != nil { return nil, err }
-//	    cells := make([][2048]byte, len(cellPtrs))
-//	    for i, c := range cellPtrs { cells[i] = *c }
-//	    return cells, nil
-//	}
-//
-//	func (b *GoEthKZGBackend) VerifyCellProof(commitment, cell, proof []byte,
-//	    cellIndex uint64) (bool, error) {
-//	    var comm goethkzg.KZGCommitment
-//	    copy(comm[:], commitment)
-//	    var c goethkzg.Cell
-//	    copy(c[:], cell)
-//	    var p goethkzg.KZGProof
-//	    copy(p[:], proof)
-//	    err := b.ctx.VerifyCellKZGProofBatch(
-//	        []goethkzg.KZGCommitment{comm},
-//	        []uint64{cellIndex},
-//	        []*goethkzg.Cell{&c},
-//	        []goethkzg.KZGProof{p},
-//	    )
-//	    return err == nil, err
-//	}
-//
-// The GoEthKZGBackend struct below is a placeholder that returns errors.
-type GoEthKZGBackend struct{}
+// Initialization loads the official Ethereum trusted setup (~2-5 seconds),
+// so the context is created lazily on first use via globalGoEthKZGContext.
+type GoEthKZGBackend struct {
+	ctx *goethkzg.Context
+}
+
+// globalGoEthKZGContext caches the lazily-initialized production context.
+var (
+	globalGoEthKZGOnce    sync.Once
+	globalGoEthKZGContext *goethkzg.Context
+	globalGoEthKZGErr     error
+)
+
+// NewGoEthKZGBackend creates a GoEthKZGBackend using the production
+// Ethereum KZG ceremony trusted setup. This is the preferred way to
+// instantiate the backend; it loads the SRS only once per process.
+func NewGoEthKZGBackend() (*GoEthKZGBackend, error) {
+	globalGoEthKZGOnce.Do(func() {
+		globalGoEthKZGContext, globalGoEthKZGErr = goethkzg.NewContext4096Secure()
+	})
+	if globalGoEthKZGErr != nil {
+		return nil, fmt.Errorf("kzg: init production context: %w", globalGoEthKZGErr)
+	}
+	return &GoEthKZGBackend{ctx: globalGoEthKZGContext}, nil
+}
 
 func (b *GoEthKZGBackend) Name() string { return "go-eth-kzg" }
 
+// BlobToCommitment computes the KZG commitment for a blob using the
+// production Ethereum trusted setup.
 func (b *GoEthKZGBackend) BlobToCommitment(blob []byte) ([KZGBytesPerCommitment]byte, error) {
-	return [KZGBytesPerCommitment]byte{}, ErrKZGBackendNotImplemented
+	if b.ctx == nil {
+		return [KZGBytesPerCommitment]byte{}, ErrKZGBackendNotImplemented
+	}
+	if len(blob) != KZGBytesPerBlob {
+		return [KZGBytesPerCommitment]byte{}, ErrKZGInvalidBlobSize
+	}
+	var blobArr goethkzg.Blob
+	copy(blobArr[:], blob)
+	comm, err := b.ctx.BlobToKZGCommitment(&blobArr, 0)
+	if err != nil {
+		return [KZGBytesPerCommitment]byte{}, fmt.Errorf("kzg: blob to commitment: %w", err)
+	}
+	return [KZGBytesPerCommitment]byte(comm), nil
 }
 
+// VerifyBlobProof verifies a KZG proof for a blob against a commitment
+// using the production trusted setup.
 func (b *GoEthKZGBackend) VerifyBlobProof(blob, commitment, proof []byte) (bool, error) {
-	return false, ErrKZGBackendNotImplemented
+	if b.ctx == nil {
+		return false, ErrKZGBackendNotImplemented
+	}
+	if len(blob) != KZGBytesPerBlob {
+		return false, ErrKZGInvalidBlobSize
+	}
+	if err := ValidateCommitment(commitment); err != nil {
+		return false, err
+	}
+	if err := ValidateProof(proof); err != nil {
+		return false, err
+	}
+	var blobArr goethkzg.Blob
+	copy(blobArr[:], blob)
+	var comm goethkzg.KZGCommitment
+	copy(comm[:], commitment)
+	var p goethkzg.KZGProof
+	copy(p[:], proof)
+	err := b.ctx.VerifyBlobKZGProof(&blobArr, comm, p)
+	return err == nil, err
 }
 
+// ComputeCells computes the 128 extended-blob cells for PeerDAS (EIP-7594)
+// using Reed-Solomon erasure coding via the production trusted setup.
 func (b *GoEthKZGBackend) ComputeCells(blob []byte) ([][KZGBytesPerCell]byte, error) {
-	return nil, ErrKZGBackendNotImplemented
+	if b.ctx == nil {
+		return nil, ErrKZGBackendNotImplemented
+	}
+	if len(blob) != KZGBytesPerBlob {
+		return nil, ErrKZGInvalidBlobSize
+	}
+	var blobArr goethkzg.Blob
+	copy(blobArr[:], blob)
+	cellPtrs, err := b.ctx.ComputeCells(&blobArr, 0)
+	if err != nil {
+		return nil, fmt.Errorf("kzg: compute cells: %w", err)
+	}
+	cells := make([][KZGBytesPerCell]byte, len(cellPtrs))
+	for i, c := range cellPtrs {
+		if c != nil {
+			cells[i] = [KZGBytesPerCell]byte(*c)
+		}
+	}
+	return cells, nil
 }
 
+// VerifyCellProof verifies a single KZG cell proof against a commitment
+// using VerifyCellKZGProofBatch (EIP-7594 PeerDAS path, EL-4.2).
 func (b *GoEthKZGBackend) VerifyCellProof(commitment, cell, proof []byte, cellIndex uint64) (bool, error) {
-	return false, ErrKZGBackendNotImplemented
+	if b.ctx == nil {
+		return false, ErrKZGBackendNotImplemented
+	}
+	if cellIndex >= KZGCellsPerExtBlob {
+		return false, ErrKZGInvalidCellIndex
+	}
+	if err := ValidateCommitment(commitment); err != nil {
+		return false, err
+	}
+	if len(cell) != KZGBytesPerCell {
+		return false, errors.New("kzg: invalid cell size")
+	}
+	if err := ValidateProof(proof); err != nil {
+		return false, err
+	}
+	var comm goethkzg.KZGCommitment
+	copy(comm[:], commitment)
+	var c goethkzg.Cell
+	copy(c[:], cell)
+	var p goethkzg.KZGProof
+	copy(p[:], proof)
+	err := b.ctx.VerifyCellKZGProofBatch(
+		[]goethkzg.KZGCommitment{comm},
+		[]uint64{cellIndex},
+		[]*goethkzg.Cell{&c},
+		[]goethkzg.KZGProof{p},
+	)
+	return err == nil, err
 }
 
 // --- Helpers ---

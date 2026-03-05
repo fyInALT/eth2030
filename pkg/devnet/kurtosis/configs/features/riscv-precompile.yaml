@@ -1,0 +1,22 @@
+# RISC-V Precompile — I+ fork RISC-V guest routing (EL-2.3, EL-3.1, EL-3.3)
+# Tests: RVCREATE deployment, EVM.Call routing to RV guests, fork boundary,
+#        SHA-256/Keccak-256/ECRecover via RISC-V, precompile gas transparency
+# Verify: chain produces blocks with I+ fork active, RV-magic code handled
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - assertoor
+
+assertoor_params:
+  run_stability_check: true

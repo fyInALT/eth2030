@@ -1,0 +1,56 @@
+# PeerDAS throughput devnet — EL-4.3
+#
+# Target: 6 blobs/slot (current max per EIP-7691), all 128 cell proofs
+# verified within the 2-second slot window (8 MB/sec custody target).
+#
+# Success criteria:
+#   - EL logs show "custody_verify: batch OK" within 2s of slot start
+#   - No missed slots for the first 64 slots
+#   - Blob throughput counter >= 6 blobs/slot average over 32 slots
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 4
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - blobscan
+  - spamoor
+  - assertoor
+
+# 6 blobs/slot at the 2-second slot boundary to stress PeerDAS custody.
+spamoor_params:
+  spammers:
+    - scenario: blob-combined
+      name: "PeerDAS Throughput"
+      config:
+        # 6 blobs per transaction, one tx per slot -> 6 blobs/slot.
+        throughput: 6
+        max_pending: 12
+        max_wallets: 6
+        sidecars_per_tx: 6
+
+assertoor_params:
+  run_stability_check: true
+  tests:
+    - file: "https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/blob-transaction-test.yaml"
+      config:
+        # Verify blob availability for 64 consecutive slots.
+        min_blob_count: 6
+        slot_count: 64
+        timeout: 300
+
+# Metrics for tracking 8 MB/sec custody target.
+# Each blob = 131072 bytes; 6 blobs/slot at 0.5 slot/sec = 6 * 131072 * 0.5
+# = ~393 KB/sec raw blob data. Full extended blob (2x RS) = ~786 KB/sec.
+# With 4 nodes each holding 1/4 of columns: 32 cells * 2048 bytes * 0.5/sec
+# = ~32 KB/sec per node — well within the 8 MB/sec custody bandwidth target.
+grafana_params:
+  dashboard: peerdas-throughput
