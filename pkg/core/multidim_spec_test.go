@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -92,5 +93,106 @@ func TestCalcCalldataBaseFee_HigherExcessMeansHigherFee(t *testing.T) {
 	fee2 := CalcCalldataBaseFee(100_000_000, 1_000_000)
 	if fee2.Cmp(fee1) <= 0 {
 		t.Errorf("higher excess gas should produce higher base fee: fee1=%v fee2=%v", fee1, fee2)
+	}
+}
+
+// --- SPEC-6.4: BuildBlock wires calldata dimension into 3D gas vectors ---
+
+func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+	builder := NewBlockBuilder(TestConfigGlamsterdan, nil, nil)
+	builder.SetState(statedb)
+
+	parent := &types.Header{
+		Number:   big.NewInt(0),
+		GasLimit: 30_000_000,
+		GasUsed:  0,
+		BaseFee:  big.NewInt(1_000_000_000),
+		Time:     1700000000,
+	}
+
+	block, _, err := builder.BuildBlock(parent, &BuildBlockAttributes{
+		Timestamp:    parent.Time + 12,
+		FeeRecipient: types.Address{0x01},
+		GasLimit:     parent.GasLimit,
+	})
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+
+	h := block.Header()
+	if h.GasLimitVec == nil {
+		t.Fatal("GasLimitVec is nil; expected 3D vector for Glamsterdam block")
+	}
+	if h.GasUsedVec == nil {
+		t.Fatal("GasUsedVec is nil; expected 3D vector for Glamsterdam block")
+	}
+	if h.ExcessGasVec == nil {
+		t.Fatal("ExcessGasVec is nil; expected 3D vector for Glamsterdam block")
+	}
+
+	// Dimension 0 = execution gas.
+	if h.GasLimitVec[0] != h.GasLimit {
+		t.Errorf("GasLimitVec[0] = %d, want GasLimit %d", h.GasLimitVec[0], h.GasLimit)
+	}
+	if h.GasUsedVec[0] != h.GasUsed {
+		t.Errorf("GasUsedVec[0] = %d, want GasUsed %d", h.GasUsedVec[0], h.GasUsed)
+	}
+
+	// Dimension 2 = calldata gas; limit must equal CalcCalldataGasLimit(GasLimit).
+	wantCalldataLimit := CalcCalldataGasLimit(h.GasLimit)
+	if h.GasLimitVec[2] != wantCalldataLimit {
+		t.Errorf("GasLimitVec[2] = %d, want CalcCalldataGasLimit(%d) = %d",
+			h.GasLimitVec[2], h.GasLimit, wantCalldataLimit)
+	}
+}
+
+func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+	// Use a config without Glamsterdam.
+	builder := NewBlockBuilder(TestConfig, nil, nil)
+	builder.SetState(statedb)
+
+	parent := &types.Header{
+		Number:   big.NewInt(0),
+		GasLimit: 30_000_000,
+		GasUsed:  0,
+		BaseFee:  big.NewInt(1_000_000_000),
+		Time:     1700000000,
+	}
+
+	// Pick a timestamp that is before the Glamsterdam activation in TestConfig.
+	// TestConfig has Glamsterdam at time 0, so we need a config with no Glamsterdam.
+	// Just verify: if Glamsterdam is active in TestConfig, the vectors are set.
+	// This test asserts the inverse: pre-Glamsterdam blocks have nil vectors.
+	//
+	// Since TestConfig activates Glamsterdam at timestamp 0, we use a fork config
+	// that has GlamsterdamTime = nil (pre-Glamsterdam).
+	cfgPreGlam := &ChainConfig{
+		ChainID:        TestConfig.ChainID,
+		HomesteadBlock: TestConfig.HomesteadBlock,
+		EIP155Block:    TestConfig.EIP155Block,
+		// No Glamsterdan — leave GlamsterdanTime nil.
+	}
+	builder2 := NewBlockBuilder(cfgPreGlam, nil, nil)
+	builder2.SetState(statedb)
+
+	block, _, err := builder2.BuildBlock(parent, &BuildBlockAttributes{
+		Timestamp:    parent.Time + 12,
+		FeeRecipient: types.Address{0x01},
+		GasLimit:     parent.GasLimit,
+	})
+	if err != nil {
+		t.Fatalf("BuildBlock (pre-Glamsterdam): %v", err)
+	}
+	h := block.Header()
+	if h.GasLimitVec != nil {
+		t.Error("GasLimitVec should be nil for pre-Glamsterdam block")
+	}
+	if h.GasUsedVec != nil {
+		t.Error("GasUsedVec should be nil for pre-Glamsterdam block")
+	}
+	if h.ExcessGasVec != nil {
+		t.Error("ExcessGasVec should be nil for pre-Glamsterdam block")
 	}
 }
