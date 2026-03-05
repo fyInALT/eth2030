@@ -6,7 +6,7 @@ package core
 //
 // The Glamsterdam fork introduces several gas changes:
 //   - SLOAD cold access reduced from 2100 to 800 (storage read optimization)
-//   - SSTORE set reduced from 20000 to 5000 (storage write optimization)
+//   - SSTORE zero→nonzero increased from 20000 to 60000 (reservoir-backed state creation cost)
 //   - CALL cold access reduced from 2600 to 100 (call optimization)
 //   - BALANCE cold access reduced from 2600 to 400 (balance check optimization)
 //   - CREATE reduced from 32000 to 10000 (contract creation optimization)
@@ -24,7 +24,7 @@ import (
 type GlamsterdamGasTable struct {
 	SloadCold    uint64 // SLOAD cold access: 2100 -> 800
 	SloadWarm    uint64 // SLOAD warm access: unchanged at 100
-	SstoreSet    uint64 // SSTORE from zero to non-zero: 20000 -> 5000
+	SstoreSet    uint64 // SSTORE from zero to non-zero: 20000 -> 60000 (reservoir-backed)
 	SstoreReset  uint64 // SSTORE from non-zero to non-zero: 2900 -> 1500
 	CallCold     uint64 // CALL cold access: 2600 -> 100
 	CallWarm     uint64 // CALL warm access: unchanged at 100
@@ -46,7 +46,7 @@ func DefaultGlamsterdamGasTable() *GlamsterdamGasTable {
 	return &GlamsterdamGasTable{
 		SloadCold:    800,
 		SloadWarm:    100,
-		SstoreSet:    5000,
+		SstoreSet:    60000,
 		SstoreReset:  1500,
 		CallCold:     100,
 		CallWarm:     100,
@@ -98,7 +98,7 @@ func ApplyGlamsterdamRepricing(table *GlamsterdamGasTable) *GlamsterdamGasTable 
 func GlamsterdamRepricingEntries() []GasTableEntry {
 	return []GasTableEntry{
 		{Opcode: 0x54, OldCost: 2100, NewCost: 800},    // SLOAD cold
-		{Opcode: 0x55, OldCost: 20000, NewCost: 5000},  // SSTORE set
+		{Opcode: 0x55, OldCost: 20000, NewCost: 60000}, // SSTORE zero→nonzero (reservoir-backed)
 		{Opcode: 0xF1, OldCost: 2600, NewCost: 100},    // CALL cold
 		{Opcode: 0x31, OldCost: 2600, NewCost: 400},    // BALANCE cold
 		{Opcode: 0xF0, OldCost: 32000, NewCost: 10000}, // CREATE

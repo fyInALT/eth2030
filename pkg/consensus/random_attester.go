@@ -9,6 +9,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
+
+	"github.com/eth2030/eth2030/crypto"
 )
 
 // Random attester errors.
@@ -189,4 +191,53 @@ func computeSamplingHash(seed [32]byte, slot, index uint64) [32]byte {
 	binary.LittleEndian.PutUint64(buf[32:40], slot)
 	binary.LittleEndian.PutUint64(buf[40:48], index)
 	return sha256.Sum256(buf[:])
+}
+
+// SelectAttesters selects a deterministic subset of validators for the given
+// slot and RANDAO reveal (GAP-3.1). The seed is keccak256(slot_bytes || randao)
+// and the selection uses a Fisher-Yates shuffle seeded from the keccak hash,
+// returning the first SampleSize elements.
+//
+// This is the committee-less API: validators are identified by ValidatorIndex
+// directly (no CommitteeBits). The sample size is clamped to [MinSampleSize,
+// MaxSampleSize] and cannot exceed len(validators).
+func (s *RandomAttesterSelector) SelectAttesters(
+	slot uint64,
+	randao []byte,
+	validators []ValidatorIndex,
+) []ValidatorIndex {
+	if len(validators) == 0 {
+		return nil
+	}
+
+	// Derive deterministic seed: keccak256(slot_bytes || randao).
+	var slotBytes [8]byte
+	binary.LittleEndian.PutUint64(slotBytes[:], slot)
+	seed := crypto.Keccak256(append(slotBytes[:], randao...))
+	if len(seed) < 32 {
+		return nil
+	}
+
+	n := uint64(len(validators))
+	sampleSize := s.ComputeSampleSize(n)
+	if sampleSize == 0 {
+		return nil
+	}
+
+	// Fisher-Yates partial shuffle: swap first sampleSize elements.
+	// Work on a copy to avoid mutating the caller's slice.
+	shuffled := make([]ValidatorIndex, n)
+	copy(shuffled, validators)
+
+	for i := uint64(0); i < sampleSize; i++ {
+		// Hash position i with the base seed to get a random swap index.
+		var posBuf [40]byte
+		copy(posBuf[:32], seed[:32])
+		binary.LittleEndian.PutUint64(posBuf[32:40], i)
+		h := sha256.Sum256(posBuf[:])
+		j := binary.LittleEndian.Uint64(h[:8])%(n-i) + i
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+
+	return shuffled[:sampleSize]
 }

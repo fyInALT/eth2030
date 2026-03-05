@@ -391,3 +391,131 @@ func TestComputeSamplingHash_Deterministic(t *testing.T) {
 		t.Fatal("different seed produced same hash")
 	}
 }
+
+// TestSelectAttesters_Basic verifies SelectAttesters returns the correct
+// sample size and deterministic results (GAP-3.1).
+func TestSelectAttesters_Basic(t *testing.T) {
+	s := NewRandomAttesterSelector(nil)
+	randao := []byte("test-randao-value")
+
+	// Build 10000 validator indices.
+	validators := make([]ValidatorIndex, 10000)
+	for i := range validators {
+		validators[i] = ValidatorIndex(i)
+	}
+
+	result := s.SelectAttesters(42, randao, validators)
+	// With 10000 validators: sqrt(10000)=100, clamped to min=256.
+	if len(result) != 256 {
+		t.Fatalf("SelectAttesters returned %d validators, want 256", len(result))
+	}
+
+	// Determinism: same inputs produce same output.
+	result2 := s.SelectAttesters(42, randao, validators)
+	if len(result) != len(result2) {
+		t.Fatalf("non-deterministic result: %d vs %d", len(result), len(result2))
+	}
+	for i := range result {
+		if result[i] != result2[i] {
+			t.Fatalf("non-deterministic at index %d: %d vs %d", i, result[i], result2[i])
+		}
+	}
+}
+
+// TestSelectAttesters_Uniqueness verifies no duplicate validator indices (GAP-3.1).
+func TestSelectAttesters_Uniqueness(t *testing.T) {
+	s := NewRandomAttesterSelector(nil)
+	randao := []byte("test-randao-unique")
+	validators := make([]ValidatorIndex, 1000)
+	for i := range validators {
+		validators[i] = ValidatorIndex(i)
+	}
+
+	result := s.SelectAttesters(10, randao, validators)
+
+	seen := make(map[ValidatorIndex]bool)
+	for _, idx := range result {
+		if seen[idx] {
+			t.Fatalf("duplicate validator index %d in sample", idx)
+		}
+		seen[idx] = true
+	}
+}
+
+// TestSelectAttesters_SlotDifference verifies different slots produce
+// different selections (GAP-3.1 determinism).
+func TestSelectAttesters_SlotDifference(t *testing.T) {
+	s := NewRandomAttesterSelector(nil)
+	randao := []byte("same-randao")
+	validators := make([]ValidatorIndex, 10000)
+	for i := range validators {
+		validators[i] = ValidatorIndex(i)
+	}
+
+	r1 := s.SelectAttesters(1, randao, validators)
+	r2 := s.SelectAttesters(2, randao, validators)
+
+	same := true
+	for i := range r1 {
+		if r1[i] != r2[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Error("different slots produced identical selection")
+	}
+}
+
+// TestSelectAttesters_Empty verifies SelectAttesters returns nil for empty input.
+func TestSelectAttesters_Empty(t *testing.T) {
+	s := NewRandomAttesterSelector(nil)
+	result := s.SelectAttesters(1, []byte("randao"), nil)
+	if result != nil {
+		t.Errorf("expected nil for empty validators, got %v", result)
+	}
+}
+
+// TestSelectAttesters_Distribution verifies that over many samples each
+// validator is selected with roughly equal probability (GAP-3.1 uniform distribution).
+func TestSelectAttesters_Distribution(t *testing.T) {
+	s := NewRandomAttesterSelector(&RandomAttesterConfig{
+		MinSampleSize:   256,
+		MaxSampleSize:   1024,
+		BalanceWeighted: false,
+	})
+	n := 1000 // validator count
+	validators := make([]ValidatorIndex, n)
+	for i := range validators {
+		validators[i] = ValidatorIndex(i)
+	}
+
+	counts := make(map[ValidatorIndex]int, n)
+	numSamples := 5000 // run many slots
+	randao := make([]byte, 32)
+
+	for slot := uint64(0); slot < uint64(numSamples); slot++ {
+		// Vary randao per slot for more coverage.
+		randao[0] = byte(slot)
+		randao[1] = byte(slot >> 8)
+		result := s.SelectAttesters(slot, randao, validators)
+		for _, idx := range result {
+			counts[idx]++
+		}
+	}
+
+	// Each of the 1000 validators should have been selected at least 100 times
+	// across 5000 samples of 256 (expected ~1280 selections each).
+	minExpected := 100
+	underSelected := 0
+	for i := 0; i < n; i++ {
+		if counts[ValidatorIndex(i)] < minExpected {
+			underSelected++
+		}
+	}
+	// Allow up to 5% outliers.
+	if underSelected > n/20 {
+		t.Errorf("%d/%d validators selected fewer than %d times (want < %d%%)",
+			underSelected, n, minExpected, 5)
+	}
+}

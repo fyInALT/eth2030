@@ -410,6 +410,100 @@ func TestBlstBLSBackendInterface(t *testing.T) {
 	}
 }
 
+// TestBLSTBackend verifies all five BLS operations of BlstRealBackend (GAP-7.1).
+func TestBLSTBackend(t *testing.T) {
+	backend := &BlstRealBackend{}
+
+	// Key generation.
+	ikm := make([]byte, 32)
+	for i := range ikm {
+		ikm[i] = byte(i + 1)
+	}
+	sk, pk, err := BlstKeyGen(ikm)
+	if err != nil {
+		t.Fatalf("BlstKeyGen: %v", err)
+	}
+	if len(pk) != blstPubkeySize {
+		t.Errorf("pubkey len = %d, want %d", len(pk), blstPubkeySize)
+	}
+
+	msg := []byte("test-bls-message")
+	sig, err := BlstSign(sk, msg)
+	if err != nil {
+		t.Fatalf("BlstSign: %v", err)
+	}
+	if len(sig) != blstSigSize {
+		t.Errorf("sig len = %d, want %d", len(sig), blstSigSize)
+	}
+
+	// Verify (single).
+	if !backend.Verify(pk, msg, sig) {
+		t.Error("Verify failed for valid signature")
+	}
+
+	// FastAggregateVerify with single key.
+	if !backend.FastAggregateVerify([][]byte{pk}, msg, sig) {
+		t.Error("FastAggregateVerify failed for single key")
+	}
+
+	// AggregateVerify with single key/message.
+	if !backend.AggregateVerify([][]byte{pk}, [][]byte{msg}, sig) {
+		t.Error("AggregateVerify failed for single key/message")
+	}
+
+	// Wrong message must fail.
+	if backend.Verify(pk, []byte("wrong-msg"), sig) {
+		t.Error("Verify should fail for wrong message")
+	}
+}
+
+// TestBLSTBackendDefault verifies that after init(), blst is the default
+// backend when built with the blst tag (GAP-7.2).
+func TestBLSTBackendDefault(t *testing.T) {
+	backend := DefaultBLSBackend()
+	if backend.Name() != "blst-real" {
+		t.Errorf("default backend = %q, want \"blst-real\"", backend.Name())
+	}
+}
+
+// TestBLSAttestation verifies the BLS backend can verify a consensus-style
+// attestation aggregate with the blst library (GAP-7.2).
+func TestBLSAttestation(t *testing.T) {
+	backend := &BlstRealBackend{}
+	const numAttesters = 10
+
+	// Generate keys and signatures for numAttesters.
+	pks := make([][]byte, numAttesters)
+	sigs := make([][]byte, numAttesters)
+	msg := []byte("beacon-block-root-attestation")
+
+	for i := 0; i < numAttesters; i++ {
+		ikm := make([]byte, 32)
+		ikm[0] = byte(i + 1)
+		sk, pk, err := BlstKeyGen(ikm)
+		if err != nil {
+			t.Fatalf("BlstKeyGen[%d]: %v", i, err)
+		}
+		pks[i] = pk
+		sig, err := BlstSign(sk, msg)
+		if err != nil {
+			t.Fatalf("BlstSign[%d]: %v", i, err)
+		}
+		sigs[i] = sig
+	}
+
+	// Aggregate signatures.
+	aggSig, err := BlstAggregateSigs(sigs)
+	if err != nil {
+		t.Fatalf("BlstAggregateSigs: %v", err)
+	}
+
+	// FastAggregateVerify (all attesters signed the same message).
+	if !backend.FastAggregateVerify(pks, msg, aggSig) {
+		t.Error("FastAggregateVerify failed for attestation aggregate")
+	}
+}
+
 func TestBlstKeyGenShortIKM(t *testing.T) {
 	// IKM shorter than 32 bytes should fail.
 	shortIKM := make([]byte, 16)

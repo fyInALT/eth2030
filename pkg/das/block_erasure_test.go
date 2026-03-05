@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"testing"
+	"time"
 
 	"github.com/eth2030/eth2030/crypto"
 )
@@ -488,5 +489,229 @@ func TestBlockErasureEncode_Deterministic(t *testing.T) {
 		if pieces1[i].BlockHash != pieces2[i].BlockHash {
 			t.Errorf("piece %d: block hash differs between encodings", i)
 		}
+	}
+}
+
+// TestStandardBlockErasureConfig verifies k=8, n=16 configuration (GAP-4.1).
+func TestStandardBlockErasureConfig(t *testing.T) {
+	cfg := StandardBlockErasureConfig()
+	if cfg.DataShards != 8 {
+		t.Errorf("DataShards = %d, want 8", cfg.DataShards)
+	}
+	if cfg.ParityShards != 8 {
+		t.Errorf("ParityShards = %d, want 8", cfg.ParityShards)
+	}
+	total := cfg.DataShards + cfg.ParityShards
+	if total != 16 {
+		t.Errorf("TotalShards = %d, want 16", total)
+	}
+}
+
+// TestBlockErasureEncoder_Standard verifies k=8,n=16 encode produces 16 pieces
+// and any 8 of them reconstruct the original block (GAP-4.1).
+func TestBlockErasureEncoder_Standard(t *testing.T) {
+	cfg := StandardBlockErasureConfig()
+	enc, err := NewBlockErasureEncoder(cfg)
+	if err != nil {
+		t.Fatalf("NewBlockErasureEncoder: %v", err)
+	}
+	dec, err := NewBlockErasureDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewBlockErasureDecoder: %v", err)
+	}
+
+	// Generate 4KB random block data.
+	data := make([]byte, 4096)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+
+	pieces, err := enc.Encode(data)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if len(pieces) != 16 {
+		t.Fatalf("got %d pieces, want 16", len(pieces))
+	}
+
+	// Reconstruct from the first k=8 pieces.
+	subset := pieces[:8]
+	reconstructed, err := dec.Decode(subset)
+	if err != nil {
+		t.Fatalf("Decode from first 8 pieces: %v", err)
+	}
+	if !bytes.Equal(reconstructed, data) {
+		t.Error("reconstructed data does not match original")
+	}
+}
+
+// TestBlockErasureEncoder_AnyK verifies that any k=8 of 16 pieces reconstruct
+// the original block (adversarial reconstruction, GAP-4.1).
+func TestBlockErasureEncoder_AnyK(t *testing.T) {
+	cfg := StandardBlockErasureConfig()
+	enc, err := NewBlockErasureEncoder(cfg)
+	if err != nil {
+		t.Fatalf("NewBlockErasureEncoder: %v", err)
+	}
+	dec, err := NewBlockErasureDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewBlockErasureDecoder: %v", err)
+	}
+
+	data := []byte("hello world from the ETH2030 standard erasure coded block")
+	pieces, err := enc.Encode(data)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	// Test multiple subsets of 8 pieces (skip first two, skip last two, etc.).
+	subsets := [][8]int{
+		{0, 1, 2, 3, 4, 5, 6, 7},       // first 8 data shards
+		{8, 9, 10, 11, 12, 13, 14, 15}, // all 8 parity shards
+		{0, 2, 4, 6, 8, 10, 12, 14},    // even indices
+		{1, 3, 5, 7, 9, 11, 13, 15},    // odd indices
+	}
+
+	for _, subset := range subsets {
+		selected := make([]*BlockPiece, 8)
+		for i, idx := range subset {
+			selected[i] = pieces[idx]
+		}
+		reconstructed, err := dec.Decode(selected)
+		if err != nil {
+			t.Errorf("Decode from subset %v failed: %v", subset, err)
+			continue
+		}
+		if !bytes.Equal(reconstructed, data) {
+			t.Errorf("reconstructed data mismatch for subset %v", subset)
+		}
+	}
+}
+
+// TestBlockAssemblyManager_Basic verifies that on the k-th piece, IsReady
+// returns true (GAP-4.3).
+func TestBlockAssemblyManager_Basic(t *testing.T) {
+	cfg := DefaultBlockAssemblyManagerConfig()
+	m := NewBlockAssemblyManager(cfg)
+
+	blockHash := crypto.Keccak256Hash([]byte("test-block"))
+	slot := uint64(42)
+
+	// Add k-1 pieces: not ready yet.
+	for i := 0; i < cfg.DataShards-1; i++ {
+		piece := &BlockPiece{
+			Index:     i,
+			Data:      []byte{byte(i)},
+			BlockHash: blockHash,
+			PieceHash: crypto.Keccak256Hash([]byte{byte(i)}),
+		}
+		ready, err := m.AddPiece(slot, piece)
+		if err != nil {
+			t.Fatalf("AddPiece %d: %v", i, err)
+		}
+		if ready {
+			t.Fatalf("piece %d: expected not ready, got ready", i)
+		}
+	}
+
+	// Add the k-th piece: should be ready.
+	finalPiece := &BlockPiece{
+		Index:     cfg.DataShards - 1,
+		Data:      []byte{0xff},
+		BlockHash: blockHash,
+		PieceHash: crypto.Keccak256Hash([]byte{0xff}),
+	}
+	ready, err := m.AddPiece(slot, finalPiece)
+	if err != nil {
+		t.Fatalf("AddPiece final: %v", err)
+	}
+	if !ready {
+		t.Error("expected ready after k pieces")
+	}
+	if !m.IsReady(slot) {
+		t.Error("IsReady should be true after k pieces")
+	}
+}
+
+// TestBlockAssemblyManager_Fallback verifies ShouldFallback is true after
+// timeout with fewer than k pieces (GAP-4.3).
+func TestBlockAssemblyManager_Fallback(t *testing.T) {
+	cfg := BlockAssemblyManagerConfig{
+		DataShards:   8,
+		PieceTimeout: 10 * time.Millisecond, // short timeout for test
+	}
+	m := NewBlockAssemblyManager(cfg)
+
+	blockHash := crypto.Keccak256Hash([]byte("timeout-test"))
+	slot := uint64(99)
+
+	// Add only 7 of 8 required pieces.
+	for i := 0; i < 7; i++ {
+		piece := &BlockPiece{
+			Index:     i,
+			Data:      []byte{byte(i)},
+			BlockHash: blockHash,
+			PieceHash: crypto.Keccak256Hash([]byte{byte(i)}),
+		}
+		m.AddPiece(slot, piece)
+	}
+
+	// Before timeout: should not fallback.
+	if m.ShouldFallback(slot) {
+		t.Error("ShouldFallback should be false before timeout")
+	}
+
+	// Wait for timeout.
+	time.Sleep(20 * time.Millisecond)
+
+	if !m.ShouldFallback(slot) {
+		t.Error("ShouldFallback should be true after timeout with insufficient pieces")
+	}
+}
+
+// TestBlockAssemblyManager_Duplicate verifies duplicate piece indices are
+// rejected (GAP-4.3).
+func TestBlockAssemblyManager_Duplicate(t *testing.T) {
+	m := NewBlockAssemblyManager(DefaultBlockAssemblyManagerConfig())
+	blockHash := crypto.Keccak256Hash([]byte("dup-test"))
+	slot := uint64(10)
+
+	piece := &BlockPiece{
+		Index:     0,
+		Data:      []byte{1},
+		BlockHash: blockHash,
+		PieceHash: crypto.Keccak256Hash([]byte{1}),
+	}
+
+	m.AddPiece(slot, piece)
+
+	_, err := m.AddPiece(slot, piece)
+	if err != ErrBlockPieceDuplicate {
+		t.Errorf("expected ErrBlockPieceDuplicate, got %v", err)
+	}
+}
+
+// TestBlockAssemblyManager_ClearSlot verifies ClearSlot removes slot state (GAP-4.3).
+func TestBlockAssemblyManager_ClearSlot(t *testing.T) {
+	m := NewBlockAssemblyManager(DefaultBlockAssemblyManagerConfig())
+	blockHash := crypto.Keccak256Hash([]byte("clear-test"))
+	slot := uint64(7)
+
+	piece := &BlockPiece{
+		Index:     0,
+		Data:      []byte{1},
+		BlockHash: blockHash,
+		PieceHash: crypto.Keccak256Hash([]byte{1}),
+	}
+	m.AddPiece(slot, piece)
+
+	if m.PieceCount(slot) != 1 {
+		t.Errorf("expected 1 piece, got %d", m.PieceCount(slot))
+	}
+
+	m.ClearSlot(slot)
+
+	if m.PieceCount(slot) != 0 {
+		t.Errorf("expected 0 pieces after clear, got %d", m.PieceCount(slot))
 	}
 }

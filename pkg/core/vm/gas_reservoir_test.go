@@ -2,6 +2,41 @@ package vm
 
 import "testing"
 
+// TestContractStateGasReservoir verifies the StateGasReservoir field is
+// present and separate from Gas (GAP-1.1).
+func TestContractStateGasReservoir(t *testing.T) {
+	c := &Contract{
+		Gas:               1000,
+		StateGasReservoir: 500,
+	}
+	if c.Gas != 1000 {
+		t.Errorf("Gas = %d, want 1000", c.Gas)
+	}
+	if c.StateGasReservoir != 500 {
+		t.Errorf("StateGasReservoir = %d, want 500", c.StateGasReservoir)
+	}
+}
+
+// TestGasOpcodeExcludesReservoir verifies opGas pushes only contract.Gas and
+// not contract.StateGasReservoir (GAP-1.1). The GAS opcode must reflect only
+// the execution gas counter; the reservoir is a separate dimension.
+func TestGasOpcodeExcludesReservoir(t *testing.T) {
+	contract := &Contract{
+		Gas:               1000,
+		StateGasReservoir: 500,
+	}
+	stack := NewStack()
+	var pc uint64
+	_, err := opGas(&pc, nil, contract, nil, stack)
+	if err != nil {
+		t.Fatalf("opGas: %v", err)
+	}
+	got := stack.Pop().Uint64()
+	if got != 1000 {
+		t.Errorf("opGas = %d, want 1000 (StateGasReservoir must not be included)", got)
+	}
+}
+
 func TestDefaultReservoirConfig(t *testing.T) {
 	cfg := DefaultReservoirConfig()
 	if !cfg.Enabled {

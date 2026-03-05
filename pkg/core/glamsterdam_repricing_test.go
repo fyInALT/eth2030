@@ -17,7 +17,7 @@ func TestDefaultGlamsterdamGasTable(t *testing.T) {
 	}{
 		{"SloadCold", table.SloadCold, 800},
 		{"SloadWarm", table.SloadWarm, 100},
-		{"SstoreSet", table.SstoreSet, 5000},
+		{"SstoreSet", table.SstoreSet, 60000},
 		{"SstoreReset", table.SstoreReset, 1500},
 		{"CallCold", table.CallCold, 100},
 		{"CallWarm", table.CallWarm, 100},
@@ -64,8 +64,8 @@ func TestApplyGlamsterdamRepricing(t *testing.T) {
 	if table.SloadCold != 800 {
 		t.Errorf("SloadCold = %d, want 800", table.SloadCold)
 	}
-	if table.SstoreSet != 5000 {
-		t.Errorf("SstoreSet = %d, want 5000", table.SstoreSet)
+	if table.SstoreSet != 60000 {
+		t.Errorf("SstoreSet = %d, want 60000", table.SstoreSet)
 	}
 	if table.CallCold != 100 {
 		t.Errorf("CallCold = %d, want 100", table.CallCold)
@@ -424,5 +424,23 @@ func TestGasTableAllReductions(t *testing.T) {
 			t.Errorf("opcode 0x%02X has no price change: %d -> %d",
 				e.Opcode, e.OldCost, e.NewCost)
 		}
+	}
+}
+
+// TestGlamsterdamSSTORE verifies that the Glamsterdam fork sets SSTORE
+// zero→nonzero cost to 60000 (reservoir-backed, GAP-1.4). Pre-Glamsterdam
+// uses 20000. The high cost is absorbed by the reservoir so execution gas
+// impact is limited to the warm read cost when the reservoir is funded.
+func TestGlamsterdamSSTORE(t *testing.T) {
+	// Pre-Glamsterdam: standard EIP-2200 SSTORE set cost.
+	const preGlamsterdamSstoreSet uint64 = 20000
+	// Glamsterdam: increased to discourage state growth without reservoir.
+	table := DefaultGlamsterdamGasTable()
+	if table.SstoreSet != 60000 {
+		t.Errorf("Glamsterdam SstoreSet = %d, want 60000", table.SstoreSet)
+	}
+	if table.SstoreSet <= preGlamsterdamSstoreSet {
+		t.Errorf("Glamsterdam SstoreSet (%d) should be greater than pre-Glamsterdam (%d)",
+			table.SstoreSet, preGlamsterdamSstoreSet)
 	}
 }
