@@ -50,6 +50,14 @@ type Header struct {
 	CalldataGasUsed   *uint64
 	CalldataExcessGas *uint64
 
+	// EIP-7706: 3-dimensional gas vectors [compute, calldata, blob].
+	// GasLimitVec is the per-dimension gas limit for the block.
+	// GasUsedVec is the per-dimension gas used by the block.
+	// ExcessGasVec is the per-dimension running excess for base fee adjustment.
+	GasLimitVec  *[3]uint64
+	GasUsedVec   *[3]uint64
+	ExcessGasVec *[3]uint64
+
 	// Cache fields (not serialized).
 	hash atomic.Pointer[Hash]
 	size atomic.Uint64
