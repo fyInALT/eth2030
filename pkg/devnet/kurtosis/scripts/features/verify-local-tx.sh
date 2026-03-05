@@ -18,7 +18,7 @@ else
   RPC_URL="http://$(kurtosis port print "$ENCLAVE" "$EL_SVC" rpc)"
 fi
 
-echo "=== EP-6 LocalTx Gate (BB-2.2) Verification ==="
+echo "=== LocalTx Gate (BB-2.2) Verification ==="
 echo "Covers: AllowLocalTx=false default, type-0x08 rejection, legacy tx unaffected,"
 echo "        50% gas discount wiring, MinBaseFee=7 wei enforcement"
 
@@ -163,5 +163,5 @@ echo "  Chain advancing: $BLOCK_DEC -> $((BLOCK2))"
 echo "  PASS: LocalTx gate doesn't affect block production"
 
 echo ""
-echo "PASS: EP-6 LocalTx (BB-2.2) — type-0x08 rejected by default, legacy txs unaffected,"
+echo "PASS: LocalTx (BB-2.2) — type-0x08 rejected by default, legacy txs unaffected,"
 echo "      MinBaseFee=7 enforced, no type-0x08 txs in blocks, chain advancing"

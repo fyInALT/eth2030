@@ -10,7 +10,7 @@ else
   RPC_URL="http://$(kurtosis port print "$ENCLAVE" "$EL_SVC" rpc)"
 fi
 
-echo "=== EP-6 Mixnet Transport (BB-1.1) Verification ==="
+echo "=== Mixnet Transport (BB-1.1) Verification ==="
 echo "Covers: TransportManager init, simulated-mode default, P2P and RPC health"
 
 # --- BB-1.1: chain must be producing blocks (transport manager didn't crash node) ---
@@ -107,5 +107,5 @@ echo "Block after 4s wait: $((BLOCK2)) (was $BLOCK_DEC)"
 echo "  Chain still advancing: simulated transport not blocking block production"
 
 echo ""
-echo "PASS: EP-6 Mixnet (BB-1.1) — TransportManager wired, simulated mode active,"
+echo "PASS: Mixnet (BB-1.1) — TransportManager wired, simulated mode active,"
 echo "      P2P healthy, chain advancing, no startup crash"
