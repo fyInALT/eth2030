@@ -212,6 +212,9 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.IntVar(&cfg.LeanAvailableChainValidators, "lean-available-validators", cfg.LeanAvailableChainValidators, "per-slot PQ attestor count [256-1024]")
 	fs.BoolVar(&cfg.StarkValidationFrames, "stark-validation-frames", cfg.StarkValidationFrames, "enable STARK proof sealing for VERIFY frame transactions")
 
+	// --- EP-4 Lean Consensus ---
+	fs.StringVar(&cfg.SlotDuration, "slot-duration", cfg.SlotDuration, "slot duration: 4s or 6s (default 6s, LEAN-1.1)")
+
 	return fs
 }
 

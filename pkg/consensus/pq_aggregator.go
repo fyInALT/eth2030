@@ -1,13 +1,32 @@
 // pq_aggregator.go implements PQ aggregator role types, duty selection, and
 // the DefaultPQAggregator for collecting and aggregating XMSS signatures.
+// P2P integration (LEAN-3.3/3.4): the aggregator broadcasts AggregateRequests
+// on the "pq_agg_request" topic and publishes STARKSignatureAggregation results
+// on the "pq_agg_result" topic via the AggGossipPublisher interface.
 package consensus
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+)
+
+// AggGossipPublisher abstracts the P2P gossip layer for the PQ aggregator.
+// It is satisfied by *p2p.TopicManager; using an interface avoids an import
+// cycle between the consensus and p2p packages.
+type AggGossipPublisher interface {
+	// Publish sends data to all subscribers of the named topic string.
+	// The topic string is the canonical name (e.g. "pq_agg_request").
+	Publish(topicName string, data []byte) error
+}
+
+const (
+	topicPQAggRequest = "pq_agg_request"
+	topicPQAggResult  = "pq_agg_result"
 )
 
 // PQ aggregator errors.
@@ -108,18 +127,30 @@ func binary64FromBytes(b []byte) uint64 {
 }
 
 // DefaultPQAggregator is a concrete PQ aggregator implementation.
+// Set Publisher to enable real P2P broadcast; if nil, operations are local-only.
 type DefaultPQAggregator struct {
 	aggregator *STARKSignatureAggregator
 	collected  []XMSSSignatureBundle
 	mu         sync.Mutex
+	// Publisher is the gossip backend used for P2P broadcast (LEAN-3.3/3.4).
+	Publisher AggGossipPublisher
 }
 
-// NewDefaultPQAggregator creates a new DefaultPQAggregator.
+// NewDefaultPQAggregator creates a new DefaultPQAggregator without a P2P publisher.
+// Call SetPublisher before use in production to enable network broadcast.
 func NewDefaultPQAggregator() *DefaultPQAggregator {
 	return &DefaultPQAggregator{
 		aggregator: NewSTARKSignatureAggregator(),
 		collected:  make([]XMSSSignatureBundle, 0),
 	}
+}
+
+// SetPublisher wires the P2P gossip publisher so the aggregator can broadcast
+// AggregateRequests and propagate results over the network (LEAN-3.3/3.4).
+func (a *DefaultPQAggregator) SetPublisher(pub AggGossipPublisher) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Publisher = pub
 }
 
 // AddSignatureBundle adds a received bundle to the collection set.
@@ -130,9 +161,24 @@ func (a *DefaultPQAggregator) AddSignatureBundle(bundle XMSSSignatureBundle) err
 	return nil
 }
 
-// CollectSignatures returns all collected bundles for the given slot and validators.
-// In the real protocol this would broadcast on P2P; here it returns the local collection.
+// CollectSignatures broadcasts an AggregateRequest on the "pq_agg_request" P2P
+// topic (LEAN-3.3) and returns locally collected bundles. In a full implementation
+// the caller would wait up to t=3s of the slot for responses; here we broadcast
+// and return whatever has been accumulated via AddSignatureBundle.
 func (a *DefaultPQAggregator) CollectSignatures(slot uint64, validators []uint64) ([]XMSSSignatureBundle, error) {
+	// Broadcast the collection request so remote validators can respond.
+	if a.Publisher != nil {
+		req := AggregateRequest{Slot: slot, Validators: validators}
+		data, err := json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("pq_aggregator: marshal aggregate request: %w", err)
+		}
+		if err := a.Publisher.Publish(topicPQAggRequest, data); err != nil {
+			// Non-fatal: log and continue with locally collected bundles.
+			_ = err
+		}
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	result := make([]XMSSSignatureBundle, len(a.collected))
@@ -180,12 +226,20 @@ func (a *DefaultPQAggregator) ProduceAggregate(bundles []XMSSSignatureBundle) (*
 	return a.aggregator.Aggregate(attestations)
 }
 
-// PropagateAggregate records the result (in real impl, broadcasts on P2P).
+// PropagateAggregate broadcasts the finished STARK aggregate on the
+// "pq_agg_result" P2P topic (LEAN-3.4) so proposers and peers can verify it.
 func (a *DefaultPQAggregator) PropagateAggregate(agg *STARKSignatureAggregation) error {
-	// In production this would send agg over the P2P gossip network.
-	// Here we just validate it is non-nil.
 	if agg == nil {
 		return ErrSTARKAggNilResult
+	}
+	if a.Publisher != nil {
+		data, err := json.Marshal(agg)
+		if err != nil {
+			return fmt.Errorf("pq_aggregator: marshal stark aggregate: %w", err)
+		}
+		if err := a.Publisher.Publish(topicPQAggResult, data); err != nil {
+			return fmt.Errorf("pq_aggregator: publish pq_agg_result: %w", err)
+		}
 	}
 	return nil
 }

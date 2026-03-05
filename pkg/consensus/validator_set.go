@@ -332,7 +332,10 @@ func (vr *ValidatorRegistry) ProcessExitQueue(indices []ValidatorIndex, epoch Ep
 		}
 
 		v.ExitEpoch = exitQueueEpoch
-		v.WithdrawableEpoch = Epoch(uint64(v.ExitEpoch) + MinValidatorWithdrawDelay)
+		// LEAN-8.2: use minslack adaptive exit delay instead of a fixed constant.
+		var minslack MinslackExitQueue
+		withdrawDelay := minslack.ComputeExitDelay(uint64(epoch), exitQueueChurn, churn)
+		v.WithdrawableEpoch = Epoch(uint64(v.ExitEpoch) + withdrawDelay)
 		exitQueueChurn++
 	}
 }

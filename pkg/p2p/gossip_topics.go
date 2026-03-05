@@ -35,6 +35,12 @@ const (
 	// deserialises the tick via MempoolAggregationTick.UnmarshalBinary,
 	// validates the STARK proof, and calls STARKAggregator.MergeTick.
 	STARKMempoolTick
+	// PQAggRequest is the topic on which an aggregator broadcasts an
+	// AggregateRequest asking validators to submit their XMSS bundles (LEAN-3.3).
+	PQAggRequest
+	// PQAggResult is the topic on which the aggregator publishes the finished
+	// STARKSignatureAggregation so proposers and peers can verify it (LEAN-3.4).
+	PQAggResult
 )
 
 // gossipTopicNames maps each GossipTopic to its canonical string name
@@ -48,6 +54,8 @@ var gossipTopicNames = map[GossipTopic]string{
 	BlobSidecar:               "blob_sidecar",
 	SyncCommitteeContribution: "sync_committee_contribution",
 	STARKMempoolTick:          "stark_mempool_tick",
+	PQAggRequest:              "pq_agg_request",
+	PQAggResult:               "pq_agg_result",
 }
 
 // String returns the spec-defined name of the gossip topic.
