@@ -16,7 +16,7 @@ type mockAnnouncePeer struct {
 	err     error
 }
 
-func (p *mockAnnouncePeer) ID() string { return p.id }
+func (p *mockAnnouncePeer) ID() string             { return p.id }
 func (p *mockAnnouncePeer) Latency() time.Duration { return p.latency }
 func (p *mockAnnouncePeer) FetchBlocks(_ []types.Hash) ([]*types.Block, error) {
 	if p.err != nil {

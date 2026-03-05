@@ -50,7 +50,7 @@ func TestNewPriceBumper_CustomConfig(t *testing.T) {
 func TestPriceBumper_RecordBlock_Basic(t *testing.T) {
 	pb := NewPriceBumper(DefaultBumperConfig())
 	pb.RecordBlock(BumperBlockFeeData{
-		BaseFee:     big.NewInt(1e9),
+		BaseFee:      big.NewInt(1e9),
 		GasUsedRatio: 0.5,
 		BlockNumber:  1,
 	})
@@ -67,7 +67,7 @@ func TestPriceBumper_RecordBlock_BlobBaseFee(t *testing.T) {
 	pb.RecordBlock(BumperBlockFeeData{
 		BaseFee:     big.NewInt(1e9),
 		BlobBaseFee: big.NewInt(2e9),
-		BlockNumber:  1,
+		BlockNumber: 1,
 	})
 	if got := pb.LatestBlobBaseFee(); got == nil || got.Cmp(big.NewInt(2e9)) != 0 {
 		t.Errorf("LatestBlobBaseFee = %v, want 2e9", got)
@@ -210,7 +210,7 @@ func TestPriceBumper_SuggestReplacementFee_CustomBump(t *testing.T) {
 	pb := NewPriceBumper(DefaultBumperConfig())
 	tx := makeTx(0, 1000, 21000)
 	s := pb.SuggestReplacementFee(tx, 20) // 20% bump
-	expected := big.NewInt(1200) // 1000 * 120/100
+	expected := big.NewInt(1200)          // 1000 * 120/100
 	if s.MaxFeePerGas.Cmp(expected) != 0 {
 		t.Errorf("replacement fee = %v, want %v", s.MaxFeePerGas, expected)
 	}
@@ -308,7 +308,7 @@ func TestPriceBumper_FeeHistory_Basic(t *testing.T) {
 	pb := NewPriceBumper(DefaultBumperConfig())
 	for i := range 5 {
 		pb.RecordBlock(BumperBlockFeeData{
-			BaseFee:      big.NewInt(int64(i + 1) * 1e9),
+			BaseFee:      big.NewInt(int64(i+1) * 1e9),
 			GasUsedRatio: float64(i) * 0.2,
 			BlockNumber:  uint64(i),
 		})

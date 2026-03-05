@@ -163,7 +163,7 @@ func TestTxContextFromMessage_NilBaseFee(t *testing.T) {
 
 func TestIsEIP158_Active(t *testing.T) {
 	config := &params.ChainConfig{
-		ChainID:    big.NewInt(1),
+		ChainID:     big.NewInt(1),
 		EIP158Block: big.NewInt(5),
 	}
 	if !IsEIP158(config, big.NewInt(5)) {
@@ -176,7 +176,7 @@ func TestIsEIP158_Active(t *testing.T) {
 
 func TestIsEIP158_NotActive(t *testing.T) {
 	config := &params.ChainConfig{
-		ChainID:    big.NewInt(1),
+		ChainID:     big.NewInt(1),
 		EIP158Block: big.NewInt(10),
 	}
 	if IsEIP158(config, big.NewInt(9)) {
@@ -265,7 +265,7 @@ func TestMakeMessage_Basic(t *testing.T) {
 	msg := MakeMessage(
 		from,
 		&to,
-		5,                 // nonce
+		5,                // nonce
 		big.NewInt(1000), // value
 		21000,            // gasLimit
 		big.NewInt(100),  // gasPrice
@@ -407,10 +407,10 @@ func TestMakeBlockContext_WithExcessBlobGas(t *testing.T) {
 
 func TestMakeBlockContext_GetHash(t *testing.T) {
 	header := &types.Header{
-		Number:  big.NewInt(5),
+		Number:   big.NewInt(5),
 		GasLimit: 1_000_000,
-		Time:    100,
-		BaseFee: big.NewInt(0),
+		Time:     100,
+		BaseFee:  big.NewInt(0),
 	}
 	called := false
 	getHash := func(n uint64) gethcommon.Hash {
@@ -450,11 +450,11 @@ func TestApplyMessage_SimpleTransfer(t *testing.T) {
 	defer preState.Close()
 
 	header := &types.Header{
-		Number:  big.NewInt(1),
+		Number:   big.NewInt(1),
 		GasLimit: 8_000_000,
-		Time:    1000,
+		Time:     1000,
 		Coinbase: types.Address{0x99},
-		BaseFee: big.NewInt(1_000_000_000),
+		BaseFee:  big.NewInt(1_000_000_000),
 	}
 	blockCtx := MakeBlockContext(header, TestBlockHash)
 
@@ -505,10 +505,10 @@ func TestApplyMessage_InsufficientBalance(t *testing.T) {
 	defer preState.Close()
 
 	header := &types.Header{
-		Number:  big.NewInt(1),
+		Number:   big.NewInt(1),
 		GasLimit: 8_000_000,
-		Time:    1000,
-		BaseFee: big.NewInt(1_000_000_000),
+		Time:     1000,
+		BaseFee:  big.NewInt(1_000_000_000),
 	}
 	blockCtx := MakeBlockContext(header, TestBlockHash)
 
@@ -571,7 +571,7 @@ func TestGetBlobBaseFee_NonZeroExcess(t *testing.T) {
 func TestIsEIP158_AtExactBlock(t *testing.T) {
 	block := big.NewInt(100)
 	config := &params.ChainConfig{
-		ChainID:    big.NewInt(1),
+		ChainID:     big.NewInt(1),
 		EIP158Block: block,
 	}
 	// Exactly at activation block.

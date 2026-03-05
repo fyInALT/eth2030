@@ -106,8 +106,8 @@ func TestXORDistance_Symmetric(t *testing.T) {
 func TestCompareXORDistance_ACloser(t *testing.T) {
 	var target, a, b enode.NodeID
 	target[31] = 0x10
-	a[31] = 0x11  // XOR with target = 0x01
-	b[31] = 0x20  // XOR with target = 0x30
+	a[31] = 0x11 // XOR with target = 0x01
+	b[31] = 0x20 // XOR with target = 0x30
 
 	result := CompareXORDistance(target, a, b)
 	if result >= 0 {
@@ -118,8 +118,8 @@ func TestCompareXORDistance_ACloser(t *testing.T) {
 func TestCompareXORDistance_BCloser(t *testing.T) {
 	var target, a, b enode.NodeID
 	target[31] = 0x10
-	a[31] = 0x20  // XOR with target = 0x30
-	b[31] = 0x11  // XOR with target = 0x01
+	a[31] = 0x20 // XOR with target = 0x30
+	b[31] = 0x11 // XOR with target = 0x01
 
 	result := CompareXORDistance(target, a, b)
 	if result <= 0 {

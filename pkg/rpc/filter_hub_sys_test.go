@@ -451,7 +451,7 @@ func TestExtFilterManager_Count(t *testing.T) {
 		t.Fatalf("want 0 initially, got %d", fm.Count())
 	}
 
-	fm.InstallBlockFilter()    //nolint:errcheck
+	fm.InstallBlockFilter()     //nolint:errcheck
 	fm.InstallPendingTxFilter() //nolint:errcheck
 
 	if fm.Count() != 2 {
@@ -463,9 +463,9 @@ func TestExtFilterManager_CountByType(t *testing.T) {
 	fm := NewExtFilterManager(DefaultExtFilterConfig())
 	defer fm.Stop()
 
-	fm.InstallBlockFilter()    //nolint:errcheck
-	fm.InstallBlockFilter()    //nolint:errcheck
-	fm.InstallPendingTxFilter() //nolint:errcheck
+	fm.InstallBlockFilter()             //nolint:errcheck
+	fm.InstallBlockFilter()             //nolint:errcheck
+	fm.InstallPendingTxFilter()         //nolint:errcheck
 	fm.InstallLogFilter(0, 0, nil, nil) //nolint:errcheck
 
 	if got := fm.CountByType(ExtBlockFilter); got != 2 {
@@ -507,7 +507,7 @@ func TestExtFilterManager_InstallLogFilter_MaxFilters(t *testing.T) {
 	fm := NewExtFilterManager(cfg)
 	defer fm.Stop()
 
-	fm.InstallBlockFilter()    //nolint:errcheck
+	fm.InstallBlockFilter()     //nolint:errcheck
 	fm.InstallPendingTxFilter() //nolint:errcheck
 
 	_, err := fm.InstallLogFilter(0, 0, nil, nil)
@@ -704,7 +704,7 @@ func TestExtFilterManager_PruneExpired(t *testing.T) {
 	fm := NewExtFilterManager(cfg)
 	defer fm.Stop()
 
-	fm.InstallBlockFilter()    //nolint:errcheck
+	fm.InstallBlockFilter()     //nolint:errcheck
 	fm.InstallPendingTxFilter() //nolint:errcheck
 
 	time.Sleep(5 * time.Millisecond)
@@ -800,7 +800,7 @@ func TestDefaultFilterSysConfig(t *testing.T) {
 func TestFilterSys_Close(t *testing.T) {
 	fs := NewFilterSys(DefaultFilterSysConfig())
 
-	fs.NewBlockFilter()    //nolint:errcheck
+	fs.NewBlockFilter()     //nolint:errcheck
 	fs.NewPendingTxFilter() //nolint:errcheck
 
 	if fs.FilterCount() != 2 {
@@ -904,8 +904,8 @@ func TestFilterSys_FilterCountByKind(t *testing.T) {
 	fs := NewFilterSys(DefaultFilterSysConfig())
 	defer fs.Close()
 
-	fs.NewBlockFilter()    //nolint:errcheck
-	fs.NewBlockFilter()    //nolint:errcheck
+	fs.NewBlockFilter()     //nolint:errcheck
+	fs.NewBlockFilter()     //nolint:errcheck
 	fs.NewPendingTxFilter() //nolint:errcheck
 
 	if got := fs.FilterCountByKind(SysBlockFilter); got != 2 {
@@ -1014,7 +1014,7 @@ func TestFilterSys_PruneExpired(t *testing.T) {
 	fs := NewFilterSys(cfg)
 	defer fs.Close()
 
-	fs.NewBlockFilter()    //nolint:errcheck
+	fs.NewBlockFilter()     //nolint:errcheck
 	fs.NewPendingTxFilter() //nolint:errcheck
 
 	time.Sleep(5 * time.Millisecond)

@@ -43,9 +43,9 @@ func TestDecodeDepositRequests_InvalidLength(t *testing.T) {
 
 func TestDecodeDepositRequests_One(t *testing.T) {
 	buf := v4makeDepositPayload(1)
-	buf[0] = 0xAB  // pubkey byte 0
-	binary.LittleEndian.PutUint64(buf[80:], 32_000_000_000)  // amount
-	binary.LittleEndian.PutUint64(buf[184:], 42)              // index
+	buf[0] = 0xAB                                           // pubkey byte 0
+	binary.LittleEndian.PutUint64(buf[80:], 32_000_000_000) // amount
+	binary.LittleEndian.PutUint64(buf[184:], 42)            // index
 
 	deps, err := DecodeDepositRequests(buf)
 	if err != nil {
@@ -469,13 +469,13 @@ func TestIsClientError(t *testing.T) {
 		code int
 		want bool
 	}{
-		{ParseErrorCode, false},         // -32700 is outside [-32699,-32600]
-		{InvalidRequestCode, true},      // -32600
-		{MethodNotFoundCode, true},      // -32601
-		{InvalidParamsCode, true},       // -32602
-		{InternalErrorCode, true},       // -32603
-		{UnknownPayloadCode, false},     // -38001 is an Engine error
-		{ServerBusyCode, false},         // -32005 is outside [-32699,-32600]
+		{ParseErrorCode, false},     // -32700 is outside [-32699,-32600]
+		{InvalidRequestCode, true},  // -32600
+		{MethodNotFoundCode, true},  // -32601
+		{InvalidParamsCode, true},   // -32602
+		{InternalErrorCode, true},   // -32603
+		{UnknownPayloadCode, false}, // -38001 is an Engine error
+		{ServerBusyCode, false},     // -32005 is outside [-32699,-32600]
 		{0, false},
 	}
 	for _, tc := range tests {

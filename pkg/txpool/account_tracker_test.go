@@ -450,7 +450,7 @@ func TestAcctTrack_TrackedAddresses(t *testing.T) {
 
 func TestAcctTrack_AccountsWithDeficit(t *testing.T) {
 	s := newMockState()
-	s.balances[acctAddr1] = big.NewInt(50)  // not enough
+	s.balances[acctAddr1] = big.NewInt(50)   // not enough
 	s.balances[acctAddr2] = big.NewInt(1e18) // plenty
 	at := NewAcctTrack(s)
 

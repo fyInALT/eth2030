@@ -392,7 +392,7 @@ func TestGetPartialReceiptsMessage(t *testing.T) {
 func TestPartialReceiptsMessage(t *testing.T) {
 	hash := types.Hash{0xcd}
 	receipt := &types.Receipt{
-		Status:          1,
+		Status:            1,
 		CumulativeGasUsed: 21000,
 	}
 	msg := PartialReceiptsMessage{

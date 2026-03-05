@@ -357,17 +357,17 @@ func TestToGethChainConfig_Basic(t *testing.T) {
 
 func TestToGethChainConfig_AllBlockForks(t *testing.T) {
 	c := &core.ChainConfig{
-		ChainID:             big.NewInt(1),
-		HomesteadBlock:      big.NewInt(1),
-		EIP150Block:         big.NewInt(2),
-		EIP155Block:         big.NewInt(3),
-		EIP158Block:         big.NewInt(3),
-		ByzantiumBlock:      big.NewInt(4),
-		ConstantinopleBlock: big.NewInt(5),
-		PetersburgBlock:     big.NewInt(5),
-		IstanbulBlock:       big.NewInt(6),
-		BerlinBlock:         big.NewInt(7),
-		LondonBlock:         big.NewInt(8),
+		ChainID:                 big.NewInt(1),
+		HomesteadBlock:          big.NewInt(1),
+		EIP150Block:             big.NewInt(2),
+		EIP155Block:             big.NewInt(3),
+		EIP158Block:             big.NewInt(3),
+		ByzantiumBlock:          big.NewInt(4),
+		ConstantinopleBlock:     big.NewInt(5),
+		PetersburgBlock:         big.NewInt(5),
+		IstanbulBlock:           big.NewInt(6),
+		BerlinBlock:             big.NewInt(7),
+		LondonBlock:             big.NewInt(8),
 		TerminalTotalDifficulty: big.NewInt(0),
 	}
 

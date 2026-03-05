@@ -175,10 +175,10 @@ func TestHeaderToPayloadV3_NilBlobFields(t *testing.T) {
 
 func TestDeterminePayloadVersion(t *testing.T) {
 	tests := []struct {
-		name      string
-		ts        uint64
-		forks     *ForkTimestamps
-		wantVer   PayloadVersion
+		name    string
+		ts      uint64
+		forks   *ForkTimestamps
+		wantVer PayloadVersion
 	}{
 		{
 			name:    "nil forks -> V1",
