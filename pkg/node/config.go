@@ -123,6 +123,9 @@ type Config struct {
 	// StarkValidationFrames enables STARK proof sealing for VERIFY frame transactions (US-PQ-5b).
 	StarkValidationFrames bool // --stark-validation-frames
 
+	// SlotDuration selects the slot timing: "4s" or "6s" (default "6s", LEAN-1.1).
+	SlotDuration string // --slot-duration
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -192,6 +195,9 @@ func DefaultConfig() Config {
 
 		// EP-3 Post-Quantum defaults.
 		LeanAvailableChainValidators: 512,
+
+		// LEAN-1.1: default to 6-second slots.
+		SlotDuration: "6s",
 	}
 }
 
@@ -253,6 +259,13 @@ func (c *Config) Validate() error {
 	case "", "full", "archive":
 	default:
 		return fmt.Errorf("config: unknown gc mode %q", c.GCMode)
+	}
+	// Validate slot duration (LEAN-1.1).
+	switch c.SlotDuration {
+	case "", "6s": // "" treated as default 6s
+	case "4s":
+	default:
+		return fmt.Errorf("config: invalid slot-duration %q (must be 4s or 6s)", c.SlotDuration)
 	}
 	// Validate lean available chain validator count when mode is enabled.
 	if c.LeanAvailableChainMode {

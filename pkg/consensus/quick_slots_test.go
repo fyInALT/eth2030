@@ -488,6 +488,83 @@ func TestValidateSlotTransition(t *testing.T) {
 	}
 }
 
+func TestQuickSlot4sConfig(t *testing.T) {
+	cfg := QuickSlot4sConfig()
+
+	if cfg.SlotDuration != 4*time.Second {
+		t.Errorf("SlotDuration = %v, want 4s", cfg.SlotDuration)
+	}
+	if cfg.SlotsPerEpoch != 4 {
+		t.Errorf("SlotsPerEpoch = %d, want 4", cfg.SlotsPerEpoch)
+	}
+	if cfg.EpochDuration() != 16*time.Second {
+		t.Errorf("EpochDuration = %v, want 16s", cfg.EpochDuration())
+	}
+}
+
+func TestIsQuick4s(t *testing.T) {
+	cfg4s := QuickSlot4sConfig()
+	if !IsQuick4s(cfg4s) {
+		t.Error("IsQuick4s should return true for 4s config")
+	}
+
+	cfg6s := DefaultQuickSlotConfig()
+	if IsQuick4s(cfg6s) {
+		t.Error("IsQuick4s should return false for 6s config")
+	}
+
+	cfgOther := &QuickSlotConfig{SlotDuration: 2 * time.Second, SlotsPerEpoch: 4}
+	if IsQuick4s(cfgOther) {
+		t.Error("IsQuick4s should return false for 2s config")
+	}
+
+	if IsQuick4s(nil) {
+		t.Error("IsQuick4s should return false for nil config")
+	}
+}
+
+func TestQuickSlot4sTimerAccuracy(t *testing.T) {
+	cfg := QuickSlot4sConfig()
+	// Set genesis to a known time 8 seconds ago (2 slots).
+	genesis := time.Now().Add(-8 * time.Second)
+	sched := NewQuickSlotScheduler(cfg, genesis)
+
+	// After 8s with 4s slots, we should be at slot 2.
+	slot := sched.SlotAt(genesis.Add(8 * time.Second))
+	if slot != 2 {
+		t.Errorf("SlotAt(genesis+8s) with 4s slots = %d, want 2", slot)
+	}
+
+	// Verify slot boundaries for 4s spacing.
+	tests := []struct {
+		offset time.Duration
+		want   uint64
+	}{
+		{0, 0},
+		{3 * time.Second, 0},
+		{4 * time.Second, 1},
+		{7 * time.Second, 1},
+		{8 * time.Second, 2},
+		{11 * time.Second, 2},
+		{12 * time.Second, 3},
+	}
+
+	for _, tt := range tests {
+		got := sched.SlotAt(genesis.Add(tt.offset))
+		if got != tt.want {
+			t.Errorf("SlotAt(genesis+%v) with 4s slots = %d, want %d", tt.offset, got, tt.want)
+		}
+	}
+
+	// Next slot time should be within 4s (one slot duration).
+	nextSlot := sched.NextSlotTime()
+	now := time.Now()
+	diff := nextSlot.Sub(now)
+	if diff > cfg.SlotDuration {
+		t.Errorf("NextSlotTime is %v away, should be at most 4s", diff)
+	}
+}
+
 func TestEpochRoundTrip(t *testing.T) {
 	cfg := DefaultQuickSlotConfig()
 	genesis := time.Now()

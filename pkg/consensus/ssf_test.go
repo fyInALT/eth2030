@@ -441,3 +441,35 @@ func TestSSFNewStateNilConfig(t *testing.T) {
 		t.Errorf("default config SlotDuration = %d, want 12", state.config.SlotDuration)
 	}
 }
+
+// BenchmarkSSF4sSlot benchmarks finality voting throughput under a 4-second
+// slot regime. Uses the same SSFState mechanics but a tighter slot duration.
+func BenchmarkSSF4sSlot(b *testing.B) {
+	cfg := DefaultSSFConfig()
+	cfg.SlotDuration = 4 // 4-second slots
+	cfg.TotalStake = uint64(cfg.VoterLimit) * 32 * GweiPerETH
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		state := NewSSFState(cfg)
+		slot := uint64(i + 1)
+		root := makeBlockRoot(byte(i % 256))
+
+		// Cast enough votes to meet the 2/3 threshold.
+		votersNeeded := (cfg.VoterLimit*2)/3 + 1
+		stakePerVoter := uint64(32) * GweiPerETH
+		for v := uint64(0); v < uint64(votersNeeded); v++ {
+			_ = state.CastVote(SSFVote{
+				ValidatorIndex: ValidatorIndex(v),
+				Slot:           slot,
+				BlockRoot:      root,
+				Stake:          stakePerVoter,
+			})
+		}
+
+		met, _ := state.CheckFinality(slot, root)
+		if !met {
+			b.Fatal("finality not met")
+		}
+	}
+}

@@ -39,6 +39,25 @@ func DefaultQuickSlotConfig() *QuickSlotConfig {
 	}
 }
 
+// QuickSlot4sConfig returns the experimental 4-second slot configuration with
+// 4 slots per epoch (16-second epochs). This targets faster confirmation times
+// beyond the K+ quick-slot regime.
+func QuickSlot4sConfig() *QuickSlotConfig {
+	return &QuickSlotConfig{
+		SlotDuration:  4 * time.Second,
+		SlotsPerEpoch: 4,
+	}
+}
+
+// IsQuick4s reports whether the given config uses 4-second slot timing.
+// Returns false for nil configs.
+func IsQuick4s(cfg *QuickSlotConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.SlotDuration == 4*time.Second
+}
+
 // EpochDuration returns the total duration of one epoch.
 func (c *QuickSlotConfig) EpochDuration() time.Duration {
 	return c.SlotDuration * time.Duration(c.SlotsPerEpoch)

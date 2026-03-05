@@ -1,0 +1,29 @@
+## 4s-slots-test.yaml — Kurtosis devnet for LEAN-1.3 4-second slot validation.
+## Runs for 200 slots (~13 min). Verifies chain advances, missed-slot rate < 5%,
+## and finality is achieved every epoch (4 slots × 4 s = 16 s per epoch).
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    el_extra_params:
+      - --slot-duration=4s
+    el_log_level: debug
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 4
+  slots_per_epoch: 4
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - assertoor
+
+assertoor_params:
+  run_stability_check: true
+  run_block_proposal_check: true
+  # 200 slots × 4 s = 800 s total test window.
+  test_duration: 800s
+  max_missed_slot_ratio: 0.05
