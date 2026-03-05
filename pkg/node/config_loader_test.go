@@ -400,3 +400,29 @@ sync_mode = full
 		t.Errorf("SyncMode = %q, want full", cfg.SyncMode)
 	}
 }
+
+func TestSplitModules(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"eth,net,web3", []string{"eth", "net", "web3"}},
+		{"eth, net , web3", []string{"eth", "net", "web3"}},
+		{"eth", []string{"eth"}},
+		{"", nil},
+		{",,,", nil},
+		{"  ,eth,  ", []string{"eth"}},
+	}
+	for _, tc := range tests {
+		got := SplitModules(tc.input)
+		if len(got) != len(tc.want) {
+			t.Errorf("SplitModules(%q): want %v, got %v", tc.input, tc.want, got)
+			continue
+		}
+		for i, v := range tc.want {
+			if got[i] != v {
+				t.Errorf("SplitModules(%q)[%d]: want %q, got %q", tc.input, i, v, got[i])
+			}
+		}
+	}
+}
