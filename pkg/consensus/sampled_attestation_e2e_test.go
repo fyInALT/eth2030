@@ -6,12 +6,10 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
-// TestEP5_RandomAttesterPipeline runs the full GAP-3 pipeline end-to-end:
-//   RandomAttesterSelector.SelectAttesters
-//     → NewSampledAttestation (per-validator)
-//     → AggregateSampledAttestations
-//     → ScaleSampledWeight (fork-choice weight)
-func TestEP5_RandomAttesterPipeline(t *testing.T) {
+// TestRandomAttesterToForkChoiceWeightPipeline runs the full sampled attester
+// pipeline end-to-end: SelectAttesters → NewSampledAttestation →
+// AggregateSampledAttestations → ScaleSampledWeight (GAP-3).
+func TestRandomAttesterToForkChoiceWeightPipeline(t *testing.T) {
 	const (
 		totalValidators = 10_000
 		slot            = Slot(42)
@@ -84,10 +82,10 @@ func TestEP5_RandomAttesterPipeline(t *testing.T) {
 		len(selected), len(agg.ValidatorIndices), weight, fullCommittee)
 }
 
-// TestEP5_AttesterModeCoexistence verifies that full-committee and sampled
-// modes can coexist: SampledAttestation validates and ScaleSampledWeight
-// returns votes when sampleSize == fullCommittee (GAP-3.4).
-func TestEP5_AttesterModeCoexistence(t *testing.T) {
+// TestSampledAttestationCoexistsWithFullCommittee verifies that full-committee
+// and sampled attestation modes can coexist: SampledAttestation validates and
+// ScaleSampledWeight returns votes when sampleSize == fullCommittee (GAP-3.4).
+func TestSampledAttestationCoexistsWithFullCommittee(t *testing.T) {
 	data := AttestationData{
 		Slot:            Slot(1),
 		BeaconBlockRoot: types.Hash{0x01},
@@ -124,9 +122,9 @@ func TestEP5_AttesterModeCoexistence(t *testing.T) {
 	}
 }
 
-// TestEP5_MinimmitFinalityPipeline tests the Minimmit engine through a full
-// proposal → votes → finality cycle with 100 honest validators (GAP-5.1/5.3).
-func TestEP5_MinimmitFinalityPipeline(t *testing.T) {
+// TestMinimmitEngineProposalToFinality tests the Minimmit engine through a
+// full proposal → vote → finality cycle with 100 honest validators (GAP-5.1).
+func TestMinimmitEngineProposalToFinality(t *testing.T) {
 	const (
 		numValidators = 100
 		stakePerVal   = 32_000_000_000 // 32 ETH in Gwei
@@ -181,9 +179,9 @@ func TestEP5_MinimmitFinalityPipeline(t *testing.T) {
 	}
 }
 
-// TestEP5_BLSParallelAggregator verifies the ParallelAggregator correctly
-// handles 16 distinct attestations and accumulates metrics (GAP-7.3).
-func TestEP5_BLSParallelAggregator(t *testing.T) {
+// TestParallelBLSAggregatorAccumulatesMetrics verifies the ParallelAggregator
+// correctly handles 16 distinct attestations and accumulates metrics (GAP-7.3).
+func TestParallelBLSAggregatorAccumulatesMetrics(t *testing.T) {
 	pa := NewParallelAggregator(&ParallelAggregatorConfig{
 		Workers:   4,
 		BatchSize: 16,
@@ -216,9 +214,9 @@ func TestEP5_BLSParallelAggregator(t *testing.T) {
 		result.ProcessedCount, totalBits, result.MergeDepth)
 }
 
-// TestEP5_3SFBackoffProgression verifies IsJustifiableSlot matches the
-// expected square/oblong pattern from the 3SF spec (GAP-5.3).
-func TestEP5_3SFBackoffProgression(t *testing.T) {
+// TestIsJustifiableSlotSquareOblongProgression verifies that IsJustifiableSlot
+// matches the square/oblong backoff pattern from the 3SF spec (GAP-5.3).
+func TestIsJustifiableSlotSquareOblongProgression(t *testing.T) {
 	// IsJustifiableSlot(finalizedSlot, candidateSlot uint64) bool
 	// delta = candidate - finalized; justifiable when delta ≤ 5, square, or oblong.
 	type slotCase struct {
