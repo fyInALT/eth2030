@@ -1,10 +1,14 @@
 package p2p
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,14 +79,24 @@ func TestTorTransport_Receive(t *testing.T) {
 	}
 }
 
-// TestTorTransport_MockSocks5 tests SOCKS5 protocol via a local mock proxy.
+// TestTorTransport_MockSocks5 tests SOCKS5 protocol + HTTP POST JSON-RPC delivery.
 func TestTorTransport_MockSocks5(t *testing.T) {
+	// HTTP target: receives the forwarded eth_sendRawTransaction request.
+	var httpHits int32
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&httpHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x0"}`)) //nolint:errcheck
+	}))
+	defer httpSrv.Close()
+
 	mock := newMockSocks5Proxy(t)
 	defer mock.close()
 
 	cfg := &TorConfig{
 		ProxyAddr:   mock.addr(),
-		RPCEndpoint: "http://127.0.0.1:12345",
+		RPCEndpoint: httpSrv.URL,
 		DialTimeout: 2 * time.Second,
 		MaxPending:  16,
 	}
@@ -90,26 +104,73 @@ func TestTorTransport_MockSocks5(t *testing.T) {
 	_ = tr.Start()
 	defer tr.Stop()
 
-	payload := []byte("test-tx-payload")
-	if err := tr.SendViaExternalMixnet(payload, "http://127.0.0.1:12345"); err != nil {
+	payload := []byte{0x01, 0x02, 0x03}
+	if err := tr.SendViaExternalMixnet(payload, httpSrv.URL); err != nil {
 		t.Fatalf("SendViaExternalMixnet error: %v", err)
 	}
 
-	// Verify mock received a CONNECT to the right target.
+	// Verify mock received a CONNECT to httpSrv's host.
 	select {
 	case target := <-mock.targets:
-		host, port, err := net.SplitHostPort(target)
-		if err != nil {
-			t.Fatalf("invalid target %q: %v", target, err)
+		if target == "" {
+			t.Fatal("expected non-empty CONNECT target")
 		}
-		if host != "127.0.0.1" {
-			t.Fatalf("expected target host '127.0.0.1', got %q", host)
-		}
-		if port != "12345" {
-			t.Fatalf("expected target port '12345', got %q", port)
-		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for SOCKS5 CONNECT")
+	}
+
+	// Verify HTTP server was actually called.
+	if atomic.LoadInt32(&httpHits) == 0 {
+		t.Fatal("HTTP server received no requests (JSON-RPC POST not delivered)")
+	}
+}
+
+// TestTorTransport_JSONRPCFormat verifies the eth_sendRawTransaction JSON-RPC body.
+func TestTorTransport_JSONRPCFormat(t *testing.T) {
+	var capturedBody []byte
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0xabc"}`)) //nolint:errcheck
+	}))
+	defer httpSrv.Close()
+
+	mock := newMockSocks5Proxy(t)
+	defer mock.close()
+
+	cfg := &TorConfig{
+		ProxyAddr:   mock.addr(),
+		RPCEndpoint: httpSrv.URL,
+		DialTimeout: 2 * time.Second,
+		MaxPending:  16,
+	}
+	tr := NewTorTransport(cfg)
+	_ = tr.Start()
+	defer tr.Stop()
+
+	payload := []byte{0xde, 0xad, 0xbe, 0xef}
+	if err := tr.SendViaExternalMixnet(payload, httpSrv.URL); err != nil {
+		t.Fatalf("SendViaExternalMixnet error: %v", err)
+	}
+
+	// Wait for HTTP body capture (httpSrv is synchronous, no wait needed).
+	var req map[string]interface{}
+	if err := json.Unmarshal(capturedBody, &req); err != nil {
+		t.Fatalf("body is not valid JSON: %v\nbody: %s", err, capturedBody)
+	}
+	if req["method"] != "eth_sendRawTransaction" {
+		t.Fatalf("expected method 'eth_sendRawTransaction', got %v", req["method"])
+	}
+	if req["jsonrpc"] != "2.0" {
+		t.Fatalf("expected jsonrpc '2.0', got %v", req["jsonrpc"])
+	}
+	params, ok := req["params"].([]interface{})
+	if !ok || len(params) == 0 {
+		t.Fatalf("expected params array, got %v", req["params"])
+	}
+	if params[0] != "0x"+fmt.Sprintf("%x", payload) {
+		t.Fatalf("expected hex payload '0x%x', got %v", payload, params[0])
 	}
 }
 
@@ -267,11 +328,26 @@ func (m *mockSocks5Proxy) handleConn(conn net.Conn) {
 	default:
 	}
 
-	// Respond with success: [ver, REP=0, RSV, ATYP=IPv4, 4 bytes addr, 2 bytes port]
+	// Try to connect to the actual target and forward traffic.
+	targetConn, err := net.DialTimeout("tcp", target, 1*time.Second)
+	if err != nil {
+		// Target unreachable — send SOCKS5 failure (connection refused).
+		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}) //nolint:errcheck
+		return
+	}
+	defer targetConn.Close()
+
+	// Send SOCKS5 success before starting the bidirectional tunnel.
 	conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}) //nolint:errcheck
 
-	// Drain any remaining data from client.
-	io.Copy(io.Discard, conn) //nolint:errcheck
+	// Bidirectional tunnel: client ↔ target.
+	done := make(chan struct{})
+	go func() {
+		io.Copy(targetConn, conn) //nolint:errcheck
+		close(done)
+	}()
+	io.Copy(conn, targetConn) //nolint:errcheck
+	<-done
 }
 
 // testLocalTxForTor builds a LocalTx for Tor transport tests.

@@ -1,9 +1,14 @@
 package p2p
 
 import (
+	"bytes"
+	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
@@ -11,6 +16,54 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// jsonRPCRequest is the wire format for an Ethereum JSON-RPC call.
+type jsonRPCRequest struct {
+	JSONRPC string        `json:"jsonrpc"`
+	Method  string        `json:"method"`
+	Params  []interface{} `json:"params"`
+	ID      int           `json:"id"`
+}
+
+// sendViaSOCKS5 sends payload as an eth_sendRawTransaction JSON-RPC HTTP POST
+// to endpoint, tunneled through proxyAddr via SOCKS5.
+// payload must be the RLP-encoded signed transaction bytes.
+func sendViaSOCKS5(proxyAddr string, dialTimeout time.Duration, payload []byte, endpoint string) error {
+	body, err := json.Marshal(jsonRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_sendRawTransaction",
+		Params:  []interface{}{"0x" + hex.EncodeToString(payload)},
+		ID:      1,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal rpc request: %w", err)
+	}
+
+	// HTTP client with a custom dialer that tunnels via SOCKS5.
+	client := &http.Client{
+		Timeout: dialTimeout * 20,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				h, p, splitErr := net.SplitHostPort(addr)
+				if splitErr != nil {
+					return nil, splitErr
+				}
+				portNum, convErr := strconv.ParseUint(p, 10, 16)
+				if convErr != nil {
+					return nil, convErr
+				}
+				return socks5Dial(proxyAddr, h, uint16(portNum), dialTimeout)
+			},
+		},
+	}
+
+	resp, err := client.Post(endpoint, "application/json", bytes.NewReader(body)) //nolint:noctx
+	if err != nil {
+		return fmt.Errorf("http post via socks5: %w", err)
+	}
+	defer resp.Body.Close()
+	return nil
+}
 
 // TorConfig configures the Tor SOCKS5 anonymous transport.
 type TorConfig struct {
@@ -77,20 +130,11 @@ func (t *TorTransport) Submit(tx *types.Transaction) error {
 	return t.SendViaExternalMixnet(tx.Hash().Bytes(), t.config.RPCEndpoint)
 }
 
-// SendViaExternalMixnet sends raw bytes to endpoint via the Tor SOCKS5 proxy.
-// The endpoint must be an HTTP URL (e.g., "http://127.0.0.1:8545").
+// SendViaExternalMixnet sends payload as an eth_sendRawTransaction JSON-RPC HTTP POST
+// to endpoint, tunneled through the Tor SOCKS5 proxy. endpoint must be an HTTP URL.
 func (t *TorTransport) SendViaExternalMixnet(payload []byte, endpoint string) error {
-	host, port, err := parseHTTPEndpoint(endpoint)
-	if err != nil {
+	if err := sendViaSOCKS5(t.config.ProxyAddr, t.config.DialTimeout, payload, endpoint); err != nil {
 		return fmt.Errorf("tor: %w", err)
-	}
-	conn, err := socks5Dial(t.config.ProxyAddr, host, port, t.config.DialTimeout)
-	if err != nil {
-		return fmt.Errorf("tor: socks5: %w", err)
-	}
-	defer conn.Close()
-	if _, err := conn.Write(payload); err != nil {
-		return fmt.Errorf("tor: write: %w", err)
 	}
 	return nil
 }
@@ -178,19 +222,11 @@ func (n *NymTransport) Submit(tx *types.Transaction) error {
 	return n.SendViaExternalMixnet(tx.Hash().Bytes(), n.config.RPCEndpoint)
 }
 
-// SendViaExternalMixnet sends raw bytes to endpoint via the Nym SOCKS5 proxy.
+// SendViaExternalMixnet sends payload as an eth_sendRawTransaction JSON-RPC HTTP POST
+// to endpoint, tunneled through the Nym SOCKS5 proxy. endpoint must be an HTTP URL.
 func (n *NymTransport) SendViaExternalMixnet(payload []byte, endpoint string) error {
-	host, port, err := parseHTTPEndpoint(endpoint)
-	if err != nil {
+	if err := sendViaSOCKS5(n.config.ProxyAddr, n.config.DialTimeout, payload, endpoint); err != nil {
 		return fmt.Errorf("nym: %w", err)
-	}
-	conn, err := socks5Dial(n.config.ProxyAddr, host, port, n.config.DialTimeout)
-	if err != nil {
-		return fmt.Errorf("nym: socks5: %w", err)
-	}
-	defer conn.Close()
-	if _, err := conn.Write(payload); err != nil {
-		return fmt.Errorf("nym: write: %w", err)
 	}
 	return nil
 }
