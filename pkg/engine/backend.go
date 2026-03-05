@@ -298,6 +298,45 @@ func payloadToBlock(payload *ExecutionPayloadV3) (*types.Block, error) {
 	return block, nil
 }
 
+// restoreCalldataGasFields recomputes CalldataGasUsed and CalldataExcessGas
+// for a block received via the engine API. These fields are part of the
+// EIP-7706 header but are not transmitted in ExecutionPayloadV5. By deriving
+// them from block transactions and parent state we restore the original block
+// hash so the parent chain tracks calldata excess gas correctly (SPEC-6.4).
+// If the recomputed block hash matches payloadBlockHash the augmented block is
+// returned; otherwise the original block is returned unchanged.
+func restoreCalldataGasFields(block *types.Block, parent *types.Block, payloadBlockHash types.Hash) *types.Block {
+	// Sum calldata gas across all transactions.
+	calldataGasUsed := uint64(0)
+	for _, tx := range block.Transactions() {
+		calldataGasUsed += tx.CalldataGas()
+	}
+	// Derive excess gas from parent state (defaults to 0 if parent lacks fields).
+	parentExcess, parentUsed := uint64(0), uint64(0)
+	if parent != nil {
+		if parent.Header().CalldataExcessGas != nil {
+			parentExcess = *parent.Header().CalldataExcessGas
+		}
+		if parent.Header().CalldataGasUsed != nil {
+			parentUsed = *parent.Header().CalldataGasUsed
+		}
+	}
+	calldataExcessGas := core.CalcCalldataExcessGas(parentExcess, parentUsed, block.Header().GasLimit)
+
+	// Rebuild the block with the calldata gas fields injected into the header.
+	hdr := block.Header()
+	hdr.CalldataGasUsed = &calldataGasUsed
+	hdr.CalldataExcessGas = &calldataExcessGas
+	augmented := types.NewBlock(hdr, block.Body())
+
+	// Only use the augmented block if its hash matches what the builder produced.
+	// This protects against incorrect recomputation.
+	if payloadBlockHash == (types.Hash{}) || augmented.Hash() == payloadBlockHash {
+		return augmented
+	}
+	return block
+}
+
 // blockToPayload converts a types.Block to an ExecutionPayloadV4.
 func blockToPayload(block *types.Block, prevRandao types.Hash, withdrawals []*Withdrawal) *ExecutionPayloadV4 {
 	header := block.Header()
@@ -380,6 +419,14 @@ func (b *EngineBackend) ProcessBlockV5(
 	parentHash := block.ParentHash()
 	if _, ok := b.blocks[parentHash]; !ok {
 		return PayloadStatusV1{Status: StatusSyncing}, nil
+	}
+
+	// SPEC-6.4: restore CalldataGasUsed/CalldataExcessGas stripped by the
+	// engine API wire format. These fields are part of the header hash
+	// (EIP-7706) but not included in ExecutionPayloadV5. We recompute them
+	// from the block's transactions and the parent's calldata gas state.
+	if b.config != nil && b.config.IsGlamsterdan(block.Header().Time) {
+		block = restoreCalldataGasFields(block, b.blocks[parentHash], payload.BlockHash)
 	}
 
 	// Run through the state processor with BAL computation.

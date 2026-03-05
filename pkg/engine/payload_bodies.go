@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -25,10 +26,16 @@ func (api *EngineAPI) GetPayloadBodiesByHashV2(hashes []types.Hash) ([]*Executio
 	backend.mu.RLock()
 	defer backend.mu.RUnlock()
 
+	// SPEC-5.5: determine head block number for retention window check.
+	headNum := uint64(0)
+	if head, ok := backend.blocks[backend.headHash]; ok {
+		headNum = head.NumberU64()
+	}
+
 	results := make([]*ExecutionPayloadBodyV2, len(hashes))
 	for i, h := range hashes {
 		block, found := backend.blocks[h]
-		if !found {
+		if !found || !rawdb.IsBALRetained(headNum, block.NumberU64()) {
 			results[i] = nil
 			continue
 		}
@@ -56,6 +63,12 @@ func (api *EngineAPI) GetPayloadBodiesByRangeV2(start, count uint64) ([]*Executi
 	backend.mu.RLock()
 	defer backend.mu.RUnlock()
 
+	// SPEC-5.5: determine head block number for retention window check.
+	headNum := uint64(0)
+	if head, ok := backend.blocks[backend.headHash]; ok {
+		headNum = head.NumberU64()
+	}
+
 	results := make([]*ExecutionPayloadBodyV2, count)
 	for i := uint64(0); i < count; i++ {
 		num := start + i
@@ -67,7 +80,7 @@ func (api *EngineAPI) GetPayloadBodiesByRangeV2(start, count uint64) ([]*Executi
 				break
 			}
 		}
-		if found == nil {
+		if found == nil || !rawdb.IsBALRetained(headNum, num) {
 			results[i] = nil
 			continue
 		}
