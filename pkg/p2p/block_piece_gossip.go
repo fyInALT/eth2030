@@ -6,12 +6,15 @@
 package p2p
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 )
 
 // Block piece gossip errors.
@@ -264,4 +267,40 @@ func (m *BlockAssemblyManager) Stats() (total, complete, incomplete int) {
 		}
 	}
 	return total, complete, incomplete
+}
+
+// BlockPieceTopicName returns the gossip topic for a specific slot and piece
+// index in the format "block_piece/{slot}/{piece_index}" (GAP-4.2).
+func BlockPieceTopicName(slot uint64, pieceIndex int) string {
+	return fmt.Sprintf("block_piece/%d/%d", slot, pieceIndex)
+}
+
+// PieceCustodyIndex computes which piece index a peer has custody of for
+// a given slot using keccak256(peer_id || slot) % totalPieces (GAP-4.2).
+// Each peer is responsible for storing and serving its assigned pieces.
+func PieceCustodyIndex(peerID string, slot uint64, totalPieces int) int {
+	if totalPieces <= 0 {
+		return 0
+	}
+	buf := make([]byte, len(peerID)+8)
+	copy(buf, peerID)
+	binary.BigEndian.PutUint64(buf[len(peerID):], slot)
+	h := crypto.Keccak256Hash(buf)
+	idx := int(binary.BigEndian.Uint64(h[24:]) % uint64(totalPieces))
+	return idx
+}
+
+// PeerCustodyPieces returns the piece indices that a peer has custody of.
+// By default each peer holds 2 pieces (custodyCount). The assignment is
+// deterministic: piece i is assigned to peers where PieceCustodyIndex % totalPieces == i.
+func PeerCustodyPieces(peerID string, slot uint64, totalPieces, custodyCount int) []int {
+	if totalPieces <= 0 || custodyCount <= 0 {
+		return nil
+	}
+	primary := PieceCustodyIndex(peerID, slot, totalPieces)
+	pieces := make([]int, 0, custodyCount)
+	for i := 0; i < custodyCount; i++ {
+		pieces = append(pieces, (primary+i)%totalPieces)
+	}
+	return pieces
 }

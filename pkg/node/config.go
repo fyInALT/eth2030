@@ -126,6 +126,16 @@ type Config struct {
 	// SlotDuration selects the slot timing: "4s" or "6s" (default "6s", LEAN-1.1).
 	SlotDuration string // --slot-duration
 
+	// AttesterSampleSize controls per-slot attester sampling (GAP-3.4).
+	// 0 = full committee mode, 256/512/1024 = sampled mode.
+	AttesterSampleSize int // --attester-sample-size
+
+	// FinalityMode selects the finality engine: "ssf" (default) or "minimmit" (GAP-5.2).
+	FinalityMode string // --finality-mode
+
+	// BLSBackend selects the BLS signature backend: "blst" (default) or "pure-go" (GAP-7.2).
+	BLSBackend string // --bls-backend
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -198,6 +208,15 @@ func DefaultConfig() Config {
 
 		// LEAN-1.1: default to 6-second slots.
 		SlotDuration: "6s",
+
+		// GAP-3.4: default to full committee mode (no sampling).
+		AttesterSampleSize: 0,
+
+		// GAP-5.2: default to SSF finality.
+		FinalityMode: "ssf",
+
+		// GAP-7.2: default to blst BLS backend.
+		BLSBackend: "blst",
 	}
 }
 
@@ -277,6 +296,24 @@ func (c *Config) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("config: unknown log level %q", c.LogLevel)
+	}
+	// GAP-3.4: validate attester sample size.
+	switch c.AttesterSampleSize {
+	case 0, 256, 512, 1024:
+	default:
+		return fmt.Errorf("config: invalid attester-sample-size %d (must be 0, 256, 512, or 1024)", c.AttesterSampleSize)
+	}
+	// GAP-5.2: validate finality mode.
+	switch c.FinalityMode {
+	case "", "ssf", "minimmit":
+	default:
+		return fmt.Errorf("config: invalid finality-mode %q (must be ssf or minimmit)", c.FinalityMode)
+	}
+	// GAP-7.2: validate BLS backend.
+	switch c.BLSBackend {
+	case "", "blst", "pure-go":
+	default:
+		return fmt.Errorf("config: invalid bls-backend %q (must be blst or pure-go)", c.BLSBackend)
 	}
 	return nil
 }

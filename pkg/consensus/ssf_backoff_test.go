@@ -149,31 +149,29 @@ func TestMinimmit3SFBackoff(t *testing.T) {
 	}
 }
 
-// TestSSFBackoffBoundedFinality runs a 100-slot simulation and verifies that
-// finality advances within the bounded progression (square/oblong deltas) (GAP-5.3).
+// TestSSFBackoffBoundedFinality runs a 1000-slot, 10-run simulation and verifies
+// that finality always advances within the bounded square/oblong progression (GAP-5.3).
+// Per 3SF-mini consensus.py, worst-case gap is bounded to ≤ 25 slots (next square
+// after 16 is 25). Each run must achieve lastFinalized ≥ 990 after 1000 slots.
 func TestSSFBackoffBoundedFinality(t *testing.T) {
-	// Simulate 100 slots. Count how many justifiable slots occur.
-	// Per 3SF-mini, worst-case finality gap is bounded to ≤ 25 slots
-	// (next square after 16 is 25).
-	totalSlots := uint64(100)
-	finalizedAt := uint64(0)
-	lastFinalized := uint64(0)
+	const totalSlots = uint64(1000)
+	const minFinalizedTarget = uint64(990) // allow a small tail window
+	const runs = 10
 
-	for slot := uint64(1); slot <= totalSlots; slot++ {
-		if IsJustifiableSlot(lastFinalized, slot) {
-			finalizedAt = slot
-			// Simulate finality: if enough validators vote, finalize.
-			// In this bounded test, we assume the honest majority finalizes
-			// at each justifiable slot.
-			lastFinalized = finalizedAt
+	for run := 0; run < runs; run++ {
+		lastFinalized := uint64(0)
+
+		for slot := uint64(1); slot <= totalSlots; slot++ {
+			if IsJustifiableSlot(lastFinalized, slot) {
+				// Honest majority finalizes at every justifiable slot.
+				lastFinalized = slot
+			}
 		}
-	}
 
-	// Verify finality progressed to near the end (last few slots may not be
-	// justifiable from the current finalized slot, but overall progression holds).
-	if lastFinalized < 95 {
-		t.Errorf("bounded finality failed: lastFinalized=%d after %d slots (want ≥ 95)",
-			lastFinalized, totalSlots)
+		if lastFinalized < minFinalizedTarget {
+			t.Errorf("run %d: bounded finality failed: lastFinalized=%d after %d slots (want ≥ %d)",
+				run, lastFinalized, totalSlots, minFinalizedTarget)
+		}
 	}
 }
 

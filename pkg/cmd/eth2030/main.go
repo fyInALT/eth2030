@@ -215,6 +215,11 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	// --- EP-4 Lean Consensus ---
 	fs.StringVar(&cfg.SlotDuration, "slot-duration", cfg.SlotDuration, "slot duration: 4s or 6s (default 6s, LEAN-1.1)")
 
+	// --- EP-5 Roadmap Gaps ---
+	fs.IntVar(&cfg.AttesterSampleSize, "attester-sample-size", cfg.AttesterSampleSize, "per-slot attester sample: 0=full committee, 256, 512, or 1024 (GAP-3.4)")
+	fs.StringVar(&cfg.FinalityMode, "finality-mode", cfg.FinalityMode, "finality engine: ssf (default) or minimmit (GAP-5.2)")
+	fs.StringVar(&cfg.BLSBackend, "bls-backend", cfg.BLSBackend, "BLS backend: blst (default) or pure-go (GAP-7.2)")
+
 	return fs
 }
 

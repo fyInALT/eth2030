@@ -780,7 +780,15 @@ func opCall(pc *uint64, evm *EVM, contract *Contract, memory *Memory, stack *Sta
 		callGas += CallStipend
 	}
 
+	// GAP-1.2: forward the entire state-creation reservoir to the sub-call.
+	evm.callReservoirForward = contract.StateGasReservoir
+	contract.StateGasReservoir = 0
+
 	ret, returnGas, err := evm.Call(contract.Address, addr, args, callGas, value)
+
+	// GAP-1.2: restore parent reservoir with whatever the child did not consume.
+	contract.StateGasReservoir += evm.callReservoirReturn
+	evm.callReservoirReturn = 0
 
 	// Refund unused gas to caller (matching go-ethereum: no stipend subtraction).
 	contract.Gas += returnGas
