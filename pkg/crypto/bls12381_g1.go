@@ -5,7 +5,11 @@ package crypto
 // Points are represented in Jacobian coordinates (X, Y, Z) where the
 // affine point is (X/Z^2, Y/Z^3). The point at infinity has Z=0.
 
-import "math/big"
+import (
+	"math/big"
+
+	bls12381gnark "github.com/consensys/gnark-crypto/ecc/bls12-381"
+)
 
 // BlsG1Point represents a point on the BLS12-381 G1 curve in Jacobian coordinates.
 type BlsG1Point struct {
@@ -150,7 +154,7 @@ func blsG1Double(a *BlsG1Point) *BlsG1Point {
 	return &BlsG1Point{x: x3, y: y3, z: z3}
 }
 
-// blsG1ScalarMul computes k*P using double-and-add.
+// blsG1ScalarMul computes k*P using gnark-crypto for speed.
 func blsG1ScalarMul(p *BlsG1Point, k *big.Int) *BlsG1Point {
 	if k.Sign() == 0 || p.blsG1IsInfinity() {
 		return BlsG1Infinity()
@@ -162,20 +166,23 @@ func blsG1ScalarMul(p *BlsG1Point, k *big.Int) *BlsG1Point {
 		return BlsG1Infinity()
 	}
 
-	r := BlsG1Infinity()
-	base := &BlsG1Point{
-		x: new(big.Int).Set(p.x),
-		y: new(big.Int).Set(p.y),
-		z: new(big.Int).Set(p.z),
+	// Convert to affine coordinates.
+	ax, ay := p.blsG1ToAffine()
+
+	var ga bls12381gnark.G1Affine
+	ga.X.SetBigInt(ax)
+	ga.Y.SetBigInt(ay)
+
+	var result bls12381gnark.G1Affine
+	result.ScalarMultiplication(&ga, kMod)
+
+	if result.IsInfinity() {
+		return BlsG1Infinity()
 	}
 
-	for i := kMod.BitLen() - 1; i >= 0; i-- {
-		r = blsG1Double(r)
-		if kMod.Bit(i) == 1 {
-			r = blsG1Add(r, base)
-		}
-	}
-	return r
+	rx := result.X.BigInt(new(big.Int))
+	ry := result.Y.BigInt(new(big.Int))
+	return blsG1FromAffine(rx, ry)
 }
 
 // blsG1Neg returns -P.

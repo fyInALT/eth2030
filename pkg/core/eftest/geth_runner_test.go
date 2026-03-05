@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -64,71 +65,93 @@ func TestGethCategorySummary(t *testing.T) {
 		t.Skip("go-ethereum test fixtures not available")
 	}
 
-	// Walk all category directories.
-	type catResult struct {
-		passed  int
-		failed  int
-		skipped int
-	}
-	categories := make(map[string]*catResult)
-	totalPassed, totalFailed, totalSkipped := 0, 0, 0
-
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
 
+	type catResult struct {
+		passed  int
+		failed  int
+		skipped int
+	}
+
+	var (
+		mu         sync.Mutex
+		catMap     = make(map[string]*catResult)
+		totPassed  int
+		totFailed  int
+		totSkipped int
+	)
+
+	var names []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		catDir := filepath.Join(dir, entry.Name())
-		cat := &catResult{}
-		categories[entry.Name()] = cat
-
-		files, _ := filepath.Glob(filepath.Join(catDir, "*.json"))
-		for _, file := range files {
-			tests, err := LoadGethTests(file)
-			if err != nil {
-				t.Logf("WARN: %s: %v", file, err)
-				continue
-			}
-
-			for _, test := range tests {
-				for _, sub := range test.Subtests() {
-					if !geth.EFTestForkSupported(sub.Fork) {
-						cat.skipped++
-						totalSkipped++
-						continue
-					}
-
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								cat.failed++
-								totalFailed++
-							}
-						}()
-						result := test.RunWithGeth(sub)
-						if result.Passed {
-							cat.passed++
-							totalPassed++
-						} else {
-							cat.failed++
-							totalFailed++
-						}
-					}()
-				}
-			}
-		}
-	}
-
-	// Print summary sorted by category name.
-	var names []string
-	for name := range categories {
+		name := entry.Name()
+		catMap[name] = &catResult{}
 		names = append(names, name)
 	}
 	sort.Strings(names)
+
+	// Run each category directory in parallel goroutines so totals are
+	// available before we print the summary (t.Run+t.Parallel subtests
+	// only run after the parent returns, making result collection impossible).
+	var wg sync.WaitGroup
+	for _, name := range names {
+		name := name
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			catDir := filepath.Join(dir, name)
+			files, _ := filepath.Glob(filepath.Join(catDir, "*.json"))
+			var passed, failed, skipped int
+			for _, file := range files {
+				tests, loadErr := LoadGethTests(file)
+				if loadErr != nil {
+					continue
+				}
+				for _, test := range tests {
+					for _, sub := range test.Subtests() {
+						if !geth.EFTestForkSupported(sub.Fork) {
+							skipped++
+							continue
+						}
+						func() {
+							defer func() {
+								if r := recover(); r != nil {
+									failed++
+								}
+							}()
+							result := test.RunWithGeth(sub)
+							if result.Passed {
+								passed++
+							} else {
+								failed++
+							}
+						}()
+					}
+				}
+			}
+			mu.Lock()
+			catMap[name].passed = passed
+			catMap[name].failed = failed
+			catMap[name].skipped = skipped
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	// Collect totals.
+	mu.Lock()
+	for _, n := range names {
+		cat := catMap[n]
+		totPassed += cat.passed
+		totFailed += cat.failed
+		totSkipped += cat.skipped
+	}
+	mu.Unlock()
 
 	t.Log("")
 	t.Log("=== GETH-BACKED EF STATE TEST RESULTS ===")
@@ -136,27 +159,27 @@ func TestGethCategorySummary(t *testing.T) {
 	t.Logf("%-40s %6s %6s %6s %6s", "CATEGORY", "PASS", "FAIL", "SKIP", "RATE")
 	t.Log(strings.Repeat("-", 70))
 
-	for _, name := range names {
-		cat := categories[name]
+	for _, n := range names {
+		cat := catMap[n]
 		total := cat.passed + cat.failed
 		rate := 0.0
 		if total > 0 {
 			rate = float64(cat.passed) / float64(total) * 100
 		}
-		t.Logf("%-40s %6d %6d %6d %5.1f%%", name, cat.passed, cat.failed, cat.skipped, rate)
+		t.Logf("%-40s %6d %6d %6d %5.1f%%", n, cat.passed, cat.failed, cat.skipped, rate)
 	}
 
 	t.Log(strings.Repeat("-", 70))
-	total := totalPassed + totalFailed
+	total := totPassed + totFailed
 	rate := 0.0
 	if total > 0 {
-		rate = float64(totalPassed) / float64(total) * 100
+		rate = float64(totPassed) / float64(total) * 100
 	}
-	t.Logf("%-40s %6d %6d %6d %5.1f%%", "TOTAL", totalPassed, totalFailed, totalSkipped, rate)
+	t.Logf("%-40s %6d %6d %6d %5.1f%%", "TOTAL", totPassed, totFailed, totSkipped, rate)
 	t.Log("")
-	t.Logf("SUMMARY: %d/%d passing (%.1f%%)", totalPassed, total, rate)
+	t.Logf("SUMMARY: %d/%d passing (%.1f%%)", totPassed, total, rate)
 
-	if totalPassed == 0 {
+	if totPassed == 0 {
 		t.Error("expected at least some passing tests")
 	}
 }
