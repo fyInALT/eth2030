@@ -2,7 +2,7 @@
 # run-feature-tests.sh — Run devnet tests for ETH2030 features one by one.
 #
 # Usage:
-#   ./run-feature-tests.sh              # Run all 33 feature tests
+#   ./run-feature-tests.sh              # Run all 35 feature tests
 #   ./run-feature-tests.sh epbs focil   # Run specific features
 #   ./run-feature-tests.sh --list       # List available features
 #
@@ -57,6 +57,8 @@ FEATURES=(
   frame-mempool
   riscv-precompile
   stark-frames
+  ep6-mixnet
+  ep6-local-tx
 )
 
 FEATURE_DESCRIPTIONS=(
@@ -93,6 +95,8 @@ FEATURE_DESCRIPTIONS=(
   "Frame Mempool — EIP-8141 Frame Transactions (dual-tier, paymaster registry, VERIFY simulation)"
   "RISC-V Precompile — I+ fork RISC-V guest routing (EL-2.3, EL-3.1, EL-3.3)"
   "STARK Frames — STARK proof sealing + import-side VerifyBlockFrameProof (PQ-5b.2/5b.3)"
+  "EP-6 Mixnet — TransportManager wiring, simulated mode default (BB-1.1)"
+  "EP-6 LocalTx — type-0x08 AllowLocalTx gate, gas discount wiring (BB-2.2)"
 )
 
 # Show usage
