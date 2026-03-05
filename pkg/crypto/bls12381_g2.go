@@ -6,7 +6,11 @@ package crypto
 // Points are represented in Jacobian coordinates (X, Y, Z) where
 // X, Y, Z are elements of F_p^2.
 
-import "math/big"
+import (
+	"math/big"
+
+	bls12381gnark "github.com/consensys/gnark-crypto/ecc/bls12-381"
+)
 
 // BlsG2Point represents a point on the BLS12-381 G2 twisted curve.
 type BlsG2Point struct {
@@ -172,7 +176,7 @@ func blsG2Neg(p *BlsG2Point) *BlsG2Point {
 	}
 }
 
-// blsG2ScalarMul computes k*P for a G2 point using double-and-add.
+// blsG2ScalarMul computes k*P for a G2 point using gnark-crypto for speed.
 func blsG2ScalarMul(p *BlsG2Point, k *big.Int) *BlsG2Point {
 	if k.Sign() == 0 || p.blsG2IsInfinity() {
 		return BlsG2Infinity()
@@ -182,19 +186,27 @@ func blsG2ScalarMul(p *BlsG2Point, k *big.Int) *BlsG2Point {
 		return BlsG2Infinity()
 	}
 
-	r := BlsG2Infinity()
-	base := &BlsG2Point{
-		x: newBlsFp2(p.x.c0, p.x.c1),
-		y: newBlsFp2(p.y.c0, p.y.c1),
-		z: newBlsFp2(p.z.c0, p.z.c1),
+	ax, ay := p.blsG2ToAffine()
+	var ga bls12381gnark.G2Affine
+	ga.X.A0.SetBigInt(ax.c0)
+	ga.X.A1.SetBigInt(ax.c1)
+	ga.Y.A0.SetBigInt(ay.c0)
+	ga.Y.A1.SetBigInt(ay.c1)
+
+	var result bls12381gnark.G2Affine
+	result.ScalarMultiplication(&ga, kMod)
+
+	if result.IsInfinity() {
+		return BlsG2Infinity()
 	}
-	for i := kMod.BitLen() - 1; i >= 0; i-- {
-		r = blsG2Double(r)
-		if kMod.Bit(i) == 1 {
-			r = blsG2Add(r, base)
-		}
-	}
-	return r
+	rxc0 := result.X.A0.BigInt(new(big.Int))
+	rxc1 := result.X.A1.BigInt(new(big.Int))
+	ryc0 := result.Y.A0.BigInt(new(big.Int))
+	ryc1 := result.Y.A1.BigInt(new(big.Int))
+	return blsG2FromAffine(
+		&blsFp2{c0: rxc0, c1: rxc1},
+		&blsFp2{c0: ryc0, c1: ryc1},
+	)
 }
 
 // blsG2InSubgroup checks if a point is in the r-torsion subgroup of G2.

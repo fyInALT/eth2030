@@ -7,7 +7,12 @@ package crypto
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
+
+	"github.com/consensys/gnark-crypto/ecc"
+	bls12381gnark "github.com/consensys/gnark-crypto/ecc/bls12-381"
+	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 )
 
 var (
@@ -211,6 +216,7 @@ func BLS12G1Mul(input []byte) ([]byte, error) {
 }
 
 // BLS12G1MSM performs G1 multi-scalar multiplication (precompile 0x0d).
+// Uses gnark-crypto MultiExp (Pippenger) for fast batched MSM.
 func BLS12G1MSM(input []byte) ([]byte, error) {
 	pairSize := blsG1EncSize + blsScalarSize
 	if len(input) == 0 || len(input)%pairSize != 0 {
@@ -218,7 +224,8 @@ func BLS12G1MSM(input []byte) ([]byte, error) {
 	}
 
 	k := len(input) / pairSize
-	r := BlsG1Infinity()
+	points := make([]bls12381gnark.G1Affine, 0, k)
+	scalars := make([]fr.Element, 0, k)
 
 	for i := 0; i < k; i++ {
 		offset := i * pairSize
@@ -226,12 +233,41 @@ func BLS12G1MSM(input []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		scalar := new(big.Int).SetBytes(input[offset+blsG1EncSize : offset+pairSize])
-		sp := blsG1ScalarMul(p, scalar)
-		r = blsG1Add(r, sp)
+		scalarBig := new(big.Int).SetBytes(input[offset+blsG1EncSize : offset+pairSize])
+
+		// Skip identity contributions.
+		if scalarBig.Sign() == 0 || p.blsG1IsInfinity() {
+			continue
+		}
+
+		ax, ay := p.blsG1ToAffine()
+		var ga bls12381gnark.G1Affine
+		ga.X.SetBigInt(ax)
+		ga.Y.SetBigInt(ay)
+
+		var s fr.Element
+		s.SetBigInt(scalarBig)
+
+		points = append(points, ga)
+		scalars = append(scalars, s)
 	}
 
-	return encodeG1(r), nil
+	if len(points) == 0 {
+		return encodeG1(BlsG1Infinity()), nil
+	}
+
+	var result bls12381gnark.G1Affine
+	if _, err := result.MultiExp(points, scalars, ecc.MultiExpConfig{}); err != nil {
+		return nil, fmt.Errorf("bls12-381: MSM failed: %w", err)
+	}
+
+	if result.IsInfinity() {
+		return encodeG1(BlsG1Infinity()), nil
+	}
+
+	rx := result.X.BigInt(new(big.Int))
+	ry := result.Y.BigInt(new(big.Int))
+	return encodeG1(blsG1FromAffine(rx, ry)), nil
 }
 
 // BLS12G2Add performs G2 point addition (precompile 0x0e).

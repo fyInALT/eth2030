@@ -258,6 +258,7 @@ func TestEFSupportedForksComplete(t *testing.T) {
 // reporting results and asserting a minimum pass rate.
 func runEFCategory(t *testing.T, category string, minPassRate float64) {
 	t.Helper()
+	t.Parallel()
 	dir := filepath.Join(efGeneralStateTests(), category)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		t.Skipf("EF tests not found: %s", dir)
@@ -655,7 +656,9 @@ func TestEF_RegressionGates(t *testing.T) {
 	}
 
 	for category, minPass := range gates {
+		category, minPass := category, minPass
 		t.Run(category, func(t *testing.T) {
+			t.Parallel()
 			dir := filepath.Join(baseDir, category)
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
 				t.Skipf("not found: %s", dir)
