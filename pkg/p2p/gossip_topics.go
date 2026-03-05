@@ -41,6 +41,9 @@ const (
 	// PQAggResult is the topic on which the aggregator publishes the finished
 	// STARKSignatureAggregation so proposers and peers can verify it (LEAN-3.4).
 	PQAggResult
+	// ProposerPreferences is the gossip topic for EIP-7732 proposer preferences
+	// messages using domain DOMAIN_PROPOSER_PREFERENCES (0x0D000000).
+	ProposerPreferences
 )
 
 // gossipTopicNames maps each GossipTopic to its canonical string name
@@ -56,6 +59,7 @@ var gossipTopicNames = map[GossipTopic]string{
 	STARKMempoolTick:          "stark_mempool_tick",
 	PQAggRequest:              "pq_agg_request",
 	PQAggResult:               "pq_agg_result",
+	ProposerPreferences:       "proposer_preferences",
 }
 
 // String returns the spec-defined name of the gossip topic.
