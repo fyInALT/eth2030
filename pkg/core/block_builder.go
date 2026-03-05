@@ -629,6 +629,8 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 	// EIP-7706: compute calldata gas fields when Glamsterdan is active.
 	glamActiveLegacy := b.config != nil && b.config.IsGlamsterdan(header.Time)
+	// GAP-2.2: per-block DimStorage gas cap tracking (same cap as BuildBlock).
+	var blockDimStorageUsedLegacy uint64
 	var calldataGasUsedLegacy uint64
 	if glamActiveLegacy {
 		var pCalldataExcess, pCalldataUsed uint64
@@ -702,6 +704,14 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 			statedb.RevertToSnapshot(snap)
 			continue
 		}
+
+		// GAP-2.2: enforce per-block DimStorage gas cap at Glamsterdam+.
+		if glamActiveLegacy && !vm.CheckDimStorageCap(blockDimStorageUsedLegacy, receipt.DimStorageGas) {
+			statedb.RevertToSnapshot(snap)
+			gasPool.AddGas(used)
+			continue
+		}
+		blockDimStorageUsedLegacy += receipt.DimStorageGas
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)
