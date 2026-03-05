@@ -100,6 +100,21 @@ type setCodeTxRLP struct {
 	S          *big.Int
 }
 
+// localTxRLP is the RLP encoding layout for LocalTx (type 0x08, BB-2.2).
+// Fields: [chainID, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, scopeHint]
+// No signature fields — LocalTx is a PoC type, sender is set explicitly via SetSender.
+type localTxRLP struct {
+	ChainID   *big.Int
+	Nonce     uint64
+	GasTipCap *big.Int
+	GasFeeCap *big.Int
+	Gas       uint64
+	To        []byte // empty for contract creation
+	Value     *big.Int
+	Data      []byte
+	ScopeHint []byte
+}
+
 type accessTupleRLP struct {
 	Address     Address
 	StorageKeys []Hash
@@ -135,9 +150,31 @@ func (tx *Transaction) EncodeRLP() ([]byte, error) {
 		return EncodeFrameTx(inner)
 	case *PQTransaction:
 		return inner.EncodePQ()
+	case *LocalTx:
+		return encodeLocalTx(inner)
 	default:
 		return nil, errUnknownTxType
 	}
+}
+
+// encodeLocalTx produces the canonical RLP encoding for a LocalTx (type 0x08).
+func encodeLocalTx(tx *LocalTx) ([]byte, error) {
+	enc := localTxRLP{
+		ChainID:   bigOrZero(tx.ChainID_),
+		Nonce:     tx.Nonce_,
+		GasTipCap: bigOrZero(tx.GasTipCap_),
+		GasFeeCap: bigOrZero(tx.GasFeeCap_),
+		Gas:       tx.Gas_,
+		To:        addressPtrToBytes(tx.To_),
+		Value:     bigOrZero(tx.Value_),
+		Data:      tx.Data_,
+		ScopeHint: tx.ScopeHint,
+	}
+	payload, err := rlp.EncodeToBytes(enc)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte{LocalTxType}, payload...), nil
 }
 
 func encodeLegacyTx(tx *LegacyTx) ([]byte, error) {
