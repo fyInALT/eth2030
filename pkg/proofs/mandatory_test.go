@@ -166,7 +166,7 @@ func TestAssignProvers_DifferentBlocks(t *testing.T) {
 	a1, _ := sys.AssignProvers(blockHash(1))
 	a2, _ := sys.AssignProvers(blockHash(2))
 
-	// With 10 provers and different block hashes, assignment order should differ.
+	// With 10 provers and different block hashes, assignment order must differ.
 	same := true
 	for i := range a1 {
 		if a1[i] != a2[i] {
@@ -175,7 +175,7 @@ func TestAssignProvers_DifferentBlocks(t *testing.T) {
 		}
 	}
 	if same {
-		t.Log("warning: assignments for different blocks are identical (statistically unlikely)")
+		t.Error("assignments for different block hashes should differ (deterministic shuffle by block hash)")
 	}
 }
 

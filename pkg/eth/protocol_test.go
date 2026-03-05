@@ -82,27 +82,11 @@ func TestAccessListEntry_Fields(t *testing.T) {
 	}
 }
 
-// TestBlockchainInterface verifies the Blockchain interface methods.
-func TestBlockchainInterface(t *testing.T) {
-	// Just verify the interface has the expected methods by checking
-	// it can be assigned. A nil value is fine for type checking.
-	var _ Blockchain = (Blockchain)(nil)
-}
-
-// TestTxPoolInterface verifies the TxPool interface methods.
-func TestTxPoolInterface(t *testing.T) {
-	var _ TxPool = (TxPool)(nil)
-}
-
-// TestReceiptProviderInterface verifies the ReceiptProvider interface.
-func TestReceiptProviderInterface(t *testing.T) {
-	var _ ReceiptProvider = (ReceiptProvider)(nil)
-}
-
-// TestAccessListProviderInterface verifies the AccessListProvider interface.
-func TestAccessListProviderInterface(t *testing.T) {
-	var _ AccessListProvider = (AccessListProvider)(nil)
-}
+// Compile-time interface satisfaction checks for mock types used in tests.
+var (
+	_ Blockchain = (*mockBlockchain)(nil)
+	_ TxPool     = (*mockTxPool)(nil)
+)
 
 // TestStatusInfo_ZeroValues tests default zero values for StatusInfo.
 func TestStatusInfo_ZeroValues(t *testing.T) {

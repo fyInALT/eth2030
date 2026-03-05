@@ -438,16 +438,43 @@ func TestHashToInt64(t *testing.T) {
 }
 
 func TestSetVerificationKey(t *testing.T) {
+	// Proof generated without VK verifies on a circuit without VK.
 	circuit := NewStateTransitionCircuit(1)
 
+	preRoot := types.HexToHash("0x1111")
+	postRoot := types.HexToHash("0x2222")
+	blockH := types.HexToHash("0x3333")
+
+	witness, err := circuit.GenerateWitness(preRoot, postRoot, []TransactionWitnessData{
+		{GasUsed: 21000, NonceIncrement: 1, BalanceChange: -1},
+	})
+	if err != nil {
+		t.Fatalf("GenerateWitness: %v", err)
+	}
+
+	proof, err := circuit.Prove(witness, blockH)
+	if err != nil {
+		t.Fatalf("Prove: %v", err)
+	}
+
+	ok, err := circuit.VerifyProof(proof)
+	if !ok || err != nil {
+		t.Fatalf("VerifyProof without VK: ok=%v err=%v", ok, err)
+	}
+
+	// After setting a VK, the same proof must be rejected because its
+	// commitment was computed without the VK fingerprint.
 	vk := &VerificationKey{
 		CircuitName: "state_transition",
 		KeyData:     []byte{0x01, 0x02, 0x03},
 		Fingerprint: ComputeVerificationKeyFingerprint([]byte{0x01, 0x02, 0x03}),
 	}
-
 	circuit.SetVerificationKey(vk)
-	// Just verify no panic; VK not used in stub verification.
+
+	ok, _ = circuit.VerifyProof(proof)
+	if ok {
+		t.Error("proof generated without VK should be rejected after VK is set")
+	}
 }
 
 func TestGenerateWitnessFewerTxs(t *testing.T) {
