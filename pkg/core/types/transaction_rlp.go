@@ -152,6 +152,8 @@ func (tx *Transaction) EncodeRLP() ([]byte, error) {
 		return inner.EncodePQ()
 	case *LocalTx:
 		return encodeLocalTx(inner)
+	case *MultiDimFeeTx:
+		return inner.EncodeRLP()
 	default:
 		return nil, errUnknownTxType
 	}
@@ -347,6 +349,8 @@ func decodeTypedTx(txType byte, payload []byte) (*Transaction, error) {
 		return decodeFrameTxWrapped(payload)
 	case PQTransactionType:
 		return decodePQFromPayload(payload)
+	case MultiDimFeeTxType:
+		return DecodeMultiDimFeeTx(payload)
 	default:
 		return nil, fmt.Errorf("unsupported transaction type: 0x%02x", txType)
 	}
