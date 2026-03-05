@@ -39,3 +39,34 @@ func ReplaceValidationFrames(
 
 	return block, proof, nil
 }
+
+// VerifyBlockFrameProof verifies the STARK proof covering all validation frames
+// in a block (the import-side counterpart to ReplaceValidationFrames).
+//
+// Returns true when:
+//   - The block has no VERIFY frame txs and proof is nil.
+//   - The block has VERIFY frame txs and prover.Verify(proof) returns true.
+//
+// Returns false when:
+//   - The block has frame txs but proof is nil.
+//   - prover.Verify returns false.
+func VerifyBlockFrameProof(
+	block *types.Block,
+	proof *proofs.STARKProofData,
+	prover proofs.ValidationFrameProver,
+) bool {
+	hasFrames := false
+	for _, tx := range block.Transactions() {
+		if tx.Type() == types.FrameTxType && len(tx.Frames()) > 0 {
+			hasFrames = true
+			break
+		}
+	}
+	if !hasFrames {
+		return proof == nil
+	}
+	if proof == nil {
+		return false
+	}
+	return prover.Verify(proof)
+}
