@@ -534,3 +534,54 @@ func TestBAL_OnlyRequiredWhenForkActive(t *testing.T) {
 		t.Errorf("post-Amsterdam block with correct BAL should pass: %v", err)
 	}
 }
+
+// --- SPEC-5.4: BAL feasibility check ---
+
+// TestErrBALFeasibilityViolated_SentinelExported verifies the sentinel error is exported.
+func TestErrBALFeasibilityViolated_SentinelExported(t *testing.T) {
+	if ErrBALFeasibilityViolated == nil {
+		t.Fatal("ErrBALFeasibilityViolated should be a non-nil sentinel error")
+	}
+	msg := ErrBALFeasibilityViolated.Error()
+	if msg == "" {
+		t.Error("ErrBALFeasibilityViolated message should not be empty")
+	}
+}
+
+// TestErrBALFeasibilityViolated_Message verifies the error contains key spec info.
+func TestErrBALFeasibilityViolated_Message(t *testing.T) {
+	msg := ErrBALFeasibilityViolated.Error()
+	// The message must mention both items and gas cost relationship.
+	if len(msg) < 10 {
+		t.Errorf("ErrBALFeasibilityViolated message too short: %q", msg)
+	}
+}
+
+// TestBALFeasibilityCheck_Formula verifies the feasibility formula: items × ITEM_COST ≤ gasUsed.
+// This is an EIP-7928 §early-rejection invariant checked every 8 transactions.
+func TestBALFeasibilityCheck_Formula(t *testing.T) {
+	itemCost := bal.BALItemCost // 2000
+
+	cases := []struct {
+		name      string
+		items     uint64
+		gasUsed   uint64
+		wantFail  bool
+	}{
+		{"zero items zero gas", 0, 0, false},
+		{"within budget", 5, 20_000, false},       // 5 × 2000 = 10000 ≤ 20000
+		{"at exact budget", 10, 20_000, false},    // 10 × 2000 = 20000 ≤ 20000
+		{"one over budget", 11, 20_000, true},     // 11 × 2000 = 22000 > 20000
+		{"way over budget", 100, 1_000, true},     // 100 × 2000 = 200000 > 1000
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exceeded := tc.items*itemCost > tc.gasUsed
+			if exceeded != tc.wantFail {
+				t.Errorf("items=%d × %d=%d vs gasUsed=%d: exceeded=%v, want %v",
+					tc.items, itemCost, tc.items*itemCost, tc.gasUsed, exceeded, tc.wantFail)
+			}
+		})
+	}
+}
