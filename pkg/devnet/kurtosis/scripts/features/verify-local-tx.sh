@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify EP-6 LocalTx (BB-2.2): type-0x08 gate, gas discount wiring, legacy unaffected.
+# Verify LocalTx (BB-2.2): type-0x08 gate, gas discount wiring, legacy unaffected.
 #
 # Tests performed:
 #   1. Chain producing blocks (node healthy)
@@ -10,7 +10,7 @@
 #   6. baseFee >= 7 wei (MinBaseFee from EIP-1559 wiring)
 #   7. Chain advances: LocalTx gate doesn't break block building
 set -euo pipefail
-ENCLAVE="${1:-eth2030-ep6-local-tx}"
+ENCLAVE="${1:-eth2030-local-tx}"
 if [ -n "${2:-}" ]; then
   RPC_URL="$2"
 else

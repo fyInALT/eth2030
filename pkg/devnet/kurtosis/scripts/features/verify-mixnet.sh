@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Verify EP-6 Mixnet Transport (BB-1.1): TransportManager wired, simulated mode
+# Verify Mixnet Transport (BB-1.1): TransportManager wired, simulated mode
 # active by default, chain healthy.
 set -euo pipefail
-ENCLAVE="${1:-eth2030-ep6-mixnet}"
+ENCLAVE="${1:-eth2030-mixnet}"
 if [ -n "${2:-}" ]; then
   RPC_URL="$2"
 else
