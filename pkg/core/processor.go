@@ -280,6 +280,12 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		}
 	}
 
+	// Sort BAL entries into strict lexicographic order by (Address, AccessIndex)
+	// per EIP-7928 §ordering before returning.
+	if blockBAL != nil {
+		blockBAL.Sort()
+	}
+
 	return &ProcessResult{
 		Receipts:        receipts,
 		BlockAccessList: blockBAL,

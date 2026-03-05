@@ -3,7 +3,9 @@
 package bal
 
 import (
+	"bytes"
 	"math/big"
+	"sort"
 
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -70,4 +72,16 @@ func (bal *BlockAccessList) AddEntry(e AccessEntry) {
 // Len returns the number of entries in the list.
 func (bal *BlockAccessList) Len() int {
 	return len(bal.Entries)
+}
+
+// Sort sorts entries in ascending lexicographic order by (Address, AccessIndex)
+// per EIP-7928 §ordering. This must be called after all entries are added.
+func (bal *BlockAccessList) Sort() {
+	sort.SliceStable(bal.Entries, func(i, j int) bool {
+		cmp := bytes.Compare(bal.Entries[i].Address[:], bal.Entries[j].Address[:])
+		if cmp != 0 {
+			return cmp < 0
+		}
+		return bal.Entries[i].AccessIndex < bal.Entries[j].AccessIndex
+	})
 }
