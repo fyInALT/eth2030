@@ -96,14 +96,20 @@ func TestInjectCustomPrecompilesIPlus(t *testing.T) {
 	rules := pragueRules()
 	precompiles := InjectCustomPrecompiles(rules, ForkLevelIPlus)
 
-	// NTT at 0x15 should be present.
-	nttAddr := gethcommon.BytesToAddress([]byte{0x15})
-	p, ok := precompiles[nttAddr]
+	// Split NTT at 0x0f should be present.
+	nttFWAddr := gethcommon.BytesToAddress([]byte{0x0f})
+	p, ok := precompiles[nttFWAddr]
 	if !ok {
-		t.Fatal("NTT precompile missing at I+ fork")
+		t.Fatal("NTT FW precompile missing at I+ fork")
 	}
-	if p.Name() != "ntt" {
-		t.Errorf("NTT name = %q, want %q", p.Name(), "ntt")
+	if p.Name() != "nttFW" {
+		t.Errorf("NTT FW name = %q, want %q", p.Name(), "nttFW")
+	}
+
+	// Legacy 0x15 should NOT be present.
+	oldNTTAddr := gethcommon.BytesToAddress([]byte{0x15})
+	if _, ok := precompiles[oldNTTAddr]; ok {
+		t.Error("legacy NTT at 0x15 should not be present")
 	}
 
 	// NII precompiles should be present.
@@ -226,10 +232,10 @@ func TestCustomPrecompileAddresses(t *testing.T) {
 		t.Errorf("Glamsterdam: got %d custom addresses, want 4", len(addrs))
 	}
 
-	// I+: 4 repriced + 1 NTT + 8 NII/field = 13.
+	// I+: 4 repriced + 6 NTT + 8 NII/field = 18.
 	addrs = CustomPrecompileAddresses(ForkLevelIPlus)
-	if len(addrs) != 13 {
-		t.Errorf("I+: got %d custom addresses, want 13", len(addrs))
+	if len(addrs) != 18 {
+		t.Errorf("I+: got %d custom addresses, want 18", len(addrs))
 	}
 }
 
@@ -240,8 +246,8 @@ func TestCustomPrecompileCount(t *testing.T) {
 	if got := CustomPrecompileCount(ForkLevelGlamsterdam); got != 4 {
 		t.Errorf("Glamsterdam: count = %d, want 4", got)
 	}
-	if got := CustomPrecompileCount(ForkLevelIPlus); got != 13 {
-		t.Errorf("I+: count = %d, want 13", got)
+	if got := CustomPrecompileCount(ForkLevelIPlus); got != 18 {
+		t.Errorf("I+: count = %d, want 18", got)
 	}
 }
 
@@ -259,8 +265,8 @@ func TestPrecompileNamesFunc(t *testing.T) {
 
 func TestListCustomPrecompiles(t *testing.T) {
 	all := ListCustomPrecompiles()
-	if len(all) != 13 {
-		t.Errorf("total custom precompiles = %d, want 13", len(all))
+	if len(all) != 18 {
+		t.Errorf("total custom precompiles = %d, want 18", len(all))
 	}
 
 	// Verify categories.
@@ -271,8 +277,8 @@ func TestListCustomPrecompiles(t *testing.T) {
 	if categories["repricing"] != 4 {
 		t.Errorf("repricing count = %d, want 4", categories["repricing"])
 	}
-	if categories["ntt"] != 1 {
-		t.Errorf("ntt count = %d, want 1", categories["ntt"])
+	if categories["ntt"] != 6 {
+		t.Errorf("ntt count = %d, want 6", categories["ntt"])
 	}
 	if categories["nii"] != 4 {
 		t.Errorf("nii count = %d, want 4", categories["nii"])

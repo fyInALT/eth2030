@@ -177,28 +177,29 @@ func TestNTTPrecompileEmptyInput(t *testing.T) {
 }
 
 func TestNTTPrecompileRegisteredIPlus(t *testing.T) {
-	addr := types.BytesToAddress([]byte{0x15})
+	// Split NTT precompiles are at 0x0f-0x14.
+	addr := types.BytesToAddress([]byte{0x0f})
 	p, ok := PrecompiledContractsIPlus[addr]
 	if !ok {
-		t.Fatal("NTT precompile not found at address 0x15 in I+ fork")
+		t.Fatal("NTT FW precompile not found at address 0x0f in I+ fork")
 	}
 	if p == nil {
-		t.Fatal("NTT precompile is nil")
+		t.Fatal("NTT FW precompile is nil")
 	}
 }
 
 func TestNTTPrecompileViaRunPrecompiled(t *testing.T) {
-	// Test through the registry for I+ fork.
-	addr := types.BytesToAddress([]byte{0x15})
+	// Test through the registry for I+ fork (split FW precompile at 0x0f).
+	addr := types.BytesToAddress([]byte{0x0f})
 	p, ok := PrecompiledContractsIPlus[addr]
 	if !ok {
-		t.Skip("NTT precompile not in I+ fork")
+		t.Skip("NTT FW precompile not in I+ fork")
 	}
 
 	// Forward NTT on [1, 0, 0, 0] should give [1, 1, 1, 1].
-	input := make([]byte, 1+4*32)
-	input[0] = 0x00
-	input[32] = 1 // coefficients[0] = 1 (big-endian, so last byte of first 32-byte chunk)
+	// Split precompiles have no opType byte prefix.
+	input := make([]byte, 4*32)
+	input[31] = 1 // coefficients[0] = 1 (big-endian, last byte of first 32-byte chunk)
 
 	gas := p.RequiredGas(input)
 	out, err := p.Run(input)
