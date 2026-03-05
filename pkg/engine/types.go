@@ -155,11 +155,14 @@ type GetPayloadV6Response struct {
 
 // PayloadStatus values.
 const (
-	StatusValid            = "VALID"
-	StatusInvalid          = "INVALID"
-	StatusSyncing          = "SYNCING"
-	StatusAccepted         = "ACCEPTED"
-	StatusInvalidBlockHash = "INVALID_BLOCK_HASH"
+	StatusValid                    = "VALID"
+	StatusInvalid                  = "INVALID"
+	StatusSyncing                  = "SYNCING"
+	StatusAccepted                 = "ACCEPTED"
+	StatusInvalidBlockHash         = "INVALID_BLOCK_HASH"
+	// StatusInclusionListUnsatisfied is returned when a valid IL tx is absent
+	// from the block with sufficient remaining gas (EIP-7805 §engine-api).
+	StatusInclusionListUnsatisfied = "INCLUSION_LIST_UNSATISFIED"
 )
 
 // PayloadStatusV1 is the response to engine_newPayload.
