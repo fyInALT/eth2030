@@ -447,12 +447,24 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		header.BlobGasUsed = &blobGasUsed
 	}
 
-	// EIP-7706: compute and set calldata gas used in header.
+	// EIP-7706: compute and set calldata gas used in header (scalar + 3D vector).
 	if glamActive {
 		for _, tx := range txs {
 			calldataGasUsed += tx.CalldataGas()
 		}
 		header.CalldataGasUsed = &calldataGasUsed
+		// Populate the 3D gas vector for calldata dimension (dim index 2).
+		calldataGasLimit := CalcCalldataGasLimit(header.GasLimit)
+		calldataExcessGas := uint64(0)
+		if header.CalldataExcessGas != nil {
+			calldataExcessGas = *header.CalldataExcessGas
+		}
+		gasLimits := [3]uint64{header.GasLimit, 0, calldataGasLimit}
+		gasUsed3D := [3]uint64{header.GasUsed, 0, calldataGasUsed}
+		excessGas := [3]uint64{0, 0, calldataExcessGas}
+		header.GasLimitVec = &gasLimits
+		header.GasUsedVec = &gasUsed3D
+		header.ExcessGasVec = &excessGas
 	}
 
 	// Compute block-level bloom filter from all receipts.
@@ -519,7 +531,9 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	}
 
 	// Set Block Access List hash (EIP-7928) when Amsterdam is active.
+	// Sort entries into lexicographic order before hashing (EIP-7928 §ordering).
 	if balActive && blockBAL != nil {
+		blockBAL.Sort()
 		h := blockBAL.Hash()
 		header.BlockAccessListHash = &h
 	}
@@ -770,7 +784,9 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 	header.Root = statedb.GetRoot()
 
 	// Set Block Access List hash (EIP-7928) when Amsterdam is active.
+	// Sort entries into lexicographic order before hashing (EIP-7928 §ordering).
 	if balActive && blockBAL != nil {
+		blockBAL.Sort()
 		h := blockBAL.Hash()
 		header.BlockAccessListHash = &h
 	}

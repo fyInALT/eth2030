@@ -400,6 +400,19 @@ func (s *Stream) decodeInto(v reflect.Value) error {
 		return nil
 	}
 	if v.Kind() == reflect.Ptr {
+		elemType := v.Type().Elem()
+		elemKind := elemType.Kind()
+		// Pointer to a type that decodes as an RLP list (non-byte array or
+		// non-big.Int struct) will fail if the encoded value is 0x80 (nil
+		// pointer sentinel). Detect this and leave the pointer nil.
+		isList := (elemKind == reflect.Array && elemType.Elem().Kind() != reflect.Uint8) ||
+			(elemKind == reflect.Struct && elemType != reflect.TypeOf(big.Int{}))
+		if isList {
+			if kind, size, err := s.Kind(); err == nil && kind == String && size == 0 {
+				s.pos++ // consume the 0x80 nil marker
+				return nil
+			}
+		}
 		if v.IsNil() {
 			v.Set(reflect.New(v.Type().Elem()))
 		}

@@ -106,51 +106,7 @@ func StorageIndex(storageKey []byte) (*big.Int, byte) {
 	return &key, suffix
 }
 
-// PUSH opcodes for code chunking
-const (
-	push1  = byte(0x60)
-	push32 = byte(0x7f)
-)
-
-// ChunkedCode is a sequence of HashSize-byte chunks of code.
-type ChunkedCode []byte
-
-// ChunkifyCode generates the chunked version of EVM bytecode per EIP-7864.
-func ChunkifyCode(code []byte) ChunkedCode {
-	var (
-		chunkOffset = 0
-		chunkCount  = len(code) / StemSize
-		codeOffset  = 0
-	)
-	if len(code)%StemSize != 0 {
-		chunkCount++
-	}
-	chunks := make([]byte, chunkCount*HashSize)
-	for i := 0; i < chunkCount; i++ {
-		end := min(len(code), StemSize*(i+1))
-		copy(chunks[i*HashSize+1:], code[StemSize*i:end])
-
-		if chunkOffset > StemSize {
-			chunks[i*HashSize] = StemSize
-			chunkOffset = 1
-			continue
-		}
-		chunks[HashSize*i] = byte(chunkOffset)
-		chunkOffset = 0
-
-		for ; codeOffset < end; codeOffset++ {
-			if code[codeOffset] >= push1 && code[codeOffset] <= push32 {
-				codeOffset += int(code[codeOffset] - push1 + 1)
-				if codeOffset+1 >= StemSize*(i+1) {
-					codeOffset++
-					chunkOffset = codeOffset - StemSize*(i+1)
-					break
-				}
-			}
-		}
-	}
-	return chunks
-}
+// ChunkifyCode is defined in code_chunker.go and returns [][32]byte per EIP-7864.
 
 // NewBinaryNode creates a new empty binary trie root node.
 func NewBinaryNode() BinaryNode {
@@ -347,23 +303,25 @@ func (t *BinaryTrie) DeleteStorage(addr types.Address, key []byte) error {
 
 // UpdateContractCode updates the contract code into the trie.
 func (t *BinaryTrie) UpdateContractCode(addr types.Address, code []byte) error {
+	chunks := ChunkifyCode(code)
 	var (
-		chunks = ChunkifyCode(code)
 		values [][]byte
 		key    []byte
 		err    error
 	)
-	for i, chunknr := 0, uint64(0); i < len(chunks); i, chunknr = i+HashSize, chunknr+1 {
-		groupOffset := (chunknr + 128) % StemNodeWidth
-		if groupOffset == 0 || chunknr == 0 {
+	for chunknr, chunk := range chunks {
+		chunkNr := uint64(chunknr)
+		groupOffset := (chunkNr + 128) % StemNodeWidth
+		if groupOffset == 0 || chunkNr == 0 {
 			values = make([][]byte, StemNodeWidth)
 			var offset [HashSize]byte
-			binary.LittleEndian.PutUint64(offset[24:], chunknr+128)
+			binary.LittleEndian.PutUint64(offset[24:], chunkNr+128)
 			key = GetBinaryTreeKey(addr, offset[:])
 		}
-		values[groupOffset] = chunks[i : i+HashSize]
+		c := chunk // copy to avoid loop variable aliasing
+		values[groupOffset] = c[:]
 
-		if groupOffset == StemNodeWidth-1 || len(chunks)-i <= HashSize {
+		if groupOffset == StemNodeWidth-1 || chunknr == len(chunks)-1 {
 			err = t.UpdateStem(key[:StemSize], values)
 			if err != nil {
 				return fmt.Errorf("UpdateContractCode (addr=%x) error: %w", addr[:], err)

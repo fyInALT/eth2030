@@ -59,6 +59,11 @@ FEATURES=(
   stark-frames
   mixnet
   local-tx
+  il-satisfaction
+  bal-feasibility
+  bal-retention
+  multidim-fee-tx
+  gas-vectors-3d
 )
 
 FEATURE_DESCRIPTIONS=(
@@ -97,6 +102,11 @@ FEATURE_DESCRIPTIONS=(
   "STARK Frames — STARK proof sealing + import-side VerifyBlockFrameProof (PQ-5b.2/5b.3)"
   "Mixnet Transport — TransportManager wiring, simulated mode default (BB-1.1)"
   "LocalTx Gate — type-0x08 AllowLocalTx gate, gas discount wiring (BB-2.2)"
+  "IL Satisfaction — engine_newPayload IL check wiring (SPEC-4.3 / EIP-7805)"
+  "BAL Feasibility — block builder feasibility check every 8 txs (SPEC-5.4 / EIP-7928)"
+  "BAL Retention — IsBALRetained retention window 113056 slots (SPEC-5.5 / EIP-7928)"
+  "MultiDimFeeTx — type 0x09 fee vector registration (SPEC-6.1 / EIP-7706)"
+  "3D Gas Vectors — GasLimitVec/GasUsedVec/ExcessGasVec + copyHeader fix (SPEC-6.4 / EIP-7706)"
 )
 
 # Show usage

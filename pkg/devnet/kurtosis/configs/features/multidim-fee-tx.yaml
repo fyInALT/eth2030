@@ -1,0 +1,33 @@
+# MultiDimFeeTx — type 0x09 transaction type registration (SPEC-6.1 / EIP-7706)
+# Tests: transaction type 0x09 (MaxFeesPerGas[3], PriorityFeesPerGas[3]) is
+#        registered in the EL node's transaction type decoder.
+# Verify: sending a raw 0x09 tx returns an RLP/decode error (not "unknown tx type"),
+#         type 0x02 and 0x08 are unaffected.
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - spamoor
+  - assertoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "MultiDimFeeTx Base Load"
+      config:
+        throughput: 30
+        max_pending: 60
+        max_wallets: 30
+
+assertoor_params:
+  run_stability_check: true

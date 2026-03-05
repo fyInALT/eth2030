@@ -12,6 +12,7 @@ import (
 	"github.com/eth2030/eth2030/core"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/focil"
 )
 
 // pendingPayload holds a payload being built by the block builder.
@@ -35,6 +36,8 @@ type EngineBackend struct {
 	statedb       *state.MemoryStateDB
 	processor     *core.StateProcessor
 	blocks        map[types.Hash]*types.Block
+	bals          map[types.Hash]*bal.BlockAccessList // stored BALs for getPayloadBodiesV2
+	ils           []*types.InclusionList              // received via engine_newInclusionListV1
 	headHash      types.Hash
 	safeHash      types.Hash
 	finalHash     types.Hash
@@ -49,6 +52,7 @@ func NewEngineBackend(config *core.ChainConfig, statedb *state.MemoryStateDB, ge
 		statedb:   statedb,
 		processor: core.NewStateProcessor(config),
 		blocks:    make(map[types.Hash]*types.Block),
+		bals:      make(map[types.Hash]*bal.BlockAccessList),
 		payloads:  make(map[PayloadID]*pendingPayload),
 	}
 	if genesis != nil {
@@ -294,6 +298,45 @@ func payloadToBlock(payload *ExecutionPayloadV3) (*types.Block, error) {
 	return block, nil
 }
 
+// restoreCalldataGasFields recomputes CalldataGasUsed and CalldataExcessGas
+// for a block received via the engine API. These fields are part of the
+// EIP-7706 header but are not transmitted in ExecutionPayloadV5. By deriving
+// them from block transactions and parent state we restore the original block
+// hash so the parent chain tracks calldata excess gas correctly (SPEC-6.4).
+// If the recomputed block hash matches payloadBlockHash the augmented block is
+// returned; otherwise the original block is returned unchanged.
+func restoreCalldataGasFields(block *types.Block, parent *types.Block, payloadBlockHash types.Hash) *types.Block {
+	// Sum calldata gas across all transactions.
+	calldataGasUsed := uint64(0)
+	for _, tx := range block.Transactions() {
+		calldataGasUsed += tx.CalldataGas()
+	}
+	// Derive excess gas from parent state (defaults to 0 if parent lacks fields).
+	parentExcess, parentUsed := uint64(0), uint64(0)
+	if parent != nil {
+		if parent.Header().CalldataExcessGas != nil {
+			parentExcess = *parent.Header().CalldataExcessGas
+		}
+		if parent.Header().CalldataGasUsed != nil {
+			parentUsed = *parent.Header().CalldataGasUsed
+		}
+	}
+	calldataExcessGas := core.CalcCalldataExcessGas(parentExcess, parentUsed, block.Header().GasLimit)
+
+	// Rebuild the block with the calldata gas fields injected into the header.
+	hdr := block.Header()
+	hdr.CalldataGasUsed = &calldataGasUsed
+	hdr.CalldataExcessGas = &calldataExcessGas
+	augmented := types.NewBlock(hdr, block.Body())
+
+	// Only use the augmented block if its hash matches what the builder produced.
+	// This protects against incorrect recomputation.
+	if payloadBlockHash == (types.Hash{}) || augmented.Hash() == payloadBlockHash {
+		return augmented
+	}
+	return block
+}
+
 // blockToPayload converts a types.Block to an ExecutionPayloadV4.
 func blockToPayload(block *types.Block, prevRandao types.Hash, withdrawals []*Withdrawal) *ExecutionPayloadV4 {
 	header := block.Header()
@@ -378,6 +421,14 @@ func (b *EngineBackend) ProcessBlockV5(
 		return PayloadStatusV1{Status: StatusSyncing}, nil
 	}
 
+	// SPEC-6.4: restore CalldataGasUsed/CalldataExcessGas stripped by the
+	// engine API wire format. These fields are part of the header hash
+	// (EIP-7706) but not included in ExecutionPayloadV5. We recompute them
+	// from the block's transactions and the parent's calldata gas state.
+	if b.config != nil && b.config.IsGlamsterdan(block.Header().Time) {
+		block = restoreCalldataGasFields(block, b.blocks[parentHash], payload.BlockHash)
+	}
+
 	// Run through the state processor with BAL computation.
 	stateCopy := b.statedb.Copy()
 	result, err := b.processor.ProcessWithBAL(block, stateCopy)
@@ -416,9 +467,26 @@ func (b *EngineBackend) ProcessBlockV5(
 		}
 	}
 
+	// EIP-7805: check IL satisfaction against block and stored ILs.
+	if len(b.ils) > 0 {
+		ils := b.ilsAsFocil()
+		gasRemaining := block.GasLimit() - block.GasUsed()
+		if result := focilCheckILSatisfaction(block, ils, gasRemaining); !result {
+			errMsg := focil.InclusionListUnsatisfied
+			return PayloadStatusV1{
+				Status:          StatusInclusionListUnsatisfied,
+				ValidationError: &errMsg,
+			}, nil
+		}
+	}
+
 	// Store the block and update state.
 	blockHash := block.Hash()
 	b.blocks[blockHash] = block
+	// Store BAL for engine_getPayloadBodiesByHashV2.
+	if result.BlockAccessList != nil {
+		b.bals[blockHash] = result.BlockAccessList
+	}
 	b.statedb = stateCopy
 
 	return PayloadStatusV1{
@@ -568,6 +636,44 @@ func (b *EngineBackend) IsPrague(timestamp uint64) bool {
 // IsAmsterdam returns true if the given timestamp falls within the Amsterdam fork.
 func (b *EngineBackend) IsAmsterdam(timestamp uint64) bool {
 	return b.config.IsAmsterdam(timestamp)
+}
+
+// ProcessInclusionList validates and stores a new inclusion list from the CL.
+// Implements InclusionListBackend.
+func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ils = append(b.ils, il)
+	return nil
+}
+
+// GetInclusionList generates an inclusion list from the mempool (stub: returns empty IL).
+// Implements InclusionListBackend.
+func (b *EngineBackend) GetInclusionList() *types.InclusionList {
+	return &types.InclusionList{Transactions: [][]byte{}}
+}
+
+// ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.
+func (b *EngineBackend) ilsAsFocil() []*focil.InclusionList {
+	result := make([]*focil.InclusionList, len(b.ils))
+	for i, il := range b.ils {
+		entries := make([]focil.InclusionListEntry, len(il.Transactions))
+		for j, tx := range il.Transactions {
+			entries[j] = focil.InclusionListEntry{Transaction: tx, Index: uint64(j)}
+		}
+		result[i] = &focil.InclusionList{
+			Slot:          il.Slot,
+			ProposerIndex: il.ValidatorIndex,
+			CommitteeRoot: il.CommitteeRoot,
+			Entries:       entries,
+		}
+	}
+	return result
+}
+
+// focilCheckILSatisfaction wraps focil.CheckILSatisfaction for use in engine_newPayload.
+func focilCheckILSatisfaction(block *types.Block, ils []*focil.InclusionList, gasRemaining uint64) bool {
+	return focil.CheckILSatisfaction(block, ils, nil, gasRemaining) == focil.ILSatisfied
 }
 
 // Verify interface compliance at compile time.

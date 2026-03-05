@@ -50,6 +50,9 @@ var (
 	ErrIntrinsicGasTooLow  = errors.New("intrinsic gas too low")
 	ErrContractCreation    = errors.New("contract creation failed")
 	ErrContractCall        = errors.New("contract call failed")
+	// ErrBALFeasibilityViolated is returned when a block generates too many BAL
+	// items relative to gas consumed (EIP-7928 §early-rejection, every 8 txs).
+	ErrBALFeasibilityViolated = errors.New("BAL feasibility check failed: items × ITEM_COST > gasUsed")
 )
 
 // StateProcessor processes blocks by applying transactions sequentially.
@@ -230,6 +233,17 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 			for _, entry := range txBAL.Entries {
 				blockBAL.AddEntry(entry)
 			}
+
+			// EIP-7928 §early-rejection: every 8 txs verify that BAL items
+			// generated so far do not exceed gas consumed / ITEM_COST.
+			// This catches adversarial blocks that produce dense BAL cheaply.
+			if (i+1)%8 == 0 && cumulativeGasUsed > 0 {
+				if uint64(blockBAL.Len())*bal.BALItemCost > cumulativeGasUsed {
+					return nil, fmt.Errorf("%w: items=%d × 2000=%d > gasUsed=%d (after tx %d)",
+						ErrBALFeasibilityViolated, blockBAL.Len(),
+						uint64(blockBAL.Len())*bal.BALItemCost, cumulativeGasUsed, i)
+				}
+			}
 		}
 	}
 
@@ -278,6 +292,12 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		} else {
 			ProcessWithdrawals(statedb, block.Withdrawals())
 		}
+	}
+
+	// Sort BAL entries into strict lexicographic order by (Address, AccessIndex)
+	// per EIP-7928 §ordering before returning.
+	if blockBAL != nil {
+		blockBAL.Sort()
 	}
 
 	return &ProcessResult{

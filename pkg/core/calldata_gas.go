@@ -78,6 +78,12 @@ func CalcCalldataBaseFeeFromHeader(parent *types.Header) *big.Int {
 	return CalcCalldataBaseFee(*parent.CalldataExcessGas, calldataGasLimit)
 }
 
+// GetCalldataGas returns the EIP-7706 calldata gas for a transaction.
+// This is the spec-named accessor delegating to tx.CalldataGas().
+func GetCalldataGas(tx *types.Transaction) uint64 {
+	return tx.CalldataGas()
+}
+
 // GetCalldataFees computes calldata gas fees for a transaction.
 // Returns (calldataGas, calldataBaseFee) where:
 //   - calldataGas: the calldata gas consumed by this transaction

@@ -237,5 +237,17 @@ func copyHeader(h *Header) *Header {
 		ceg := *h.CalldataExcessGas
 		cpy.CalldataExcessGas = &ceg
 	}
+	if h.GasLimitVec != nil {
+		v := *h.GasLimitVec
+		cpy.GasLimitVec = &v
+	}
+	if h.GasUsedVec != nil {
+		v := *h.GasUsedVec
+		cpy.GasUsedVec = &v
+	}
+	if h.ExcessGasVec != nil {
+		v := *h.ExcessGasVec
+		cpy.ExcessGasVec = &v
+	}
 	return &cpy
 }

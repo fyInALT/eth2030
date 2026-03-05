@@ -1,0 +1,32 @@
+# BAL Feasibility — block builder feasibility check every 8 txs (SPEC-5.4 / EIP-7928)
+# Tests: BAL items × BALItemCost(2000) ≤ cumulativeGasUsed enforced per 8 txs.
+#        Blocks with many transactions are accepted without ErrBALFeasibilityViolated.
+# Verify: high-tx blocks (txCount >= 8) are accepted, gasUsed is non-zero.
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - spamoor
+  - assertoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "BAL Feasibility High Load"
+      config:
+        throughput: 100
+        max_pending: 200
+        max_wallets: 100
+
+assertoor_params:
+  run_stability_check: true
