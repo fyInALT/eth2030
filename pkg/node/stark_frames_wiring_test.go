@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-// TestEP3ConfigDefaults verifies EP-3 config defaults are correct.
-func TestEP3ConfigDefaults(t *testing.T) {
+// TestStarkFrames_ConfigDefaults verifies STARK frames and lean chain config defaults.
+func TestStarkFrames_ConfigDefaults(t *testing.T) {
 	cfg := makeTestConfig(t)
 
 	if cfg.LeanAvailableChainValidators != 512 {
@@ -19,8 +19,8 @@ func TestEP3ConfigDefaults(t *testing.T) {
 	}
 }
 
-// TestEP3NodeTopicManagerWired verifies that topicMgr is initialized.
-func TestEP3NodeTopicManagerWired(t *testing.T) {
+// TestStarkFrames_TopicManagerWired verifies that topicMgr is initialized after New().
+func TestStarkFrames_TopicManagerWired(t *testing.T) {
 	cfg := makeTestConfig(t)
 	n := newTestNode(t, &cfg)
 
@@ -29,8 +29,8 @@ func TestEP3NodeTopicManagerWired(t *testing.T) {
 	}
 }
 
-// TestEP3NodeSTARKAggWired verifies that starkAgg is initialized.
-func TestEP3NodeSTARKAggWired(t *testing.T) {
+// TestStarkFrames_STARKAggWired verifies that starkAgg is initialized after New().
+func TestStarkFrames_STARKAggWired(t *testing.T) {
 	cfg := makeTestConfig(t)
 	n := newTestNode(t, &cfg)
 
@@ -39,8 +39,8 @@ func TestEP3NodeSTARKAggWired(t *testing.T) {
 	}
 }
 
-// TestEP3NodeProverNilByDefault verifies prover is nil when StarkValidationFrames=false.
-func TestEP3NodeProverNilByDefault(t *testing.T) {
+// TestStarkFrames_ProverNilByDefault verifies prover is nil when StarkValidationFrames=false.
+func TestStarkFrames_ProverNilByDefault(t *testing.T) {
 	cfg := makeTestConfig(t)
 	cfg.StarkValidationFrames = false
 	n := newTestNode(t, &cfg)
@@ -50,8 +50,8 @@ func TestEP3NodeProverNilByDefault(t *testing.T) {
 	}
 }
 
-// TestEP3NodeProverCreatedWhenEnabled verifies prover is created when StarkValidationFrames=true.
-func TestEP3NodeProverCreatedWhenEnabled(t *testing.T) {
+// TestStarkFrames_ProverCreatedWhenEnabled verifies prover is created when StarkValidationFrames=true.
+func TestStarkFrames_ProverCreatedWhenEnabled(t *testing.T) {
 	cfg := makeTestConfig(t)
 	cfg.StarkValidationFrames = true
 	n := newTestNode(t, &cfg)
@@ -61,8 +61,8 @@ func TestEP3NodeProverCreatedWhenEnabled(t *testing.T) {
 	}
 }
 
-// TestEP3NodeAggregatorStartStop verifies aggregator lifecycle through node Start/Stop.
-func TestEP3NodeAggregatorStartStop(t *testing.T) {
+// TestStarkFrames_AggregatorStartStop verifies aggregator lifecycle through node Start/Stop.
+func TestStarkFrames_AggregatorStartStop(t *testing.T) {
 	cfg := makeTestConfig(t)
 	n, err := New(&cfg)
 	if err != nil {
@@ -90,8 +90,8 @@ func TestEP3NodeAggregatorStartStop(t *testing.T) {
 	}
 }
 
-// TestEP3NodeLifecycleWithStarkFrames is an e2e test with StarkValidationFrames enabled.
-func TestEP3NodeLifecycleWithStarkFrames(t *testing.T) {
+// TestStarkFrames_NodeLifecycle is an e2e test verifying the full lifecycle with StarkValidationFrames=true.
+func TestStarkFrames_NodeLifecycle(t *testing.T) {
 	cfg := makeTestConfig(t)
 	cfg.StarkValidationFrames = true
 
@@ -120,8 +120,8 @@ func TestEP3NodeLifecycleWithStarkFrames(t *testing.T) {
 	}
 }
 
-// TestEP3ConfigLeanValidators_ValidRange verifies valid lean validator count passes validation.
-func TestEP3ConfigLeanValidators_ValidRange(t *testing.T) {
+// TestLeanChain_ValidatorRange_Valid verifies a valid lean validator count passes config validation.
+func TestLeanChain_ValidatorRange_Valid(t *testing.T) {
 	cfg := makeTestConfig(t)
 	cfg.LeanAvailableChainMode = true
 	cfg.LeanAvailableChainValidators = 512
@@ -131,8 +131,8 @@ func TestEP3ConfigLeanValidators_ValidRange(t *testing.T) {
 	}
 }
 
-// TestEP3ConfigLeanValidators_TooSmall verifies lean validator count below 256 fails validation.
-func TestEP3ConfigLeanValidators_TooSmall(t *testing.T) {
+// TestLeanChain_ValidatorRange_TooSmall verifies lean validator count below 256 fails validation.
+func TestLeanChain_ValidatorRange_TooSmall(t *testing.T) {
 	cfg := makeTestConfig(t)
 	cfg.LeanAvailableChainMode = true
 	cfg.LeanAvailableChainValidators = 100
@@ -142,8 +142,8 @@ func TestEP3ConfigLeanValidators_TooSmall(t *testing.T) {
 	}
 }
 
-// TestEP3ConfigLeanValidators_TooBig verifies lean validator count above 1024 fails validation.
-func TestEP3ConfigLeanValidators_TooBig(t *testing.T) {
+// TestLeanChain_ValidatorRange_TooLarge verifies lean validator count above 1024 fails validation.
+func TestLeanChain_ValidatorRange_TooLarge(t *testing.T) {
 	cfg := makeTestConfig(t)
 	cfg.LeanAvailableChainMode = true
 	cfg.LeanAvailableChainValidators = 2000

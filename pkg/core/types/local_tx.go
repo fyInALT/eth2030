@@ -1,8 +1,18 @@
 package types
 
 import (
+	"errors"
+	"fmt"
 	"math/big"
 )
+
+// LocalTxDiscountBPS is the default gas discount for fully-declared BAL local
+// transactions, expressed in basis points (5000 = 50%).
+// Configurable per-node via the proof-of-concept flag --experimental-local-tx.
+const LocalTxDiscountBPS uint64 = 5000
+
+// ErrBALViolation is returned when a LocalTx accesses state outside its declared ScopeHint.
+var ErrBALViolation = errors.New("local_tx: state access outside declared scope")
 
 // LocalTxType is the transaction type for local (scope-hinted) transactions.
 const LocalTxType = 0x08
@@ -121,4 +131,62 @@ func GetScopeHint(tx *Transaction) []byte {
 		return local.ScopeHint
 	}
 	return nil
+}
+
+// GasWithDiscount returns the effective gas limit after applying discountBPS
+// (basis points, e.g. 5000 = 50%). A discount of 0 returns the original gas;
+// a discount >= 10000 (100%) returns 0.
+func (tx *LocalTx) GasWithDiscount(discountBPS uint64) uint64 {
+	if discountBPS == 0 {
+		return tx.Gas_
+	}
+	if discountBPS >= 10000 {
+		return 0
+	}
+	return tx.Gas_ * (10000 - discountBPS) / 10000
+}
+
+// ApplyLocalTxDiscount returns the discounted gas limit for a LocalTx using
+// LocalTxDiscountBPS. For non-LocalTx transactions the original gas is returned.
+func ApplyLocalTxDiscount(tx *Transaction) uint64 {
+	if local, ok := tx.inner.(*LocalTx); ok {
+		return local.GasWithDiscount(LocalTxDiscountBPS)
+	}
+	return tx.Gas()
+}
+
+// ValidateScopeAccess checks that every accessed address falls within the
+// declared ScopeHint prefixes. An empty or nil ScopeHint means global access
+// (no validation performed). Returns ErrBALViolation on mismatch.
+//
+// This is a proof-of-concept enforcement for --experimental-local-tx; full
+// BAL enforcement belongs at the EVM execution layer.
+func (tx *LocalTx) ValidateScopeAccess(accessedAddresses []Address) error {
+	if len(tx.ScopeHint) == 0 {
+		return nil // global scope — no restriction
+	}
+	prefixSet := make(map[byte]struct{}, len(tx.ScopeHint))
+	for _, p := range tx.ScopeHint {
+		prefixSet[p] = struct{}{}
+	}
+	for _, addr := range accessedAddresses {
+		if _, ok := prefixSet[addr[0]]; !ok {
+			return fmt.Errorf("%w: address prefix 0x%02x not in declared scope %x",
+				ErrBALViolation, addr[0], tx.ScopeHint)
+		}
+	}
+	return nil
+}
+
+// ValidateLocalTxScopeAccess is a package-level helper that calls ValidateScopeAccess
+// on a Transaction if it is a LocalTx. Non-LocalTx transactions always pass.
+func ValidateLocalTxScopeAccess(tx *Transaction, accessedAddresses []Address) error {
+	if tx == nil {
+		return nil
+	}
+	local, ok := tx.inner.(*LocalTx)
+	if !ok {
+		return nil
+	}
+	return local.ValidateScopeAccess(accessedAddresses)
 }

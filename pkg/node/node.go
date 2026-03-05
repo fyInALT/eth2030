@@ -46,6 +46,9 @@ type Node struct {
 	metricsServer *http.Server
 	wsServer      *http.Server
 
+	// EP-6 BB-1.x: anonymous transaction transport manager.
+	transportMgr *p2p.TransportManager
+
 	// EP-3: STARK mempool P2P subsystem.
 	topicMgr         *p2p.TopicManager
 	starkAgg         *txpool.STARKAggregator
@@ -133,6 +136,8 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize transaction pool.
 	poolCfg := txpool.DefaultConfig()
+	// BB-2.2: propagate experimental LocalTx flag into pool config.
+	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
 	n.txPool = txpool.New(poolCfg, bc.State())
 
 	// Initialize EP-3 STARK mempool gossip subsystem.
@@ -191,6 +196,46 @@ func New(config *Config) (*Node, error) {
 		NAT:            config.NAT,
 	})
 
+	// EP-6 BB-1.1/1.2/1.3: initialize anonymous transport manager.
+	// Parse --mixnet mode; default to simulated when unset.
+	tmCfg := p2p.DefaultTransportConfig()
+	if mode, err := p2p.ParseMixnetMode(config.MixnetMode); err == nil {
+		tmCfg.Mode = mode
+	}
+	// Use the node's own RPC endpoint for transaction forwarding via external transports.
+	tmCfg.RPCEndpoint = fmt.Sprintf("http://%s", config.RPCAddr())
+	n.transportMgr = p2p.NewTransportManagerWithConfig(tmCfg)
+
+	// Select the best available transport and register it.
+	// When user requested a specific mode, honour it directly without probing.
+	// When mode is simulated (default), probe Tor then Nym before falling back.
+	var selectedTransport p2p.AnonymousTransport
+	switch tmCfg.Mode {
+	case p2p.ModeTorSocks5:
+		selectedTransport = p2p.NewTorTransport(&p2p.TorConfig{
+			ProxyAddr:   tmCfg.TorProxyAddr,
+			RPCEndpoint: tmCfg.RPCEndpoint,
+			DialTimeout: tmCfg.DialTimeout,
+			MaxPending:  256,
+		})
+		slog.Info("anonymous transport: tor", "proxy", tmCfg.TorProxyAddr)
+	case p2p.ModeNymSocks5:
+		selectedTransport = p2p.NewNymTransport(&p2p.NymConfig{
+			ProxyAddr:   tmCfg.NymProxyAddr,
+			RPCEndpoint: tmCfg.RPCEndpoint,
+			DialTimeout: tmCfg.DialTimeout,
+			MaxPending:  256,
+		})
+		slog.Info("anonymous transport: nym", "proxy", tmCfg.NymProxyAddr)
+	default:
+		// Auto-probe: Tor → Nym → simulated.
+		n.transportMgr.SelectBestTransport()
+		selectedTransport = p2p.NewMixnetTransport(nil)
+	}
+	if err := n.transportMgr.RegisterTransport(selectedTransport); err != nil {
+		slog.Warn("transport register failed", "err", err)
+	}
+
 	// Initialize RPC server with blockchain backend.
 	backend := newNodeBackend(n)
 	adminBackend := newNodeAdminBackend(n)
@@ -238,6 +283,11 @@ func (n *Node) Start() error {
 	// Start STARK mempool aggregator.
 	if err := n.starkAgg.Start(); err != nil {
 		return fmt.Errorf("start stark aggregator: %w", err)
+	}
+
+	// EP-6 BB-1.x: start all registered anonymous transports.
+	for _, err := range n.transportMgr.StartAll() {
+		slog.Warn("anonymous transport start error", "err", err)
 	}
 
 	// Start P2P server.
@@ -327,6 +377,11 @@ func (n *Node) Stop() error {
 
 	// Stop STARK mempool aggregator.
 	n.starkAgg.Stop()
+
+	// EP-6 BB-1.x: stop all anonymous transports.
+	for _, err := range n.transportMgr.StopAll() {
+		slog.Warn("anonymous transport stop error", "err", err)
+	}
 
 	// Stop Engine API.
 	if err := n.engineServer.Stop(); err != nil {

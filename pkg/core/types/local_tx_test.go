@@ -243,3 +243,135 @@ func TestGetScopeHint(t *testing.T) {
 		t.Fatal("expected nil scope hint for nil tx")
 	}
 }
+
+// --- BB-2.2: Gas discount ---
+
+func TestLocalTx_GasWithDiscount_50Percent(t *testing.T) {
+	ltx := &LocalTx{Gas_: 21000}
+	got := ltx.GasWithDiscount(LocalTxDiscountBPS)
+	want := uint64(10500)
+	if got != want {
+		t.Fatalf("50%% discount: got %d, want %d", got, want)
+	}
+}
+
+func TestLocalTx_GasWithDiscount_Zero(t *testing.T) {
+	ltx := &LocalTx{Gas_: 21000}
+	got := ltx.GasWithDiscount(0)
+	if got != 21000 {
+		t.Fatalf("zero discount: got %d, want 21000", got)
+	}
+}
+
+func TestLocalTx_GasWithDiscount_Full(t *testing.T) {
+	ltx := &LocalTx{Gas_: 21000}
+	// 10000 bps = 100%, discount >= 10000 returns 0.
+	got := ltx.GasWithDiscount(10000)
+	if got != 0 {
+		t.Fatalf("100%% discount: got %d, want 0", got)
+	}
+}
+
+func TestLocalTx_GasWithDiscount_25Percent(t *testing.T) {
+	ltx := &LocalTx{Gas_: 20000}
+	got := ltx.GasWithDiscount(2500)
+	want := uint64(15000)
+	if got != want {
+		t.Fatalf("25%% discount: got %d, want %d", got, want)
+	}
+}
+
+func TestApplyLocalTxDiscount_LocalTx(t *testing.T) {
+	to := HexToAddress("0x1111111111111111111111111111111111111111")
+	tx := NewLocalTx(big.NewInt(1), 0, &to, big.NewInt(0), 21000,
+		big.NewInt(1), big.NewInt(1), nil, []byte{0x0a})
+	got := ApplyLocalTxDiscount(tx)
+	want := uint64(21000) * (10000 - LocalTxDiscountBPS) / 10000
+	if got != want {
+		t.Fatalf("ApplyLocalTxDiscount: got %d, want %d", got, want)
+	}
+}
+
+func TestApplyLocalTxDiscount_NonLocalTx(t *testing.T) {
+	to := HexToAddress("0x1111111111111111111111111111111111111111")
+	tx := NewTransaction(&LegacyTx{Gas: 21000, To: &to, GasPrice: big.NewInt(1)})
+	got := ApplyLocalTxDiscount(tx)
+	if got != 21000 {
+		t.Fatalf("non-LocalTx should return original gas 21000, got %d", got)
+	}
+}
+
+// --- BB-2.2: BAL access validation ---
+
+func TestLocalTx_ValidateScopeAccess_Pass(t *testing.T) {
+	ltx := &LocalTx{ScopeHint: []byte{0x0a, 0x0b}}
+	// Addresses whose first byte is 0x0a or 0x0b.
+	addrs := []Address{
+		{0x0a, 0x01},
+		{0x0b, 0xff},
+	}
+	if err := ltx.ValidateScopeAccess(addrs); err != nil {
+		t.Fatalf("expected no violation, got: %v", err)
+	}
+}
+
+func TestLocalTx_ValidateScopeAccess_Fail(t *testing.T) {
+	ltx := &LocalTx{ScopeHint: []byte{0x0a, 0x0b}}
+	// Address with prefix 0x0c is not declared.
+	addrs := []Address{
+		{0x0a, 0x01},
+		{0x0c, 0x02},
+	}
+	err := ltx.ValidateScopeAccess(addrs)
+	if err == nil {
+		t.Fatal("expected ErrBALViolation for undeclared prefix 0x0c")
+	}
+}
+
+func TestLocalTx_ValidateScopeAccess_EmptyScope(t *testing.T) {
+	ltx := &LocalTx{ScopeHint: []byte{}}
+	// Empty scope hint means global access — no violation.
+	addrs := []Address{{0xff, 0xee}, {0x01, 0x02}}
+	if err := ltx.ValidateScopeAccess(addrs); err != nil {
+		t.Fatalf("empty scope should allow all access, got: %v", err)
+	}
+}
+
+func TestLocalTx_ValidateScopeAccess_NilScope(t *testing.T) {
+	ltx := &LocalTx{ScopeHint: nil}
+	addrs := []Address{{0xab, 0xcd}}
+	if err := ltx.ValidateScopeAccess(addrs); err != nil {
+		t.Fatalf("nil scope should allow all access, got: %v", err)
+	}
+}
+
+func TestLocalTx_ValidateScopeAccess_EmptyAddrs(t *testing.T) {
+	ltx := &LocalTx{ScopeHint: []byte{0x0a}}
+	if err := ltx.ValidateScopeAccess(nil); err != nil {
+		t.Fatalf("empty access list should never violate, got: %v", err)
+	}
+}
+
+func TestValidateLocalTxScopeAccess_Wrapper(t *testing.T) {
+	to := HexToAddress("0x0a00000000000000000000000000000000000000")
+	tx := NewLocalTx(big.NewInt(1), 0, &to, big.NewInt(0), 21000,
+		big.NewInt(1), big.NewInt(1), nil, []byte{0x0a})
+
+	// Declared prefix 0x0a — access to 0x0a... should pass.
+	addr := HexToAddress("0x0a11111111111111111111111111111111111111")
+	if err := ValidateLocalTxScopeAccess(tx, []Address{addr}); err != nil {
+		t.Fatalf("expected no violation for declared prefix, got: %v", err)
+	}
+
+	// Undeclared prefix 0x0b — should fail.
+	bad := HexToAddress("0x0b11111111111111111111111111111111111111")
+	if err := ValidateLocalTxScopeAccess(tx, []Address{bad}); err == nil {
+		t.Fatal("expected ErrBALViolation for undeclared prefix 0x0b")
+	}
+
+	// Non-LocalTx — always passes.
+	legacyTx := NewTransaction(&LegacyTx{Gas: 21000, To: &to, GasPrice: big.NewInt(1)})
+	if err := ValidateLocalTxScopeAccess(legacyTx, []Address{bad}); err != nil {
+		t.Fatalf("non-LocalTx should not be validated, got: %v", err)
+	}
+}
