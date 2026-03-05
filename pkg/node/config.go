@@ -114,6 +114,15 @@ type Config struct {
 	// aggressive:   VERIFY frame gas capped at 200K when a staked paymaster is detected.
 	FrameMempoolTier string // --frame-mempool
 
+	// LeanAvailableChainMode enables PQ attestation for a per-slot validator subset (US-PQ-2).
+	LeanAvailableChainMode bool // --lean-available-chain
+
+	// LeanAvailableChainValidators is the per-slot PQ attestor count [256,1024] (default 512).
+	LeanAvailableChainValidators int // --lean-available-validators
+
+	// StarkValidationFrames enables STARK proof sealing for VERIFY frame transactions (US-PQ-5b).
+	StarkValidationFrames bool // --stark-validation-frames
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -180,6 +189,9 @@ func DefaultConfig() Config {
 
 		// Frame mempool (EIP-8141 AA-2.3)
 		FrameMempoolTier: "conservative",
+
+		// EP-3 Post-Quantum defaults.
+		LeanAvailableChainValidators: 512,
 	}
 }
 

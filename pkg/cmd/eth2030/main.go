@@ -207,6 +207,11 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	// --- EIP-8141 Frame Mempool (AA-2.3) ---
 	fs.StringVar(&cfg.FrameMempoolTier, "frame-mempool", cfg.FrameMempoolTier, "frame tx mempool ruleset: conservative (50K VERIFY gas cap) or aggressive (200K with staked paymaster)")
 
+	// --- EP-3 Post-Quantum ---
+	fs.BoolVar(&cfg.LeanAvailableChainMode, "lean-available-chain", cfg.LeanAvailableChainMode, "enable lean available chain mode (PQ attestation for a validator subset)")
+	fs.IntVar(&cfg.LeanAvailableChainValidators, "lean-available-validators", cfg.LeanAvailableChainValidators, "per-slot PQ attestor count [256-1024]")
+	fs.BoolVar(&cfg.StarkValidationFrames, "stark-validation-frames", cfg.StarkValidationFrames, "enable STARK proof sealing for VERIFY frame transactions")
+
 	return fs
 }
 

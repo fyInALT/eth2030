@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"log/slog"
 	"math/big"
 	"sync"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/eth2030/eth2030/core"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	corevm "github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/proofs"
 )
 
 // BuiltPayload holds the result of a payload build process.
@@ -29,6 +32,8 @@ type PayloadBuilder struct {
 	statedb  *state.MemoryStateDB
 	txPool   core.TxPoolReader
 	payloads map[PayloadID]*BuiltPayload
+	// prover is an optional STARK prover for VERIFY frame transactions (US-PQ-5b).
+	prover proofs.ValidationFrameProver
 }
 
 // NewPayloadBuilder creates a new PayloadBuilder.
@@ -39,6 +44,15 @@ func NewPayloadBuilder(config *core.ChainConfig, statedb *state.MemoryStateDB, t
 		txPool:   txPool,
 		payloads: make(map[PayloadID]*BuiltPayload),
 	}
+}
+
+// SetValidationFrameProver wires an optional STARK prover for VERIFY frame
+// transactions. When set, StartBuild will call ReplaceValidationFrames after
+// each block is built (US-PQ-5b).
+func (pb *PayloadBuilder) SetValidationFrameProver(p proofs.ValidationFrameProver) {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	pb.prover = p
 }
 
 // StartBuild begins building a payload with the given attributes.
@@ -70,6 +84,16 @@ func (pb *PayloadBuilder) StartBuild(
 	})
 	if err != nil {
 		return err
+	}
+
+	// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
+	if pb.prover != nil {
+		sealed, _, err := corevm.ReplaceValidationFrames(block, pb.prover)
+		if err != nil {
+			slog.Warn("frame stark replacement failed", "err", err)
+		} else {
+			block = sealed
+		}
 	}
 
 	// Calculate block value as the sum of effective tips paid by transactions.
