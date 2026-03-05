@@ -254,6 +254,12 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("config: unknown gc mode %q", c.GCMode)
 	}
+	// Validate lean available chain validator count when mode is enabled.
+	if c.LeanAvailableChainMode {
+		if c.LeanAvailableChainValidators < 256 || c.LeanAvailableChainValidators > 1024 {
+			return fmt.Errorf("config: lean-available-validators must be in [256,1024], got %d", c.LeanAvailableChainValidators)
+		}
+	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
 	default:
