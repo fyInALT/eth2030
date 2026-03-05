@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -216,13 +217,16 @@ func (tm *TransportManager) SelectBestTransport() MixnetTransportMode {
 
 	if probeProxy(cfg.TorProxyAddr, cfg.DialTimeout) {
 		tm.setSelectedMode(ModeTorSocks5)
+		slog.Info("anonymous transport selected", "mode", "tor", "proxy", cfg.TorProxyAddr)
 		return ModeTorSocks5
 	}
 	if probeProxy(cfg.NymProxyAddr, cfg.DialTimeout) {
 		tm.setSelectedMode(ModeNymSocks5)
+		slog.Info("anonymous transport selected", "mode", "nym", "proxy", cfg.NymProxyAddr)
 		return ModeNymSocks5
 	}
 	tm.setSelectedMode(ModeSimulated)
+	slog.Info("anonymous transport selected", "mode", "simulated", "reason", "no external proxy reachable")
 	return ModeSimulated
 }
 
