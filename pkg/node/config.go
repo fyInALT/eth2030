@@ -136,6 +136,9 @@ type Config struct {
 	// BLSBackend selects the BLS signature backend: "blst" (default) or "pure-go" (GAP-7.2).
 	BLSBackend string // --bls-backend
 
+	// MixnetMode selects the anonymous transport: "simulated" (default), "tor", "nym".
+	MixnetMode string // --mixnet
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -217,6 +220,9 @@ func DefaultConfig() Config {
 
 		// GAP-7.2: default to blst BLS backend.
 		BLSBackend: "blst",
+
+		// BB-1.1: default to simulated mixnet (no external daemon required).
+		MixnetMode: "simulated",
 	}
 }
 
@@ -314,6 +320,12 @@ func (c *Config) Validate() error {
 	case "", "blst", "pure-go":
 	default:
 		return fmt.Errorf("config: invalid bls-backend %q (must be blst or pure-go)", c.BLSBackend)
+	}
+	// BB-1.1: validate mixnet mode.
+	switch c.MixnetMode {
+	case "", "simulated", "tor", "nym":
+	default:
+		return fmt.Errorf("config: invalid mixnet mode %q (must be simulated|tor|nym)", c.MixnetMode)
 	}
 	return nil
 }

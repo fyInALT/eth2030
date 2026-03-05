@@ -1,11 +1,132 @@
 package p2p
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// MixnetTransportMode selects which external mixnet to use for anonymous submission.
+// CLI flag: --mixnet=simulated|tor|nym
+type MixnetTransportMode int
+
+const (
+	// ModeSimulated uses the in-process simulated mixnet (default).
+	ModeSimulated MixnetTransportMode = iota
+	// ModeTorSocks5 routes via a Tor SOCKS5 proxy at TorProxyAddr.
+	ModeTorSocks5
+	// ModeNymSocks5 routes via a Nym SOCKS5 proxy at NymProxyAddr.
+	ModeNymSocks5
+)
+
+// ParseMixnetMode parses a --mixnet=simulated|tor|nym string into MixnetTransportMode.
+func ParseMixnetMode(s string) (MixnetTransportMode, error) {
+	switch s {
+	case "simulated", "":
+		return ModeSimulated, nil
+	case "tor":
+		return ModeTorSocks5, nil
+	case "nym":
+		return ModeNymSocks5, nil
+	default:
+		return ModeSimulated, fmt.Errorf("unknown mixnet mode %q: use simulated|tor|nym", s)
+	}
+}
+
+// String returns the CLI string for a MixnetTransportMode.
+func (m MixnetTransportMode) String() string {
+	switch m {
+	case ModeTorSocks5:
+		return "tor"
+	case ModeNymSocks5:
+		return "nym"
+	default:
+		return "simulated"
+	}
+}
+
+// ExternalMixnetTransport extends AnonymousTransport with a raw-bytes send method
+// for transports that route via an external anonymizing network (Tor, Nym).
+type ExternalMixnetTransport interface {
+	AnonymousTransport
+	// SendViaExternalMixnet sends raw transaction bytes to a JSON-RPC endpoint
+	// via the external mixnet (SOCKS5 tunnel). endpoint is an HTTP URL.
+	SendViaExternalMixnet(tx []byte, endpoint string) error
+}
+
+// TransportConfig configures transport selection for TransportManager.
+type TransportConfig struct {
+	// Mode specifies which mixnet to use (--mixnet=simulated|tor|nym).
+	Mode MixnetTransportMode
+
+	// TorProxyAddr is the Tor SOCKS5 proxy address (default: 127.0.0.1:9050).
+	TorProxyAddr string
+
+	// NymProxyAddr is the Nym SOCKS5 proxy address (default: 127.0.0.1:1080).
+	NymProxyAddr string
+
+	// RPCEndpoint is the node's own JSON-RPC endpoint for tx submission.
+	RPCEndpoint string
+
+	// DialTimeout is the timeout for probing proxy availability (default: 500ms).
+	DialTimeout time.Duration
+
+	// KohakuCompatible enables Kohaku wire format for control messages.
+	// TODO: update once the Kohaku spec is finalized (@ncsgy repo).
+	KohakuCompatible bool
+}
+
+// DefaultTransportConfig returns sensible defaults.
+func DefaultTransportConfig() TransportConfig {
+	return TransportConfig{
+		Mode:         ModeSimulated,
+		TorProxyAddr: "127.0.0.1:9050",
+		NymProxyAddr: "127.0.0.1:1080",
+		RPCEndpoint:  "http://127.0.0.1:8545",
+		DialTimeout:  500 * time.Millisecond,
+	}
+}
+
+// controlMsg is the JSON envelope for non-Kohaku control messages.
+type controlMsg struct {
+	Type string `json:"type"`
+	Msg  string `json:"msg"`
+}
+
+// FormatControlMessage formats a transport control message.
+// When kohaku is true, uses Kohaku wire format: 4-byte big-endian length + UTF-8 payload.
+// When kohaku is false, uses JSON: {"type":"control","msg":"..."}.
+func FormatControlMessage(msg string, kohaku bool) []byte {
+	if kohaku {
+		// Kohaku wire format: [4-byte big-endian length][payload bytes]
+		// TODO: replace with real Kohaku spec encoding once spec is published.
+		payload := []byte(msg)
+		out := make([]byte, 4+len(payload))
+		binary.BigEndian.PutUint32(out[:4], uint32(len(payload)))
+		copy(out[4:], payload)
+		return out
+	}
+	// JSON format.
+	b, _ := json.Marshal(controlMsg{Type: "control", Msg: msg})
+	return b
+}
+
+// probeProxy attempts a TCP dial to addr within timeout, returning true if
+// the connection succeeds. Used for transport fallback selection.
+func probeProxy(addr string, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
 
 // Anonymous transport errors.
 var (
@@ -42,18 +163,67 @@ type TransportStats struct {
 // TransportManager manages multiple anonymous transports and provides
 // a unified interface for anonymous transaction submission.
 type TransportManager struct {
-	mu         sync.RWMutex
-	transports map[string]AnonymousTransport
-	stats      map[string]*TransportStats
-	closed     bool
+	mu           sync.RWMutex
+	transports   map[string]AnonymousTransport
+	stats        map[string]*TransportStats
+	closed       bool
+	config       TransportConfig
+	selectedMode MixnetTransportMode
 }
 
-// NewTransportManager creates a new transport manager.
+// NewTransportManager creates a new transport manager with default config.
 func NewTransportManager() *TransportManager {
+	return NewTransportManagerWithConfig(DefaultTransportConfig())
+}
+
+// NewTransportManagerWithConfig creates a transport manager with the given config.
+func NewTransportManagerWithConfig(cfg TransportConfig) *TransportManager {
 	return &TransportManager{
-		transports: make(map[string]AnonymousTransport),
-		stats:      make(map[string]*TransportStats),
+		transports:   make(map[string]AnonymousTransport),
+		stats:        make(map[string]*TransportStats),
+		config:       cfg,
+		selectedMode: ModeSimulated,
 	}
+}
+
+// Config returns the transport configuration.
+func (tm *TransportManager) Config() TransportConfig {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	return tm.config
+}
+
+// SelectedMode returns the currently selected transport mode.
+func (tm *TransportManager) SelectedMode() MixnetTransportMode {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	return tm.selectedMode
+}
+
+// setSelectedMode sets the selected transport mode (used internally and in tests).
+func (tm *TransportManager) setSelectedMode(m MixnetTransportMode) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.selectedMode = m
+}
+
+// SelectBestTransport probes Tor and Nym proxy availability and selects the
+// best available transport mode using priority: Tor > Nym > Simulated.
+// It sets the manager's selectedMode and returns the chosen mode.
+// Intended to be called once at startup to log transport selection.
+func (tm *TransportManager) SelectBestTransport() MixnetTransportMode {
+	cfg := tm.Config()
+
+	if probeProxy(cfg.TorProxyAddr, cfg.DialTimeout) {
+		tm.setSelectedMode(ModeTorSocks5)
+		return ModeTorSocks5
+	}
+	if probeProxy(cfg.NymProxyAddr, cfg.DialTimeout) {
+		tm.setSelectedMode(ModeNymSocks5)
+		return ModeNymSocks5
+	}
+	tm.setSelectedMode(ModeSimulated)
+	return ModeSimulated
 }
 
 // RegisterTransport adds an anonymous transport to the manager.

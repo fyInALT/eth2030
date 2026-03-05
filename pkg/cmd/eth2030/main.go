@@ -220,6 +220,9 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.StringVar(&cfg.FinalityMode, "finality-mode", cfg.FinalityMode, "finality engine: ssf (default) or minimmit (GAP-5.2)")
 	fs.StringVar(&cfg.BLSBackend, "bls-backend", cfg.BLSBackend, "BLS backend: blst (default) or pure-go (GAP-7.2)")
 
+	// --- EP-6 Block Building Pipeline ---
+	fs.StringVar(&cfg.MixnetMode, "mixnet", cfg.MixnetMode, "anonymous tx transport: simulated (default) | tor | nym (BB-1.1)")
+
 	return fs
 }
 
