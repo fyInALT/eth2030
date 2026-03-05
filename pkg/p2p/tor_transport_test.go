@@ -322,7 +322,7 @@ func (m *mockSocks5Proxy) handleConn(conn net.Conn) {
 	}
 	portNum := int(portBuf[0])<<8 | int(portBuf[1])
 
-	target := fmt.Sprintf("%s:%d", host, portNum)
+	target := net.JoinHostPort(host, fmt.Sprintf("%d", portNum))
 	select {
 	case m.targets <- target:
 	default:
