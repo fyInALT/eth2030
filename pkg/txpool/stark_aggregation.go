@@ -206,6 +206,12 @@ func (t *MempoolAggregationTick) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// P2PBroadcaster broadcasts mempool ticks to network peers.
+// Interface avoids circular import between txpool and p2p.
+type P2PBroadcaster interface {
+	GossipMempoolStarkTick(data []byte) error
+}
+
 // STARKAggregator implements Vitalik's recursive STARK mempool proposal.
 // Every tick interval (default 500ms), it creates a STARK proving validity
 // of all known validated transactions.
@@ -220,6 +226,8 @@ type STARKAggregator struct {
 	running      bool
 	stopCh       chan struct{}
 	tickCh       chan *MempoolAggregationTick
+	broadcaster  P2PBroadcaster
+	peerCache    *PeerTickCache
 }
 
 // NewSTARKAggregator creates a new STARK mempool aggregator.
@@ -231,6 +239,7 @@ func NewSTARKAggregator(peerID string) *STARKAggregator {
 		peerID:       peerID,
 		stopCh:       make(chan struct{}),
 		tickCh:       make(chan *MempoolAggregationTick, 16),
+		peerCache:    NewPeerTickCache(2),
 	}
 }
 
@@ -422,6 +431,50 @@ func (sa *STARKAggregator) MergeTick(remote *MempoolAggregationTick) error {
 	return nil
 }
 
+// SetBroadcaster sets the P2P broadcaster for gossipping ticks to peers.
+func (sa *STARKAggregator) SetBroadcaster(b P2PBroadcaster) {
+	sa.mu.Lock()
+	defer sa.mu.Unlock()
+	sa.broadcaster = b
+}
+
+// BroadcastTick broadcasts a tick to peers via the configured P2PBroadcaster.
+// Ticks that exceed MaxTickSize are silently dropped.
+func (sa *STARKAggregator) BroadcastTick(tick *MempoolAggregationTick) {
+	sa.mu.RLock()
+	b := sa.broadcaster
+	sa.mu.RUnlock()
+
+	if b == nil {
+		return
+	}
+	data, err := tick.MarshalBinary()
+	if err != nil {
+		return
+	}
+	if len(data) > MaxTickSize {
+		return
+	}
+	_ = b.GossipMempoolStarkTick(data)
+}
+
+// MergeTickAtSlot merges a remote tick and marks its txs in the peer cache.
+func (sa *STARKAggregator) MergeTickAtSlot(remote *MempoolAggregationTick, slot uint64) error {
+	if err := sa.MergeTick(remote); err != nil {
+		return err
+	}
+	for _, h := range remote.ValidTxHashes {
+		sa.peerCache.MarkPeerValidated(h, remote.PeerID, slot)
+	}
+	sa.peerCache.AdvanceSlot(slot)
+	return nil
+}
+
+// PeerCache returns the peer tick cache.
+func (sa *STARKAggregator) PeerCache() *PeerTickCache {
+	return sa.peerCache
+}
+
 // TickHash computes a deterministic hash of a tick for comparison.
 func TickHash(tick *MempoolAggregationTick) types.Hash {
 	h := sha256.New()
@@ -490,6 +543,7 @@ func (sa *STARKAggregator) tickLoop() {
 			default:
 				// channel full, drop oldest
 			}
+			sa.BroadcastTick(tick)
 		}
 	}
 }
