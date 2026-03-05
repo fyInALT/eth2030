@@ -23,6 +23,7 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/proofs"
@@ -66,6 +67,17 @@ func New(config *Config) (*Node, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
+
+	// GAP-7.2: select BLS signature backend based on config.
+	if config.BLSBackend == "pure-go" {
+		crypto.SetBLSBackend(&crypto.PureGoBLSBackend{})
+		slog.Info("BLS backend: pure-go")
+	} else {
+		slog.Info("BLS backend: blst (default)")
+	}
+
+	// GAP-5.2: log finality mode selection.
+	slog.Info("finality mode", "mode", config.FinalityMode)
 
 	// Auto-generate JWT secret if not provided.
 	if err := ensureJWTSecret(config); err != nil {

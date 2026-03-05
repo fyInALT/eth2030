@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/rlp"
 	"github.com/eth2030/eth2030/trie"
 )
@@ -157,6 +158,8 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 	// EIP-7706: compute calldata gas fields when Glamsterdan is active.
 	glamActive := b.config != nil && b.config.IsGlamsterdan(header.Time)
+	// GAP-2.2: track DimStorage gas used at block level; enforced per-tx below.
+	var blockDimStorageUsed uint64
 	var calldataGasUsed uint64
 	if glamActive {
 		var pCalldataExcess, pCalldataUsed uint64
@@ -311,6 +314,14 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 				continue
 			}
 
+			// GAP-2.2: enforce per-block DimStorage gas cap at Glamsterdam+.
+			if glamActive && !vm.CheckDimStorageCap(blockDimStorageUsed, receipt.DimStorageGas) {
+				statedb.RevertToSnapshot(snap)
+				gasPool.AddGas(used)
+				continue
+			}
+			blockDimStorageUsed += receipt.DimStorageGas
+
 			txs = append(txs, ilTx)
 			receipts = append(receipts, receipt)
 			gasUsed += used
@@ -399,6 +410,14 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			statedb.RevertToSnapshot(snap)
 			continue
 		}
+
+		// GAP-2.2: enforce per-block DimStorage gas cap at Glamsterdam+.
+		if glamActive && !vm.CheckDimStorageCap(blockDimStorageUsed, receipt.DimStorageGas) {
+			statedb.RevertToSnapshot(snap)
+			gasPool.AddGas(used)
+			continue
+		}
+		blockDimStorageUsed += receipt.DimStorageGas
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)

@@ -32,6 +32,9 @@ type Receipt struct {
 	CalldataGasUsed  uint64
 	CalldataGasPrice *big.Int
 
+	// GAP-2.2: DimStorage gas used (SSTORE state-creation premium, Glamsterdam+)
+	DimStorageGas uint64
+
 	// Inclusion information
 	BlockHash        Hash
 	BlockNumber      *big.Int
