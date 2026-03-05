@@ -14,6 +14,27 @@ import (
 // per epoch, this is approximately 8,640 blocks/day * 365 = 3,153,600.
 const DefaultHistoryRetention uint64 = 3_153_600
 
+// BALRetentionEpochs is the minimum number of epochs that Block Access Lists
+// must be retained before pruning, per EIP-7928 §retention-policy.
+// Derived from the weak subjectivity period: 3,533 epochs ≈ 15.6 days.
+const BALRetentionEpochs uint64 = 3_533
+
+// SlotsPerEpoch is the beacon chain constant used to convert epoch counts to slots.
+const SlotsPerEpoch uint64 = 32
+
+// BALRetentionSlots is BALRetentionEpochs × SlotsPerEpoch, suitable for
+// block-level retention comparisons (one slot ≈ one block).
+const BALRetentionSlots uint64 = BALRetentionEpochs * SlotsPerEpoch
+
+// IsBALRetained returns true when the given block number is within the
+// BAL retention window relative to headBlock (EIP-7928 §retention-policy).
+func IsBALRetained(headBlock, blockNum uint64) bool {
+	if headBlock < BALRetentionSlots {
+		return true // chain hasn't grown long enough to prune anything
+	}
+	return blockNum >= headBlock-BALRetentionSlots
+}
+
 // historyOldestKey stores the oldest available block number for bodies/receipts.
 var historyOldestKey = []byte("history-oldest")
 
