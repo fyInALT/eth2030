@@ -390,3 +390,287 @@ func TestStreamList(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDecode_TopLevel(t *testing.T) {
+	// Decode using the io.Reader-based Decode function.
+	enc, err := EncodeToBytes("hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	err = Decode(bytes.NewReader(enc), &got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "hello" {
+		t.Fatalf("got %q, want %q", got, "hello")
+	}
+}
+
+func TestNewStreamFromBytes(t *testing.T) {
+	data := []byte{0x83, 0x64, 0x6f, 0x67} // "dog"
+	s := NewStreamFromBytes(data)
+	b, err := s.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "dog" {
+		t.Fatalf("got %q, want %q", b, "dog")
+	}
+}
+
+func TestAtListEnd(t *testing.T) {
+	// At top level with no list scope, AtListEnd is true when all data consumed.
+	data := []byte{0x83, 0x64, 0x6f, 0x67} // "dog"
+	s := NewStreamFromBytes(data)
+	if s.AtListEnd() {
+		t.Fatal("should not be at end before consuming")
+	}
+	_, _ = s.Bytes()
+	if !s.AtListEnd() {
+		t.Fatal("should be at end after consuming all data")
+	}
+
+	// Inside a list scope.
+	listData := []byte{0xc8, 0x83, 0x63, 0x61, 0x74, 0x83, 0x64, 0x6f, 0x67}
+	s2 := NewStreamFromBytes(listData)
+	_, err := s2.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2.AtListEnd() {
+		t.Fatal("should not be at list end with items remaining")
+	}
+	_, _ = s2.Bytes()
+	_, _ = s2.Bytes()
+	if !s2.AtListEnd() {
+		t.Fatal("should be at list end after consuming all items")
+	}
+}
+
+func TestRawItem(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want []byte
+	}{
+		{"single byte", []byte{0x42}, []byte{0x42}},
+		{"short string", []byte{0x83, 0x64, 0x6f, 0x67}, []byte{0x83, 0x64, 0x6f, 0x67}},
+		{"empty string", []byte{0x80}, []byte{0x80}},
+		{"short list", []byte{0xc3, 0x01, 0x02, 0x03}, []byte{0xc3, 0x01, 0x02, 0x03}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStreamFromBytes(tt.data)
+			got, err := s.RawItem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, tt.want) {
+				t.Fatalf("got %x, want %x", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRawItem_LongString(t *testing.T) {
+	long := make([]byte, 56)
+	for i := range long {
+		long[i] = byte(i)
+	}
+	enc, _ := EncodeToBytes(long)
+	s := NewStreamFromBytes(enc)
+	got, err := s.RawItem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, enc) {
+		t.Fatalf("RawItem long string: got %x, want %x", got, enc)
+	}
+}
+
+func TestRawItem_LongList(t *testing.T) {
+	// Build a list with 56 bytes of payload to trigger long-list encoding.
+	items := make([]uint64, 28)
+	for i := range items {
+		items[i] = uint64(i + 100)
+	}
+	enc, _ := EncodeToBytes(items)
+	s := NewStreamFromBytes(enc)
+	got, err := s.RawItem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, enc) {
+		t.Fatalf("RawItem long list mismatch")
+	}
+}
+
+func TestRawItem_EOF(t *testing.T) {
+	s := NewStreamFromBytes([]byte{})
+	_, err := s.RawItem()
+	if err == nil {
+		t.Fatal("expected EOF on empty stream")
+	}
+}
+
+func TestRawItem_Truncated(t *testing.T) {
+	// Short string claiming 3 bytes but only 1 byte present.
+	s := NewStreamFromBytes([]byte{0x83, 0x01})
+	_, err := s.RawItem()
+	if err == nil {
+		t.Fatal("expected error on truncated short string")
+	}
+}
+
+func TestPeekItem(t *testing.T) {
+	data := []byte{0x83, 0x64, 0x6f, 0x67} // "dog"
+	s := NewStreamFromBytes(data)
+
+	k1, p1, t1, err1 := s.peekItem()
+	if err1 != nil {
+		t.Fatal(err1)
+	}
+	k2, p2, t2, err2 := s.peekItem()
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if k1 != k2 || !bytes.Equal(p1, p2) || t1 != t2 {
+		t.Fatal("peekItem is not idempotent")
+	}
+	if k1 != String {
+		t.Fatalf("peekItem kind: got %v, want String", k1)
+	}
+	if string(p1) != "dog" {
+		t.Fatalf("peekItem payload: got %q, want dog", p1)
+	}
+}
+
+func TestListEnd_WithoutList(t *testing.T) {
+	s := NewStreamFromBytes([]byte{0x01})
+	err := s.ListEnd()
+	if err == nil {
+		t.Fatal("expected error calling ListEnd without entering a list")
+	}
+}
+
+func TestListEnd_NotConsumed(t *testing.T) {
+	data := []byte{0xc8, 0x83, 0x63, 0x61, 0x74, 0x83, 0x64, 0x6f, 0x67}
+	s := NewStreamFromBytes(data)
+	_, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Don't read items; ListEnd should fail.
+	err = s.ListEnd()
+	if err == nil {
+		t.Fatal("expected error from ListEnd when items not consumed")
+	}
+}
+
+func TestStreamKind_EOF(t *testing.T) {
+	s := NewStreamFromBytes([]byte{})
+	_, _, err := s.Kind()
+	if err == nil {
+		t.Fatal("expected EOF from empty stream Kind")
+	}
+}
+
+func TestStreamUint64_Overflow(t *testing.T) {
+	// Construct valid long-string encoding of 9 bytes: [0xb8, 0x09, 9 bytes]
+	payload := make([]byte, 9)
+	payload[0] = 0x01
+	enc := append([]byte{0xb8, 0x09}, payload...)
+	var got uint64
+	err := DecodeBytes(enc, &got)
+	if err == nil {
+		t.Fatal("expected uint64 overflow error")
+	}
+}
+
+func TestDecodeByteArray(t *testing.T) {
+	enc, err := EncodeToBytes([]byte{0x01, 0x02, 0x03})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var arr [3]byte
+	err = DecodeBytes(enc, &arr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if arr[0] != 0x01 || arr[1] != 0x02 || arr[2] != 0x03 {
+		t.Fatalf("decode byte array: got %v", arr)
+	}
+}
+
+func TestDecodeNilPtrToStruct(t *testing.T) {
+	type S struct{ X uint64 }
+	enc, _ := EncodeToBytes(S{X: 7})
+	var p *S
+	err := DecodeBytes(enc, &p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p == nil || p.X != 7 {
+		t.Fatalf("decode nil ptr to struct: got %v", p)
+	}
+}
+
+func TestDecodeNilSentinel(t *testing.T) {
+	// 0x80 is the nil sentinel for a pointer to a struct (list type).
+	type S struct{ X uint64 }
+	var p *S
+	err := DecodeBytes([]byte{0x80}, &p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != nil {
+		t.Fatalf("expected nil pointer from nil sentinel, got %v", p)
+	}
+}
+
+func TestDecodeLongList(t *testing.T) {
+	// Round-trip a list with >55 bytes of payload.
+	items := make([]uint64, 30)
+	for i := range items {
+		items[i] = uint64(i * 7)
+	}
+	enc, err := EncodeToBytes(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dec []uint64
+	err = DecodeBytes(enc, &dec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dec) != len(items) {
+		t.Fatalf("length mismatch: got %d, want %d", len(dec), len(items))
+	}
+	for i := range items {
+		if dec[i] != items[i] {
+			t.Fatalf("index %d: got %d, want %d", i, dec[i], items[i])
+		}
+	}
+}
+
+func TestDecodeInt(t *testing.T) {
+	enc, _ := EncodeToBytes(int64(99))
+	var got int64
+	err := DecodeBytes(enc, &got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 99 {
+		t.Fatalf("got %d, want 99", got)
+	}
+}
+
+func TestStreamList_ExpectedList(t *testing.T) {
+	// Calling List() on a non-list value should return ErrExpectedList.
+	s := NewStreamFromBytes([]byte{0x83, 0x64, 0x6f, 0x67})
+	_, err := s.List()
+	if err == nil {
+		t.Fatal("expected ErrExpectedList")
+	}
+}
