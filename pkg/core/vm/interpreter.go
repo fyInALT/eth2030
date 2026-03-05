@@ -109,15 +109,15 @@ type Config struct {
 
 // EVM is the Ethereum Virtual Machine execution environment.
 type EVM struct {
-	Context       BlockContext
-	TxContext     TxContext
-	Config        Config
-	StateDB       StateDB
-	chainID       uint64
-	depth         int
-	readOnly      bool
-	jumpTable     JumpTable
-	precompiles   map[types.Address]PrecompiledContract
+	Context              BlockContext
+	TxContext            TxContext
+	Config               Config
+	StateDB              StateDB
+	chainID              uint64
+	depth                int
+	readOnly             bool
+	jumpTable            JumpTable
+	precompiles          map[types.Address]PrecompiledContract
 	returnData           []byte              // return data from the last CALL/CREATE
 	callGasTemp          uint64              // temporary storage for CALL gas (set by dynamic gas, read by opCall)
 	callReservoirForward uint64              // reservoir forwarded to child call (set by opCall, read by evm.Call)
@@ -125,10 +125,10 @@ type EVM struct {
 	dimGasUsage          *TxDimGasUsage      // per-dimension gas tracking (GAP-2.1, nil if not active)
 	witnessGas           *WitnessGasTracker  // EIP-4762: witness gas tracking (nil if not Verkle)
 	balTracker           BALTracker          // EIP-7928: BAL state access tracking (nil if not active)
-	txIndex       uint64              // EIP-7928: current transaction index for BAL
-	forkRules     ForkRules           // active fork rules for this block
-	FrameCtx      *FrameContext       // EIP-8141: frame transaction approval context (nil if not frame tx)
-	guestRegistry *zkvm.GuestRegistry // EL-3: RISC-V guest registry for RVCREATE (nil if not I+)
+	txIndex              uint64              // EIP-7928: current transaction index for BAL
+	forkRules            ForkRules           // active fork rules for this block
+	FrameCtx             *FrameContext       // EIP-8141: frame transaction approval context (nil if not frame tx)
+	guestRegistry        *zkvm.GuestRegistry // EL-3: RISC-V guest registry for RVCREATE (nil if not I+)
 }
 
 // NewEVM creates a new EVM instance.

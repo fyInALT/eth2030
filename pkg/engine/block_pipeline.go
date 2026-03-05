@@ -117,9 +117,9 @@ const DimStorageBlockGasCap uint64 = 4_000_000
 // transactions that would exceed the per-block DimStorage cap (GAP-2.2).
 // It is wired into StageIngress of the BlockPipeline.
 type DimStorageFilter struct {
-	mu           sync.Mutex
-	blockUsed    uint64
-	blockCap     uint64
+	mu        sync.Mutex
+	blockUsed uint64
+	blockCap  uint64
 }
 
 // NewDimStorageFilter creates a filter with the given block cap.
@@ -158,12 +158,12 @@ func (f *DimStorageFilter) BlockStorageUsed() uint64 {
 
 // BlockPipeline orchestrates the full block building pipeline.
 type BlockPipeline struct {
-	mu              sync.RWMutex
-	config          *PipelineConfig
-	metrics         map[PipelineStage]*StageMetrics
-	running         bool
-	storageFilter   *DimStorageFilter          // GAP-2.2: DimStorage block cap enforcement
-	pieceAssembler  *das.BlockAssemblyManager  // GAP-4.3: slot-based erasure piece assembly
+	mu             sync.RWMutex
+	config         *PipelineConfig
+	metrics        map[PipelineStage]*StageMetrics
+	running        bool
+	storageFilter  *DimStorageFilter         // GAP-2.2: DimStorage block cap enforcement
+	pieceAssembler *das.BlockAssemblyManager // GAP-4.3: slot-based erasure piece assembly
 }
 
 // NewBlockPipeline creates a new block building pipeline.

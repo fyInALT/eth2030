@@ -10,7 +10,8 @@ import (
 )
 
 // sstoreContractCode is the runtime bytecode for a minimal contract:
-//   PUSH1 0x01  PUSH1 0x00  SSTORE  STOP
+//
+//	PUSH1 0x01  PUSH1 0x00  SSTORE  STOP
 //
 // Executing it writes storage slot 0 := 1 (zero→nonzero state creation).
 var sstoreContractCode = []byte{0x60, 0x01, 0x60, 0x00, 0x55, 0x00}

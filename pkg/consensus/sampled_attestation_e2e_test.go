@@ -226,19 +226,19 @@ func TestIsJustifiableSlotSquareOblongProgression(t *testing.T) {
 	}
 	base := uint64(100) // arbitrary finalized slot
 	cases := []slotCase{
-		{base, base + 0, true},  // delta=0 ≤ 5
-		{base, base + 1, true},  // delta=1 ≤ 5
-		{base, base + 4, true},  // delta=4 ≤ 5
-		{base, base + 5, true},  // delta=5 ≤ 5
-		{base, base + 6, true},  // delta=6 = 2*3 (oblong)
-		{base, base + 7, false}, // delta=7, not square or oblong
-		{base, base + 8, false}, // delta=8, not square or oblong
-		{base, base + 9, true},  // delta=9 = 3^2 (perfect square)
-		{base, base + 11, false},// delta=11, not in set
-		{base, base + 12, true}, // delta=12 = 3*4 (oblong)
-		{base, base + 16, true}, // delta=16 = 4^2 (perfect square)
-		{base, base + 20, true}, // delta=20 = 4*5 (oblong)
-		{base, base + 25, true}, // delta=25 = 5^2 (perfect square)
+		{base, base + 0, true},   // delta=0 ≤ 5
+		{base, base + 1, true},   // delta=1 ≤ 5
+		{base, base + 4, true},   // delta=4 ≤ 5
+		{base, base + 5, true},   // delta=5 ≤ 5
+		{base, base + 6, true},   // delta=6 = 2*3 (oblong)
+		{base, base + 7, false},  // delta=7, not square or oblong
+		{base, base + 8, false},  // delta=8, not square or oblong
+		{base, base + 9, true},   // delta=9 = 3^2 (perfect square)
+		{base, base + 11, false}, // delta=11, not in set
+		{base, base + 12, true},  // delta=12 = 3*4 (oblong)
+		{base, base + 16, true},  // delta=16 = 4^2 (perfect square)
+		{base, base + 20, true},  // delta=20 = 4*5 (oblong)
+		{base, base + 25, true},  // delta=25 = 5^2 (perfect square)
 	}
 
 	for _, c := range cases {
