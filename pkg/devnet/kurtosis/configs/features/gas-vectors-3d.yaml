@@ -1,0 +1,33 @@
+# 3D Gas Vectors — EIP-7706 GasLimitVec/GasUsedVec/ExcessGasVec + copyHeader fix (SPEC-6.4)
+# Tests: block headers expose gasLimitVec, gasUsedVec, excessGasVec fields via RPC.
+#        Pre-Glamsterdam blocks correctly have nil 3D vectors.
+#        The copyHeader bug fix ensures vectors survive block.Header() calls.
+# Verify: 1D gas fields present, 3D vectors nil for pre-Glamsterdam, no nil panics.
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - spamoor
+  - assertoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "3D Gas Vectors Load"
+      config:
+        throughput: 50
+        max_pending: 100
+        max_wallets: 50
+
+assertoor_params:
+  run_stability_check: true

@@ -1,0 +1,32 @@
+# IL Satisfaction — engine_newPayload IL check wiring (SPEC-4.3 / EIP-7805)
+# Tests: engine_newPayload calls CheckILSatisfaction against stored ILs,
+#        returns INCLUSION_LIST_UNSATISFIED only when ILs are not met.
+# Verify: every CL slot accepted (no IL unsatisfied rejections), blocks advance.
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse:latest
+    count: 2
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 2
+  genesis_delay: 10
+
+additional_services:
+  - dora
+  - spamoor
+  - assertoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "IL Satisfaction TX Load"
+      config:
+        throughput: 30
+        max_pending: 60
+        max_wallets: 30
+
+assertoor_params:
+  run_stability_check: true
