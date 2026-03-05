@@ -398,30 +398,30 @@ func TestChunkifyCode(t *testing.T) {
 	}
 	chunks := ChunkifyCode(code)
 
-	// Expected: ceil(100/31) = 4 chunks, each 32 bytes
+	// Expected: ceil(100/31) = 4 chunks, each [][32]byte element
 	expectedChunks := (len(code) + StemSize - 1) / StemSize
-	if len(chunks) != expectedChunks*HashSize {
-		t.Fatalf("ChunkifyCode: expected %d bytes, got %d", expectedChunks*HashSize, len(chunks))
+	if len(chunks) != expectedChunks {
+		t.Fatalf("ChunkifyCode: expected %d chunks, got %d", expectedChunks, len(chunks))
 	}
 }
 
 func TestChunkifyCodeWithPush(t *testing.T) {
 	// Code with PUSH32 that spans chunk boundary
 	code := make([]byte, 64)
-	code[30] = push32 // PUSH32 at position 30, pushes 32 bytes
+	code[30] = 0x7f // PUSH32 at position 30, pushes 32 bytes
 	chunks := ChunkifyCode(code)
 
 	// Should have ceil(64/31) = 3 chunks
 	expectedChunks := (len(code) + StemSize - 1) / StemSize
-	if len(chunks) != expectedChunks*HashSize {
-		t.Fatalf("ChunkifyCode with PUSH: expected %d bytes, got %d", expectedChunks*HashSize, len(chunks))
+	if len(chunks) != expectedChunks {
+		t.Fatalf("ChunkifyCode with PUSH: expected %d chunks, got %d", expectedChunks, len(chunks))
 	}
 }
 
 func TestChunkifyCodeEmpty(t *testing.T) {
 	chunks := ChunkifyCode(nil)
 	if len(chunks) != 0 {
-		t.Fatalf("ChunkifyCode(nil): expected empty, got %d bytes", len(chunks))
+		t.Fatalf("ChunkifyCode(nil): expected empty, got %d chunks", len(chunks))
 	}
 }
 
