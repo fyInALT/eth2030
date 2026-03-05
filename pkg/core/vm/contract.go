@@ -14,8 +14,13 @@ type Contract struct {
 	CodeHash      types.Hash
 	Input         []byte
 	Gas           uint64
-	Value         *big.Int
-	jumpdests     map[uint64]bool // cached JUMPDEST analysis
+	// StateGasReservoir holds the state-creation gas budget (GAP-1). SSTORE
+	// zero→nonzero and CREATE draw from this reservoir instead of Gas so that
+	// state-growth operations are metered independently from execution gas.
+	// The GAS opcode returns only Gas; this field is intentionally excluded.
+	StateGasReservoir uint64
+	Value             *big.Int
+	jumpdests         map[uint64]bool // cached JUMPDEST analysis
 
 	// EOF fields (EIP-3540, EIP-7480, EIP-7620)
 	Data          []byte   // EOF data section (EIP-7480: DATALOAD, DATALOADN, DATASIZE, DATACOPY)

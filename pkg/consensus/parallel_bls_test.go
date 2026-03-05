@@ -318,3 +318,28 @@ func TestParallelBLS_LargeBatch(t *testing.T) {
 		t.Errorf("expected %d bits, got %d", expected, bits)
 	}
 }
+
+// BenchmarkParallelBLSAggregateVerify benchmarks parallel BLS aggregation at
+// 1M-attestation scale with 16 workers (GAP-7.3). Target: < 500ms on 16-core.
+func BenchmarkParallelBLSAggregateVerify(b *testing.B) {
+	const attestations = 1_000_000
+	const workers = 16
+
+	pa := NewParallelAggregator(&ParallelAggregatorConfig{
+		Workers:   workers,
+		BatchSize: 256,
+	})
+
+	// Build 1M attestations with distinct bits (each sets exactly one bit).
+	atts := make([]*AggregateAttestation, attestations)
+	for i := 0; i < attestations; i++ {
+		atts[i] = makeTestAgg(1, i%65536)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := pa.Aggregate(atts); err != nil {
+			b.Fatalf("Aggregate: %v", err)
+		}
+	}
+}

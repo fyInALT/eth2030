@@ -6,6 +6,7 @@ import "github.com/eth2030/eth2030/core/types"
 type ExecutionResult struct {
 	UsedGas         uint64
 	BlockGasUsed    uint64 // EIP-7778: pre-refund gas used for block accounting
+	DimStorageGas   uint64 // GAP-2.2: DimStorage gas used (SSTORE state-creation premium)
 	Err             error
 	ReturnData      []byte
 	ContractAddress types.Address // set for contract creation

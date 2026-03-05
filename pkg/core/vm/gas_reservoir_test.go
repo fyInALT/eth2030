@@ -2,6 +2,41 @@ package vm
 
 import "testing"
 
+// TestContractStateGasReservoir verifies the StateGasReservoir field is
+// present and separate from Gas (GAP-1.1).
+func TestContractStateGasReservoir(t *testing.T) {
+	c := &Contract{
+		Gas:               1000,
+		StateGasReservoir: 500,
+	}
+	if c.Gas != 1000 {
+		t.Errorf("Gas = %d, want 1000", c.Gas)
+	}
+	if c.StateGasReservoir != 500 {
+		t.Errorf("StateGasReservoir = %d, want 500", c.StateGasReservoir)
+	}
+}
+
+// TestGasOpcodeExcludesReservoir verifies opGas pushes only contract.Gas and
+// not contract.StateGasReservoir (GAP-1.1). The GAS opcode must reflect only
+// the execution gas counter; the reservoir is a separate dimension.
+func TestGasOpcodeExcludesReservoir(t *testing.T) {
+	contract := &Contract{
+		Gas:               1000,
+		StateGasReservoir: 500,
+	}
+	stack := NewStack()
+	var pc uint64
+	_, err := opGas(&pc, nil, contract, nil, stack)
+	if err != nil {
+		t.Fatalf("opGas: %v", err)
+	}
+	got := stack.Pop().Uint64()
+	if got != 1000 {
+		t.Errorf("opGas = %d, want 1000 (StateGasReservoir must not be included)", got)
+	}
+}
+
 func TestDefaultReservoirConfig(t *testing.T) {
 	cfg := DefaultReservoirConfig()
 	if !cfg.Enabled {
@@ -366,5 +401,63 @@ func TestInitReservoir_ReservoirExceedsIntrinsic(t *testing.T) {
 	}
 	if exec != 0 {
 		t.Errorf("execGas = %d, want 0", exec)
+	}
+}
+
+// TestCallForwardsReservoir verifies ForwardReservoir/ReturnReservoir semantics
+// used by opCall to propagate reservoir gas to sub-calls (GAP-1.2).
+func TestCallForwardsReservoir(t *testing.T) {
+	parentReservoir := uint64(1000)
+	var childReservoir uint64
+
+	// Forward: child gets parent's full reservoir, parent is zeroed.
+	ForwardReservoir(&parentReservoir, &childReservoir)
+	if childReservoir != 1000 {
+		t.Errorf("childReservoir after forward = %d, want 1000", childReservoir)
+	}
+	if parentReservoir != 0 {
+		t.Errorf("parentReservoir after forward = %d, want 0", parentReservoir)
+	}
+
+	// Child spends 300 gas from reservoir.
+	childReservoir -= 300
+
+	// Return: parent gets back whatever child didn't spend.
+	ReturnReservoir(&parentReservoir, &childReservoir)
+	if parentReservoir != 700 {
+		t.Errorf("parentReservoir after return = %d, want 700", parentReservoir)
+	}
+	if childReservoir != 0 {
+		t.Errorf("childReservoir after return = %d, want 0", childReservoir)
+	}
+}
+
+// TestSSTOREReservoir verifies that SSTORE zero→nonzero draws from the
+// reservoir when available, leaving execution gas intact (GAP-1.3).
+func TestSSTOREReservoir(t *testing.T) {
+	var zero, nonZero [32]byte
+	nonZero[0] = 1
+
+	// With reservoir having enough: caller pays only WarmStorageReadGlamst.
+	reservoir := uint64(GasSstoreSetGlamsterdam + 1000)
+	gas, drewFromReservoir := ReservoirGasCost(zero, zero, nonZero, false, &reservoir)
+	if !drewFromReservoir {
+		t.Error("expected drewFromReservoir=true when reservoir is sufficient")
+	}
+	if gas != WarmStorageReadGlamst {
+		t.Errorf("gas = %d, want WarmStorageReadGlamst (%d)", gas, WarmStorageReadGlamst)
+	}
+	if reservoir != 1000 {
+		t.Errorf("reservoir after draw = %d, want 1000", reservoir)
+	}
+
+	// With reservoir empty: caller pays full GasSstoreSetGlamsterdam.
+	reservoir = 0
+	gas, drewFromReservoir = ReservoirGasCost(zero, zero, nonZero, false, &reservoir)
+	if drewFromReservoir {
+		t.Error("expected drewFromReservoir=false when reservoir is empty")
+	}
+	if gas != GasSstoreSetGlamsterdam {
+		t.Errorf("gas = %d, want GasSstoreSetGlamsterdam (%d)", gas, GasSstoreSetGlamsterdam)
 	}
 }

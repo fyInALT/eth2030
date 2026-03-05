@@ -241,3 +241,72 @@ func (s *SSFState) StakeForRoot(slot uint64, root types.Hash) uint64 {
 	}
 	return sv.stakeByRoot[root]
 }
+
+// IsJustifiableSlot returns true if the candidate slot is eligible for a
+// finality justification vote given the current finalized slot.
+//
+// Based on the 3SF-mini algorithm (refs/research/3sf-mini/consensus.py):
+// a slot is justifiable when delta = candidate - finalized satisfies one of:
+//   - delta <= 5                (early slots always eligible)
+//   - delta is a perfect square (e.g. 1, 4, 9, 16, 25, …)
+//   - delta is an oblong number (x*(x+1): 2, 6, 12, 20, 30, …)
+//
+// This provides a backoff progression that ensures finality continues to
+// advance under high latency while preventing premature votes during
+// network partitions (GAP-5.3).
+func IsJustifiableSlot(finalizedSlot, candidateSlot uint64) bool {
+	if candidateSlot < finalizedSlot {
+		return false
+	}
+	delta := candidateSlot - finalizedSlot
+	if delta <= 5 {
+		return true
+	}
+	// Perfect square: isqrt(delta)^2 == delta.
+	if isPerfectSquare(delta) {
+		return true
+	}
+	// Oblong number: x*(x+1) for some x ≥ 1, i.e. delta of the form x^2+x.
+	// Equivalently: 4*delta+1 must be a perfect square.
+	return isOblongNumber(delta)
+}
+
+// isPerfectSquare returns true if n is a perfect square (n = k^2 for some k ≥ 0).
+func isPerfectSquare(n uint64) bool {
+	if n == 0 {
+		return true
+	}
+	// Newton's method integer square root.
+	r := intSqrt(n)
+	return r*r == n
+}
+
+// isOblongNumber returns true if n = x*(x+1) for some integer x ≥ 1.
+// Equivalent to: 4n+1 is a perfect square and sqrt(4n+1) is odd.
+func isOblongNumber(n uint64) bool {
+	if n == 0 {
+		return false
+	}
+	// 4n+1 must fit in uint64.
+	if n > (^uint64(0)-1)/4 {
+		return false
+	}
+	v := 4*n + 1
+	r := intSqrt(v)
+	return r*r == v && r%2 == 1
+}
+
+// intSqrt returns the integer square root of n (floor(sqrt(n))).
+func intSqrt(n uint64) uint64 {
+	if n == 0 {
+		return 0
+	}
+	// Initial estimate: bit-length / 2.
+	x := n
+	y := (x + 1) / 2
+	for y < x {
+		x = y
+		y = (x + n/x) / 2
+	}
+	return x
+}

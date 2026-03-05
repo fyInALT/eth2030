@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/eth2030/eth2030/das"
 )
 
 // Pipeline errors.
@@ -107,12 +109,61 @@ type StageResult struct {
 	Error    string
 }
 
+// DimStorageBlockGasCap is the maximum DimStorage gas allowed per block (GAP-2.2).
+// Mirrors the constant in core/vm to avoid an import cycle.
+const DimStorageBlockGasCap uint64 = 4_000_000
+
+// DimStorageFilter tracks DimStorage gas usage at the block level and rejects
+// transactions that would exceed the per-block DimStorage cap (GAP-2.2).
+// It is wired into StageIngress of the BlockPipeline.
+type DimStorageFilter struct {
+	mu        sync.Mutex
+	blockUsed uint64
+	blockCap  uint64
+}
+
+// NewDimStorageFilter creates a filter with the given block cap.
+func NewDimStorageFilter(blockCap uint64) *DimStorageFilter {
+	if blockCap == 0 {
+		blockCap = DimStorageBlockGasCap
+	}
+	return &DimStorageFilter{blockCap: blockCap}
+}
+
+// AcceptTx returns true if adding txStorageGas to the current block usage
+// does not exceed the block cap. On acceptance it increments the counter.
+func (f *DimStorageFilter) AcceptTx(txStorageGas uint64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.blockUsed+txStorageGas > f.blockCap {
+		return false
+	}
+	f.blockUsed += txStorageGas
+	return true
+}
+
+// Reset clears per-block usage (called at the start of each new block).
+func (f *DimStorageFilter) Reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.blockUsed = 0
+}
+
+// BlockStorageUsed returns the current DimStorage gas used in this block.
+func (f *DimStorageFilter) BlockStorageUsed() uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.blockUsed
+}
+
 // BlockPipeline orchestrates the full block building pipeline.
 type BlockPipeline struct {
-	mu      sync.RWMutex
-	config  *PipelineConfig
-	metrics map[PipelineStage]*StageMetrics
-	running bool
+	mu             sync.RWMutex
+	config         *PipelineConfig
+	metrics        map[PipelineStage]*StageMetrics
+	running        bool
+	storageFilter  *DimStorageFilter         // GAP-2.2: DimStorage block cap enforcement
+	pieceAssembler *das.BlockAssemblyManager // GAP-4.3: slot-based erasure piece assembly
 }
 
 // NewBlockPipeline creates a new block building pipeline.
@@ -130,9 +181,47 @@ func NewBlockPipeline(config *PipelineConfig) *BlockPipeline {
 	}
 
 	return &BlockPipeline{
-		config:  config,
-		metrics: metrics,
+		config:         config,
+		metrics:        metrics,
+		storageFilter:  NewDimStorageFilter(DimStorageBlockGasCap),
+		pieceAssembler: das.NewBlockAssemblyManager(das.DefaultBlockAssemblyManagerConfig()),
 	}
+}
+
+// AddBlockPiece forwards an erasure-coded block piece to the slot-based
+// BlockAssemblyManager (GAP-4.3). Returns true when k pieces have arrived
+// for the slot and the block can be reconstructed.
+func (bp *BlockPipeline) AddBlockPiece(slot uint64, piece *das.BlockPiece) (ready bool, err error) {
+	return bp.pieceAssembler.AddPiece(slot, piece)
+}
+
+// BlockPiecesReady returns true if ≥k pieces have been collected for slot.
+func (bp *BlockPipeline) BlockPiecesReady(slot uint64) bool {
+	return bp.pieceAssembler.IsReady(slot)
+}
+
+// ShouldFallbackToFullDownload returns true if the piece assembly timeout
+// elapsed before k pieces arrived for the slot (GAP-4.3).
+func (bp *BlockPipeline) ShouldFallbackToFullDownload(slot uint64) bool {
+	return bp.pieceAssembler.ShouldFallback(slot)
+}
+
+// ClearSlotPieces removes cached pieces for a slot once assembly is done.
+func (bp *BlockPipeline) ClearSlotPieces(slot uint64) {
+	bp.pieceAssembler.ClearSlot(slot)
+}
+
+// AcceptStorageTx checks whether a transaction with the given DimStorage gas
+// can be included in the current block. Delegates to the DimStorageFilter.
+// Block builders call this at StageIngress to enforce the 4M DimStorage cap.
+func (bp *BlockPipeline) AcceptStorageTx(txStorageGas uint64) bool {
+	return bp.storageFilter.AcceptTx(txStorageGas)
+}
+
+// ResetBlock resets per-block state (DimStorage usage counter) at the start
+// of building a new block.
+func (bp *BlockPipeline) ResetBlock() {
+	bp.storageFilter.Reset()
 }
 
 // Start initializes the pipeline.

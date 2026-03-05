@@ -807,17 +807,26 @@ func gasSstoreGlamst(evm *EVM, contract *Contract, stack *Stack, mem *Memory, me
 	copy(currentBytes[:], current[:])
 	copy(originalBytes[:], original[:])
 
+	var valBytes [32]byte
+	copy(valBytes[:], val[:])
+
 	if originalBytes == currentBytes {
 		if isZero(originalBytes) {
-			// Create slot: 0 -> non-zero. EIP-8037 increased cost.
-			return GasSstoreSetGlamsterdam + coldGas, nil
+			// Create slot: 0 → non-zero.
+			// GAP-2.1: route creation premium to DimStorage dimension.
+			AccountSSTOREGas(true, coldGas, evm.dimGasUsage)
+			// GAP-1.3: draw state-creation cost from reservoir; execution gas pays only base.
+			execGas, _ := ReservoirGasCost(originalBytes, currentBytes, valBytes, coldGas > 0, &contract.StateGasReservoir)
+			return execGas, nil
 		}
-		// Update slot: non-zero -> different non-zero.
+		// Update slot: non-zero → different non-zero.
+		AccountSSTOREGas(false, coldGas, evm.dimGasUsage)
 		return GasSstoreReset + coldGas, nil
 	}
 
 	// Dirty slot: original != current.
 	// EIP-7778: no refunds, so just charge warm read.
+	AccountSSTOREGas(false, coldGas, evm.dimGasUsage)
 	return WarmStorageReadGlamst + coldGas, nil
 }
 

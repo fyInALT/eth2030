@@ -10,10 +10,19 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/das/erasure"
+)
+
+// Block erasure parameters for the k=8, n=16 standard config (GAP-4.1).
+const (
+	// StandardDataShards is the number of data shards for block erasure (k=8).
+	StandardDataShards = 8
+	// StandardParityShards is the number of parity shards (m=8), giving n=16 total.
+	StandardParityShards = 8
 )
 
 // Block erasure errors.
@@ -46,6 +55,16 @@ func DefaultBlockErasureConfig() BlockErasureConfig {
 	return BlockErasureConfig{
 		DataShards:   4,
 		ParityShards: 4,
+		MaxBlockSize: DefaultMaxBlockSize,
+	}
+}
+
+// StandardBlockErasureConfig returns the k=8, n=16 block erasure configuration
+// as specified in GAP-4.1. Any 8 of the 16 pieces suffice for reconstruction.
+func StandardBlockErasureConfig() BlockErasureConfig {
+	return BlockErasureConfig{
+		DataShards:   StandardDataShards,
+		ParityShards: StandardParityShards,
 		MaxBlockSize: DefaultMaxBlockSize,
 	}
 }
@@ -259,4 +278,150 @@ func (d *BlockErasureDecoder) CanDecode(pieces []*BlockPiece) bool {
 	}
 
 	return validCount >= d.config.DataShards
+}
+
+// BlockAssemblyManager tracks erasure-coded block pieces per slot.
+// When k=8 pieces arrive for the same slot, it triggers reconstruction.
+// If only k-1 pieces arrive within the timeout, a fallback flag is set to
+// signal that the full block should be downloaded instead (GAP-4.3).
+type BlockAssemblyManager struct {
+	mu         sync.Mutex
+	dataShards int
+	timeout    time.Duration
+	slots      map[uint64]*slotAssembly
+}
+
+// slotAssembly tracks pieces for a single slot.
+type slotAssembly struct {
+	pieces    map[int]*BlockPiece
+	blockHash types.Hash
+	complete  bool
+	timeout   bool
+	createdAt time.Time
+}
+
+// BlockAssemblyManagerConfig configures the BlockAssemblyManager.
+type BlockAssemblyManagerConfig struct {
+	// DataShards is k: minimum pieces needed for reconstruction.
+	DataShards int
+	// PieceTimeout is the deadline for collecting k pieces before fallback.
+	PieceTimeout time.Duration
+}
+
+// DefaultBlockAssemblyManagerConfig returns the standard k=8, 2s timeout config.
+func DefaultBlockAssemblyManagerConfig() BlockAssemblyManagerConfig {
+	return BlockAssemblyManagerConfig{
+		DataShards:   StandardDataShards,
+		PieceTimeout: 2 * time.Second,
+	}
+}
+
+// NewBlockAssemblyManager creates a BlockAssemblyManager for slot-based tracking.
+func NewBlockAssemblyManager(cfg BlockAssemblyManagerConfig) *BlockAssemblyManager {
+	if cfg.DataShards <= 0 {
+		cfg.DataShards = StandardDataShards
+	}
+	if cfg.PieceTimeout == 0 {
+		cfg.PieceTimeout = 2 * time.Second
+	}
+	return &BlockAssemblyManager{
+		dataShards: cfg.DataShards,
+		timeout:    cfg.PieceTimeout,
+		slots:      make(map[uint64]*slotAssembly),
+	}
+}
+
+// AddPiece records a received block piece for the given slot. Returns (true,
+// nil) when k pieces have arrived and reconstruction is possible. Returns
+// (false, nil) when more pieces are needed. Returns (false, err) on invalid
+// input (nil piece, duplicate piece index).
+func (m *BlockAssemblyManager) AddPiece(slot uint64, piece *BlockPiece) (ready bool, err error) {
+	if piece == nil {
+		return false, ErrBlockErasureNilEncoder
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	asm, exists := m.slots[slot]
+	if !exists {
+		asm = &slotAssembly{
+			pieces:    make(map[int]*BlockPiece),
+			blockHash: piece.BlockHash,
+			createdAt: time.Now(),
+		}
+		m.slots[slot] = asm
+	}
+
+	if asm.complete {
+		return true, nil
+	}
+
+	if _, dup := asm.pieces[piece.Index]; dup {
+		return false, ErrBlockPieceDuplicate
+	}
+	asm.pieces[piece.Index] = piece
+
+	if len(asm.pieces) >= m.dataShards {
+		asm.complete = true
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// IsReady returns true if k pieces have been collected for the slot.
+func (m *BlockAssemblyManager) IsReady(slot uint64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	asm, ok := m.slots[slot]
+	return ok && asm.complete
+}
+
+// ShouldFallback returns true if the assembly timeout has elapsed without
+// reaching k pieces, indicating a full block download is needed (GAP-4.3).
+func (m *BlockAssemblyManager) ShouldFallback(slot uint64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	asm, ok := m.slots[slot]
+	if !ok {
+		return false
+	}
+	if asm.complete {
+		return false
+	}
+	return time.Since(asm.createdAt) >= m.timeout
+}
+
+// Pieces returns the collected pieces for a slot, or nil if the slot is unknown.
+func (m *BlockAssemblyManager) Pieces(slot uint64) []*BlockPiece {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	asm, ok := m.slots[slot]
+	if !ok {
+		return nil
+	}
+	result := make([]*BlockPiece, 0, len(asm.pieces))
+	for _, p := range asm.pieces {
+		result = append(result, p)
+	}
+	return result
+}
+
+// ClearSlot removes all piece data for the given slot once it has been
+// assembled or timed out (GAP-4.3).
+func (m *BlockAssemblyManager) ClearSlot(slot uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.slots, slot)
+}
+
+// PieceCount returns the number of pieces received so far for a slot.
+func (m *BlockAssemblyManager) PieceCount(slot uint64) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if asm, ok := m.slots[slot]; ok {
+		return len(asm.pieces)
+	}
+	return 0
 }

@@ -632,6 +632,9 @@ func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, state
 		receipt.CalldataGasPrice = CalcCalldataBaseFeeFromHeader(header)
 	}
 
+	// GAP-2.2: propagate DimStorage gas to receipt for block-level cap enforcement.
+	receipt.DimStorageGas = result.DimStorageGas
+
 	// Collect logs from state and compute bloom filter.
 	receipt.Logs = statedb.GetLogs(tx.Hash())
 	receipt.Bloom = types.LogsBloom(receipt.Logs)
@@ -997,6 +1000,22 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 		evm.SetBALTracker(balTracker[0], 0)
 	}
 
+	// GAP-2.1: attach per-dimension gas tracker under Glamsterdam so that
+	// SSTORE state-creation premiums are routed to DimStorage.
+	var dimUsage *vm.TxDimGasUsage
+	if isGlamsterdan {
+		dimUsage = &vm.TxDimGasUsage{}
+		evm.SetDimGasUsage(dimUsage)
+	}
+
+	// GAP-1.2/1.3: seed the state-creation gas reservoir from execution gas.
+	// Under Glamsterdam, a fraction of gasLeft is reserved for SSTORE/CREATE
+	// state-creation ops; the reservoir is forwarded to sub-calls intact.
+	if isGlamsterdan {
+		_, reservoir := vm.InitReservoir(gasLeft, vm.DefaultReservoirConfig())
+		evm.SetInitialReservoir(reservoir)
+	}
+
 	// Select the correct jump table based on fork rules.
 	var precompileAddrs map[types.Address]vm.PrecompiledContract
 	if config != nil {
@@ -1294,9 +1313,16 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 		statedb.AddBalance(header.Coinbase, coinbasePayment)
 	}
 
+	// GAP-2.2: capture DimStorage gas used by this transaction.
+	var dimStorageGas uint64
+	if dimUsage != nil {
+		dimStorageGas = dimUsage.DimStorage
+	}
+
 	return &ExecutionResult{
 		UsedGas:         gasUsed,
 		BlockGasUsed:    gasUsedBeforeRefund,
+		DimStorageGas:   dimStorageGas,
 		Err:             execErr,
 		ReturnData:      returnData,
 		ContractAddress: contractAddr,

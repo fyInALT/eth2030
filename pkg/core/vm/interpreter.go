@@ -109,23 +109,26 @@ type Config struct {
 
 // EVM is the Ethereum Virtual Machine execution environment.
 type EVM struct {
-	Context       BlockContext
-	TxContext     TxContext
-	Config        Config
-	StateDB       StateDB
-	chainID       uint64
-	depth         int
-	readOnly      bool
-	jumpTable     JumpTable
-	precompiles   map[types.Address]PrecompiledContract
-	returnData    []byte              // return data from the last CALL/CREATE
-	callGasTemp   uint64              // temporary storage for CALL gas (set by dynamic gas, read by opCall)
-	witnessGas    *WitnessGasTracker  // EIP-4762: witness gas tracking (nil if not Verkle)
-	balTracker    BALTracker          // EIP-7928: BAL state access tracking (nil if not active)
-	txIndex       uint64              // EIP-7928: current transaction index for BAL
-	forkRules     ForkRules           // active fork rules for this block
-	FrameCtx      *FrameContext       // EIP-8141: frame transaction approval context (nil if not frame tx)
-	guestRegistry *zkvm.GuestRegistry // EL-3: RISC-V guest registry for RVCREATE (nil if not I+)
+	Context              BlockContext
+	TxContext            TxContext
+	Config               Config
+	StateDB              StateDB
+	chainID              uint64
+	depth                int
+	readOnly             bool
+	jumpTable            JumpTable
+	precompiles          map[types.Address]PrecompiledContract
+	returnData           []byte              // return data from the last CALL/CREATE
+	callGasTemp          uint64              // temporary storage for CALL gas (set by dynamic gas, read by opCall)
+	callReservoirForward uint64              // reservoir forwarded to child call (set by opCall, read by evm.Call)
+	callReservoirReturn  uint64              // reservoir returned from child call (set by evm.Call, read by opCall)
+	dimGasUsage          *TxDimGasUsage      // per-dimension gas tracking (GAP-2.1, nil if not active)
+	witnessGas           *WitnessGasTracker  // EIP-4762: witness gas tracking (nil if not Verkle)
+	balTracker           BALTracker          // EIP-7928: BAL state access tracking (nil if not active)
+	txIndex              uint64              // EIP-7928: current transaction index for BAL
+	forkRules            ForkRules           // active fork rules for this block
+	FrameCtx             *FrameContext       // EIP-8141: frame transaction approval context (nil if not frame tx)
+	guestRegistry        *zkvm.GuestRegistry // EL-3: RISC-V guest registry for RVCREATE (nil if not I+)
 }
 
 // NewEVM creates a new EVM instance.
@@ -173,6 +176,25 @@ func (evm *EVM) SetForkRules(rules ForkRules) {
 // GetForkRules returns the active fork rules.
 func (evm *EVM) GetForkRules() ForkRules {
 	return evm.forkRules
+}
+
+// SetDimGasUsage attaches per-dimension gas usage tracking to this EVM.
+// When non-nil, gasSstoreGlamst routes SSTORE state-creation premiums to
+// DimStorage and records all SSTORE ops in the tracker (GAP-2.1).
+func (evm *EVM) SetDimGasUsage(u *TxDimGasUsage) {
+	evm.dimGasUsage = u
+}
+
+// DimGasUsage returns the per-dimension gas tracker, or nil if not set.
+func (evm *EVM) DimGasUsage() *TxDimGasUsage {
+	return evm.dimGasUsage
+}
+
+// SetInitialReservoir seeds the state-creation gas reservoir forwarded to
+// the first contract call. Call this after NewEVM before evm.Call/Create
+// so the top-level contract receives the reservoir (GAP-1.2/1.3).
+func (evm *EVM) SetInitialReservoir(reservoir uint64) {
+	evm.callReservoirForward = reservoir
 }
 
 // SetWitnessGasTracker enables EIP-4762 witness gas tracking. When set, the
@@ -501,12 +523,22 @@ func (evm *EVM) Call(caller types.Address, addr types.Address, input []byte, gas
 	contract.Code = code
 	contract.CodeHash = evm.StateDB.GetCodeHash(addr)
 
+	// GAP-1.2: forward parent's state-creation reservoir to child (full amount, not 63/64).
+	childReservoir := evm.callReservoirForward
+	evm.callReservoirForward = 0
+	contract.StateGasReservoir = childReservoir
+
 	// Execute.
 	evm.depth++
 	ret, err := evm.Run(contract, input)
 	evm.depth--
 
 	gasLeft := contract.Gas
+	// GAP-1.2: return unused child reservoir to caller via callReservoirReturn.
+	evm.callReservoirReturn = contract.StateGasReservoir
+	if err != nil && !errors.Is(err, ErrExecutionReverted) {
+		evm.callReservoirReturn = 0
+	}
 
 	if err != nil && !errors.Is(err, ErrExecutionReverted) {
 		// On error (not revert), revert state changes and consume all gas.
