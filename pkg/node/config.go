@@ -139,6 +139,10 @@ type Config struct {
 	// MixnetMode selects the anonymous transport: "simulated" (default), "tor", "nym".
 	MixnetMode string // --mixnet
 
+	// ExperimentalLocalTx enables type-0x08 LocalTx (proof-of-concept, not production-ready).
+	// When true, the txpool accepts type-0x08 txs and enforces ScopeHint access restrictions.
+	ExperimentalLocalTx bool // --experimental-local-tx
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 

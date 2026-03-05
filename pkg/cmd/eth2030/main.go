@@ -222,6 +222,7 @@ func newFlagSet(cfg *node.Config) *flagSet {
 
 	// --- EP-6 Block Building Pipeline ---
 	fs.StringVar(&cfg.MixnetMode, "mixnet", cfg.MixnetMode, "anonymous tx transport: simulated (default) | tor | nym (BB-1.1)")
+	fs.BoolVar(&cfg.ExperimentalLocalTx, "experimental-local-tx", cfg.ExperimentalLocalTx, "enable type-0x08 local tx (proof-of-concept; enforces ScopeHint BAL check, BB-2.2)")
 
 	return fs
 }
