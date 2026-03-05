@@ -32,8 +32,8 @@ type MultiDimFeeTx struct {
 }
 
 // TxData interface implementation.
-func (tx *MultiDimFeeTx) txType() byte         { return MultiDimFeeTxType }
-func (tx *MultiDimFeeTx) chainID() *big.Int     { return tx.ChainID }
+func (tx *MultiDimFeeTx) txType() byte           { return MultiDimFeeTxType }
+func (tx *MultiDimFeeTx) chainID() *big.Int      { return tx.ChainID }
 func (tx *MultiDimFeeTx) nonce() uint64          { return tx.Nonce }
 func (tx *MultiDimFeeTx) gas() uint64            { return tx.GasLimit }
 func (tx *MultiDimFeeTx) to() *Address           { return tx.To }

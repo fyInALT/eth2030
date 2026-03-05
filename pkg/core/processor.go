@@ -43,13 +43,13 @@ const (
 )
 
 var (
-	ErrNonceTooLow            = errors.New("nonce too low")
-	ErrNonceTooHigh           = errors.New("nonce too high")
-	ErrInsufficientBalance    = errors.New("insufficient balance for transfer")
-	ErrGasLimitExceeded       = errors.New("gas limit exceeded")
-	ErrIntrinsicGasTooLow     = errors.New("intrinsic gas too low")
-	ErrContractCreation       = errors.New("contract creation failed")
-	ErrContractCall           = errors.New("contract call failed")
+	ErrNonceTooLow         = errors.New("nonce too low")
+	ErrNonceTooHigh        = errors.New("nonce too high")
+	ErrInsufficientBalance = errors.New("insufficient balance for transfer")
+	ErrGasLimitExceeded    = errors.New("gas limit exceeded")
+	ErrIntrinsicGasTooLow  = errors.New("intrinsic gas too low")
+	ErrContractCreation    = errors.New("contract creation failed")
+	ErrContractCall        = errors.New("contract call failed")
 	// ErrBALFeasibilityViolated is returned when a block generates too many BAL
 	// items relative to gas consumed (EIP-7928 §early-rejection, every 8 txs).
 	ErrBALFeasibilityViolated = errors.New("BAL feasibility check failed: items × ITEM_COST > gasUsed")

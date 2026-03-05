@@ -211,7 +211,7 @@ func TestBALRetentionConstants(t *testing.T) {
 func TestIsBALRetained_ChainTooShort(t *testing.T) {
 	// When the chain has not grown past BALRetentionSlots, everything is retained.
 	cases := []struct {
-		head    uint64
+		head     uint64
 		blockNum uint64
 	}{
 		{0, 0},

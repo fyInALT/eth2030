@@ -39,7 +39,7 @@ func TestBuilderWithdrawal_MultipleBuilders(t *testing.T) {
 	reg.AddBuilder(addrs[0], 1000)
 	reg.AddBuilder(addrs[1], 1000)
 	reg.AddBuilder(addrs[2], 1000)
-	_ = reg.RequestWithdrawal(addrs[0], 500, 0) // withdrawable at 64
+	_ = reg.RequestWithdrawal(addrs[0], 500, 0)  // withdrawable at 64
 	_ = reg.RequestWithdrawal(addrs[1], 500, 10) // withdrawable at 74
 	_ = reg.RequestWithdrawal(addrs[2], 500, 20) // withdrawable at 84
 

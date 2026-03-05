@@ -17,9 +17,9 @@ func TestEngineBackend_ProcessInclusionList(t *testing.T) {
 	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
 
 	il := &types.InclusionList{
-		Slot:         1,
+		Slot:           1,
 		ValidatorIndex: 42,
-		Transactions: [][]byte{{0xaa, 0xbb}},
+		Transactions:   [][]byte{{0xaa, 0xbb}},
 	}
 	if err := backend.ProcessInclusionList(il); err != nil {
 		t.Fatalf("ProcessInclusionList: %v", err)

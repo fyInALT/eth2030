@@ -102,9 +102,9 @@ func TestILSatisfaction_PartialPresence(t *testing.T) {
 func TestILSatisfaction_MultipleILsOneSatisfied(t *testing.T) {
 	tx1 := makeMinimalTx(1)
 	tx2 := makeMinimalTx(2)
-	block := makeBlockWithTxs(tx1)    // only tx1
-	il1 := makeILWithRawTxs(tx1)     // satisfied
-	il2 := makeILWithRawTxs(tx2)     // unsatisfied
+	block := makeBlockWithTxs(tx1) // only tx1
+	il1 := makeILWithRawTxs(tx1)   // satisfied
+	il2 := makeILWithRawTxs(tx2)   // unsatisfied
 
 	result := CheckILSatisfaction(block, []*InclusionList{il1, il2}, nil, 1_000_000)
 	if result != ILUnsatisfied {

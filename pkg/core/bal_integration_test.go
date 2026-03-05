@@ -563,16 +563,16 @@ func TestBALFeasibilityCheck_Formula(t *testing.T) {
 	itemCost := bal.BALItemCost // 2000
 
 	cases := []struct {
-		name      string
-		items     uint64
-		gasUsed   uint64
-		wantFail  bool
+		name     string
+		items    uint64
+		gasUsed  uint64
+		wantFail bool
 	}{
 		{"zero items zero gas", 0, 0, false},
-		{"within budget", 5, 20_000, false},       // 5 × 2000 = 10000 ≤ 20000
-		{"at exact budget", 10, 20_000, false},    // 10 × 2000 = 20000 ≤ 20000
-		{"one over budget", 11, 20_000, true},     // 11 × 2000 = 22000 > 20000
-		{"way over budget", 100, 1_000, true},     // 100 × 2000 = 200000 > 1000
+		{"within budget", 5, 20_000, false},    // 5 × 2000 = 10000 ≤ 20000
+		{"at exact budget", 10, 20_000, false}, // 10 × 2000 = 20000 ≤ 20000
+		{"one over budget", 11, 20_000, true},  // 11 × 2000 = 22000 > 20000
+		{"way over budget", 100, 1_000, true},  // 100 × 2000 = 200000 > 1000
 	}
 
 	for _, tc := range cases {

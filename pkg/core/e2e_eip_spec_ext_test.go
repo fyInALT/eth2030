@@ -199,15 +199,15 @@ func TestE2E_MultiDimFeeTx_FeeVectors_Preserved(t *testing.T) {
 		big.NewInt(3_333_333_333),
 	}
 	inner := &types.MultiDimFeeTx{
-		ChainID:  big.NewInt(1),
-		Nonce:    0,
-		GasLimit: 21000,
-		To:       &to,
+		ChainID:            big.NewInt(1),
+		Nonce:              0,
+		GasLimit:           21000,
+		To:                 &to,
 		MaxFeesPerGas:      maxFees,
 		PriorityFeesPerGas: [3]*big.Int{new(big.Int), new(big.Int), new(big.Int)},
-		V: new(big.Int),
-		R: new(big.Int),
-		S: new(big.Int),
+		V:                  new(big.Int),
+		R:                  new(big.Int),
+		S:                  new(big.Int),
 	}
 	tx := types.NewTransaction(inner)
 	enc, err := tx.EncodeRLP()
@@ -291,13 +291,13 @@ func TestE2E_BALRetention_WindowSlidesWith_ChainGrowth(t *testing.T) {
 		block    uint64
 		retained bool
 	}{
-		{100, 0, true},                         // chain too short
-		{retention, 0, true},                   // exactly at boundary
-		{retention + 1, 0, false},              // block 0 just fell out
-		{retention + 1, 1, true},               // block 1 still in
-		{retention * 2, retention, true},        // window start retained
-		{retention * 2, retention - 1, false},  // just outside window
-		{retention * 2, retention * 2, true},   // head always retained
+		{100, 0, true},                        // chain too short
+		{retention, 0, true},                  // exactly at boundary
+		{retention + 1, 0, false},             // block 0 just fell out
+		{retention + 1, 1, true},              // block 1 still in
+		{retention * 2, retention, true},      // window start retained
+		{retention * 2, retention - 1, false}, // just outside window
+		{retention * 2, retention * 2, true},  // head always retained
 	}
 
 	for _, tc := range checkpoints {
