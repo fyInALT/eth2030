@@ -80,7 +80,7 @@ func TestXORDistance_Specific(t *testing.T) {
 		t.Fatalf("XORDistance last byte: want 0xFF, got 0x%02x", dist[31])
 	}
 	// All other bytes should be zero.
-	for i := 0; i < 31; i++ {
+	for i := range 31 {
 		if dist[i] != 0 {
 			t.Fatalf("XORDistance[%d] = 0x%02x, want 0", i, dist[i])
 		}

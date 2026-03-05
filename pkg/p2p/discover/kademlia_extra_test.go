@@ -40,7 +40,7 @@ func TestKademliaTable_ConfigIsACopy(t *testing.T) {
 	kt := NewKademliaTable(selfID, DefaultKademliaConfig())
 
 	cfg := kt.Config()
-	cfg.BucketSize = 999
+	cfg.BucketSize = 999 //nolint:staticcheck // intentional write to test copy semantics
 
 	// Mutating the returned copy must not affect the table.
 	if kt.Config().BucketSize == 999 {
