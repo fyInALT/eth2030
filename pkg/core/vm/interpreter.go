@@ -178,6 +178,25 @@ func (evm *EVM) GetForkRules() ForkRules {
 	return evm.forkRules
 }
 
+// SetDimGasUsage attaches per-dimension gas usage tracking to this EVM.
+// When non-nil, gasSstoreGlamst routes SSTORE state-creation premiums to
+// DimStorage and records all SSTORE ops in the tracker (GAP-2.1).
+func (evm *EVM) SetDimGasUsage(u *TxDimGasUsage) {
+	evm.dimGasUsage = u
+}
+
+// DimGasUsage returns the per-dimension gas tracker, or nil if not set.
+func (evm *EVM) DimGasUsage() *TxDimGasUsage {
+	return evm.dimGasUsage
+}
+
+// SetInitialReservoir seeds the state-creation gas reservoir forwarded to
+// the first contract call. Call this after NewEVM before evm.Call/Create
+// so the top-level contract receives the reservoir (GAP-1.2/1.3).
+func (evm *EVM) SetInitialReservoir(reservoir uint64) {
+	evm.callReservoirForward = reservoir
+}
+
 // SetWitnessGasTracker enables EIP-4762 witness gas tracking. When set, the
 // Verkle jump table charges gas based on witness size for state accesses.
 func (evm *EVM) SetWitnessGasTracker(t *WitnessGasTracker) {
