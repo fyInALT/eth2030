@@ -69,6 +69,9 @@ type Config struct {
 	BlockGasLimit     uint64            // Current block gas limit
 	PaymasterRegistry PaymasterApprover // optional: nil disables paymaster check (AA-1.2)
 	PaymasterStrict   bool              // true = strict (default), false = off (AA-1.2)
+	// AllowLocalTx enables acceptance of type-0x08 LocalTx (BB-2.2, --experimental-local-tx).
+	// When false (default), LocalTx are rejected at pool entry.
+	AllowLocalTx bool
 }
 
 // DefaultConfig returns sensible defaults for the pool.
@@ -370,6 +373,11 @@ func isDynamic(tx *types.Transaction) bool {
 
 // validateTx performs comprehensive validation of a transaction.
 func (pool *TxPool) validateTx(tx *types.Transaction) error {
+	// BB-2.2: gate type-0x08 LocalTx behind --experimental-local-tx flag.
+	if tx.Type() == types.LocalTxType && !pool.config.AllowLocalTx {
+		return errors.New("local tx (type 0x08) not enabled; set --experimental-local-tx")
+	}
+
 	// Reject negative values.
 	if tx.Value() != nil && tx.Value().Sign() < 0 {
 		return ErrNegativeValue

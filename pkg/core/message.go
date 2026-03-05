@@ -39,10 +39,11 @@ type Message struct {
 // TransactionToMessage converts a transaction into a Message for execution.
 // If the transaction has a cached sender (via SetSender), it is used.
 // Otherwise the From field must be set by the caller after signature recovery.
+// For type-0x08 LocalTx, the gas limit is reduced by the BAL discount (BB-2.2).
 func TransactionToMessage(tx *types.Transaction) Message {
 	msg := Message{
 		Nonce:      tx.Nonce(),
-		GasLimit:   tx.Gas(),
+		GasLimit:   types.ApplyLocalTxDiscount(tx),
 		GasPrice:   tx.GasPrice(),
 		GasFeeCap:  tx.GasFeeCap(),
 		GasTipCap:  tx.GasTipCap(),
