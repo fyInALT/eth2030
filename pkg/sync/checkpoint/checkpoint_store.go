@@ -2,7 +2,7 @@
 // orchestrator for fast initial synchronization. It manages verified
 // checkpoints from multiple sources, header range requests for batch
 // downloads, and detailed sync state transitions.
-package sync
+package checkpoint
 
 import (
 	"encoding/binary"
