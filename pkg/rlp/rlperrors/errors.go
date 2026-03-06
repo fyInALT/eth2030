@@ -1,4 +1,4 @@
-package rlp
+package rlperrors
 
 import "errors"
 
