@@ -1,4 +1,4 @@
-package das
+package teragas
 
 import (
 	"bytes"

@@ -1,6 +1,6 @@
 // teragas_pipeline.go implements a teragas data pipeline: L2 producers ->
 // bandwidth enforcement -> P2P delivery. Addresses gap #34 (Teragas L2).
-package das
+package teragas
 
 import (
 	"context"

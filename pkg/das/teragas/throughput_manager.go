@@ -2,7 +2,7 @@
 // the Ethereum 2030 roadmap. It dynamically adjusts the blob limit per block
 // based on network utilization, scaling up when demand is high and scaling
 // down when utilization drops.
-package das
+package teragas
 
 import (
 	"errors"

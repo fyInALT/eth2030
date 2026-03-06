@@ -2,7 +2,7 @@
 // throughput targeting 1 Gbyte/sec. It uses token-bucket rate limiters per L2
 // chain with a global bandwidth cap, congestion pricing when utilization
 // exceeds 80%, and backpressure signaling when consumers lag.
-package das
+package teragas
 
 import (
 	"errors"

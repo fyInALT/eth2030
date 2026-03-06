@@ -1,6 +1,6 @@
 // stream_enforcer.go implements a streaming pipeline that integrates
 // bandwidth enforcement with blob processing for teragas L2 throughput.
-package das
+package teragas
 
 import (
 	"errors"

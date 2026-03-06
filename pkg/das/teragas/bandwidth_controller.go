@@ -1,7 +1,7 @@
 // Package das - bandwidth_controller.go implements bandwidth enforcement for
 // teragas L2 throughput targeting 1 Gbyte/sec with token-bucket rate limiters,
 // per-peer tracking, reservations, throughput monitoring, and adaptive rates.
-package das
+package teragas
 
 import (
 	"errors"
