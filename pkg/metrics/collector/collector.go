@@ -1,7 +1,7 @@
 // collector.go implements a metrics collector that aggregates metrics from
 // all subsystems. It stores tagged metric entries with timestamps and
 // supports histograms with percentile computation.
-package metrics
+package collector
 
 import (
 	"math"
@@ -37,6 +37,13 @@ type MetricsCollector struct {
 }
 
 // NewMetricsCollector creates a new collector with the given config.
+// Config returns the collector configuration.
+func (mc *MetricsCollector) Config() CollectorConfig {
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	return mc.config
+}
+
 func NewMetricsCollector(config CollectorConfig) *MetricsCollector {
 	if config.MaxMetrics <= 0 {
 		config.MaxMetrics = 10000

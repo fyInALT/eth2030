@@ -1,4 +1,4 @@
-package metrics
+package collector
 
 import (
 	"fmt"
@@ -9,11 +9,11 @@ import (
 
 func TestNewMetricsCollector(t *testing.T) {
 	mc := NewMetricsCollector(CollectorConfig{})
-	if mc.config.MaxMetrics != 10000 {
-		t.Fatalf("default MaxMetrics = %d, want 10000", mc.config.MaxMetrics)
+	if mc.Config().MaxMetrics != 10000 {
+		t.Fatalf("default MaxMetrics = %d, want 10000", mc.Config().MaxMetrics)
 	}
-	if mc.config.FlushInterval != 60 {
-		t.Fatalf("default FlushInterval = %d, want 60", mc.config.FlushInterval)
+	if mc.Config().FlushInterval != 60 {
+		t.Fatalf("default FlushInterval = %d, want 60", mc.Config().FlushInterval)
 	}
 	if mc.MetricCount() != 0 {
 		t.Fatalf("MetricCount() = %d, want 0", mc.MetricCount())
@@ -27,13 +27,13 @@ func TestNewMetricsCollectorCustomConfig(t *testing.T) {
 		EnableHistograms: true,
 	}
 	mc := NewMetricsCollector(cfg)
-	if mc.config.MaxMetrics != 50 {
-		t.Fatalf("MaxMetrics = %d, want 50", mc.config.MaxMetrics)
+	if mc.Config().MaxMetrics != 50 {
+		t.Fatalf("MaxMetrics = %d, want 50", mc.Config().MaxMetrics)
 	}
-	if mc.config.FlushInterval != 10 {
-		t.Fatalf("FlushInterval = %d, want 10", mc.config.FlushInterval)
+	if mc.Config().FlushInterval != 10 {
+		t.Fatalf("FlushInterval = %d, want 10", mc.Config().FlushInterval)
 	}
-	if !mc.config.EnableHistograms {
+	if !mc.Config().EnableHistograms {
 		t.Fatal("EnableHistograms should be true")
 	}
 }
