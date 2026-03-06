@@ -10,7 +10,7 @@
 // Anti-equivocation: the VRF output is bound to the proposed block hash
 // to prevent proposers from equivocating. Double-reveal detection
 // provides a slashing condition.
-package consensus
+package vrf
 
 import (
 	"encoding/binary"
