@@ -1,6 +1,6 @@
 // peer_reputation.go implements a comprehensive peer reputation system with
 // time-based score decay, temporary banning, and sorted peer ranking.
-package p2p
+package scoring
 
 import (
 	"sort"

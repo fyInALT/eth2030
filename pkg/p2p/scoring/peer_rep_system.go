@@ -1,7 +1,7 @@
 // peer_rep_system.go implements a multi-dimensional peer reputation system with
 // per-category behavior scoring, exponential moving average decay, temporary and
 // permanent banning, reputation-weighted peer selection, and metrics export.
-package p2p
+package scoring
 
 import (
 	"errors"

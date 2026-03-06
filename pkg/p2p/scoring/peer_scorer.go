@@ -1,7 +1,7 @@
 // peer_scorer.go implements a behavior-based peer scoring system with
 // composite score computation, score decay, banning thresholds, peer
 // ranking for connection prioritization, and IP-based colocation penalties.
-package p2p
+package scoring
 
 import (
 	"math"

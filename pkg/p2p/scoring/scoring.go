@@ -1,4 +1,4 @@
-package p2p
+package scoring
 
 import (
 	"sync"
@@ -36,6 +36,12 @@ const (
 	scoreUselessBlock  = -0.5
 	scoreHandshakeOK   = 5.0
 	scoreHandshakeFail = -20.0
+)
+
+// Exported score constants for external test packages.
+const (
+	ScoreHandshakeOK   = scoreHandshakeOK
+	ScoreHandshakeFail = scoreHandshakeFail
 )
 
 // NewPeerScore creates a score tracker with the default initial score.
@@ -149,4 +155,52 @@ func (ps *PeerScore) adjust(delta float64) {
 		ps.value = MinScore
 	}
 	ps.lastUpdated = time.Now()
+}
+
+// ScoreMap tracks scores for all connected peers.
+type ScoreMap struct {
+	mu     sync.RWMutex
+	scores map[string]*PeerScore
+}
+
+// NewScoreMap creates an empty score map.
+func NewScoreMap() *ScoreMap {
+	return &ScoreMap{scores: make(map[string]*PeerScore)}
+}
+
+// Get returns the score for a peer, creating one if it doesn't exist.
+func (sm *ScoreMap) Get(id string) *PeerScore {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if s, ok := sm.scores[id]; ok {
+		return s
+	}
+	s := NewPeerScore()
+	sm.scores[id] = s
+	return s
+}
+
+// Remove deletes a peer's score entry.
+func (sm *ScoreMap) Remove(id string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	delete(sm.scores, id)
+}
+
+// Len returns the number of tracked peers.
+func (sm *ScoreMap) Len() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return len(sm.scores)
+}
+
+// All returns a map of all peer IDs to their current score values.
+func (sm *ScoreMap) All() map[string]float64 {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	result := make(map[string]float64, len(sm.scores))
+	for id, s := range sm.scores {
+		result[id] = s.Value()
+	}
+	return result
 }
