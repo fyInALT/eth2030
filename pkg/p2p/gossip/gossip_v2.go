@@ -1,7 +1,7 @@
 // gossip_v2.go implements GossipSub V2.0 extensions: improved peer scoring,
 // opportunistic grafting, and message prioritization. These features improve
 // mesh health and latency for the consensus-layer gossip protocol.
-package p2p
+package gossip
 
 import (
 	"sort"

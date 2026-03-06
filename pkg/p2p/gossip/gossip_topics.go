@@ -1,7 +1,7 @@
 // Package p2p implements gossip topic management per the Ethereum consensus
 // layer P2P specification. TopicManager tracks subscribed gossip topics,
 // handles message validation, deduplication, and per-topic scoring.
-package p2p
+package gossip
 
 import (
 	"crypto/sha256"

@@ -1,6 +1,6 @@
 // gossip_v2_test.go tests the GossipSub V2.0 scoring, opportunistic
 // grafting, message prioritization, and per-topic gossip parameters.
-package p2p
+package gossip
 
 import (
 	"fmt"

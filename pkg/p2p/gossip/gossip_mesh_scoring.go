@@ -2,7 +2,7 @@
 // v1.1 mesh protocol. It tracks message delivery rates, applies exponential
 // decay to historical scores, manages threshold-based banning with cooldown,
 // and supports score-based mesh pruning and grafting decisions.
-package p2p
+package gossip
 
 import (
 	"math"
