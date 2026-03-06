@@ -2,7 +2,7 @@
 // This file implements a beacon chain withdrawal queue that manages
 // validator withdrawal requests with priority ordering and rate limiting.
 
-package consensus
+package queue
 
 import (
 	"errors"

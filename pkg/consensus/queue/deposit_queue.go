@@ -2,7 +2,7 @@
 // This file implements an EIP-6110 deposit processing queue that manages
 // deposits from the execution layer for validator activation on the beacon chain.
 
-package consensus
+package queue
 
 import (
 	"encoding/binary"
