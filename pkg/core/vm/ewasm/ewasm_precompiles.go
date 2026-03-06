@@ -3,7 +3,7 @@
 // ewasm_precompiles.go provides a registry for migrating standard EVM
 // precompiles (0x01-0x0a) to run in eWASM for extensibility. Part of the
 // J+ roadmap: "more precompiles in eWASM".
-package vm
+package ewasm
 
 import (
 	"errors"

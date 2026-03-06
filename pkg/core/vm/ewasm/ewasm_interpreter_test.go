@@ -1,4 +1,4 @@
-package vm
+package ewasm
 
 import (
 	"errors"

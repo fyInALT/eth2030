@@ -2,7 +2,7 @@
 // "more precompiles in eWASM", "STF in eRISC"). Provides a stack-based WASM
 // execution engine with gas metering, memory bounds checking, and structured
 // control flow (block/loop/br/br_if).
-package vm
+package ewasm
 
 import (
 	"encoding/binary"

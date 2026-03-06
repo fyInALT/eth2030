@@ -3,7 +3,7 @@
 // ewasm_engine.go provides an eWASM interpreter for the EL roadmap:
 // "more precompiles in eWASM", "STF in eRISC", "canonical guest".
 // Thread-safe via per-execution isolation.
-package vm
+package ewasm
 
 import (
 	"encoding/binary"

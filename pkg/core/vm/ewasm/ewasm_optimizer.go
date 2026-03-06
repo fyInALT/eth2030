@@ -4,7 +4,7 @@
 // Part of the J+ era roadmap: "more precompiles in eWASM", "STF in eRISC".
 // These passes transform WASM instruction sequences to reduce gas costs
 // and improve execution throughput for provable computation.
-package vm
+package ewasm
 
 import (
 	"encoding/binary"

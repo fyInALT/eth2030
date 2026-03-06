@@ -3,7 +3,7 @@
 // ewasm_interpreter.go provides a stack-based WASM interpreter for executing
 // simple WASM instruction sequences. Part of the J+/K+ roadmap: "more
 // precompiles in eWASM", "STF in eRISC", "canonical guest".
-package vm
+package ewasm
 
 import (
 	"errors"

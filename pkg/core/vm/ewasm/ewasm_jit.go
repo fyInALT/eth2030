@@ -2,7 +2,7 @@
 // This file adds an eWASM JIT compilation cache (EL roadmap: "more precompiles
 // in eWASM", "canonical guest"). Provides WASM bytecode validation, module
 // parsing, thread-safe LRU cache, simulated execution, and gas calculation.
-package vm
+package ewasm
 
 import (
 	"encoding/binary"
