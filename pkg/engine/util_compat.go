@@ -27,23 +27,23 @@ const (
 
 // Util error variables.
 var (
-	ErrCoordNoBids          = util.ErrCoordNoBids
-	ErrCoordBuilderNotFound = util.ErrCoordBuilderNotFound
-	ErrCoordBuilderExists   = util.ErrCoordBuilderExists
-	ErrCoordMaxBuilders     = util.ErrCoordMaxBuilders
-	ErrCoordBidDeadline     = util.ErrCoordBidDeadline
-	ErrCoordBidIncrement    = util.ErrCoordBidIncrement
-	ErrCoordZeroStake       = util.ErrCoordZeroStake
-	ErrCoordDuplicateBid    = util.ErrCoordDuplicateBid
-	ErrCoordSlotZero        = util.ErrCoordSlotZero
-	ErrShrinkEmptyPayload   = util.ErrShrinkEmptyPayload
+	ErrCoordNoBids           = util.ErrCoordNoBids
+	ErrCoordBuilderNotFound  = util.ErrCoordBuilderNotFound
+	ErrCoordBuilderExists    = util.ErrCoordBuilderExists
+	ErrCoordMaxBuilders      = util.ErrCoordMaxBuilders
+	ErrCoordBidDeadline      = util.ErrCoordBidDeadline
+	ErrCoordBidIncrement     = util.ErrCoordBidIncrement
+	ErrCoordZeroStake        = util.ErrCoordZeroStake
+	ErrCoordDuplicateBid     = util.ErrCoordDuplicateBid
+	ErrCoordSlotZero         = util.ErrCoordSlotZero
+	ErrShrinkEmptyPayload    = util.ErrShrinkEmptyPayload
 	ErrShrinkMaxSizeExceeded = util.ErrShrinkMaxSizeExceeded
 	ErrShrinkUnknownStrategy = util.ErrShrinkUnknownStrategy
 	ErrShrinkCompressFailed  = util.ErrShrinkCompressFailed
 )
 
 // Util function wrappers.
-func DefaultCoordinatorConfig() CoordinatorConfig  { return util.DefaultCoordinatorConfig() }
+func DefaultCoordinatorConfig() CoordinatorConfig { return util.DefaultCoordinatorConfig() }
 func NewBuilderCoordinator(cfg CoordinatorConfig) *BuilderCoordinator {
 	return util.NewBuilderCoordinator(cfg)
 }

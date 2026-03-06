@@ -7,9 +7,9 @@ import "github.com/eth2030/eth2030/rpc/registry"
 // Registry type aliases.
 type (
 	MethodHandler  = registry.MethodHandler
-	Middleware      = registry.Middleware
-	MethodInfo      = registry.MethodInfo
-	MethodRegistry  = registry.MethodRegistry
+	Middleware     = registry.Middleware
+	MethodInfo     = registry.MethodInfo
+	MethodRegistry = registry.MethodRegistry
 )
 
 // Registry error variables.
@@ -19,5 +19,5 @@ var (
 )
 
 // Registry function wrappers.
-func NewMethodRegistry() *MethodRegistry  { return registry.NewMethodRegistry() }
+func NewMethodRegistry() *MethodRegistry       { return registry.NewMethodRegistry() }
 func NamespaceFromMethod(method string) string { return registry.NamespaceFromMethod(method) }

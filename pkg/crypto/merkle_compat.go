@@ -12,12 +12,14 @@ type (
 )
 
 // Merkle function wrappers.
-func GeneralizedIndex(depth uint, leafPos uint64) uint64 { return merkle.GeneralizedIndex(depth, leafPos) }
-func Parent(gi uint64) uint64                           { return merkle.Parent(gi) }
-func Sibling(gi uint64) uint64                          { return merkle.Sibling(gi) }
-func IsLeft(gi uint64) bool                             { return merkle.IsLeft(gi) }
-func DepthOfGI(gi uint64) uint                          { return merkle.DepthOfGI(gi) }
-func PathToRoot(gi uint64) []uint64                     { return merkle.PathToRoot(gi) }
+func GeneralizedIndex(depth uint, leafPos uint64) uint64 {
+	return merkle.GeneralizedIndex(depth, leafPos)
+}
+func Parent(gi uint64) uint64       { return merkle.Parent(gi) }
+func Sibling(gi uint64) uint64      { return merkle.Sibling(gi) }
+func IsLeft(gi uint64) bool         { return merkle.IsLeft(gi) }
+func DepthOfGI(gi uint64) uint      { return merkle.DepthOfGI(gi) }
+func PathToRoot(gi uint64) []uint64 { return merkle.PathToRoot(gi) }
 func GenerateMultiProof(tree [][32]byte, depth uint, leafIndices []uint64) (*MerkleMultiProof, error) {
 	return merkle.GenerateMultiProof(tree, depth, leafIndices)
 }

@@ -22,7 +22,9 @@ var (
 )
 
 // SampleOptimizer function wrappers.
-func DefaultSampleOptimizerConfig() SampleOptimizerConfig { return sampleopt.DefaultSampleOptimizerConfig() }
+func DefaultSampleOptimizerConfig() SampleOptimizerConfig {
+	return sampleopt.DefaultSampleOptimizerConfig()
+}
 func NewSampleOptimizer(config SampleOptimizerConfig) *SampleOptimizer {
 	return sampleopt.NewSampleOptimizer(config)
 }

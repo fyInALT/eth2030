@@ -56,10 +56,10 @@ var (
 )
 
 // Support function wrappers.
-func DefaultPipelineConfig() PipelineConfig     { return support.DefaultPipelineConfig() }
+func DefaultPipelineConfig() PipelineConfig               { return support.DefaultPipelineConfig() }
 func NewSyncPipeline(config PipelineConfig) *SyncPipeline { return support.NewSyncPipeline(config) }
-func NewProgressTracker() *ProgressTracker      { return support.NewProgressTracker() }
-func DefaultHealSchedulerConfig() HealSchedulerConfig { return support.DefaultHealSchedulerConfig() }
+func NewProgressTracker() *ProgressTracker                { return support.NewProgressTracker() }
+func DefaultHealSchedulerConfig() HealSchedulerConfig     { return support.DefaultHealSchedulerConfig() }
 func NewResourceBudget(memLimit, bwLimit, maxPending int) *ResourceBudget {
 	return support.NewResourceBudget(memLimit, bwLimit, maxPending)
 }

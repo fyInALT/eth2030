@@ -51,8 +51,8 @@ func VRFVerify(pk [VRFKeySize]byte, input []byte, output VRFOutput, proof VRFPro
 func ComputeVRFElectionInput(epoch, slot uint64) []byte {
 	return vrf.ComputeVRFElectionInput(epoch, slot)
 }
-func ComputeProposerScore(output VRFOutput) *big.Int  { return vrf.ComputeProposerScore(output) }
-func NewSecretElection() *SecretElection              { return vrf.NewSecretElection() }
+func ComputeProposerScore(output VRFOutput) *big.Int { return vrf.ComputeProposerScore(output) }
+func NewSecretElection() *SecretElection             { return vrf.NewSecretElection() }
 func VerifyReveal(pk [VRFKeySize]byte, reveal *VRFReveal, epoch uint64) bool {
 	return vrf.VerifyReveal(pk, reveal, epoch)
 }

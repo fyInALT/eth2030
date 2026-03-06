@@ -6,9 +6,9 @@ import "github.com/eth2030/eth2030/witness/cache"
 
 // Cache type aliases.
 type (
-	CachedWitness    = cache.CachedWitness
+	CachedWitness     = cache.CachedWitness
 	WitnessCacheStats = cache.WitnessCacheStats
-	WitnessCache     = cache.WitnessCache
+	WitnessCache      = cache.WitnessCache
 )
 
 // Cache function wrappers.

@@ -22,6 +22,6 @@ var (
 )
 
 // Gas function wrappers.
-func DefaultGasOracleConfig() GasOracleConfig { return gas.DefaultGasOracleConfig() }
-func NewGasOracle(config GasOracleConfig) *GasOracle { return gas.NewGasOracle(config) }
+func DefaultGasOracleConfig() GasOracleConfig           { return gas.DefaultGasOracleConfig() }
+func NewGasOracle(config GasOracleConfig) *GasOracle    { return gas.NewGasOracle(config) }
 func NewGasTracker(config GasTrackerConfig) *GasTracker { return gas.NewGasTracker(config) }

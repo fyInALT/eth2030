@@ -32,7 +32,7 @@ func TestJustificationBits(t *testing.T) {
 
 func TestSlotToEpoch(t *testing.T) {
 	tests := []struct {
-		slot         Slot
+		slot          Slot
 		slotsPerEpoch uint64
 		want          Epoch
 	}{

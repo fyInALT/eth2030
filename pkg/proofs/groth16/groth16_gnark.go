@@ -163,4 +163,3 @@ func VerifyGnarkAAProof(
 func GnarkIntegrationStatus() string {
 	return "gnark-groth16-bn254-real"
 }
-

@@ -13,5 +13,5 @@ type (
 )
 
 // HashCache function wrappers.
-func DefaultHashCacheConfig() HashCacheConfig   { return cache.DefaultHashCacheConfig() }
+func DefaultHashCacheConfig() HashCacheConfig        { return cache.DefaultHashCacheConfig() }
 func NewHashCache(config HashCacheConfig) *HashCache { return cache.NewHashCache(config) }

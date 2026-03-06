@@ -44,9 +44,9 @@ var (
 var AllQueueProofTypes = queue.AllQueueProofTypes
 
 // Queue function wrappers.
-func DefaultProofQueueConfig() ProofQueueConfig        { return queue.DefaultProofQueueConfig() }
+func DefaultProofQueueConfig() ProofQueueConfig         { return queue.DefaultProofQueueConfig() }
 func NewProofQueue(config ProofQueueConfig) *ProofQueue { return queue.NewProofQueue(config) }
-func NewMandatoryProofTracker() *MandatoryProofTracker { return queue.NewMandatoryProofTracker() }
+func NewMandatoryProofTracker() *MandatoryProofTracker  { return queue.NewMandatoryProofTracker() }
 func NewProofDeadline(duration time.Duration) *ProofDeadline {
 	return queue.NewProofDeadline(duration)
 }

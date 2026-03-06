@@ -6,10 +6,10 @@ import "github.com/eth2030/eth2030/node/lifecycle"
 
 // Type aliases.
 type (
-	ServiceState    = lifecycle.ServiceState
-	Service         = lifecycle.Service
-	LifecycleConfig = lifecycle.LifecycleConfig
-	ServiceEntry    = lifecycle.ServiceEntry
+	ServiceState     = lifecycle.ServiceState
+	Service          = lifecycle.Service
+	LifecycleConfig  = lifecycle.LifecycleConfig
+	ServiceEntry     = lifecycle.ServiceEntry
 	LifecycleManager = lifecycle.LifecycleManager
 )
 

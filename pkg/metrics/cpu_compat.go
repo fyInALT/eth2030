@@ -11,5 +11,5 @@ type (
 )
 
 // CPU function wrappers.
-func ReadCPUStats() *CPUStats  { return cpu.ReadCPUStats() }
+func ReadCPUStats() *CPUStats    { return cpu.ReadCPUStats() }
 func NewCPUTracker() *CPUTracker { return cpu.NewCPUTracker() }

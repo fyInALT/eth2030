@@ -6,21 +6,21 @@ import "github.com/eth2030/eth2030/log/formatter"
 
 // Log formatter type aliases.
 type (
-	LogLevel      = formatter.LogLevel
-	LogEntry      = formatter.LogEntry
-	LogFormatter  = formatter.LogFormatter
-	TextFormatter = formatter.TextFormatter
-	JSONFormatter = formatter.JSONFormatter
+	LogLevel       = formatter.LogLevel
+	LogEntry       = formatter.LogEntry
+	LogFormatter   = formatter.LogFormatter
+	TextFormatter  = formatter.TextFormatter
+	JSONFormatter  = formatter.JSONFormatter
 	ColorFormatter = formatter.ColorFormatter
 )
 
 // Log level constants.
 const (
-	DEBUG   = formatter.DEBUG
-	INFO    = formatter.INFO
-	WARN    = formatter.WARN
-	ERROR   = formatter.ERROR
-	FATAL   = formatter.FATAL
+	DEBUG = formatter.DEBUG
+	INFO  = formatter.INFO
+	WARN  = formatter.WARN
+	ERROR = formatter.ERROR
+	FATAL = formatter.FATAL
 )
 
 // Log formatter function wrappers.

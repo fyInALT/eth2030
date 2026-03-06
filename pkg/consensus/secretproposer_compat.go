@@ -9,9 +9,9 @@ import (
 
 // SecretProposer type aliases.
 type (
-	SecretProposerConfig    = secretproposer.SecretProposerConfig
-	ProposerCommitment      = secretproposer.ProposerCommitment
-	SecretProposerSelector  = secretproposer.SecretProposerSelector
+	SecretProposerConfig   = secretproposer.SecretProposerConfig
+	ProposerCommitment     = secretproposer.ProposerCommitment
+	SecretProposerSelector = secretproposer.SecretProposerSelector
 )
 
 // SecretProposer error variables.

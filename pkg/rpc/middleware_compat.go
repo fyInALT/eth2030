@@ -6,15 +6,15 @@ import "github.com/eth2030/eth2030/rpc/middleware"
 
 // Middleware type aliases.
 type (
-	RPCRateLimitConfig    = middleware.RPCRateLimitConfig
-	ClientRateStats       = middleware.ClientRateStats
-	MethodRateStats       = middleware.MethodRateStats
-	GlobalRateStats       = middleware.GlobalRateStats
-	RPCRateLimiter        = middleware.RPCRateLimiter
-	LifecycleState        = middleware.LifecycleState
-	RPCEndpoint           = middleware.RPCEndpoint
-	LifecycleEvent        = middleware.LifecycleEvent
-	LifecycleManager      = middleware.LifecycleManager
+	RPCRateLimitConfig     = middleware.RPCRateLimitConfig
+	ClientRateStats        = middleware.ClientRateStats
+	MethodRateStats        = middleware.MethodRateStats
+	GlobalRateStats        = middleware.GlobalRateStats
+	RPCRateLimiter         = middleware.RPCRateLimiter
+	LifecycleState         = middleware.LifecycleState
+	RPCEndpoint            = middleware.RPCEndpoint
+	LifecycleEvent         = middleware.LifecycleEvent
+	LifecycleManager       = middleware.LifecycleManager
 	LifecycleManagerConfig = middleware.LifecycleManagerConfig
 )
 

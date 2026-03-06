@@ -8,5 +8,5 @@ import "github.com/eth2030/eth2030/consensus/clconfig"
 type ConsensusConfig = clconfig.ConsensusConfig
 
 // ConsensusConfig function wrappers.
-func DefaultConfig() *ConsensusConfig     { return clconfig.DefaultConfig() }
-func QuickSlotsConfig() *ConsensusConfig  { return clconfig.QuickSlotsConfig() }
+func DefaultConfig() *ConsensusConfig    { return clconfig.DefaultConfig() }
+func QuickSlotsConfig() *ConsensusConfig { return clconfig.QuickSlotsConfig() }

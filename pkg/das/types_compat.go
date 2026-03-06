@@ -23,15 +23,15 @@ const (
 
 // Type aliases.
 type (
-	SubnetID           = dastypes.SubnetID
-	CustodyGroup       = dastypes.CustodyGroup
-	ColumnIndex        = dastypes.ColumnIndex
-	RowIndex           = dastypes.RowIndex
-	Cell               = dastypes.Cell
-	KZGCommitment      = dastypes.KZGCommitment
-	KZGProof           = dastypes.KZGProof
-	DataColumn         = dastypes.DataColumn
-	DataColumnSidecar  = dastypes.DataColumnSidecar
-	MatrixEntry        = dastypes.MatrixEntry
-	STARKCommitment    = dastypes.STARKCommitment
+	SubnetID          = dastypes.SubnetID
+	CustodyGroup      = dastypes.CustodyGroup
+	ColumnIndex       = dastypes.ColumnIndex
+	RowIndex          = dastypes.RowIndex
+	Cell              = dastypes.Cell
+	KZGCommitment     = dastypes.KZGCommitment
+	KZGProof          = dastypes.KZGProof
+	DataColumn        = dastypes.DataColumn
+	DataColumnSidecar = dastypes.DataColumnSidecar
+	MatrixEntry       = dastypes.MatrixEntry
+	STARKCommitment   = dastypes.STARKCommitment
 )
