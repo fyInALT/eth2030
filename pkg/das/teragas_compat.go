@@ -38,35 +38,35 @@ type (
 
 // Teragas constants.
 const (
-	DropOldest = teragas.DropOldest
+	DropOldest  = teragas.DropOldest
 	BlockOnFull = teragas.BlockOnFull
 )
 
 // Teragas error variables.
 var (
-	ErrBWInsufficientTokens  = teragas.ErrBWInsufficientTokens
-	ErrBWReservationExpired  = teragas.ErrBWReservationExpired
-	ErrBWReservationTooLarge = teragas.ErrBWReservationTooLarge
-	ErrBWPeerNotFound        = teragas.ErrBWPeerNotFound
-	ErrBWPeerLimitExceeded   = teragas.ErrBWPeerLimitExceeded
-	ErrBWPolicyViolation     = teragas.ErrBWPolicyViolation
-	ErrBWControllerStopped   = teragas.ErrBWControllerStopped
-	ErrBWZeroRate            = teragas.ErrBWZeroRate
-	ErrBandwidthExceeded     = teragas.ErrBandwidthExceeded
-	ErrChainNotRegistered    = teragas.ErrChainNotRegistered
-	ErrGlobalCapExceeded     = teragas.ErrGlobalCapExceeded
-	ErrBackpressureActive    = teragas.ErrBackpressureActive
-	ErrZeroBandwidthCap      = teragas.ErrZeroBandwidthCap
-	ErrStreamBandwidthDenied = teragas.ErrStreamBandwidthDenied
-	ErrStreamNilEnforcer     = teragas.ErrStreamNilEnforcer
+	ErrBWInsufficientTokens    = teragas.ErrBWInsufficientTokens
+	ErrBWReservationExpired    = teragas.ErrBWReservationExpired
+	ErrBWReservationTooLarge   = teragas.ErrBWReservationTooLarge
+	ErrBWPeerNotFound          = teragas.ErrBWPeerNotFound
+	ErrBWPeerLimitExceeded     = teragas.ErrBWPeerLimitExceeded
+	ErrBWPolicyViolation       = teragas.ErrBWPolicyViolation
+	ErrBWControllerStopped     = teragas.ErrBWControllerStopped
+	ErrBWZeroRate              = teragas.ErrBWZeroRate
+	ErrBandwidthExceeded       = teragas.ErrBandwidthExceeded
+	ErrChainNotRegistered      = teragas.ErrChainNotRegistered
+	ErrGlobalCapExceeded       = teragas.ErrGlobalCapExceeded
+	ErrBackpressureActive      = teragas.ErrBackpressureActive
+	ErrZeroBandwidthCap        = teragas.ErrZeroBandwidthCap
+	ErrStreamBandwidthDenied   = teragas.ErrStreamBandwidthDenied
+	ErrStreamNilEnforcer       = teragas.ErrStreamNilEnforcer
 	ErrInvalidThroughputConfig = teragas.ErrInvalidThroughputConfig
-	ErrSlotNotMonotonic      = teragas.ErrSlotNotMonotonic
-	ErrTPPipelineStopped     = teragas.ErrTPPipelineStopped
-	ErrTPNilData             = teragas.ErrTPNilData
-	ErrTPInvalidConfig       = teragas.ErrTPInvalidConfig
-	ErrTPBandwidthDenied     = teragas.ErrTPBandwidthDenied
-	ErrTPCompressionFailed   = teragas.ErrTPCompressionFailed
-	ErrTPReassemblyFailed    = teragas.ErrTPReassemblyFailed
+	ErrSlotNotMonotonic        = teragas.ErrSlotNotMonotonic
+	ErrTPPipelineStopped       = teragas.ErrTPPipelineStopped
+	ErrTPNilData               = teragas.ErrTPNilData
+	ErrTPInvalidConfig         = teragas.ErrTPInvalidConfig
+	ErrTPBandwidthDenied       = teragas.ErrTPBandwidthDenied
+	ErrTPCompressionFailed     = teragas.ErrTPCompressionFailed
+	ErrTPReassemblyFailed      = teragas.ErrTPReassemblyFailed
 )
 
 // Teragas function wrappers.
@@ -86,7 +86,7 @@ func NewBandwidthController(policy BandwidthPolicy) (*BandwidthController, error
 func ComputeOptimalChunkSize(targetBps float64, latencyBudgetMs int, minChunkSize, maxChunkSize int64) int64 {
 	return teragas.ComputeOptimalChunkSize(targetBps, latencyBudgetMs, minChunkSize, maxChunkSize)
 }
-func DefaultBandwidthConfig() BandwidthConfig  { return teragas.DefaultBandwidthConfig() }
+func DefaultBandwidthConfig() BandwidthConfig { return teragas.DefaultBandwidthConfig() }
 func NewBandwidthEnforcer(config BandwidthConfig) (*BandwidthEnforcer, error) {
 	return teragas.NewBandwidthEnforcer(config)
 }

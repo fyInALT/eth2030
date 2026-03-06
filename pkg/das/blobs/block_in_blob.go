@@ -2,7 +2,7 @@
 // roadmap track (block in blobs -> mandatory proofs -> canonical guest).
 // This enables embedding full execution payloads within blob transactions,
 // allowing L1 blocks to be reconstructed from blob data.
-package das
+package blobs
 
 import (
 	"encoding/binary"

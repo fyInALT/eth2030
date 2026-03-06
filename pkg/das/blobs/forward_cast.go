@@ -2,7 +2,7 @@
 // roadmap track (blob streaming -> short-dated blob futures -> forward-cast blobs).
 // Nodes announce blobs they intend to publish in upcoming slots, allowing peers
 // to prepare data availability sampling and custody in advance.
-package das
+package blobs
 
 import (
 	"errors"

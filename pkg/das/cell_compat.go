@@ -53,8 +53,8 @@ var (
 )
 
 // Cell function wrappers.
-func DefaultSubnetConfig() SubnetConfig                  { return cell.DefaultSubnetConfig() }
-func NewGossipRouter(config SubnetConfig) *GossipRouter  { return cell.NewGossipRouter(config) }
+func DefaultSubnetConfig() SubnetConfig                 { return cell.DefaultSubnetConfig() }
+func NewGossipRouter(config SubnetConfig) *GossipRouter { return cell.NewGossipRouter(config) }
 func AssignSubnets(nodeID [32]byte, config SubnetConfig) []uint64 {
 	return cell.AssignSubnets(nodeID, config)
 }
@@ -71,7 +71,7 @@ func ValidateCellMessageBatch(msgs []*CellMessageEntry) error {
 func NewCellMessageHandlerStruct() *CellMessageHandlerStruct {
 	return cell.NewCellMessageHandlerStruct()
 }
-func NewCellMessageRouter() *CellMessageRouter        { return cell.NewCellMessageRouter() }
+func NewCellMessageRouter() *CellMessageRouter          { return cell.NewCellMessageRouter() }
 func DefaultCellReputationConfig() CellReputationConfig { return cell.DefaultCellReputationConfig() }
 func ValidateCellReputationConfig(cfg CellReputationConfig) error {
 	return cell.ValidateCellReputationConfig(cfg)

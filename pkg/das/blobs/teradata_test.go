@@ -1,4 +1,4 @@
-package das
+package blobs
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/das/teragas"
 )
 
 func TestNewTeradataManager(t *testing.T) {
@@ -470,8 +471,8 @@ func TestValidateBandwidthEnforcement(t *testing.T) {
 		t.Error("expected error when enforcer not configured")
 	}
 
-	cfg := DefaultBandwidthConfig()
-	enforcer, _ := NewBandwidthEnforcer(cfg)
+	cfg := teragas.DefaultBandwidthConfig()
+	enforcer, _ := teragas.NewBandwidthEnforcer(cfg)
 	m.SetBandwidthEnforcer(enforcer)
 
 	if err := ValidateBandwidthEnforcement(m); err != nil {

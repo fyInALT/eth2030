@@ -1,7 +1,7 @@
 // Package das implements data availability sampling.
 // This file adds Teradata L2 support for high-throughput L2 data availability,
 // targeting the M+ upgrade timeline on the Ethereum 2030 roadmap.
-package das
+package blobs
 
 import (
 	"errors"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/das/teragas"
 
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -85,7 +86,7 @@ type TeradataManager struct {
 
 	// enforcer is the optional bandwidth enforcer. When set, StoreL2Data
 	// checks bandwidth availability before accepting data.
-	enforcer *BandwidthEnforcer
+	enforcer *teragas.BandwidthEnforcer
 
 	// currentSlot is a monotonically increasing slot counter assigned to
 	// each stored blob so that pruning can operate on slot boundaries.
@@ -112,7 +113,7 @@ func NewTeradataManager(config TeradataConfig) *TeradataManager {
 
 // SetBandwidthEnforcer attaches a bandwidth enforcer to the manager. When set,
 // StoreL2Data checks bandwidth availability before accepting data.
-func (m *TeradataManager) SetBandwidthEnforcer(enforcer *BandwidthEnforcer) {
+func (m *TeradataManager) SetBandwidthEnforcer(enforcer *teragas.BandwidthEnforcer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.enforcer = enforcer
