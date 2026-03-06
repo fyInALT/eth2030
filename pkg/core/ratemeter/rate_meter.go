@@ -2,7 +2,7 @@
 // execution target (1 Ggas/sec). It maintains a sliding window of recent
 // blocks, computes a rolling average gas rate with EMA smoothing, and
 // provides adaptive parallelism recommendations.
-package core
+package ratemeter
 
 import (
 	"math"
