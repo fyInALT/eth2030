@@ -12,7 +12,7 @@
 //   - Duty assignment lookup and caching for fast repeated queries
 //   - Quorum verification (2/3 of committee members must submit lists)
 //   - Signed list aggregation and committee root computation
-package focil
+package committee
 
 import (
 	"encoding/binary"
@@ -24,6 +24,9 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"golang.org/x/crypto/sha3"
 )
+
+// IL_COMMITTEE_SIZE is the number of validators in the IL committee (EIP-7805).
+const IL_COMMITTEE_SIZE = 16
 
 // Committee tracker errors.
 var (

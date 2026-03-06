@@ -11,7 +11,7 @@
 // The design follows EIP-7805's committee model where IL_COMMITTEE_SIZE
 // validators per slot are chosen pseudo-randomly, and at least 2/3 must
 // submit their inclusion lists for a valid quorum.
-package focil
+package committee
 
 import (
 	"encoding/binary"

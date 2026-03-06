@@ -11,7 +11,7 @@
 //   - Fallback selection when primary members are unavailable
 //   - Look-ahead computation for the next N slots
 //   - Selection proof generation and verification
-package focil
+package committee
 
 import (
 	"encoding/binary"
