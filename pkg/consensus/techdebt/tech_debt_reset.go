@@ -1,4 +1,4 @@
-package consensus
+package techdebt
 
 // tech_debt_reset.go implements tracking of deprecated beacon state fields
 // and automated migration as part of the CL Accessibility roadmap ("tech
