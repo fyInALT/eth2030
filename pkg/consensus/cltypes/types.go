@@ -1,6 +1,5 @@
-// Package consensus implements Ethereum consensus-layer primitives including
-// quick slots, epoch timing, and finality tracking.
-package consensus
+// Package cltypes provides fundamental consensus-layer primitive types.
+package cltypes
 
 import (
 	"github.com/eth2030/eth2030/core/types"
