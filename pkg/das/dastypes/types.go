@@ -1,6 +1,5 @@
-// Package das implements PeerDAS (Peer Data Availability Sampling) data
-// structures and verification logic per EIP-7594 and the Fulu DAS core spec.
-package das
+// Package dastypes provides fundamental PeerDAS data types per EIP-7594.
+package dastypes
 
 // PeerDAS constants from the Fulu consensus spec.
 const (
