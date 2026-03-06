@@ -1,9 +1,11 @@
-package crypto
+package vdf
 
 import (
 	"crypto/rand"
 	"errors"
 	"math/big"
+
+	"golang.org/x/crypto/sha3"
 )
 
 // Verifiable Delay Function (VDF) implementation using Wesolowski's protocol.
@@ -154,7 +156,7 @@ func (v *WesolowskiVDF) Modulus() *big.Int {
 // a deterministic hash. This is the Fiat-Shamir challenge in Wesolowski's protocol.
 func vdfHashToPrime(x, y *big.Int) *big.Int {
 	// Hash x || y to get a seed, then find the next prime.
-	h := Keccak256(x.Bytes(), y.Bytes())
+	h := keccak256(x.Bytes(), y.Bytes())
 	candidate := new(big.Int).SetBytes(h)
 	// Ensure odd.
 	candidate.SetBit(candidate, 0, 1)
@@ -252,4 +254,13 @@ func generateVDFModulus(securityBits uint64) *big.Int {
 	}
 	n := new(big.Int).Mul(p, q)
 	return n
+}
+
+// keccak256 computes the Keccak-256 hash of the concatenated data slices.
+func keccak256(data ...[]byte) []byte {
+	d := sha3.NewLegacyKeccak256()
+	for _, b := range data {
+		d.Write(b)
+	}
+	return d.Sum(nil)
 }

@@ -1,4 +1,4 @@
-package crypto
+package vdf
 
 import (
 	"testing"
@@ -372,9 +372,6 @@ func TestVDFv2_EstimateTime(t *testing.T) {
 	}
 
 	// More iterations should also return a positive duration.
-	// We avoid comparing est2 > est because EstimateTime runs an independent
-	// micro-benchmark on each call, and CPU scheduling variability on CI VMs
-	// can cause the per-iteration cost estimate to fluctuate significantly.
 	est2 := vdf.EstimateTime(10000)
 	if est2 <= 0 {
 		t.Errorf("expected positive duration for 10000 iterations, got %v", est2)
@@ -507,12 +504,12 @@ func TestCopyBytes(t *testing.T) {
 func TestHashN(t *testing.T) {
 	data := []byte("hashN test")
 	h1 := hashN(data, 1)
-	if string(h1) != string(Keccak256(data)) {
-		t.Fatal("hashN(1) should equal Keccak256")
+	if string(h1) != string(keccak256(data)) {
+		t.Fatal("hashN(1) should equal keccak256")
 	}
 	h2 := hashN(data, 2)
-	if string(h2) != string(Keccak256(Keccak256(data))) {
-		t.Fatal("hashN(2) should be double Keccak256")
+	if string(h2) != string(keccak256(keccak256(data))) {
+		t.Fatal("hashN(2) should be double keccak256")
 	}
 	if string(h1) == string(h2) {
 		t.Fatal("different round counts should produce different results")

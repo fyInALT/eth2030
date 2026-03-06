@@ -8,7 +8,7 @@
 //   - Thread-safe caching of verified chains to avoid redundant re-verification.
 //
 // This targets CL Cryptography: "VDF, secure prequorum" milestone.
-package crypto
+package vdf
 
 import (
 	"encoding/binary"
@@ -23,8 +23,6 @@ var (
 	errVDFBeaconEmptySeed    = errors.New("vdf-beacon: empty seed")
 	errVDFBeaconZeroChain    = errors.New("vdf-beacon: zero chain length")
 	errVDFBeaconZeroEpoch    = errors.New("vdf-beacon: zero epoch")
-	errVDFBeaconNilProof     = errors.New("vdf-beacon: nil proof")
-	errVDFBeaconNilBeacon    = errors.New("vdf-beacon: nil beacon output")
 	errVDFBeaconChainTooLong = errors.New("vdf-beacon: chain length exceeds maximum")
 	errVDFBeaconMismatch     = errors.New("vdf-beacon: chain link output/input mismatch")
 )
@@ -55,7 +53,7 @@ type VDFChain struct {
 	mu             sync.RWMutex
 	vdf            *VDFv2
 	itersPerStep   uint64
-	verifiedChains map[string]bool // cache key = Keccak256(seed || chainLength)
+	verifiedChains map[string]bool // cache key = keccak256(seed || chainLength)
 }
 
 // NewVDFChain creates a chain evaluator using the given VDFv2 and per-step
@@ -186,7 +184,7 @@ func (c *VDFChain) CacheSize() int {
 func (c *VDFChain) chainCacheKey(seed []byte, chainLength uint64) string {
 	var lenBuf [8]byte
 	binary.BigEndian.PutUint64(lenBuf[:], chainLength)
-	h := Keccak256(seed, lenBuf[:])
+	h := keccak256(seed, lenBuf[:])
 	return string(h)
 }
 
@@ -241,7 +239,7 @@ func (b *VDFBeacon) ProduceBeaconRandomness(epoch uint64, seed []byte) (*BeaconO
 	}
 
 	// Derive the 32-byte randomness from the final output.
-	randomness := Keccak256(chainProof.FinalOutput)
+	randomness := keccak256(chainProof.FinalOutput)
 
 	// Build compact proof: hash all individual proofs together.
 	compactProof := beaconCompactProof(chainProof)
@@ -284,7 +282,7 @@ func (b *VDFBeacon) VerifyBeaconRandomness(beacon *BeaconOutput, seed []byte) bo
 	}
 
 	// Check randomness matches.
-	expectedRandomness := Keccak256(chainProof.FinalOutput)
+	expectedRandomness := keccak256(chainProof.FinalOutput)
 	if !bytesEqual(expectedRandomness, beacon.Randomness) {
 		return false
 	}
@@ -314,7 +312,7 @@ func (b *VDFBeacon) ClearBeaconCache() {
 func beaconDomainSeed(epoch uint64, seed []byte) []byte {
 	var epochBuf [8]byte
 	binary.BigEndian.PutUint64(epochBuf[:], epoch)
-	return Keccak256(epochBuf[:], seed)
+	return keccak256(epochBuf[:], seed)
 }
 
 // beaconCompactProof builds a compact proof by hashing all link proofs together.
@@ -323,5 +321,8 @@ func beaconCompactProof(chain *ChainedVDFProof) []byte {
 	for i := range chain.Proofs {
 		combined = append(combined, chain.Proofs[i].Proof...)
 	}
-	return Keccak256(combined)
+	return keccak256(combined)
 }
+
+// suppress unused error variable
+var _ = errVDFBeaconMismatch

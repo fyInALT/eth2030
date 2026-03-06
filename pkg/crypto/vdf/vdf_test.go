@@ -1,4 +1,4 @@
-package crypto
+package vdf
 
 import (
 	"math/big"

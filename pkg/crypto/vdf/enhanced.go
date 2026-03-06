@@ -9,7 +9,7 @@
 // The delay function uses an iterative Keccak256 hash chain. While simpler
 // than repeated squaring, this construction is suitable for the hash-based
 // VDF variant where sequential hashing provides the delay guarantee.
-package crypto
+package vdf
 
 import (
 	"errors"
@@ -109,7 +109,7 @@ func (v *VDFv2) Config() VDFv2Config {
 }
 
 // Evaluate computes the VDF output by iteratively hashing the input.
-// The output is H^(iterations)(input), where H is Keccak256 (potentially
+// The output is H^(iterations)(input), where H is keccak256 (potentially
 // multi-round for higher security). The proof enables fast verification
 // without recomputing all iterations.
 func (v *VDFv2) Evaluate(input []byte, iterations uint64) (*VDFv2Result, error) {
@@ -383,11 +383,11 @@ func (v *VDFv2) EstimateTime(iterations uint64) time.Duration {
 
 // --- internal helpers ---
 
-// hashN applies Keccak256 rounds times sequentially.
+// hashN applies keccak256 rounds times sequentially.
 func hashN(data []byte, rounds int) []byte {
-	h := Keccak256(data)
+	h := keccak256(data)
 	for i := 1; i < rounds; i++ {
-		h = Keccak256(h)
+		h = keccak256(h)
 	}
 	return h
 }
