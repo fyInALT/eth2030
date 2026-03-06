@@ -1,4 +1,4 @@
-package light
+package bls
 
 import (
 	"math/big"

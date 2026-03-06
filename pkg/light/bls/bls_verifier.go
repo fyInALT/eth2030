@@ -1,4 +1,4 @@
-package light
+package bls
 
 // BLS-based sync committee signature verifier for light client security.
 //
