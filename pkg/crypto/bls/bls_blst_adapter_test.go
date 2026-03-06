@@ -1,6 +1,6 @@
 //go:build blst
 
-package crypto
+package bls
 
 import (
 	"bytes"

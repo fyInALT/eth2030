@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // KZG polynomial commitment verification for EIP-4844 point evaluation.
 //

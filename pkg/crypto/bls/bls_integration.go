@@ -20,7 +20,7 @@
 //   - Signatures in G2 (96-byte compressed)
 //   - DST: BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_
 //   - Hash-to-curve: SHA-256 based expand_message_xmd
-package crypto
+package bls
 
 import (
 	"encoding/hex"

@@ -20,7 +20,7 @@
 // operations. This implementation is suitable for consensus verification
 // (where inputs are public) but not for private key operations.
 
-package crypto
+package bls
 
 import (
 	"crypto/sha256"

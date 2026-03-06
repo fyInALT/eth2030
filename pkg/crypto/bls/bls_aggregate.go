@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // BLS aggregate signature operations for Ethereum consensus layer.
 //

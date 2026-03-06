@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // BLS12-381 G1 point operations over the curve y^2 = x^3 + 4 in F_p.
 //

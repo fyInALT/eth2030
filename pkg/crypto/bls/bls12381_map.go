@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // BLS12-381 map-to-curve operations.
 //

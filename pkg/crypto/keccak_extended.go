@@ -14,6 +14,10 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// blsR is the BLS12-381 scalar field order (local copy to avoid circular import).
+var blsR, _ = new(big.Int).SetString(
+	"73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16)
+
 // Keccak512 calculates the Keccak-512 hash of the given data.
 func Keccak512(data ...[]byte) []byte {
 	d := sha3.NewLegacyKeccak512()

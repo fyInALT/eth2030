@@ -14,7 +14,7 @@
 //
 // ValidateBlob and ValidateCommitment perform format checks that mirror the
 // validation done in the consensus spec (blob_to_polynomial, validate_kzg_g1).
-package crypto
+package bls
 
 import (
 	"encoding/binary"

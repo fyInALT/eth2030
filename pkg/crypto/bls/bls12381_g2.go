@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // BLS12-381 G2 point operations over the twist curve y^2 = x^3 + 4(1+u)
 // in F_p^2 where F_p^2 = F_p[u]/(u^2+1).

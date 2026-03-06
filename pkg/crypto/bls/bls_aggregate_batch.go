@@ -10,7 +10,7 @@
 //
 // This is used by the beacon chain to efficiently process large numbers of
 // attestations and sync committee signatures per slot.
-package crypto
+package bls
 
 import (
 	"errors"

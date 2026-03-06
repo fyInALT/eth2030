@@ -1,6 +1,6 @@
 //go:build goethkzg
 
-package crypto
+package bls
 
 import (
 	"bytes"

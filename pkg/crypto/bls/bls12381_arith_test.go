@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // Comprehensive tests for BLS12-381 field arithmetic (Fp, Fp2, Fp6, Fp12),
 // G1/G2 point operations, map-to-curve, and pairing internals.

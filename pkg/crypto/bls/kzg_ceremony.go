@@ -12,7 +12,7 @@
 //
 // The final SRS consists of [tau^0]G1, [tau^1]G1, ..., [tau^n]G1 and
 // [tau]G2 for pairing-based verification.
-package crypto
+package bls
 
 import (
 	"crypto/sha256"

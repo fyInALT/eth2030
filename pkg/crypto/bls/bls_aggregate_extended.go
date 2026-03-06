@@ -9,7 +9,7 @@
 //   - Domain separation tags per operation type
 //   - Proof of possession prevents rogue-key attacks
 //   - Batched verification amortizes pairing cost
-package crypto
+package bls
 
 import (
 	"crypto/rand"

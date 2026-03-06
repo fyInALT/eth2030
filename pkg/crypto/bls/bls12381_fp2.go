@@ -1,4 +1,4 @@
-package crypto
+package bls
 
 // BLS12-381 extension field F_p^2 = F_p[u] / (u^2 + 1).
 //

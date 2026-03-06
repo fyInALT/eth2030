@@ -8,7 +8,7 @@
 //
 // Build with: go build -tags goethkzg ./...
 // Test with:  go test -tags goethkzg -v ./crypto/ -run GoEthKZG
-package crypto
+package bls
 
 import (
 	"errors"

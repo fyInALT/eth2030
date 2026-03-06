@@ -11,7 +11,7 @@
 //
 // Build with: go build -tags blst
 // Test with:  go test -tags blst ./crypto/ -run Blst
-package crypto
+package bls
 
 import (
 	"errors"
