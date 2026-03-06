@@ -1,4 +1,4 @@
-package crypto
+package ipa
 
 import (
 	"math/big"

@@ -13,7 +13,7 @@
 //  3. Fold generators and b-vector to single elements
 //  4. Check final commitment against proof.A * g0 + (proof.A * b0) * Q
 
-package crypto
+package ipa
 
 import (
 	"errors"

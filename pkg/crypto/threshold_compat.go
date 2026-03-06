@@ -23,12 +23,12 @@ type (
 
 // Threshold error aliases.
 var (
-	ErrInvalidThreshold   = threshold.ErrInvalidThreshold
-	ErrInsufficientShares = threshold.ErrInsufficientShares
+	ErrInvalidThreshold    = threshold.ErrInvalidThreshold
+	ErrInsufficientShares  = threshold.ErrInsufficientShares
 	ErrDuplicateShareIndex = threshold.ErrDuplicateShareIndex
-	ErrInvalidShare       = threshold.ErrInvalidShare
-	ErrDecryptionFailed   = threshold.ErrDecryptionFailed
-	ErrInvalidCiphertext  = threshold.ErrInvalidCiphertext
+	ErrInvalidShare        = threshold.ErrInvalidShare
+	ErrDecryptionFailed    = threshold.ErrDecryptionFailed
+	ErrInvalidCiphertext   = threshold.ErrInvalidCiphertext
 )
 
 // Threshold function wrappers.

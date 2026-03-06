@@ -12,7 +12,7 @@
 //
 // The protocol follows the Bulletproofs-style IPA adapted for Verkle trees.
 
-package crypto
+package ipa
 
 import (
 	"crypto/sha256"

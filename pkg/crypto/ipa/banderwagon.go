@@ -14,7 +14,7 @@
 // by math/big, so this is suitable for consensus verification but not for
 // private key operations.
 
-package crypto
+package ipa
 
 import (
 	"errors"
