@@ -10,7 +10,7 @@
 // remaining parityShards are parity evaluations.
 //
 // Reference: Reed & Solomon (1960), "Polynomial Codes over Certain Finite Fields"
-package das
+package gf
 
 import (
 	"errors"

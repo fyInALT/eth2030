@@ -5,7 +5,7 @@
 // All non-zero field elements can be expressed as powers of a primitive
 // element (generator), enabling multiplication and division via logarithm
 // and antilogarithm lookup tables for O(1) operations.
-package das
+package gf
 
 import "sync"
 
