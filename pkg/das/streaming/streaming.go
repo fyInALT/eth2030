@@ -1,4 +1,4 @@
-package das
+package streaming
 
 import (
 	"errors"
@@ -8,6 +8,9 @@ import (
 
 	"golang.org/x/crypto/sha3"
 )
+
+// BytesPerCell is the byte size of a single DAS cell (EIP-7594).
+const BytesPerCell = 2048
 
 // Blob streaming errors.
 var (

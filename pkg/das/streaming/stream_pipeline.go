@@ -2,7 +2,7 @@
 // L2 throughput. Data flows through stages: Receive -> Validate -> Decode ->
 // Store, each backed by a goroutine pool. Bounded channels between stages
 // provide natural backpressure: a slow consumer slows the entire pipeline.
-package das
+package streaming
 
 import (
 	"errors"
