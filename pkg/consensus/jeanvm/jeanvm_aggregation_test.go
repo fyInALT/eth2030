@@ -1,4 +1,4 @@
-package consensus
+package jeanvm
 
 import (
 	"testing"

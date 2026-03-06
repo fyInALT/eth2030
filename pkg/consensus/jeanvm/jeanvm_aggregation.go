@@ -1,6 +1,6 @@
 // jeanVM Aggregation: ZK-circuit-based BLS signature aggregation for scaling
 // attestations to 1M+ per slot using Groth16-style proofs over BLS12-381.
-package consensus
+package jeanvm
 
 import (
 	"encoding/binary"
