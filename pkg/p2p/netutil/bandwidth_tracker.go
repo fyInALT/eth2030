@@ -2,7 +2,7 @@
 // It tracks per-peer upload/download rates, enforces global bandwidth limits,
 // supports priority-based allocation (consensus > blocks > txs > blobs), and
 // uses sliding window rate calculation.
-package p2p
+package netutil
 
 import (
 	"errors"

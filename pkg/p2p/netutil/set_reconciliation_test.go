@@ -1,5 +1,5 @@
 // set_reconciliation_test.go tests the IBLT-based set reconciliation protocol.
-package p2p
+package netutil
 
 import (
 	"math/rand"

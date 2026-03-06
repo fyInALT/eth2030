@@ -1,7 +1,7 @@
 // conn_limiter.go implements connection management with per-subnet limits,
 // inbound/outbound ratio management, rate limiting, connection deduplication,
 // and metrics export to prevent eclipse attacks and resource exhaustion.
-package p2p
+package netutil
 
 import (
 	"errors"

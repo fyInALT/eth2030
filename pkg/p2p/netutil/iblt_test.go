@@ -1,5 +1,5 @@
 // iblt_test.go tests the Invertible Bloom Lookup Table implementation.
-package p2p
+package netutil
 
 import (
 	"fmt"

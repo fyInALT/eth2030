@@ -4,7 +4,7 @@
 // enumeration, using only a compact sketch.
 //
 // Reference: Goodrich & Mitzenmacher, "Invertible Bloom Lookup Tables", 2011.
-package p2p
+package netutil
 
 // IBLTCell represents one cell in the IBLT.
 type IBLTCell struct {

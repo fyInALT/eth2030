@@ -1,7 +1,7 @@
 // set_reconciliation.go implements a rateless set reconciliation protocol
 // using IBLT sketches. Two peers can each build a local sketch, exchange it,
 // and compute the symmetric difference without sending their full sets.
-package p2p
+package netutil
 
 // SetReconciliationProtocol reconciles two item sets using IBLT sketches.
 // The cell count and k parameters determine the capacity (maximum symmetric
