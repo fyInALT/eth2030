@@ -1,4 +1,4 @@
-package witness
+package cache
 
 import (
 	"sync"
@@ -45,8 +45,8 @@ func TestWitnessCache_NewCache(t *testing.T) {
 
 func TestWitnessCache_NewCacheDefaults(t *testing.T) {
 	c := NewWitnessCache(0)
-	if c.maxBlocks != 128 {
-		t.Fatalf("expected default maxBlocks=128, got %d", c.maxBlocks)
+	if c.MaxBlocks() != 128 {
+		t.Fatalf("expected default maxBlocks=128, got %d", c.MaxBlocks())
 	}
 }
 

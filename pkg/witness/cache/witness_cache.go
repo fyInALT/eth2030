@@ -7,7 +7,7 @@
 // previously seen witnesses without re-downloading or recomputing them.
 //
 // Thread-safe: all public methods use sync.RWMutex for concurrent access.
-package witness
+package cache
 
 import (
 	"sync"
@@ -62,6 +62,9 @@ type WitnessCache struct {
 
 // NewWitnessCache creates a new witness cache with the given maximum
 // number of block witnesses. If maxBlocks <= 0, defaults to 128.
+// MaxBlocks returns the configured maximum block count.
+func (c *WitnessCache) MaxBlocks() int { return c.maxBlocks }
+
 func NewWitnessCache(maxBlocks int) *WitnessCache {
 	if maxBlocks <= 0 {
 		maxBlocks = 128
