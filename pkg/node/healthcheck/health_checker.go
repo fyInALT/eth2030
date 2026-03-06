@@ -1,7 +1,7 @@
 // health_checker.go provides a subsystem health monitoring framework for the
 // ETH2030 node. It aggregates health checks from registered subsystems and
 // produces consolidated health reports.
-package node
+package healthcheck
 
 import (
 	"errors"
