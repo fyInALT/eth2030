@@ -2,7 +2,7 @@
 // EIP-4444 compatible history management. It provides a way to read account
 // and storage state at past block heights, define retention windows, and
 // prune state that falls outside the retention period.
-package state
+package history
 
 import (
 	"errors"
