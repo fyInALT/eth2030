@@ -1,4 +1,4 @@
-package proofs
+package queue
 
 import (
 	"testing"

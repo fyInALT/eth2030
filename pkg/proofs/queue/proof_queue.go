@@ -2,7 +2,7 @@
 // and priority scheduling for the mandatory 3-of-5 proof requirement (K+ spec).
 // The queue accepts proof submissions, validates them concurrently, and tracks
 // which blocks have met the mandatory proof threshold.
-package proofs
+package queue
 
 import (
 	"errors"
