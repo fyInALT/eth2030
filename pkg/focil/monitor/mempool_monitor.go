@@ -5,7 +5,7 @@
 // InclusionMonitor (inclusion_monitor.go) by providing mempool-level
 // transaction tracking, per-sender fairness analysis, and censorship
 // indicators based on repeated exclusion patterns.
-package focil
+package monitor
 
 import (
 	"math"
