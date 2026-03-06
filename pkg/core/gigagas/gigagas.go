@@ -1,4 +1,4 @@
-package core
+package gigagas
 
 import (
 	"errors"
@@ -87,10 +87,16 @@ func (t *GasRateTracker) CurrentGasRate() float64 {
 	return float64(totalGas) / float64(timeDelta)
 }
 
+// ChainConfigurer is the minimal interface consumed by core/gigagas.
+// *core.ChainConfig satisfies this interface.
+type ChainConfigurer interface {
+	IsHogota(time uint64) bool
+}
+
 // IsGigagasEnabled returns true if the gigagas upgrade is active at the given timestamp.
 // Gigagas activates at the K+ fork stage (~2028), which is beyond Hogota.
 // For now, this checks if Hogota is active as a prerequisite placeholder.
-func IsGigagasEnabled(config *ChainConfig, time uint64) bool {
+func IsGigagasEnabled(config ChainConfigurer, time uint64) bool {
 	// Gigagas requires Hogota as a baseline (multidimensional pricing must be active).
 	return config.IsHogota(time)
 }

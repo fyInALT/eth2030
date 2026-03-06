@@ -4,7 +4,7 @@
 // GigagasExecutor and WorkStealingPool by adding fine-grained read/write
 // set conflict detection, dependency graph construction, and greedy batch
 // scheduling for maximal transaction parallelism.
-package core
+package gigagas
 
 import (
 	"sort"

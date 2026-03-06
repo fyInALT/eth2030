@@ -3,7 +3,7 @@
 // of tasks; when idle, workers steal from other workers' deques. This minimizes
 // contention under the 1 Ggas/sec workload by keeping tasks close to the thread
 // that created them while still balancing load across cores.
-package core
+package gigagas
 
 import (
 	"runtime"

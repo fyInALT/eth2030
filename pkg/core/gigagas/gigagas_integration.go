@@ -3,7 +3,7 @@
 // replaces sequential block execution with parallel execution, re-executing
 // conflicting transactions sequentially. Parallelism is adaptive based on
 // gas rate feedback. Fork activation: enabled only for Hogota+ blocks.
-package core
+package gigagas
 
 import (
 	"errors"
@@ -84,7 +84,7 @@ type txExecResult struct {
 type GigagasBlockProcessor struct {
 	config      GigagasBlockConfig
 	rateTracker *GasRateTracker
-	chainConfig *ChainConfig
+	chainConfig ChainConfigurer
 
 	currentWorkers atomic.Int32
 	totalBlocks    atomic.Uint64
@@ -97,7 +97,7 @@ type GigagasBlockProcessor struct {
 // If execFunc is nil, a default no-op executor is used.
 func NewGigagasBlockProcessor(
 	config GigagasBlockConfig,
-	chainConfig *ChainConfig,
+	chainConfig ChainConfigurer,
 	execFunc TxExecuteFunc,
 ) *GigagasBlockProcessor {
 	if config.MinWorkers <= 0 {

@@ -1,4 +1,4 @@
-package core
+package gigagas
 
 import (
 	"math/big"
@@ -6,6 +6,15 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// mockChainConfig satisfies ChainConfigurer for tests.
+type mockChainConfig struct {
+	hogotaTime *uint64
+}
+
+func (m *mockChainConfig) IsHogota(t uint64) bool {
+	return m.hogotaTime != nil && t >= *m.hogotaTime
+}
 
 func TestGasRateTracker_Basic(t *testing.T) {
 	tracker := NewGasRateTracker(100)
@@ -49,14 +58,14 @@ func TestGasRateTracker_Window(t *testing.T) {
 
 func TestIsGigagasEnabled(t *testing.T) {
 	// Not enabled without Hogota.
-	config := &ChainConfig{}
+	config := &mockChainConfig{}
 	if IsGigagasEnabled(config, 1000) {
 		t.Fatal("expected gigagas disabled without Hogota")
 	}
 
 	// Enabled with Hogota active.
 	hogotaTime := uint64(500)
-	config.HogotaTime = &hogotaTime
+	config.hogotaTime = &hogotaTime
 	if !IsGigagasEnabled(config, 1000) {
 		t.Fatal("expected gigagas enabled with Hogota active")
 	}

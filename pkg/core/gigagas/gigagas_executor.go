@@ -1,4 +1,4 @@
-package core
+package gigagas
 
 // Gigagas Parallel Executor implements parallel transaction execution
 // targeting 1 Ggas/sec throughput for the K+ era (~2028). Transactions

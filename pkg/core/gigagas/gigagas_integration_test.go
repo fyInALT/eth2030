@@ -1,4 +1,4 @@
-package core
+package gigagas
 
 import (
 	"math/big"
@@ -8,13 +8,12 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
+var _ = big.NewInt // suppress unused import if needed
+
 // Helper to create a minimal chain config with Hogota enabled.
-func testGigagasChainConfig() *ChainConfig {
+func testGigagasChainConfig() *mockChainConfig {
 	hogotaTime := uint64(1000)
-	return &ChainConfig{
-		ChainID:    big.NewInt(1),
-		HogotaTime: &hogotaTime,
-	}
+	return &mockChainConfig{hogotaTime: &hogotaTime}
 }
 
 // Helper to create a test block with no transactions.
