@@ -2,7 +2,7 @@
 // concurrent trie healing. It extends the base heal infrastructure with
 // priority queues, memory/bandwidth budgets, and batch processing to
 // support gigagas parallel sync workloads.
-package sync
+package support
 
 import (
 	"errors"

@@ -1,7 +1,7 @@
 // pipeline.go implements the SyncPipeline, a stage-based orchestrator for
 // full sync: header download -> body download -> receipt download ->
 // state download -> verification.
-package sync
+package support
 
 import (
 	"errors"
