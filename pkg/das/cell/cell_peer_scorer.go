@@ -6,7 +6,7 @@
 //
 // This complements cell_gossip_scorer.go (which provides subnet-level gossip
 // scoring) by adding cell-level delivery tracking per peer identity string.
-package das
+package cell
 
 import (
 	"errors"
