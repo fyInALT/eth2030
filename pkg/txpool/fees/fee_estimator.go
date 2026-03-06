@@ -2,7 +2,7 @@
 // block history. FeeEstimator tracks recent block gas prices and suggests
 // appropriate fees for new transactions, including EIP-1559 priority fees
 // and EIP-4844 blob base fees.
-package txpool
+package fees
 
 import (
 	"math/big"
@@ -32,6 +32,9 @@ const (
 
 	// FeeEstPercentileHigh is the high percentile for fast estimates.
 	FeeEstPercentileHigh = 90
+
+	// MinBlobBaseFee is the minimum blob base fee in wei (1 wei).
+	MinBlobBaseFee = 1
 )
 
 // BlockFeeData holds fee information from a single block used for estimation.

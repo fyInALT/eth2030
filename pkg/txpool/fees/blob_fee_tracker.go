@@ -3,7 +3,7 @@
 // blob gas usage ratios, and detects fee spikes. It provides percentile-based
 // blob fee suggestions with configurable lookback windows, price floor
 // enforcement, and separate spike detection logic for blob gas markets.
-package txpool
+package fees
 
 import (
 	"math/big"

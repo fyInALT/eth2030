@@ -2,7 +2,7 @@
 // fees and computes percentile-based fee suggestions for different urgency
 // levels. It supports EIP-1559 priority fee estimation, fee history windows,
 // and max fee recommendations for slow/medium/fast transactions.
-package txpool
+package fees
 
 import (
 	"math/big"

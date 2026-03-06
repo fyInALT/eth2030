@@ -2,7 +2,7 @@
 // pool. It provides an LRU cache for transaction validation results keyed by
 // tx hash, a batch signature verifier that processes multiple signatures in
 // parallel, and hit rate tracking for monitoring cache effectiveness.
-package txpool
+package fees
 
 import (
 	"crypto/sha256"
