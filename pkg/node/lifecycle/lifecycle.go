@@ -1,4 +1,5 @@
-package node
+// Package lifecycle manages the startup and shutdown lifecycle of node services.
+package lifecycle
 
 import (
 	"errors"
