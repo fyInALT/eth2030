@@ -1,4 +1,5 @@
-package eth
+// Package ethversion implements ETH wire protocol version negotiation.
+package ethversion
 
 import (
 	"errors"
@@ -62,10 +63,8 @@ type VersionManager struct {
 // NewVersionManager creates a new VersionManager with the given supported
 // versions. The versions are sorted in descending order (highest first).
 func NewVersionManager(supported []ProtocolVersion) *VersionManager {
-	// Make a copy so the caller's slice is not modified.
 	sorted := make([]ProtocolVersion, len(supported))
 	copy(sorted, supported)
-	// Sort descending by version number.
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[j].Less(sorted[i])
 	})
@@ -76,8 +75,7 @@ func NewVersionManager(supported []ProtocolVersion) *VersionManager {
 }
 
 // NegotiateVersion finds the highest protocol version common to both the
-// local supported set and the provided peer versions. Returns an error if
-// no common version exists or if the peer provides an empty list.
+// local supported set and the provided peer versions.
 func (vm *VersionManager) NegotiateVersion(peerVersions []ProtocolVersion) (*ProtocolVersion, error) {
 	if len(peerVersions) == 0 {
 		return nil, ErrNoVersions
@@ -86,15 +84,12 @@ func (vm *VersionManager) NegotiateVersion(peerVersions []ProtocolVersion) (*Pro
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
 
-	// Build a set of peer versions for O(1) lookup.
 	peerSet := make(map[[3]uint8]ProtocolVersion, len(peerVersions))
 	for _, pv := range peerVersions {
 		key := [3]uint8{pv.Major, pv.Minor, pv.Patch}
 		peerSet[key] = pv
 	}
 
-	// Walk our supported versions from highest to lowest and find the first
-	// version the peer also supports.
 	for _, sv := range vm.supported {
 		key := [3]uint8{sv.Major, sv.Minor, sv.Patch}
 		if _, ok := peerSet[key]; ok {
@@ -146,8 +141,7 @@ func (vm *VersionManager) RemovePeer(peerID string) {
 	delete(vm.peers, peerID)
 }
 
-// SupportedVersions returns a copy of the supported versions list, ordered
-// from highest to lowest.
+// SupportedVersions returns a copy of the supported versions list.
 func (vm *VersionManager) SupportedVersions() []ProtocolVersion {
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
@@ -157,8 +151,7 @@ func (vm *VersionManager) SupportedVersions() []ProtocolVersion {
 	return result
 }
 
-// HighestSupported returns the highest supported protocol version, or an
-// error if no versions are configured.
+// HighestSupported returns the highest supported protocol version.
 func (vm *VersionManager) HighestSupported() (*ProtocolVersion, error) {
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
