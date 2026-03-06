@@ -12,12 +12,14 @@
 // This implementation is used for SSZ Merkle proofs in the beacon chain
 // (EIP-4881) and for execution witness proofs.
 
-package crypto
+package merkle
 
 import (
 	"errors"
 	"math/bits"
 	"sort"
+
+	"golang.org/x/crypto/sha3"
 )
 
 // MerkleMultiProof contains the data needed to verify multiple leaves
@@ -315,7 +317,9 @@ func merkleHashPair(left, right [32]byte) [32]byte {
 	data := make([]byte, 64)
 	copy(data[:32], left[:])
 	copy(data[32:], right[:])
-	h := Keccak256(data)
+	d := sha3.NewLegacyKeccak256()
+	d.Write(data)
+	h := d.Sum(nil)
 	var result [32]byte
 	copy(result[:], h)
 	return result
