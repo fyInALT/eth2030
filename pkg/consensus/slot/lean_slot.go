@@ -2,7 +2,7 @@
 // This file defines LeanSlotTimeline and LeanSlotTimer: a sub-slot
 // phase timeline that integrates ePBS, FOCIL, PeerDAS, and 3SF
 // checkpoints into a unified per-slot schedule.
-package consensus
+package slot
 
 import (
 	"sync"

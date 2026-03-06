@@ -3,7 +3,7 @@
 // quick slots, dividing each slot into Proposal, Attestation, and Aggregation
 // phases. It complements SlotTimer and QuickSlotScheduler by providing
 // millisecond-resolution phase boundaries and event subscriptions.
-package consensus
+package slot
 
 import (
 	"sync"

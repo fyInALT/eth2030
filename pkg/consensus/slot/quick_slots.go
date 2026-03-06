@@ -1,4 +1,4 @@
-package consensus
+package slot
 
 import (
 	"encoding/binary"
@@ -235,7 +235,7 @@ func (s *QuickSlotScheduler) GetDuties(slot uint64, validatorCount int) *Validat
 	for i := 0; i < validatorCount; i++ {
 		validators[i] = uint64(i)
 	}
-	shuffled := ShuffleValidators(validators, seed)
+	shuffled := shuffleValidators(validators, seed)
 
 	// Proposer: selected from the shuffled set using the slot as offset.
 	proposer := shuffled[slot%uint64(validatorCount)]
@@ -265,4 +265,25 @@ func (s *QuickSlotScheduler) GetDuties(slot uint64, validatorCount int) *Validat
 		ProposerIndex:    proposer,
 		CommitteeIndices: committee,
 	}
+}
+
+// shuffleValidators performs a Fisher-Yates shuffle on a copy of the
+// validator slice using a Keccak256-derived random source.
+func shuffleValidators(validators []uint64, seed types.Hash) []uint64 {
+	n := len(validators)
+	if n <= 1 {
+		return validators
+	}
+	shuffled := make([]uint64, n)
+	copy(shuffled, validators)
+	for i := n - 1; i > 0; i-- {
+		buf := make([]byte, 32+7+8)
+		copy(buf, seed[:])
+		copy(buf[32:], []byte("shuffle"))
+		binary.BigEndian.PutUint64(buf[39:], uint64(i))
+		h := crypto.Keccak256(buf)
+		j := binary.BigEndian.Uint64(h[:8]) % uint64(i+1)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+	return shuffled
 }

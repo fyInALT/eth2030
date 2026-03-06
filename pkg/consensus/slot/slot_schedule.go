@@ -2,7 +2,7 @@
 // consensus layer. It maps fork epochs to slot durations and slots-per-epoch
 // counts, enabling the transition from 12s genesis slots through 8s fast
 // slots to 6s quick slots across successive upgrades.
-package consensus
+package slot
 
 import (
 	"errors"
