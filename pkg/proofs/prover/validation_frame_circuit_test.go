@@ -1,4 +1,4 @@
-package proofs
+package prover
 
 import "testing"
 

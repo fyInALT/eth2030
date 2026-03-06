@@ -3,7 +3,7 @@
 // verification of STARK proofs over execution traces with algebraic constraints.
 //
 // Part of the EL roadmap: proof aggregation and mandatory 3-of-5 proofs (K+).
-package proofs
+package prover
 
 import (
 	"bytes"

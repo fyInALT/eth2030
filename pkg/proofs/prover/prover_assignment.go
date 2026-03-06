@@ -2,7 +2,7 @@
 // mandatory 3-of-5 proof system. It manages a pool of provers with
 // reputation scoring, capacity tracking, and geographic diversity for
 // balanced and reliable proof generation across the network.
-package proofs
+package prover
 
 import (
 	"errors"
