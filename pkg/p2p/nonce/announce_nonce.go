@@ -2,7 +2,7 @@
 // block propagation. Part of the J+ era roadmap: peers announce nonces
 // associated with blocks to enable lightweight validation before full block
 // download, reducing wasted bandwidth on invalid blocks.
-package p2p
+package nonce
 
 import (
 	"errors"
@@ -61,6 +61,11 @@ type NonceCache struct {
 	// Index by block hash for fast lookup.
 	index map[types.Hash]*nonceCacheEntry
 	size  int
+}
+
+// NewNonceCache creates a new nonce cache with the given capacity and TTL.
+func NewNonceCache(maxSize int, ttl time.Duration) *NonceCache {
+	return newNonceCache(maxSize, ttl)
 }
 
 // newNonceCache creates a new nonce cache with the given capacity and TTL.

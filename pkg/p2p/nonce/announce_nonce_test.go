@@ -1,4 +1,4 @@
-package p2p
+package nonce
 
 import (
 	"errors"
@@ -316,7 +316,7 @@ func TestNonceAnnouncer_DefaultConfig(t *testing.T) {
 }
 
 func TestNonceCache_LRUOrder(t *testing.T) {
-	cache := newNonceCache(3, 5*time.Minute)
+	cache := NewNonceCache(3, 5*time.Minute)
 
 	// Insert 3 entries.
 	cache.put(NonceRecord{PeerID: "p", BlockHash: makeHash(1), Nonce: 1, Timestamp: time.Now()})
@@ -338,7 +338,7 @@ func TestNonceCache_LRUOrder(t *testing.T) {
 }
 
 func TestNonceCache_PruneStale(t *testing.T) {
-	cache := newNonceCache(100, 5*time.Minute)
+	cache := NewNonceCache(100, 5*time.Minute)
 
 	old := time.Now().Add(-10 * time.Minute)
 	recent := time.Now()
