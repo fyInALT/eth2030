@@ -5,7 +5,7 @@
 //
 // Supported signers: Falcon-512, SPHINCS+-SHA256, ML-DSA-65.
 // Includes batch verification for efficient block-level validation.
-package das
+package pqblob
 
 import (
 	"encoding/binary"

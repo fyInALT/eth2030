@@ -3,7 +3,7 @@
 // pq_blobs.go provides post-quantum secure blob commitments and proofs using
 // a lattice-based commitment scheme. Part of the L+ era roadmap for
 // post-quantum blob security.
-package das
+package pqblob
 
 import (
 	"encoding/binary"

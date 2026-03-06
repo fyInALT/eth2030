@@ -1,4 +1,4 @@
-package das
+package pqblob
 
 import (
 	"sync"

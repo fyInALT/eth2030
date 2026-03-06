@@ -2,7 +2,7 @@
 // commitments. Integrates ML-DSA-65 (real lattice signer), Falcon-512
 // (NTRU lattice polynomial with NTT, q=12289), and SPHINCS+ (WOTS+ Merkle
 // OTS with SHA-256) for the DAS post-quantum security roadmap (L+ era).
-package das
+package pqblob
 
 import (
 	"crypto/sha256"

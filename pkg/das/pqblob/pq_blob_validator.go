@@ -6,7 +6,7 @@
 //
 // This bridges Gap #31 (PQ Blobs) by providing a unified validation entry
 // point that DAS samplers can call to verify PQ-secured blob data.
-package das
+package pqblob
 
 import (
 	"crypto/sha256"
