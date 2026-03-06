@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 )
 
 // mockService implements the Service interface for testing.
@@ -268,5 +269,63 @@ func TestStopError(t *testing.T) {
 	}
 	if lm.GetState("broken") != StateFailed {
 		t.Fatal("service should be in failed state after stop error")
+	}
+}
+
+func TestStopAll_SkipsNonRunning(t *testing.T) {
+	lm := NewLifecycleManager(DefaultLifecycleConfig())
+
+	// Register two services but only start one.
+	svc1 := &mockService{name: "running"}
+	svc2 := &mockService{name: "not-running", startErr: errors.New("start failed")}
+	lm.Register(svc1, 1)
+	lm.Register(svc2, 2)
+
+	lm.StartAll() // svc2 will be in StateFailed after this
+
+	errs := lm.StopAll()
+	if len(errs) != 0 {
+		t.Fatalf("unexpected stop errors: %v", errs)
+	}
+	// svc1 should be stopped, svc2 stays failed (was never running).
+	if lm.GetState("running") != StateStopped {
+		t.Fatalf("want StateStopped for running svc, got %v", lm.GetState("running"))
+	}
+	if lm.GetState("not-running") != StateFailed {
+		t.Fatalf("want StateFailed for non-started svc, got %v", lm.GetState("not-running"))
+	}
+}
+
+func TestServiceStateString(t *testing.T) {
+	tests := []struct {
+		state ServiceState
+		want  string
+	}{
+		{StateCreated, "created"},
+		{StateStarting, "starting"},
+		{StateRunning, "running"},
+		{StateStopping, "stopping"},
+		{StateStopped, "stopped"},
+		{StateFailed, "failed"},
+		{ServiceState(99), "unknown"},
+	}
+	for _, tc := range tests {
+		got := tc.state.String()
+		if got != tc.want {
+			t.Errorf("state %d: want %q, got %q", tc.state, tc.want, got)
+		}
+	}
+}
+
+func TestDefaultLifecycleConfig(t *testing.T) {
+	cfg := DefaultLifecycleConfig()
+	if cfg.ShutdownTimeout != 30*time.Second {
+		t.Errorf("want ShutdownTimeout=30s, got %v", cfg.ShutdownTimeout)
+	}
+	if cfg.GracePeriod != 5*time.Second {
+		t.Errorf("want GracePeriod=5s, got %v", cfg.GracePeriod)
+	}
+	if cfg.MaxServices != 32 {
+		t.Errorf("want MaxServices=32, got %d", cfg.MaxServices)
 	}
 }

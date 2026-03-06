@@ -223,7 +223,13 @@ func (f *Freezer) Freeze(table string, item uint64, data []byte) error {
 		return fmt.Errorf("%w: expected item %d, got %d", ErrFreezerNotSequential, t.head, item)
 	}
 
-	return f.appendToTable(t, data)
+	if err := f.appendToTable(t, data); err != nil {
+		return err
+	}
+	if table == FreezerHeaderTable {
+		f.frozen = t.head
+	}
+	return nil
 }
 
 // FreezeRange appends multiple consecutive items.

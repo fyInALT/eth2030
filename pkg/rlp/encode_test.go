@@ -49,7 +49,7 @@ func TestEncodeLongString(t *testing.T) {
 func TestEncodeUint(t *testing.T) {
 	tests := []struct {
 		name string
-		val  interface{}
+		val  any
 		want []byte
 	}{
 		{"uint(0)", uint64(0), []byte{0x80}},
@@ -96,7 +96,7 @@ func TestEncodeBool(t *testing.T) {
 }
 
 func TestEncodeEmptyList(t *testing.T) {
-	got, err := EncodeToBytes([]interface{}{})
+	got, err := EncodeToBytes([]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,5 +225,119 @@ func TestEncodeSingleByte(t *testing.T) {
 	want := []byte{0x42}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("single byte: got %x, want %x", got, want)
+	}
+}
+
+func TestWrapList_Short(t *testing.T) {
+	payload := []byte{0x01, 0x02, 0x03}
+	got := WrapList(payload)
+	// prefix = 0xc0 + 3 = 0xc3
+	want := []byte{0xc3, 0x01, 0x02, 0x03}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("WrapList short: got %x, want %x", got, want)
+	}
+}
+
+func TestWrapList_Empty(t *testing.T) {
+	got := WrapList(nil)
+	want := []byte{0xc0}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("WrapList nil: got %x, want %x", got, want)
+	}
+}
+
+func TestWrapList_Long(t *testing.T) {
+	// payload of 56 bytes triggers the long-list encoding
+	payload := make([]byte, 56)
+	got := WrapList(payload)
+	// prefix = 0xf7 + 1 = 0xf8, then 1-byte length 56 = 0x38
+	if got[0] != 0xf8 {
+		t.Fatalf("WrapList long prefix: got %x, want 0xf8", got[0])
+	}
+	if got[1] != 0x38 {
+		t.Fatalf("WrapList long length byte: got %x, want 0x38", got[1])
+	}
+	if len(got) != 1+1+56 {
+		t.Fatalf("WrapList long total length: got %d, want 58", len(got))
+	}
+}
+
+func TestPutUintBigEndian(t *testing.T) {
+	tests := []struct {
+		u    uint64
+		want []byte
+	}{
+		{0x01, []byte{0x01}},
+		{0xff, []byte{0xff}},
+		{0x0100, []byte{0x01, 0x00}},
+		{0xffff, []byte{0xff, 0xff}},
+		{0x010000, []byte{0x01, 0x00, 0x00}},
+		{0x01000000, []byte{0x01, 0x00, 0x00, 0x00}},
+		{0x0100000000, []byte{0x01, 0x00, 0x00, 0x00, 0x00}},
+		{0x010000000000, []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00}},
+		{0x01000000000000, []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+		{0x0100000000000000, []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+	}
+	for _, tt := range tests {
+		got := putUintBigEndian(tt.u)
+		if !bytes.Equal(got, tt.want) {
+			t.Fatalf("putUintBigEndian(0x%x): got %x, want %x", tt.u, got, tt.want)
+		}
+	}
+}
+
+func TestEncodeNilPointer(t *testing.T) {
+	var p *string
+	got, err := EncodeToBytes(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x80}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("nil pointer: got %x, want %x", got, want)
+	}
+}
+
+func TestEncodeByteArray(t *testing.T) {
+	var arr [3]byte
+	arr[0], arr[1], arr[2] = 0x01, 0x02, 0x03
+	got, err := EncodeToBytes(arr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x83, 0x01, 0x02, 0x03}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("[3]byte: got %x, want %x", got, want)
+	}
+}
+
+func TestEncodeNonByteArray(t *testing.T) {
+	arr := [2]uint64{1, 2}
+	got, err := EncodeToBytes(arr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0xc2, 0x01, 0x02}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("[2]uint64: got %x, want %x", got, want)
+	}
+}
+
+func TestEncodeInt(t *testing.T) {
+	got, err := EncodeToBytes(int64(42))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x2a}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("int64(42): got %x, want %x", got, want)
+	}
+}
+
+func TestEncodeInvalidKind(t *testing.T) {
+	// channels cannot be RLP encoded
+	_, err := EncodeToBytes(make(chan int))
+	if err == nil {
+		t.Fatal("expected error encoding channel")
 	}
 }
