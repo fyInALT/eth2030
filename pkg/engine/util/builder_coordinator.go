@@ -1,7 +1,7 @@
 // builder_coordinator.go implements distributed builder coordination for ePBS
 // with Vickrey auction settlement, bid validation, builder reputation tracking,
 // and MEV burn calculation.
-package engine
+package util
 
 import (
 	"errors"

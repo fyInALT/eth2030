@@ -2,7 +2,7 @@
 // Part of the EL Sustainability track: reduce block payload size through
 // compression and pruning of redundant data (e.g., trailing zeros, duplicate
 // byte sequences).
-package engine
+package util
 
 import (
 	"bytes"
