@@ -1,4 +1,4 @@
-package das
+package rpo
 
 import (
 	"errors"
@@ -92,6 +92,13 @@ type RPOManager struct {
 	current  uint64
 	schedule []*RPOSchedule
 	history  []*RPOHistoryEntry
+}
+
+// Config returns the manager's configuration.
+func (m *RPOManager) Config() RPOConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config
 }
 
 // NewRPOManager creates a new RPO manager with the given configuration.

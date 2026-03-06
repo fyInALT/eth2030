@@ -1,4 +1,4 @@
-package das
+package rpo
 
 import (
 	"sync"
@@ -30,11 +30,11 @@ func TestNewRPOManagerDefaults(t *testing.T) {
 	if rm.CurrentRPO() < 1 {
 		t.Fatalf("CurrentRPO = %d, want >= 1", rm.CurrentRPO())
 	}
-	if rm.config.MinRPO != 1 {
-		t.Fatalf("MinRPO = %d, want 1", rm.config.MinRPO)
+	if rm.Config().MinRPO != 1 {
+		t.Fatalf("MinRPO = %d, want 1", rm.Config().MinRPO)
 	}
-	if rm.config.MaxRPO != 64 {
-		t.Fatalf("MaxRPO = %d, want 64", rm.config.MaxRPO)
+	if rm.Config().MaxRPO != 64 {
+		t.Fatalf("MaxRPO = %d, want 64", rm.Config().MaxRPO)
 	}
 }
 
@@ -65,9 +65,9 @@ func TestNewRPOManagerMaxBelowMin(t *testing.T) {
 		MinRPO: 10,
 		MaxRPO: 5, // below min
 	})
-	if rm.config.MaxRPO < rm.config.MinRPO {
+	if rm.Config().MaxRPO < rm.Config().MinRPO {
 		t.Fatalf("MaxRPO %d < MinRPO %d after normalization",
-			rm.config.MaxRPO, rm.config.MinRPO)
+			rm.Config().MaxRPO, rm.Config().MinRPO)
 	}
 }
 
