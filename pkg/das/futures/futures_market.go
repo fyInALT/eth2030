@@ -1,7 +1,7 @@
 // futures_market.go extends blob futures with price discovery, margin tracking,
 // order books, and a futures pool for the Data Layer roadmap (short-dated blob
 // futures -> long-dated gas futures).
-package das
+package futures
 
 import (
 	"errors"

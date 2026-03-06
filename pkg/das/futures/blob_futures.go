@@ -5,7 +5,7 @@
 // A blob future is a financial instrument where a buyer and seller agree on a
 // price for blob data availability at a future slot. Settlement is based on
 // whether the committed hash matches the actual blob hash at the target slot.
-package das
+package futures
 
 import (
 	"errors"
@@ -15,6 +15,9 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// MaxBlobCommitmentsPerBlock is the max number of blob commitments per block (from das/types.go).
+const MaxBlobCommitmentsPerBlock = 9
 
 // FutureType distinguishes short-dated from long-dated blob futures.
 type FutureType uint8
