@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // BN254 G1 point operations over the curve y^2 = x^3 + 3 in F_p.
 //

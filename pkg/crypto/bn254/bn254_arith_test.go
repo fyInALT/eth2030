@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // Comprehensive tests for BN254 field arithmetic (Fp, Fp2, Fp6, Fp12),
 // G1/G2 point operations, Frobenius maps, and pairing internals.

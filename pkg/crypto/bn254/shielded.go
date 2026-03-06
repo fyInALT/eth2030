@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 import (
 	"sync"
@@ -48,10 +48,10 @@ func CreateShieldedTx(sender, recipient types.Address, amount uint64, blinding [
 	amountBytes[6] = byte(amount >> 8)
 	amountBytes[7] = byte(amount)
 
-	commitment := Keccak256Hash(sender[:], recipient[:], amountBytes[:], blinding[:])
+	commitment := keccak256Hash(sender[:], recipient[:], amountBytes[:], blinding[:])
 
 	// Generate nullifier: H(commitment || sender).
-	nullifier := Keccak256Hash(commitment[:], sender[:])
+	nullifier := keccak256Hash(commitment[:], sender[:])
 
 	// Encrypted data: just a placeholder (concatenate recipient + amount bytes).
 	encrypted := make([]byte, 0, types.AddressLength+8)

@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // BN254 extension field F_p^2 = F_p[i] / (i^2 + 1).
 //

@@ -18,6 +18,10 @@ import (
 var blsR, _ = new(big.Int).SetString(
 	"73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16)
 
+// bn254N is the BN254 curve order (local copy to avoid circular import).
+var bn254N, _ = new(big.Int).SetString(
+	"21888242871839275222246405745257275088548364400416034343698204186575808495617", 10)
+
 // Keccak512 calculates the Keccak-512 hash of the given data.
 func Keccak512(data ...[]byte) []byte {
 	d := sha3.NewLegacyKeccak512()

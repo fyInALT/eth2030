@@ -5,7 +5,7 @@
 // SHA-256 is used for all hashing, providing post-quantum security.
 // The tree supports efficient incremental root updates when new commitments
 // are appended, and generates Merkle proofs for commitment inclusion.
-package crypto
+package bn254
 
 import (
 	"crypto/sha256"

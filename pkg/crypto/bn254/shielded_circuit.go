@@ -5,7 +5,7 @@
 //
 // Integrates with nullifier_set.go (SparseMerkleTree) and commitment_tree.go
 // (CommitmentTree) for on-chain accumulator verification.
-package crypto
+package bn254
 
 import (
 	"crypto/sha256"
@@ -125,7 +125,7 @@ func PedersenCommitBN254(amount uint64, randomness [32]byte) types.Hash {
 	// Serialize and hash to 32 bytes.
 	px, py := point.g1ToAffine()
 	encoded := bn254EncodeG1(px, py)
-	h := Keccak256(encoded)
+	h := keccak256(encoded)
 	var result types.Hash
 	copy(result[:], h)
 	return result

@@ -5,7 +5,7 @@
 //
 // The construction uses SHA-256-based Pedersen-style commitments and
 // Fiat-Shamir-transformed sigma protocols for zero-knowledge.
-package crypto
+package bn254
 
 import (
 	"crypto/sha256"

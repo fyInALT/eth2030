@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // Complete BN254 field arithmetic extensions: Montgomery form conversion,
 // field inversion with edge cases, square root, Legendre symbol, batch

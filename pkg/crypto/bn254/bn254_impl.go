@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // BN254 implementation details: efficient Frobenius maps and tower arithmetic.
 //

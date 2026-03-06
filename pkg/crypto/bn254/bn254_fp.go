@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // BN254 finite field arithmetic over F_p.
 //

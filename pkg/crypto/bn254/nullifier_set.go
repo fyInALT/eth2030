@@ -5,7 +5,7 @@
 // A Sparse Merkle Tree (SMT) has a fixed depth (256 bits, matching the key
 // size) but only stores non-empty leaves, making it memory-efficient for
 // sparse key spaces like nullifier sets.
-package crypto
+package bn254
 
 import (
 	"crypto/sha256"

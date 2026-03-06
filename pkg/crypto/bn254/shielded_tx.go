@@ -1,7 +1,7 @@
 // shielded_tx.go implements a fuller shielded transaction framework with
 // Pedersen commitments, range proofs, note management, and balance verification
 // for private value transfers on Ethereum L1.
-package crypto
+package bn254
 
 import (
 	"encoding/binary"
@@ -39,7 +39,7 @@ func init() {
 	shieldedBN254G = G1Generator()
 	// Derive H from a nothing-up-my-sleeve seed via hash-to-scalar then scalar*G.
 	// This ensures H is a valid curve point with unknown discrete log w.r.t. G.
-	hSeed := Keccak256([]byte("shielded-pedersen-H-generator-bn254"))
+	hSeed := keccak256([]byte("shielded-pedersen-H-generator-bn254"))
 	hScalar := new(big.Int).SetBytes(hSeed)
 	hScalar.Mod(hScalar, bn254N)
 	if hScalar.Sign() == 0 {
@@ -137,7 +137,7 @@ func ShieldedPedersenCommit(value uint64, blinding [32]byte) types.Hash {
 	// Serialize the affine point and hash to 32 bytes.
 	px, py := point.g1ToAffine()
 	encoded := bn254EncodeG1(px, py)
-	h := Keccak256(encoded)
+	h := keccak256(encoded)
 	var result types.Hash
 	copy(result[:], h)
 	return result
@@ -191,7 +191,7 @@ func GenerateRangeProof(value uint64, blinding [32]byte) *RangeProof {
 		// Per-bit blinding: derived deterministically.
 		var bitBuf [8]byte
 		binary.BigEndian.PutUint64(bitBuf[:], uint64(bit))
-		bitBlinding := Keccak256(blinding[:], bitBuf[:])
+		bitBlinding := keccak256(blinding[:], bitBuf[:])
 		var bitBlind32 [32]byte
 		copy(bitBlind32[:], bitBlinding)
 
@@ -200,7 +200,7 @@ func GenerateRangeProof(value uint64, blinding [32]byte) *RangeProof {
 		proofData = append(proofData, bitCommit[:]...)
 
 		// Fiat-Shamir challenge from running transcript.
-		challenge := Keccak256(proofData)
+		challenge := keccak256(proofData)
 
 		// Response: r_bit + challenge * bitVal (scalar arithmetic mod bn254N).
 		cBig := new(big.Int).SetBytes(challenge)
@@ -254,7 +254,7 @@ func VerifyRangeProof(proof *RangeProof) bool {
 		transcript = append(transcript, bitCommit...)
 
 		// Recompute challenge.
-		challenge := Keccak256(transcript)
+		challenge := keccak256(transcript)
 		allZero := true
 		for _, b := range challenge {
 			if b != 0 {
@@ -294,7 +294,7 @@ func NewShieldedNotePool() *ShieldedNotePool {
 func (p *ShieldedNotePool) CreateNote(value uint64, recipient types.Address) (*ShieldNote, *CommitmentOpening, error) {
 	// Generate a random blinding factor.
 	var blinding [32]byte
-	blindingHash := Keccak256Hash(
+	blindingHash := keccak256Hash(
 		recipient[:],
 		shieldedEncodeU64(value),
 		bn254EncodeG1(shieldedBN254H.g1ToAffine()),
@@ -304,7 +304,7 @@ func (p *ShieldedNotePool) CreateNote(value uint64, recipient types.Address) (*S
 	commitment := ShieldedPedersenCommit(value, blinding)
 
 	// Generate nullifier from commitment and recipient.
-	nullifierHash := Keccak256Hash(commitment[:], recipient[:])
+	nullifierHash := keccak256Hash(commitment[:], recipient[:])
 
 	// Encrypt the value for the recipient (simplified).
 	encrypted := shieldedEncryptVal(value, recipient, blinding)
@@ -506,7 +506,7 @@ func shieldedEncryptVal(value uint64, recipient types.Address, blinding [32]byte
 	valueBuf := shieldedEncodeU64(value)
 
 	// Derive encryption key: H(recipient || blinding || "shielded-enc-v1").
-	encKey := Keccak256(recipient[:], blinding[:], []byte("shielded-enc-v1"))
+	encKey := keccak256(recipient[:], blinding[:], []byte("shielded-enc-v1"))
 
 	// Encrypt: each byte XOR'd with the derived key stream. The key is
 	// cryptographically bound to both the recipient and the blinding factor.
@@ -515,7 +515,7 @@ func shieldedEncryptVal(value uint64, recipient types.Address, blinding [32]byte
 		encrypted[i] = valueBuf[i] ^ encKey[i]
 	}
 	// Append a MAC: H(encKey || ciphertext) for integrity.
-	mac := Keccak256(encKey, encrypted)
+	mac := keccak256(encKey, encrypted)
 	encrypted = append(encrypted, mac[:8]...)
 	return encrypted
 }

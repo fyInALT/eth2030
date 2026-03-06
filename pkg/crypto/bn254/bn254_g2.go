@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // BN254 G2 point operations over the twisted curve y^2 = x^3 + 3/(9+i)
 // in F_p^2.

@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 import (
 	"testing"

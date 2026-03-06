@@ -1,4 +1,4 @@
-package crypto
+package bn254
 
 // BN254 precompile interface functions.
 //
@@ -8,6 +8,8 @@ package crypto
 import (
 	"errors"
 	"math/big"
+
+	"golang.org/x/crypto/sha3"
 )
 
 var (
@@ -161,4 +163,21 @@ func bn254PadRight(data []byte, minLen int) []byte {
 	padded := make([]byte, minLen)
 	copy(padded, data)
 	return padded
+}
+
+// keccak256 computes the Keccak-256 hash of the input data.
+func keccak256(data ...[]byte) []byte {
+	d := sha3.NewLegacyKeccak256()
+	for _, b := range data {
+		d.Write(b)
+	}
+	return d.Sum(nil)
+}
+
+// keccak256Hash computes Keccak-256 and returns a [32]byte.
+func keccak256Hash(data ...[]byte) [32]byte {
+	h := keccak256(data...)
+	var out [32]byte
+	copy(out[:], h)
+	return out
 }
