@@ -1,4 +1,4 @@
-package txpool
+package frametx
 
 import "github.com/eth2030/eth2030/metrics"
 
