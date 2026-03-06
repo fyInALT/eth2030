@@ -6,7 +6,7 @@
 // for proof generation via the witness collector.
 //
 // Part of the K+ roadmap for canonical RISC-V guest execution.
-package zkvm
+package riscv
 
 import (
 	"errors"
@@ -77,6 +77,15 @@ func NewRVCPU(gasLimit uint64) *RVCPU {
 		EcallHandlers: make(map[uint32]EcallHandler),
 	}
 }
+
+// InputPos returns the current read position in InputBuf.
+func (cpu *RVCPU) InputPos() int { return cpu.inputPos }
+
+// SetInputPos sets the current read position in InputBuf.
+func (cpu *RVCPU) SetInputPos(pos int) { cpu.inputPos = pos }
+
+// AdvanceInputPos advances the read position in InputBuf by n bytes.
+func (cpu *RVCPU) AdvanceInputPos(n int) { cpu.inputPos += n }
 
 // RegisterEcallHandler installs a custom ECALL handler for the given code.
 // Built-in codes (0–2) cannot be overridden.
@@ -461,6 +470,10 @@ func (cpu *RVCPU) executeMExt(rd, a, b uint32, funct3 uint32) ([]MemOp, error) {
 	cpu.PC += 4
 	return nil, nil
 }
+
+// HandleEcall processes a system call based on a7 (x17).
+// Exported so that tests in parent packages can trigger ecall dispatch directly.
+func (cpu *RVCPU) HandleEcall() { cpu.handleEcall() }
 
 // handleEcall processes a system call based on a7 (x17).
 func (cpu *RVCPU) handleEcall() {

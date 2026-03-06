@@ -21,8 +21,8 @@ type (
 )
 
 // Poseidon function wrappers.
-func DefaultPoseidonParams() *PoseidonParams  { return poseidon.DefaultPoseidonParams() }
-func SBox(x, field *big.Int) *big.Int         { return poseidon.SBox(x, field) }
+func DefaultPoseidonParams() *PoseidonParams { return poseidon.DefaultPoseidonParams() }
+func SBox(x, field *big.Int) *big.Int        { return poseidon.SBox(x, field) }
 func MDSMul(state []*big.Int, mds [][]*big.Int, field *big.Int) []*big.Int {
 	return poseidon.MDSMul(state, mds, field)
 }

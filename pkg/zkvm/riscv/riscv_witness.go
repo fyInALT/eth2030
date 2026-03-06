@@ -7,7 +7,7 @@
 // the proof backend.
 //
 // Part of the K+ roadmap for canonical RISC-V guest execution.
-package zkvm
+package riscv
 
 import (
 	"crypto/sha256"

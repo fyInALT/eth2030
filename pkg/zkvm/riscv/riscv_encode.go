@@ -4,7 +4,7 @@
 // words. Used by the CPU emulator and test suites.
 //
 // Part of the K+ roadmap for canonical RISC-V guest execution.
-package zkvm
+package riscv
 
 // --- Instruction decoding helpers ---
 

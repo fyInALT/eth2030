@@ -74,21 +74,21 @@ const (
 // Keccak256EcallHandler implements ECALL 3: hash all remaining InputBuf bytes
 // with Keccak-256 and append the 32-byte digest to OutputBuf.
 func Keccak256EcallHandler(cpu *RVCPU) error {
-	data := cpu.InputBuf[cpu.inputPos:]
+	data := cpu.InputBuf[cpu.InputPos():]
 	h := sha3.NewLegacyKeccak256()
 	h.Write(data)
 	cpu.OutputBuf = h.Sum(cpu.OutputBuf)
-	cpu.inputPos = len(cpu.InputBuf)
+	cpu.SetInputPos(len(cpu.InputBuf))
 	return nil
 }
 
 // SHA256EcallHandler implements ECALL 4: hash all remaining InputBuf bytes
 // with SHA-256 and append the 32-byte digest to OutputBuf.
 func SHA256EcallHandler(cpu *RVCPU) error {
-	data := cpu.InputBuf[cpu.inputPos:]
+	data := cpu.InputBuf[cpu.InputPos():]
 	digest := sha256.Sum256(data)
 	cpu.OutputBuf = append(cpu.OutputBuf, digest[:]...)
-	cpu.inputPos = len(cpu.InputBuf)
+	cpu.SetInputPos(len(cpu.InputBuf))
 	return nil
 }
 
@@ -100,7 +100,7 @@ func SHA256EcallHandler(cpu *RVCPU) error {
 // v must be 27 or 28 (Ethereum convention); the handler converts to 0/1
 // for the recovery index internally.
 func ECRecoverEcallHandler(cpu *RVCPU) error {
-	data := cpu.InputBuf[cpu.inputPos:]
+	data := cpu.InputBuf[cpu.InputPos():]
 	if len(data) < ecrecoverInputSize {
 		return fmt.Errorf("riscv ecrecover: need %d bytes, got %d", ecrecoverInputSize, len(data))
 	}
@@ -127,7 +127,7 @@ func ECRecoverEcallHandler(cpu *RVCPU) error {
 	if err != nil || len(pub) < 65 {
 		// No address recovered; output 32 zero bytes (Ethereum convention).
 		cpu.OutputBuf = append(cpu.OutputBuf, make([]byte, 32)...)
-		cpu.inputPos += ecrecoverInputSize
+		cpu.AdvanceInputPos(ecrecoverInputSize)
 		return nil
 	}
 	// Derive address: Keccak256(pubkey[1:])[12:32].
@@ -135,7 +135,7 @@ func ECRecoverEcallHandler(cpu *RVCPU) error {
 	var out [32]byte
 	copy(out[12:], addrHash[12:])
 	cpu.OutputBuf = append(cpu.OutputBuf, out[:]...)
-	cpu.inputPos += ecrecoverInputSize
+	cpu.AdvanceInputPos(ecrecoverInputSize)
 	return nil
 }
 

@@ -30,8 +30,8 @@ func TestKeccak256EcallHandlerKnownVector(t *testing.T) {
 		t.Errorf("keccak256 got %x, want %x", cpu.OutputBuf, want)
 	}
 	// All input consumed.
-	if cpu.inputPos != len(cpu.InputBuf) {
-		t.Errorf("inputPos = %d, want %d", cpu.inputPos, len(cpu.InputBuf))
+	if cpu.InputPos() != len(cpu.InputBuf) {
+		t.Errorf("inputPos = %d, want %d", cpu.InputPos(), len(cpu.InputBuf))
 	}
 }
 
@@ -263,7 +263,7 @@ func TestRVCPURegisterEcallHandler(t *testing.T) {
 
 	// Manually call handleEcall with a7=99.
 	cpu.Regs[17] = 99
-	cpu.handleEcall()
+	cpu.HandleEcall()
 
 	if !called {
 		t.Error("custom ECALL handler was not called")
@@ -277,7 +277,7 @@ func TestRVCPURegisterEcallHandler(t *testing.T) {
 func TestRVCPUUnknownEcallHalts(t *testing.T) {
 	cpu := NewRVCPU(1000)
 	cpu.Regs[17] = 0xAB // unregistered
-	cpu.handleEcall()
+	cpu.HandleEcall()
 	if !cpu.Halted {
 		t.Error("CPU should halt on unknown ECALL")
 	}
@@ -293,12 +293,12 @@ func TestRVCPUUnknownEcallHalts(t *testing.T) {
 func TestKeccak256HandlerInputPosAdvances(t *testing.T) {
 	cpu := NewRVCPU(1000)
 	cpu.InputBuf = []byte("advance test")
-	cpu.inputPos = 0
+	cpu.SetInputPos(0)
 	if err := Keccak256EcallHandler(cpu); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	if cpu.inputPos != len(cpu.InputBuf) {
-		t.Errorf("inputPos = %d, want %d", cpu.inputPos, len(cpu.InputBuf))
+	if cpu.InputPos() != len(cpu.InputBuf) {
+		t.Errorf("inputPos = %d, want %d", cpu.InputPos(), len(cpu.InputBuf))
 	}
 	if len(cpu.OutputBuf) != 32 {
 		t.Errorf("OutputBuf len = %d, want 32", len(cpu.OutputBuf))
@@ -312,7 +312,7 @@ func TestKeccak256HandlerPartialBuf(t *testing.T) {
 	rest := []byte(" used")
 	cpu := NewRVCPU(1000)
 	cpu.InputBuf = append(prefix, rest...)
-	cpu.inputPos = len(prefix)
+	cpu.SetInputPos(len(prefix))
 
 	if err := Keccak256EcallHandler(cpu); err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -349,8 +349,8 @@ func TestSHA256HandlerInputPosAdvances(t *testing.T) {
 	if err := SHA256EcallHandler(cpu); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	if cpu.inputPos != len(cpu.InputBuf) {
-		t.Errorf("inputPos = %d, want %d", cpu.inputPos, len(cpu.InputBuf))
+	if cpu.InputPos() != len(cpu.InputBuf) {
+		t.Errorf("inputPos = %d, want %d", cpu.InputPos(), len(cpu.InputBuf))
 	}
 }
 
@@ -392,8 +392,8 @@ func TestECRecoverHandlerBadRecovery(t *testing.T) {
 		}
 	}
 	// inputPos must advance past the 128-byte record.
-	if cpu.inputPos != 128 {
-		t.Errorf("inputPos = %d after bad recovery, want 128", cpu.inputPos)
+	if cpu.InputPos() != 128 {
+		t.Errorf("inputPos = %d after bad recovery, want 128", cpu.InputPos())
 	}
 }
 

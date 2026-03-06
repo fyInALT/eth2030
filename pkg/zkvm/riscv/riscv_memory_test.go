@@ -1,4 +1,4 @@
-package zkvm
+package riscv
 
 import (
 	"testing"

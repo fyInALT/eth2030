@@ -4,7 +4,7 @@
 // guest programs to communicate with the host environment.
 //
 // Part of the K+ roadmap for canonical RISC-V guest execution.
-package zkvm
+package riscv
 
 import (
 	"encoding/binary"
@@ -51,6 +51,9 @@ func NewRVMemory() *RVMemory {
 		maxPages: RVMaxPages,
 	}
 }
+
+// SetMaxPages overrides the default page allocation limit.
+func (m *RVMemory) SetMaxPages(n int) { m.maxPages = n }
 
 // SetMMIO registers MMIO read/write handlers for the 0xF0000000+ region.
 func (m *RVMemory) SetMMIO(read func(uint32) uint32, write func(uint32, uint32)) {
