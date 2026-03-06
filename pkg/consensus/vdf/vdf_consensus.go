@@ -3,7 +3,7 @@
 // vdf_consensus.go wires VDF beacon randomness into the consensus layer,
 // providing epoch-level unbiasable randomness via VDF computation and
 // multi-validator reveal. Part of the K+/M+ roadmap: "VDF, secure prequorum".
-package consensus
+package vdf
 
 import (
 	"errors"
