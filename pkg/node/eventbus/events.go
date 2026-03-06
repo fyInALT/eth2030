@@ -1,4 +1,5 @@
-package node
+// Package eventbus provides a publish/subscribe event bus for node subsystem communication.
+package eventbus
 
 import (
 	"sync"
