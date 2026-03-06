@@ -7,7 +7,7 @@
 // availability verification.
 //
 // Part of the DL roadmap: EIP-4844 blob transactions and PeerDAS.
-package proofs
+package kzg
 
 import (
 	"crypto/sha256"

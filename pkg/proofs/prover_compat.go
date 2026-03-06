@@ -59,7 +59,7 @@ func NewSTARKProver() *STARKProver         { return prover.NewSTARKProver() }
 func NewSTARKProverWithParams(blowupFactor, numQueries uint8, modulus *big.Int) (*STARKProver, error) {
 	return prover.NewSTARKProverWithParams(blowupFactor, numQueries, modulus)
 }
-func NewReputationScorer() *ReputationScorer { return prover.NewReputationScorer() }
+func NewReputationScorer() *ReputationScorer   { return prover.NewReputationScorer() }
 func NewProverPool(minProvers int) *ProverPool { return prover.NewProverPool(minProvers) }
 func NewSTARKValidationFrameProver() *STARKValidationFrameProver {
 	return prover.NewSTARKValidationFrameProver()
