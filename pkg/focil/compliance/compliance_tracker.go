@@ -1,7 +1,7 @@
 // compliance_tracker.go implements FOCIL compliance enforcement: tracks
 // validator violations, computes compliance scores, manages grace periods,
 // and generates per-epoch reports for slashing per EIP-7805.
-package focil
+package compliance
 
 import (
 	"encoding/binary"

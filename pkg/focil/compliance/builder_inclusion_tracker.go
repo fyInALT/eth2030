@@ -12,7 +12,7 @@
 // The tracker records per-slot what was required vs what was included, and
 // provides APIs for querying builder compliance rates, identifying
 // non-compliant builders, and pruning old history.
-package focil
+package compliance
 
 import (
 	"sort"

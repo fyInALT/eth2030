@@ -1,4 +1,4 @@
-package focil
+package compliance
 
 import (
 	"testing"
