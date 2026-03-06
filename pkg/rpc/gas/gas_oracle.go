@@ -1,4 +1,4 @@
-package rpc
+package gas
 
 import (
 	"math/big"
