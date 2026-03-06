@@ -3,7 +3,7 @@
 // P2P integration (LEAN-3.3/3.4): the aggregator broadcasts AggregateRequests
 // on the "pq_agg_request" topic and publishes STARKSignatureAggregation results
 // on the "pq_agg_result" topic via the AggGossipPublisher interface.
-package consensus
+package pq
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package consensus
+package pq
 
 import (
 	"math/big"
@@ -428,6 +428,23 @@ func TestValidatePQChainConfig(t *testing.T) {
 	}
 }
 
+// mockForkChoice is a minimal ForkChoice implementation for tests.
+type mockForkChoice struct {
+	blocks  map[types.Hash]bool
+	weights map[types.Hash]uint64
+}
+
+func newMockForkChoice() *mockForkChoice {
+	return &mockForkChoice{
+		blocks:  make(map[types.Hash]bool),
+		weights: make(map[types.Hash]uint64),
+	}
+}
+
+func (m *mockForkChoice) HasBlock(hash types.Hash) bool            { return m.blocks[hash] }
+func (m *mockForkChoice) AddAttestation(hash types.Hash, w uint64) { m.weights[hash] += w }
+func (m *mockForkChoice) addBlock(hash types.Hash)                 { m.blocks[hash] = true }
+
 func TestIntegratePQForkChoice(t *testing.T) {
 	t.Run("applies PQ weights to main fork choice", func(t *testing.T) {
 		config := &PQChainConfig{
@@ -437,11 +454,10 @@ func TestIntegratePQForkChoice(t *testing.T) {
 		v := NewPQChainValidator(config)
 		pqFC := NewPQForkChoice(v)
 
-		// Create a standard fork choice and add a block.
+		// Create a mock fork choice and add a block.
 		blockHash := types.HexToHash("0xaa")
-		parentHash := types.HexToHash("0x00")
-		fc := NewForkChoiceStore(ForkChoiceConfig{})
-		fc.AddBlock(blockHash, parentHash, 1)
+		fc := newMockForkChoice()
+		fc.addBlock(blockHash)
 
 		// Add PQ attestation to the PQ fork choice.
 		pqFC.AddAttestation(&PQAttestationRecord{
@@ -470,7 +486,7 @@ func TestIntegratePQForkChoice(t *testing.T) {
 			Slot:      1,
 		})
 
-		fc := NewForkChoiceStore(ForkChoiceConfig{})
+		fc := newMockForkChoice()
 		count := IntegratePQForkChoice(fc, pqFC)
 		if count != 0 {
 			t.Errorf("applied = %d, want 0 (block not in FC)", count)

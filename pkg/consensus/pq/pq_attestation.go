@@ -1,4 +1,4 @@
-package consensus
+package pq
 
 import (
 	"encoding/binary"
@@ -240,7 +240,7 @@ func SelectLeanPQAttestors(validators []uint64, count int, slot uint64, epochSee
 // LeanAvailablePQAttestors returns the set of validators that should participate
 // in PQ attestation for the given slot. In lean mode, a deterministic subset is
 // selected; otherwise all validators are returned unchanged.
-func (v *PQAttestationVerifier) LeanAvailablePQAttestors(slot uint64, allValidators []uint64, epochSeed types.Hash, cfg *ConsensusConfig) []uint64 {
+func (v *PQAttestationVerifier) LeanAvailablePQAttestors(slot uint64, allValidators []uint64, epochSeed types.Hash, cfg *LeanConfig) []uint64 {
 	if cfg == nil || !cfg.LeanAvailableChainMode {
 		return allValidators
 	}

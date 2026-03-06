@@ -3,8 +3,20 @@ package consensus
 import (
 	"testing"
 
+	"github.com/eth2030/eth2030/consensus/pq"
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// toLeanCfg converts a root ConsensusConfig to the minimal pq.LeanConfig.
+func toLeanCfg(cfg *ConsensusConfig) *pq.LeanConfig {
+	if cfg == nil {
+		return nil
+	}
+	return &pq.LeanConfig{
+		LeanAvailableChainMode:       cfg.LeanAvailableChainMode,
+		LeanAvailableChainValidators: cfg.LeanAvailableChainValidators,
+	}
+}
 
 func TestLeanAvailableChainModeConfig(t *testing.T) {
 	// Default config should have lean mode disabled and validators = 512.
@@ -117,7 +129,7 @@ func TestLeanAvailablePQAttestors(t *testing.T) {
 	// Mode off -> all validators returned.
 	cfgOff := DefaultConfig()
 	cfgOff.LeanAvailableChainMode = false
-	result := verifier.LeanAvailablePQAttestors(42, validators, epochSeed, cfgOff)
+	result := verifier.LeanAvailablePQAttestors(42, validators, epochSeed, toLeanCfg(cfgOff))
 	if len(result) != 1000 {
 		t.Fatalf("mode off: got %d, want 1000", len(result))
 	}
@@ -132,7 +144,7 @@ func TestLeanAvailablePQAttestors(t *testing.T) {
 	cfgOn := DefaultConfig()
 	cfgOn.LeanAvailableChainMode = true
 	cfgOn.LeanAvailableChainValidators = 512
-	result = verifier.LeanAvailablePQAttestors(42, validators, epochSeed, cfgOn)
+	result = verifier.LeanAvailablePQAttestors(42, validators, epochSeed, toLeanCfg(cfgOn))
 	if len(result) != 512 {
 		t.Fatalf("mode on: got %d, want 512", len(result))
 	}
@@ -159,7 +171,7 @@ func TestLeanAvailableAggregation(t *testing.T) {
 	// Lean mode on: should not use STARK prover, MerkleRoot set in CommitteeRoot.
 	cfg := DefaultConfig()
 	cfg.LeanAvailableChainMode = true
-	result, err := agg.AggregateWithConfig(attestations, cfg)
+	result, err := agg.AggregateWithConfig(attestations, toLeanCfg(cfg))
 	if err != nil {
 		t.Fatalf("lean aggregation failed: %v", err)
 	}
@@ -180,7 +192,7 @@ func TestLeanAvailableAggregation(t *testing.T) {
 	// Lean mode off: should use regular STARK aggregation.
 	cfgOff := DefaultConfig()
 	cfgOff.LeanAvailableChainMode = false
-	resultFull, err := agg.AggregateWithConfig(attestations, cfgOff)
+	resultFull, err := agg.AggregateWithConfig(attestations, toLeanCfg(cfgOff))
 	if err != nil {
 		t.Fatalf("full aggregation failed: %v", err)
 	}

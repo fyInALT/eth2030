@@ -1,6 +1,6 @@
 // pq_attestation_gossip.go implements P2P gossip encoding/decoding for
 // PQAttestation using the leanSig 50-byte XMSS pubkey wire format.
-package consensus
+package pq
 
 import (
 	"encoding/binary"

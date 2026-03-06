@@ -1,4 +1,4 @@
-package consensus
+package pq
 
 import (
 	"testing"

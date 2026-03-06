@@ -3,7 +3,7 @@
 // transitions use quantum-resistant cryptography (SHA-3 hashing, ML-DSA
 // signatures). Implements epoch-based PQ transition enforcement with
 // validator key registration tracking.
-package consensus
+package pq
 
 import (
 	"encoding/binary"
@@ -463,6 +463,13 @@ func (v *PQChainValidator) Stats() (blocksValidated, blocksFailed, attestationsV
 	return v.blocksValidated, v.blocksFailed, v.attestationsValid, v.attestationsFailed
 }
 
+// ForkChoice is the minimal interface consumed by IntegratePQForkChoice.
+// *consensus.ForkChoiceStore satisfies this interface.
+type ForkChoice interface {
+	HasBlock(hash types.Hash) bool
+	AddAttestation(hash types.Hash, weight uint64)
+}
+
 // IntegratePQForkChoice merges PQ fork choice weights into a standard
 // ForkChoiceStore. For each block tracked by the PQ fork choice, its
 // PQ-weighted attestation total is applied as additional weight in the main
@@ -470,7 +477,7 @@ func (v *PQChainValidator) Stats() (blocksValidated, blocksFailed, attestationsV
 // bonus across the unified fork choice, satisfying the requirement that
 // pq_chain_security.go's PQ fork choice bonus is integrated with the main
 // fork choice in consensus/.
-func IntegratePQForkChoice(fc *ForkChoiceStore, pqFC *PQForkChoice) int {
+func IntegratePQForkChoice(fc ForkChoice, pqFC *PQForkChoice) int {
 	if fc == nil || pqFC == nil {
 		return 0
 	}

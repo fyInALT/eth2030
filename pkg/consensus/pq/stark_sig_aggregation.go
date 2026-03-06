@@ -1,4 +1,4 @@
-package consensus
+package pq
 
 import (
 	"crypto/sha256"
@@ -265,7 +265,7 @@ func MerkleAggregatePQAttestations(attestations []PQAttestation) (*MerklePQAggre
 // AggregateWithConfig creates a signature aggregation using the appropriate
 // strategy based on config. In lean available chain mode, only a Merkle root
 // is computed (no STARK proof). Otherwise, the full STARK aggregation is used.
-func (sa *STARKSignatureAggregator) AggregateWithConfig(attestations []PQAttestation, cfg *ConsensusConfig) (*STARKSignatureAggregation, error) {
+func (sa *STARKSignatureAggregator) AggregateWithConfig(attestations []PQAttestation, cfg *LeanConfig) (*STARKSignatureAggregation, error) {
 	if cfg != nil && cfg.LeanAvailableChainMode {
 		merkle, err := MerkleAggregatePQAttestations(attestations)
 		if err != nil {
