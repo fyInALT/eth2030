@@ -2,7 +2,7 @@
 // on secp256k1 for P2P handshake message encryption. It provides ECDH key
 // agreement, SHA-256-based KDF, AES-128-CTR encryption, and HMAC-SHA-256
 // message authentication.
-package crypto
+package secp256k1
 
 import (
 	"crypto/aes"

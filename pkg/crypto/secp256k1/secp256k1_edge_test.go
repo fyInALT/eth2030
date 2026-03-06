@@ -1,4 +1,4 @@
-package crypto
+package secp256k1
 
 import (
 	"bytes"
@@ -75,7 +75,7 @@ func TestSignatureRecoveryV0AndV1(t *testing.T) {
 	seenV := make(map[byte]bool)
 	// Sign many messages to try to get both v=0 and v=1.
 	for i := 0; i < 100; i++ {
-		hash := Keccak256([]byte{byte(i), byte(i >> 8), byte(i >> 16)})
+		hash := keccak256([]byte{byte(i), byte(i >> 8), byte(i >> 16)})
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)
@@ -111,7 +111,7 @@ func TestSignatureAlwaysLowS(t *testing.T) {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
 	for i := 0; i < 50; i++ {
-		hash := Keccak256([]byte{byte(i)})
+		hash := keccak256([]byte{byte(i)})
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)
@@ -189,7 +189,7 @@ func TestValidateSignatureRejectsMismatchedPubkeyPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("test"))
+	hash := keccak256([]byte("test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -250,7 +250,7 @@ func TestGenerateKeySignVerify(t *testing.T) {
 			t.Fatalf("GenerateKey failed: %v", err)
 		}
 
-		hash := Keccak256([]byte("lifecycle test message"))
+		hash := keccak256([]byte("lifecycle test message"))
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)
@@ -647,7 +647,7 @@ func TestEcrecoverSignatureMalleability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("malleability test"))
+	hash := keccak256([]byte("malleability test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)

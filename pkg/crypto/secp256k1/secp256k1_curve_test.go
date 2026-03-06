@@ -1,4 +1,4 @@
-package crypto
+package secp256k1
 
 // Comprehensive tests for secp256k1 curve operations: IsOnCurve, Add, Double,
 // ScalarMult, ScalarBaseMult, recoverPublicKey, and computeY.
@@ -483,7 +483,7 @@ func TestRecoverPublicKeyRoundTrip(t *testing.T) {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
 
-	hash := Keccak256([]byte("recovery test message"))
+	hash := keccak256([]byte("recovery test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -520,7 +520,7 @@ func TestRecoverPublicKeyInvalidV(t *testing.T) {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
 
-	hash := Keccak256([]byte("bad v test"))
+	hash := keccak256([]byte("bad v test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)

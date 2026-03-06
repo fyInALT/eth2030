@@ -1,4 +1,4 @@
-package crypto
+package secp256k1
 
 import (
 	"crypto/ecdsa"
@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
+	"golang.org/x/crypto/sha3"
 )
 
 // s256 is the secp256k1 curve used throughout Ethereum.
@@ -157,7 +158,7 @@ func PubkeyToAddress(p ecdsa.PublicKey) types.Address {
 	if pubBytes == nil {
 		return types.Address{}
 	}
-	hash := Keccak256(pubBytes[1:])
+	hash := keccak256(pubBytes[1:])
 	return types.BytesToAddress(hash[12:])
 }
 
@@ -218,3 +219,18 @@ func FromECDSAPub(pub *ecdsa.PublicKey) []byte {
 	copy(ret[33+32-len(yBytes):65], yBytes)
 	return ret
 }
+
+// keccak256 computes the Keccak-256 hash of the input data.
+func keccak256(data ...[]byte) []byte {
+	d := sha3.NewLegacyKeccak256()
+	for _, b := range data {
+		d.Write(b)
+	}
+	return d.Sum(nil)
+}
+
+// Secp256k1N returns the order of the secp256k1 curve.
+func Secp256k1N() *big.Int { return new(big.Int).Set(secp256k1N) }
+
+// Secp256k1HalfN returns half the order of the secp256k1 curve (for EIP-2 low-S check).
+func Secp256k1HalfN() *big.Int { return new(big.Int).Set(secp256k1halfN) }

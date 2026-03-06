@@ -1,4 +1,4 @@
-package crypto
+package secp256k1
 
 import (
 	"math/big"
@@ -57,7 +57,7 @@ func TestSignProduces65Bytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("test message"))
+	hash := keccak256([]byte("test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -180,7 +180,7 @@ func TestValidateSignatureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("test message"))
+	hash := keccak256([]byte("test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -201,7 +201,7 @@ func TestValidateSignatureRejectsWrongKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("test message"))
+	hash := keccak256([]byte("test message"))
 	sig, err := Sign(hash, key1)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -217,12 +217,12 @@ func TestValidateSignatureRejectsWrongHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("test message"))
+	hash := keccak256([]byte("test message"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
-	wrongHash := Keccak256([]byte("different message"))
+	wrongHash := keccak256([]byte("different message"))
 	pubBytes := FromECDSAPub(&key.PublicKey)
 	if ValidateSignature(pubBytes, wrongHash, sig[:64]) {
 		t.Error("ValidateSignature should reject signature with wrong hash")
@@ -267,7 +267,7 @@ func TestEcrecoverRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("test message for ecrecover"))
+	hash := keccak256([]byte("test message for ecrecover"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -294,7 +294,7 @@ func TestSigToPubRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("another test"))
+	hash := keccak256([]byte("another test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -318,7 +318,7 @@ func TestEcrecoverDeriveAddress(t *testing.T) {
 
 	expectedAddr := PubkeyToAddress(key.PublicKey)
 
-	hash := Keccak256([]byte("address derivation test"))
+	hash := keccak256([]byte("address derivation test"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
@@ -344,7 +344,7 @@ func TestEcrecoverMultipleMessages(t *testing.T) {
 
 	messages := []string{"msg1", "msg2", "msg3", "hello world", "ethereum"}
 	for _, msg := range messages {
-		hash := Keccak256([]byte(msg))
+		hash := keccak256([]byte(msg))
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign(%q) failed: %v", msg, err)
@@ -362,7 +362,7 @@ func TestEcrecoverMultipleMessages(t *testing.T) {
 }
 
 func TestEcrecoverRejectsInvalidSig(t *testing.T) {
-	hash := Keccak256([]byte("test"))
+	hash := keccak256([]byte("test"))
 
 	// Wrong length.
 	_, err := Ecrecover(hash, make([]byte, 64))
@@ -384,13 +384,13 @@ func TestEcrecoverRejectsWrongHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
-	hash := Keccak256([]byte("original"))
+	hash := keccak256([]byte("original"))
 	sig, err := Sign(hash, key)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
 
-	wrongHash := Keccak256([]byte("different"))
+	wrongHash := keccak256([]byte("different"))
 	recovered, err := Ecrecover(wrongHash, sig)
 	if err != nil {
 		// May still succeed but recover a different key.
@@ -416,7 +416,7 @@ func TestSignLowS(t *testing.T) {
 	}
 	// Sign multiple times and verify S is always in lower half.
 	for i := 0; i < 20; i++ {
-		hash := Keccak256([]byte{byte(i), byte(i >> 8)})
+		hash := keccak256([]byte{byte(i), byte(i >> 8)})
 		sig, err := Sign(hash, key)
 		if err != nil {
 			t.Fatalf("Sign failed: %v", err)

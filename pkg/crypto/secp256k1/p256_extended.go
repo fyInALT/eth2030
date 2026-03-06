@@ -1,4 +1,4 @@
-package crypto
+package secp256k1
 
 // Full P-256 (secp256r1/NIST P-256) ECDSA operations: key generation,
 // signing, verification, public key recovery, DER encoding, compressed
