@@ -1,7 +1,7 @@
 // rate_limiter.go implements per-client, per-method rate limiting for JSON-RPC
 // endpoints using a token bucket algorithm. It tracks request rates, supports
 // manual and automatic banning, and exposes per-client and global statistics.
-package rpc
+package middleware
 
 import (
 	"sync"
