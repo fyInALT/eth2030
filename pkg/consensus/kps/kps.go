@@ -3,7 +3,7 @@
 // among a group of key holders. A configurable threshold of shares is needed
 // to reconstruct the original key, providing fault tolerance and preventing
 // single points of failure using Shamir's Secret Sharing.
-package consensus
+package kps
 
 import (
 	"crypto/rand"
