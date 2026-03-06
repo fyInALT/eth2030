@@ -1,7 +1,7 @@
 // nat_traversal.go implements NAT traversal with UPnP and NAT-PMP support,
 // periodic mapping refresh, external IP detection via STUN, port mapping
 // cleanup on shutdown, auto-detection of NAT type, and metrics export.
-package p2p
+package nat
 
 import (
 	"encoding/binary"

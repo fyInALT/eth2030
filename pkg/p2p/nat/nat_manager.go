@@ -1,7 +1,7 @@
 // nat_manager.go implements NAT traversal for the p2p server, supporting
 // UPnP port mapping, NAT-PMP port mapping, external IP detection, mapping
 // renewal, and gateway discovery.
-package p2p
+package nat
 
 import (
 	"errors"
