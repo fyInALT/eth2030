@@ -8,7 +8,7 @@
 // We use a safe-prime group: p = 2q+1 where both p and q are prime.
 // The generator g has order q in Z_p^*, ensuring all Lagrange interpolation
 // and Feldman VSS computations work correctly over a prime-order group.
-package crypto
+package threshold
 
 import (
 	"crypto/aes"
@@ -17,6 +17,8 @@ import (
 	"errors"
 	"io"
 	"math/big"
+
+	"golang.org/x/crypto/sha3"
 )
 
 var (
@@ -214,7 +216,7 @@ func ShareEncrypt(publicKey *big.Int, message []byte) (*EncryptedMessage, error)
 	sharedSecret := new(big.Int).Exp(publicKey, r, p)
 
 	// Derive symmetric key from shared secret via Keccak256.
-	symKey := Keccak256(sharedSecret.Bytes())[:32]
+	symKey := keccak256(sharedSecret.Bytes())[:32]
 
 	// Encrypt message with AES-GCM.
 	block, err := aes.NewCipher(symKey)
@@ -293,7 +295,7 @@ func CombineShares(shares []DecryptionShare, encrypted *EncryptedMessage) ([]byt
 	}
 
 	// Derive symmetric key from shared secret.
-	symKey := Keccak256(sharedSecret.Bytes())[:32]
+	symKey := keccak256(sharedSecret.Bytes())[:32]
 
 	// Decrypt with AES-GCM.
 	block, err := aes.NewCipher(symKey)
@@ -424,4 +426,13 @@ func lagrangeCoefficientModQ(shares []DecryptionShare, idx int, q *big.Int) *big
 	result := new(big.Int).Mul(num, denInv)
 	result.Mod(result, q)
 	return result
+}
+
+// keccak256 computes the Keccak-256 hash of the concatenated data slices.
+func keccak256(data ...[]byte) []byte {
+	d := sha3.NewLegacyKeccak256()
+	for _, b := range data {
+		d.Write(b)
+	}
+	return d.Sum(nil)
 }
