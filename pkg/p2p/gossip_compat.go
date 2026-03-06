@@ -13,19 +13,19 @@ type (
 	TopicScoreSnapshot = gossip.TopicScoreSnapshot
 	TopicManager       = gossip.TopicManager
 
-	GossipV2ScoreParams       = gossip.GossipV2ScoreParams
-	PeerV2Score               = gossip.PeerV2Score
-	GossipV2Scorer            = gossip.GossipV2Scorer
-	OpportunisticGrafter      = gossip.OpportunisticGrafter
-	MessagePriority           = gossip.MessagePriority
-	PrioritizedMessage        = gossip.PrioritizedMessage
-	PrioritizedGossipRouter   = gossip.PrioritizedGossipRouter
-	GossipParamsByTopic       = gossip.GossipParamsByTopic
-	MeshScoreParams           = gossip.MeshScoreParams
-	TopicPeerScore            = gossip.TopicPeerScore
-	MeshDecayConfig           = gossip.MeshDecayConfig
-	MeshBanConfig             = gossip.MeshBanConfig
-	GossipMeshScoreManager    = gossip.GossipMeshScoreManager
+	GossipV2ScoreParams     = gossip.GossipV2ScoreParams
+	PeerV2Score             = gossip.PeerV2Score
+	GossipV2Scorer          = gossip.GossipV2Scorer
+	OpportunisticGrafter    = gossip.OpportunisticGrafter
+	MessagePriority         = gossip.MessagePriority
+	PrioritizedMessage      = gossip.PrioritizedMessage
+	PrioritizedGossipRouter = gossip.PrioritizedGossipRouter
+	GossipParamsByTopic     = gossip.GossipParamsByTopic
+	MeshScoreParams         = gossip.MeshScoreParams
+	TopicPeerScore          = gossip.TopicPeerScore
+	MeshDecayConfig         = gossip.MeshDecayConfig
+	MeshBanConfig           = gossip.MeshBanConfig
+	GossipMeshScoreManager  = gossip.GossipMeshScoreManager
 )
 
 // Gossip constants.
@@ -64,12 +64,12 @@ var (
 )
 
 // Gossip function wrappers.
-func ParseGossipTopic(name string) (GossipTopic, error)      { return gossip.ParseGossipTopic(name) }
-func ComputeMessageID(data []byte) MessageID                  { return gossip.ComputeMessageID(data) }
-func ComputeInvalidMessageID(data []byte) MessageID           { return gossip.ComputeInvalidMessageID(data) }
-func DefaultTopicParams() TopicParams                         { return gossip.DefaultTopicParams() }
-func NewTopicManager(params TopicParams) *TopicManager        { return gossip.NewTopicManager(params) }
-func DefaultGossipV2ScoreParams() *GossipV2ScoreParams        { return gossip.DefaultGossipV2ScoreParams() }
+func ParseGossipTopic(name string) (GossipTopic, error) { return gossip.ParseGossipTopic(name) }
+func ComputeMessageID(data []byte) MessageID            { return gossip.ComputeMessageID(data) }
+func ComputeInvalidMessageID(data []byte) MessageID     { return gossip.ComputeInvalidMessageID(data) }
+func DefaultTopicParams() TopicParams                   { return gossip.DefaultTopicParams() }
+func NewTopicManager(params TopicParams) *TopicManager  { return gossip.NewTopicManager(params) }
+func DefaultGossipV2ScoreParams() *GossipV2ScoreParams  { return gossip.DefaultGossipV2ScoreParams() }
 func NewGossipV2Scorer(params *GossipV2ScoreParams) *GossipV2Scorer {
 	return gossip.NewGossipV2Scorer(params)
 }

@@ -91,7 +91,6 @@ type Server struct {
 	wg      sync.WaitGroup
 }
 
-
 // NewServer creates a new P2P server with the given configuration.
 func NewServer(cfg Config) *Server {
 	if cfg.MaxPeers <= 0 {

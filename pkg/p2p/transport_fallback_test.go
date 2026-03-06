@@ -131,12 +131,12 @@ func TestProbeProxy(t *testing.T) {
 		}
 	}()
 
-	if !probeProxy(ln.Addr().String(), 200*time.Millisecond) {
+	if !ProbeProxy(ln.Addr().String(), 200*time.Millisecond) {
 		t.Fatal("expected probeProxy=true for available address")
 	}
 
 	// Unavailable proxy.
-	if probeProxy("127.0.0.1:1", 100*time.Millisecond) {
+	if ProbeProxy("127.0.0.1:1", 100*time.Millisecond) {
 		t.Fatal("expected probeProxy=false for unreachable address")
 	}
 }

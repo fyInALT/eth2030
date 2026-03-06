@@ -1,4 +1,4 @@
-package p2p
+package transport
 
 import (
 	"encoding/binary"
@@ -116,6 +116,12 @@ func FormatControlMessage(msg string, kohaku bool) []byte {
 	// JSON format.
 	b, _ := json.Marshal(controlMsg{Type: "control", Msg: msg})
 	return b
+}
+
+// ProbeProxy attempts a TCP dial to addr within timeout, returning true if
+// the connection succeeds. Used for transport fallback selection.
+func ProbeProxy(addr string, timeout time.Duration) bool {
+	return probeProxy(addr, timeout)
 }
 
 // probeProxy attempts a TCP dial to addr within timeout, returning true if
