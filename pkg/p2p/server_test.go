@@ -237,7 +237,7 @@ func TestServer_HandshakeScoring(t *testing.T) {
 		case res := <-scoreCh:
 			// The protocol handler on srv1 sees peer "score-test-2".
 			// The HandshakeOK credit (5.0) should be reflected.
-			if res.peerID == "score-test-2" && res.score >= scoreHandshakeOK {
+			if res.peerID == "score-test-2" && res.score >= ScoreHandshakeOK {
 				gotPositive = true
 			}
 		case <-timeout:

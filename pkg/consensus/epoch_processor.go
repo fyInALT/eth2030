@@ -139,12 +139,12 @@ func (ep *EpochProcessor) processJustificationAndFinalization(state *EpochProces
 
 	if ep.partBalance(state, state.PreviousEpochParticipation, 1)*3 >= tab*2 {
 		slot := uint64(pe) * state.SlotsPerEpoch
-		state.CurrentJustifiedCheckpoint = Checkpoint{pe, state.BlockRoots[slot%epSlotsPerHistoricalRoot]}
+		state.CurrentJustifiedCheckpoint = Checkpoint{Epoch: pe, Root: state.BlockRoots[slot%epSlotsPerHistoricalRoot]}
 		state.JustificationBits[1] = true
 	}
 	if ep.partBalance(state, state.CurrentEpochParticipation, 1)*3 >= tab*2 {
 		slot := uint64(ce) * state.SlotsPerEpoch
-		state.CurrentJustifiedCheckpoint = Checkpoint{ce, state.BlockRoots[slot%epSlotsPerHistoricalRoot]}
+		state.CurrentJustifiedCheckpoint = Checkpoint{Epoch: ce, Root: state.BlockRoots[slot%epSlotsPerHistoricalRoot]}
 		state.JustificationBits[0] = true
 	}
 

@@ -29,11 +29,11 @@ func TestDefaultSampleOptimizerConfig(t *testing.T) {
 func TestNewSampleOptimizerDefaults(t *testing.T) {
 	so := NewSampleOptimizer(SampleOptimizerConfig{})
 	// All zero-value fields should be replaced with defaults.
-	if so.config.MinSamples != SamplesPerSlot {
-		t.Fatalf("MinSamples = %d, want %d", so.config.MinSamples, SamplesPerSlot)
+	if so.Config().MinSamples != SamplesPerSlot {
+		t.Fatalf("MinSamples = %d, want %d", so.Config().MinSamples, SamplesPerSlot)
 	}
-	if so.config.MaxSamples != int(NumberOfColumns) {
-		t.Fatalf("MaxSamples = %d, want %d", so.config.MaxSamples, NumberOfColumns)
+	if so.Config().MaxSamples != int(NumberOfColumns) {
+		t.Fatalf("MaxSamples = %d, want %d", so.Config().MaxSamples, NumberOfColumns)
 	}
 }
 
@@ -42,9 +42,9 @@ func TestNewSampleOptimizerMaxLessThanMin(t *testing.T) {
 		MinSamples: 20,
 		MaxSamples: 10, // less than min
 	})
-	if so.config.MaxSamples < so.config.MinSamples {
+	if so.Config().MaxSamples < so.Config().MinSamples {
 		t.Fatalf("MaxSamples %d < MinSamples %d after normalization",
-			so.config.MaxSamples, so.config.MinSamples)
+			so.Config().MaxSamples, so.Config().MinSamples)
 	}
 }
 
@@ -52,15 +52,15 @@ func TestNewSampleOptimizerInvalidConfidence(t *testing.T) {
 	so := NewSampleOptimizer(SampleOptimizerConfig{
 		TargetConfidence: -1,
 	})
-	if so.config.TargetConfidence != 0.999 {
-		t.Fatalf("TargetConfidence = %f, want 0.999 default", so.config.TargetConfidence)
+	if so.Config().TargetConfidence != 0.999 {
+		t.Fatalf("TargetConfidence = %f, want 0.999 default", so.Config().TargetConfidence)
 	}
 
 	so2 := NewSampleOptimizer(SampleOptimizerConfig{
 		TargetConfidence: 1.5,
 	})
-	if so2.config.TargetConfidence != 0.999 {
-		t.Fatalf("TargetConfidence = %f, want 0.999 default", so2.config.TargetConfidence)
+	if so2.Config().TargetConfidence != 0.999 {
+		t.Fatalf("TargetConfidence = %f, want 0.999 default", so2.Config().TargetConfidence)
 	}
 }
 
@@ -71,11 +71,11 @@ func TestCalculateOptimalSamplesBasic(t *testing.T) {
 
 	// With security param 10 bits, we need enough samples.
 	samples := so.CalculateOptimalSamples(6, 10)
-	if samples < so.config.MinSamples {
-		t.Fatalf("samples %d < MinSamples %d", samples, so.config.MinSamples)
+	if samples < so.Config().MinSamples {
+		t.Fatalf("samples %d < MinSamples %d", samples, so.Config().MinSamples)
 	}
-	if samples > so.config.MaxSamples {
-		t.Fatalf("samples %d > MaxSamples %d", samples, so.config.MaxSamples)
+	if samples > so.Config().MaxSamples {
+		t.Fatalf("samples %d > MaxSamples %d", samples, so.Config().MaxSamples)
 	}
 }
 
@@ -94,20 +94,20 @@ func TestCalculateOptimalSamplesZeroInputs(t *testing.T) {
 
 	// Zero blob count returns min.
 	samples := so.CalculateOptimalSamples(0, 10)
-	if samples != so.config.MinSamples {
-		t.Fatalf("zero blobs: samples %d, want %d", samples, so.config.MinSamples)
+	if samples != so.Config().MinSamples {
+		t.Fatalf("zero blobs: samples %d, want %d", samples, so.Config().MinSamples)
 	}
 
 	// Zero security param returns min.
 	samples = so.CalculateOptimalSamples(6, 0)
-	if samples != so.config.MinSamples {
-		t.Fatalf("zero security: samples %d, want %d", samples, so.config.MinSamples)
+	if samples != so.Config().MinSamples {
+		t.Fatalf("zero security: samples %d, want %d", samples, so.Config().MinSamples)
 	}
 
 	// Negative inputs return min.
 	samples = so.CalculateOptimalSamples(-1, -1)
-	if samples != so.config.MinSamples {
-		t.Fatalf("negative inputs: samples %d, want %d", samples, so.config.MinSamples)
+	if samples != so.Config().MinSamples {
+		t.Fatalf("negative inputs: samples %d, want %d", samples, so.Config().MinSamples)
 	}
 }
 
@@ -120,8 +120,8 @@ func TestCalculateOptimalSamplesClampedToMax(t *testing.T) {
 
 	// Very high security param should clamp to max.
 	samples := so.CalculateOptimalSamples(6, 1000)
-	if samples > so.config.MaxSamples {
-		t.Fatalf("samples %d > MaxSamples %d", samples, so.config.MaxSamples)
+	if samples > so.Config().MaxSamples {
+		t.Fatalf("samples %d > MaxSamples %d", samples, so.Config().MaxSamples)
 	}
 }
 
@@ -145,8 +145,8 @@ func TestAdaptiveSamplingPerfectHealth(t *testing.T) {
 	so := NewSampleOptimizer(DefaultSampleOptimizerConfig())
 	plan := so.AdaptiveSampling(6, 1.0)
 
-	if plan.SamplesPerBlob < so.config.MinSamples {
-		t.Fatalf("SamplesPerBlob %d < MinSamples %d", plan.SamplesPerBlob, so.config.MinSamples)
+	if plan.SamplesPerBlob < so.Config().MinSamples {
+		t.Fatalf("SamplesPerBlob %d < MinSamples %d", plan.SamplesPerBlob, so.Config().MinSamples)
 	}
 	if plan.TotalSamples != plan.SamplesPerBlob*6 {
 		t.Fatalf("TotalSamples %d != %d*6", plan.TotalSamples, plan.SamplesPerBlob)
@@ -176,8 +176,8 @@ func TestAdaptiveSamplingZeroHealth(t *testing.T) {
 	plan := so.AdaptiveSampling(6, 0.0)
 
 	// At zero health, factor is 2x so samples should be at least double base.
-	if plan.SamplesPerBlob < so.config.MinSamples {
-		t.Fatalf("SamplesPerBlob %d < MinSamples %d", plan.SamplesPerBlob, so.config.MinSamples)
+	if plan.SamplesPerBlob < so.Config().MinSamples {
+		t.Fatalf("SamplesPerBlob %d < MinSamples %d", plan.SamplesPerBlob, so.Config().MinSamples)
 	}
 }
 
@@ -332,8 +332,8 @@ func TestAdjustSampleSizeClamp(t *testing.T) {
 func TestAdjustSampleSizeZeroCurrent(t *testing.T) {
 	so := NewSampleOptimizer(DefaultSampleOptimizerConfig())
 	adjusted := so.AdjustSampleSize(0, 0.1)
-	if adjusted < so.config.MinSamples {
-		t.Fatalf("zero current: adjusted %d < MinSamples %d", adjusted, so.config.MinSamples)
+	if adjusted < so.Config().MinSamples {
+		t.Fatalf("zero current: adjusted %d < MinSamples %d", adjusted, so.Config().MinSamples)
 	}
 }
 

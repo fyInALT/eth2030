@@ -128,7 +128,7 @@ func (ce *CanonicalExecutor) ExecuteGuest(programID types.Hash, input []byte) (*
 
 	// Set up the CPU.
 	cpu := NewRVCPU(ce.config.GasLimit)
-	cpu.Memory.maxPages = ce.config.MemoryPages
+	cpu.Memory.SetMaxPages(ce.config.MemoryPages)
 
 	// Attach witness collector if enabled.
 	var witness *RVWitnessCollector
