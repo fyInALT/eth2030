@@ -1,7 +1,7 @@
 // trie_cache.go provides an LRU-evicting cache for trie nodes. It stores
 // RLP-encoded trie nodes keyed by their Keccak-256 hash and tracks cache
 // hit/miss/eviction statistics.
-package trie
+package nodecache
 
 import (
 	"sync"
