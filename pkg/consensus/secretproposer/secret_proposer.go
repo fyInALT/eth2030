@@ -1,4 +1,4 @@
-package consensus
+package secretproposer
 
 import (
 	"encoding/binary"
