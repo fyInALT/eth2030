@@ -1,10 +1,11 @@
-package engine
+package forkchoice
 
 import (
 	"sync"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // testHash returns a deterministic hash from a byte seed.
@@ -69,7 +70,7 @@ func TestAddBlock(t *testing.T) {
 
 func TestProcessForkchoiceUpdate_ZeroHead(t *testing.T) {
 	m := NewForkchoiceStateManager(nil)
-	err := m.ProcessForkchoiceUpdate(ForkchoiceStateV1{})
+	err := m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{})
 	if err != ErrFCStateZeroHead {
 		t.Errorf("expected ErrFCStateZeroHead, got %v", err)
 	}
@@ -77,7 +78,7 @@ func TestProcessForkchoiceUpdate_ZeroHead(t *testing.T) {
 
 func TestProcessForkchoiceUpdate_HeadNotFound(t *testing.T) {
 	m := NewForkchoiceStateManager(nil)
-	err := m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	err := m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash: testHash(99),
 	})
 	if err == nil {
@@ -94,7 +95,7 @@ func TestProcessForkchoiceUpdate_Success(t *testing.T) {
 	block := testBlockInfo(blockHash, genesisHash, 1, 32)
 	m.AddBlock(block)
 
-	err := m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	err := m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      blockHash,
 		SafeBlockHash:      blockHash,
 		FinalizedBlockHash: genesisHash,
@@ -127,7 +128,7 @@ func TestCheckpointUpdates(t *testing.T) {
 	finBlock := testBlockInfo(finHash, genesisHash, 0, 32) // epoch 1
 	m.AddBlock(finBlock)
 
-	err := m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	err := m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      safeHash,
 		SafeBlockHash:      safeHash,
 		FinalizedBlockHash: finHash,
@@ -190,7 +191,7 @@ func TestIsHeadSafe(t *testing.T) {
 	// Advance head but not safe.
 	newHash := testHash(2)
 	m.AddBlock(testBlockInfo(newHash, genesisHash, 1, 1))
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      newHash,
 		SafeBlockHash:      genesisHash,
 		FinalizedBlockHash: genesisHash,
@@ -212,7 +213,7 @@ func TestIsHeadFinalized(t *testing.T) {
 
 	newHash := testHash(2)
 	m.AddBlock(testBlockInfo(newHash, genesisHash, 1, 1))
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      newHash,
 		SafeBlockHash:      newHash,
 		FinalizedBlockHash: genesisHash,
@@ -236,7 +237,7 @@ func TestReorgDetection(t *testing.T) {
 	m.AddBlock(testBlockInfo(blockB, genesisHash, 1, 1))
 
 	// Set head to blockA.
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      blockA,
 		SafeBlockHash:      genesisHash,
 		FinalizedBlockHash: genesisHash,
@@ -252,7 +253,7 @@ func TestReorgDetection(t *testing.T) {
 	})
 
 	// Switch head to blockB (reorg).
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      blockB,
 		SafeBlockHash:      genesisHash,
 		FinalizedBlockHash: genesisHash,
@@ -283,7 +284,7 @@ func TestNoReorgOnDescendant(t *testing.T) {
 	m.AddBlock(testBlockInfo(blockB, blockA, 2, 2))
 
 	// Set head to blockA, then advance to blockB (descendant, not a reorg).
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      blockA,
 		SafeBlockHash:      genesisHash,
 		FinalizedBlockHash: genesisHash,
@@ -294,7 +295,7 @@ func TestNoReorgOnDescendant(t *testing.T) {
 		reorgEvents = append(reorgEvents, e)
 	})
 
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      blockB,
 		SafeBlockHash:      genesisHash,
 		FinalizedBlockHash: genesisHash,
@@ -369,7 +370,7 @@ func TestStats(t *testing.T) {
 	blockHash := testHash(2)
 	m.AddBlock(testBlockInfo(blockHash, genesisHash, 1, 1))
 
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      blockHash,
 		SafeBlockHash:      genesisHash,
 		FinalizedBlockHash: genesisHash,
@@ -398,7 +399,7 @@ func TestPruneBeforeNumber(t *testing.T) {
 	}
 
 	// Set head to block 5.
-	m.ProcessForkchoiceUpdate(ForkchoiceStateV1{
+	m.ProcessForkchoiceUpdate(payload.ForkchoiceStateV1{
 		HeadBlockHash:      prev,
 		SafeBlockHash:      prev,
 		FinalizedBlockHash: prev,

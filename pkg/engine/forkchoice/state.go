@@ -1,4 +1,4 @@
-// forkchoice_state.go implements fork choice state management for the Engine API.
+// Package forkchoice implements fork choice state management for the Engine API.
 //
 // This provides the execution-layer's view of the consensus fork choice:
 //   - Justified and finalized checkpoint tracking
@@ -12,7 +12,7 @@
 // the previous head and notifies registered listeners.
 //
 // Reference: consensus-specs/specs/phase0/fork-choice.md, execution-apis
-package engine
+package forkchoice
 
 import (
 	"errors"
@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // Fork choice state errors.
@@ -148,7 +149,7 @@ func (m *ForkchoiceStateManager) AddBlock(info *BlockInfo) {
 // ProcessForkchoiceUpdate applies a forkchoice state update from the CL.
 // It validates the update, detects reorgs, updates checkpoints, and
 // notifies registered listeners of any reorg.
-func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update ForkchoiceStateV1) error {
+func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.ForkchoiceStateV1) error {
 	if update.HeadBlockHash == (types.Hash{}) {
 		return ErrFCStateZeroHead
 	}
@@ -338,10 +339,10 @@ func (m *ForkchoiceStateManager) Stats() (updateCount, reorgCount uint64) {
 
 // GetForkchoiceState returns the current fork choice state as a
 // ForkchoiceStateV1 suitable for Engine API responses.
-func (m *ForkchoiceStateManager) GetForkchoiceState() ForkchoiceStateV1 {
+func (m *ForkchoiceStateManager) GetForkchoiceState() payload.ForkchoiceStateV1 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return ForkchoiceStateV1{
+	return payload.ForkchoiceStateV1{
 		HeadBlockHash:      m.headHash,
 		SafeBlockHash:      m.safeHash,
 		FinalizedBlockHash: m.finalizedHash,

@@ -1,12 +1,12 @@
-// forkchoice_tracker.go provides forkchoice state tracking across Engine API
+// tracker.go provides forkchoice state tracking across Engine API
 // V3/V4 updates. It maintains the head/safe/finalized chain, stores recent
 // forkchoice updates for debugging, detects conflicting updates from the CL,
 // allocates unique payload IDs, and identifies head reorgs with their depth.
 //
-// This complements forkchoice_state.go (low-level state management) and
-// forkchoice_engine.go (orchestration) by providing higher-level analytics
+// This complements state.go (low-level state management) and
+// engine.go (orchestration) by providing higher-level analytics
 // and debugging facilities for operators monitoring CL-EL interactions.
-package engine
+package forkchoice
 
 import (
 	"crypto/rand"
@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // ForkchoiceTracker errors.
@@ -36,13 +38,13 @@ type FCURecord struct {
 	Timestamp time.Time
 
 	// State is the forkchoice state from the CL.
-	State ForkchoiceStateV1
+	State payload.ForkchoiceStateV1
 
 	// HasAttributes indicates whether payload attributes were attached.
 	HasAttributes bool
 
 	// PayloadID is the assigned payload ID (zero if no build started).
-	PayloadID PayloadID
+	PayloadID payload.PayloadID
 
 	// Result is the status returned for this update.
 	Result string
@@ -155,7 +157,7 @@ func (h *FCUHistory) All() []FCURecord {
 // (e.g., safe hash regresses to a non-ancestor, or finalized hash changes).
 type ConflictDetector struct {
 	mu            sync.RWMutex
-	lastState     *ForkchoiceStateV1
+	lastState     *payload.ForkchoiceStateV1
 	conflictCount uint64
 }
 
@@ -166,7 +168,7 @@ func NewConflictDetector() *ConflictDetector {
 
 // Check compares a new update against the previous one and returns a conflict
 // description if the finalized hash regressed (changed to a different non-zero value).
-func (cd *ConflictDetector) Check(update ForkchoiceStateV1) (bool, string) {
+func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1) (bool, string) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 
@@ -201,25 +203,25 @@ func (cd *ConflictDetector) ConflictCount() uint64 {
 // PayloadIDAllocator assigns unique payload IDs for payload building.
 type PayloadIDAllocator struct {
 	mu        sync.Mutex
-	allocated map[PayloadID]uint64 // payloadID -> timestamp
+	allocated map[payload.PayloadID]uint64 // payloadID -> timestamp
 	counter   uint64
 }
 
 // NewPayloadIDAllocator creates a new allocator.
 func NewPayloadIDAllocator() *PayloadIDAllocator {
 	return &PayloadIDAllocator{
-		allocated: make(map[PayloadID]uint64),
+		allocated: make(map[payload.PayloadID]uint64),
 	}
 }
 
 // Allocate generates a unique payload ID from the head hash and timestamp.
 // Returns the ID and an error if collision is detected.
-func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (PayloadID, error) {
+func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (payload.PayloadID, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	a.counter++
-	var id PayloadID
+	var id payload.PayloadID
 	copy(id[:4], headHash[:4])
 	binary.BigEndian.PutUint32(id[4:], uint32(a.counter))
 
@@ -230,7 +232,7 @@ func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (Pa
 	id[3] ^= rb[1]
 
 	if _, exists := a.allocated[id]; exists {
-		return PayloadID{}, ErrFCTPayloadIDExists
+		return payload.PayloadID{}, ErrFCTPayloadIDExists
 	}
 
 	a.allocated[id] = timestamp
@@ -238,7 +240,7 @@ func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (Pa
 }
 
 // Has returns true if the given payload ID has been allocated.
-func (a *PayloadIDAllocator) Has(id PayloadID) bool {
+func (a *PayloadIDAllocator) Has(id payload.PayloadID) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	_, ok := a.allocated[id]
@@ -437,7 +439,7 @@ func NewForkchoiceTracker(historySize, reorgHistorySize int) *ForkchoiceTracker 
 // ProcessUpdate handles a full forkchoice update: tracks state, detects
 // conflicts and reorgs, and records the update in history.
 func (ft *ForkchoiceTracker) ProcessUpdate(
-	state ForkchoiceStateV1,
+	state payload.ForkchoiceStateV1,
 	hasAttrs bool,
 	headNum, safeNum, finalNum uint64,
 ) (conflict bool, conflictReason string, reorg *TrackedReorg) {
@@ -456,7 +458,7 @@ func (ft *ForkchoiceTracker) ProcessUpdate(
 		Timestamp:     time.Now(),
 		State:         state,
 		HasAttributes: hasAttrs,
-		Result:        StatusValid,
+		Result:        engerrors.StatusValid,
 	}
 	ft.History.Add(record)
 

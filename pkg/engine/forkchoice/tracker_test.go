@@ -1,10 +1,12 @@
-package engine
+package forkchoice
 
 import (
 	"fmt"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // --- HeadChain tests ---
@@ -54,8 +56,8 @@ func TestFCTHistoryAddAndLatest(t *testing.T) {
 	}
 
 	rec := FCURecord{
-		State:  ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")},
-		Result: StatusValid,
+		State:  payload.ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")},
+		Result: engerrors.StatusValid,
 	}
 	h.Add(rec)
 
@@ -76,8 +78,8 @@ func TestFCTHistoryEviction(t *testing.T) {
 	h := NewFCUHistory(3)
 	for i := 0; i < 5; i++ {
 		h.Add(FCURecord{
-			State:  ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")},
-			Result: StatusValid,
+			State:  payload.ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")},
+			Result: engerrors.StatusValid,
 		})
 	}
 	if h.Len() != 3 {
@@ -99,7 +101,7 @@ func TestFCTHistoryAll(t *testing.T) {
 
 func TestFCTConflictDetectorNoConflict(t *testing.T) {
 	cd := NewConflictDetector()
-	state := ForkchoiceStateV1{
+	state := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
@@ -109,7 +111,7 @@ func TestFCTConflictDetectorNoConflict(t *testing.T) {
 	}
 
 	// Same finalized, different head -- no conflict.
-	state2 := ForkchoiceStateV1{
+	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xcc"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
@@ -121,13 +123,13 @@ func TestFCTConflictDetectorNoConflict(t *testing.T) {
 
 func TestFCTConflictDetectorFinalizedRegression(t *testing.T) {
 	cd := NewConflictDetector()
-	state1 := ForkchoiceStateV1{
+	state1 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
 	cd.Check(state1)
 
-	state2 := ForkchoiceStateV1{
+	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xcc"), // finalized changed
 	}
@@ -151,7 +153,7 @@ func TestFCTPayloadIDAllocate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if id == (PayloadID{}) {
+	if id == (payload.PayloadID{}) {
 		t.Fatal("expected non-zero payload ID")
 	}
 	if !a.Has(id) {
@@ -164,7 +166,7 @@ func TestFCTPayloadIDAllocate(t *testing.T) {
 
 func TestFCTPayloadIDAllocateMultiple(t *testing.T) {
 	a := NewPayloadIDAllocator()
-	ids := make(map[PayloadID]bool)
+	ids := make(map[payload.PayloadID]bool)
 	for i := 0; i < 20; i++ {
 		id, err := a.Allocate(types.HexToHash("0xaa"), uint64(1000+i))
 		if err != nil {
@@ -294,7 +296,7 @@ func TestFCTTrackerProcessUpdate(t *testing.T) {
 	ft.Reorgs.AddBlock(genesis)
 	ft.Reorgs.AddBlock(block1)
 
-	state := ForkchoiceStateV1{
+	state := payload.ForkchoiceStateV1{
 		HeadBlockHash:      genesis.Hash,
 		SafeBlockHash:      genesis.Hash,
 		FinalizedBlockHash: genesis.Hash,
@@ -308,7 +310,7 @@ func TestFCTTrackerProcessUpdate(t *testing.T) {
 	}
 
 	// Extend chain, no conflict.
-	state2 := ForkchoiceStateV1{
+	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      block1.Hash,
 		SafeBlockHash:      genesis.Hash,
 		FinalizedBlockHash: genesis.Hash,
@@ -333,13 +335,13 @@ func TestFCTTrackerProcessUpdate(t *testing.T) {
 func TestFCTTrackerConflictDetection(t *testing.T) {
 	ft := NewForkchoiceTracker(100, 100)
 
-	state1 := ForkchoiceStateV1{
+	state1 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
 	ft.ProcessUpdate(state1, false, 100, 0, 0)
 
-	state2 := ForkchoiceStateV1{
+	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xcc"), // different finalized
 	}

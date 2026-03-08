@@ -1,11 +1,11 @@
-// forkchoice_engine.go implements the full forkchoice processing engine for the
+// engine.go implements the full forkchoice processing engine for the
 // Engine API. It manages head/safe/finalized block tracking, validates forkchoice
 // state transitions, determines when to build new payloads, and maintains a
 // payload cache for in-progress payload construction.
 //
 // This sits between the JSON-RPC handler and the ForkchoiceStateManager,
 // providing the core orchestration logic for engine_forkchoiceUpdated calls.
-package engine
+package forkchoice
 
 import (
 	"crypto/rand"
@@ -15,6 +15,8 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // Forkchoice engine errors.
@@ -48,10 +50,10 @@ type ForkchoiceState struct {
 // ForkchoiceResponse is the result of processing a forkchoice update.
 type ForkchoiceResponse struct {
 	// PayloadStatus indicates the validity of the head block.
-	PayloadStatus PayloadStatusV1
+	PayloadStatus payload.PayloadStatusV1
 
 	// PayloadID is set when payload building was started (non-zero).
-	PayloadID PayloadID
+	PayloadID payload.PayloadID
 }
 
 // BlockLookup provides block information for forkchoice validation.
@@ -85,7 +87,7 @@ type ForkchoiceEngine struct {
 	blocks BlockLookup
 
 	// payloadCache stores recently built payload IDs.
-	payloadCache map[PayloadID]bool
+	payloadCache map[payload.PayloadID]bool
 
 	// syncing indicates whether the node is currently syncing.
 	syncing bool
@@ -100,7 +102,7 @@ type ForkchoiceEngine struct {
 func NewForkchoiceEngine(blocks BlockLookup) *ForkchoiceEngine {
 	return &ForkchoiceEngine{
 		blocks:       blocks,
-		payloadCache: make(map[PayloadID]bool),
+		payloadCache: make(map[payload.PayloadID]bool),
 	}
 }
 
@@ -130,7 +132,7 @@ func (e *ForkchoiceEngine) IsSyncing() bool {
 //   - The payload ID is returned for subsequent engine_getPayload calls.
 func (e *ForkchoiceEngine) ProcessForkchoiceUpdate(
 	state ForkchoiceState,
-	attrs *PayloadAttributesV3,
+	attrs *payload.PayloadAttributesV3,
 ) (*ForkchoiceResponse, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -144,8 +146,8 @@ func (e *ForkchoiceEngine) ProcessForkchoiceUpdate(
 	// If we are syncing and the head is unknown, return SYNCING.
 	if e.syncing && !e.blocks.HasBlock(state.HeadBlockHash) {
 		return &ForkchoiceResponse{
-			PayloadStatus: PayloadStatusV1{
-				Status: StatusSyncing,
+			PayloadStatus: payload.PayloadStatusV1{
+				Status: engerrors.StatusSyncing,
 			},
 		}, nil
 	}
@@ -153,8 +155,8 @@ func (e *ForkchoiceEngine) ProcessForkchoiceUpdate(
 	// Verify the head block is known.
 	if !e.blocks.HasBlock(state.HeadBlockHash) {
 		return &ForkchoiceResponse{
-			PayloadStatus: PayloadStatusV1{
-				Status: StatusSyncing,
+			PayloadStatus: payload.PayloadStatusV1{
+				Status: engerrors.StatusSyncing,
 			},
 		}, nil
 	}
@@ -182,8 +184,8 @@ func (e *ForkchoiceEngine) ProcessForkchoiceUpdate(
 
 	headHash := types.Hash(state.HeadBlockHash)
 	resp := &ForkchoiceResponse{
-		PayloadStatus: PayloadStatusV1{
-			Status:          StatusValid,
+		PayloadStatus: payload.PayloadStatusV1{
+			Status:          engerrors.StatusValid,
 			LatestValidHash: &headHash,
 		},
 	}
@@ -303,7 +305,7 @@ func (e *ForkchoiceEngine) IsValidTransition(parentHash, blockHash [32]byte) boo
 // contain a valid timestamp.
 func (e *ForkchoiceEngine) ShouldBuildPayload(
 	state ForkchoiceState,
-	attrs *PayloadAttributesV3,
+	attrs *payload.PayloadAttributesV3,
 ) bool {
 	if attrs == nil {
 		return false
@@ -344,7 +346,7 @@ func (e *ForkchoiceEngine) GetState() ForkchoiceState {
 }
 
 // HasPayload returns whether a payload ID is known to the engine.
-func (e *ForkchoiceEngine) HasPayload(id PayloadID) bool {
+func (e *ForkchoiceEngine) HasPayload(id payload.PayloadID) bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.payloadCache[id]
@@ -375,7 +377,7 @@ func (e *ForkchoiceEngine) isAncestorLocked(ancestor, descendant [32]byte) bool 
 // a payload build. Caller must hold e.mu.
 func (e *ForkchoiceEngine) validatePayloadAttributesLocked(
 	state ForkchoiceState,
-	attrs *PayloadAttributesV3,
+	attrs *payload.PayloadAttributesV3,
 ) error {
 	if attrs.Timestamp == 0 {
 		return fmt.Errorf("%w: timestamp is zero", ErrFCENilAttributes)
@@ -388,7 +390,7 @@ func (e *ForkchoiceEngine) validatePayloadAttributesLocked(
 	}
 	// Beacon root must be provided for V3+ attributes.
 	if attrs.ParentBeaconBlockRoot == (types.Hash{}) {
-		return ErrInvalidPayloadAttributes
+		return engerrors.ErrInvalidPayloadAttributes
 	}
 	return nil
 }
@@ -396,8 +398,8 @@ func (e *ForkchoiceEngine) validatePayloadAttributesLocked(
 // generatePayloadID creates a deterministic-ish payload ID from the head hash
 // and payload attributes. In production this would use a proper derivation;
 // here we combine head hash bytes with timestamp and some randomness.
-func (e *ForkchoiceEngine) generatePayloadID(headHash [32]byte, attrs *PayloadAttributesV3) PayloadID {
-	var id PayloadID
+func (e *ForkchoiceEngine) generatePayloadID(headHash [32]byte, attrs *payload.PayloadAttributesV3) payload.PayloadID {
+	var id payload.PayloadID
 	// Mix head hash and timestamp.
 	copy(id[:4], headHash[:4])
 	binary.BigEndian.PutUint32(id[4:], uint32(attrs.Timestamp))
