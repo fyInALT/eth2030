@@ -2,7 +2,6 @@ package sync
 
 import (
 	"errors"
-	"math/big"
 	"sync"
 	"testing"
 	"time"
@@ -718,32 +717,7 @@ func TestRunSync_NonAlignedBatchLastBatch(t *testing.T) {
 	}
 }
 
-// --- Syncer.GetProgress returns snap progress when snap syncer running ---
-
-func TestSyncer_GetProgress_WithSnapProgress(t *testing.T) {
-	s := NewSyncer(&Config{Mode: ModeSnap})
-	peer := newMockSnapPeer("peer1")
-	writer := newMockStateWriter()
-	s.SetSnapSync(peer, writer)
-
-	// Manually set snap syncer state.
-	s.snapSyncer.running.Store(true)
-	s.snapSyncer.mu.Lock()
-	s.snapSyncer.progress.AccountsDone = 42
-	s.snapSyncer.progress.Phase = PhaseAccounts
-	s.snapSyncer.mu.Unlock()
-
-	prog := s.GetProgress()
-	if prog.SnapProgress == nil {
-		t.Fatal("snap progress should not be nil when snap syncer is running")
-	}
-	if prog.SnapProgress.AccountsDone != 42 {
-		t.Fatalf("snap accounts done: want 42, got %d", prog.SnapProgress.AccountsDone)
-	}
-
-	// Clean up.
-	s.snapSyncer.running.Store(false)
-}
+// --- Syncer.GetProgress returns snap progress state ---
 
 func TestSyncer_GetProgress_WithoutSnapSyncer(t *testing.T) {
 	s := NewSyncer(&Config{Mode: ModeFull})
@@ -942,69 +916,5 @@ func TestBuildTestChain_Integrity(t *testing.T) {
 	}
 }
 
-// --- encodeAccountForProof with nil balance ---
-
-func TestEncodeAccountForProof_NilBalance(t *testing.T) {
-	a := AccountData{
-		Hash:     types.Hash{0x01},
-		Nonce:    5,
-		Balance:  nil,
-		Root:     types.Hash{0xaa},
-		CodeHash: types.Hash{0xbb},
-	}
-	encoded := encodeAccountForProof(a)
-	// Should not panic and should produce valid output.
-	// 8 (nonce) + 32 (balance) + 32 (root) + 32 (codehash) = 104 bytes.
-	if len(encoded) != 104 {
-		t.Fatalf("encoded length: want 104, got %d", len(encoded))
-	}
-}
-
-func TestEncodeAccountForProof_WithBalance(t *testing.T) {
-	a := AccountData{
-		Hash:     types.Hash{0x01},
-		Nonce:    1,
-		Balance:  big.NewInt(1000),
-		Root:     types.Hash{0xcc},
-		CodeHash: types.Hash{0xdd},
-	}
-	encoded := encodeAccountForProof(a)
-	if len(encoded) != 104 {
-		t.Fatalf("encoded length: want 104, got %d", len(encoded))
-	}
-}
-
-// --- verifyRangeProof edge cases ---
-
-func TestVerifyRangeProof_EmptyProof(t *testing.T) {
-	err := verifyRangeProof(types.Hash{0x01}, []byte{0x01}, []byte{0x02}, nil)
-	if err != nil {
-		t.Fatalf("empty proof should pass: %v", err)
-	}
-}
-
-func TestVerifyRangeProof_BadRootHash(t *testing.T) {
-	// Proof root hash won't match.
-	proof := [][]byte{{0x01, 0x02, 0x03}}
-	err := verifyRangeProof(types.Hash{0xff}, []byte{0x01}, []byte{0x02}, proof)
-	if err == nil {
-		t.Fatal("expected error for mismatched proof root")
-	}
-}
-
-// --- estimateAccountSize ---
-
-func TestEstimateAccountSize(t *testing.T) {
-	a := AccountData{
-		Hash:     types.Hash{0x01},
-		Nonce:    1,
-		Balance:  big.NewInt(100),
-		Root:     types.EmptyRootHash,
-		CodeHash: types.EmptyCodeHash,
-	}
-	size := estimateAccountSize(a)
-	// 32 + 20 + 8 + 32 + 32 + 32 = 156
-	if size != 156 {
-		t.Fatalf("estimateAccountSize: want 156, got %d", size)
-	}
-}
+// Tests for encodeAccountForProof, verifyRangeProof, and estimateAccountSize
+// live in sync/snap/snap_test.go since those are private snap package functions.

@@ -1,4 +1,4 @@
-package sync
+package snap
 
 import (
 	"bytes"
@@ -1109,5 +1109,69 @@ func TestSnapSyncer_FullPipeline(t *testing.T) {
 	}
 	if prog.BytesTotal() == 0 {
 		t.Fatal("total bytes should be > 0")
+	}
+}
+
+// --- encodeAccountForProof tests (private snap package function) ---
+
+func TestEncodeAccountForProof_NilBalance(t *testing.T) {
+	a := AccountData{
+		Hash:     types.Hash{0x01},
+		Nonce:    5,
+		Balance:  nil,
+		Root:     types.Hash{0xaa},
+		CodeHash: types.Hash{0xbb},
+	}
+	encoded := encodeAccountForProof(a)
+	if len(encoded) != 104 {
+		t.Fatalf("encoded length: want 104, got %d", len(encoded))
+	}
+}
+
+func TestEncodeAccountForProof_WithBalance(t *testing.T) {
+	a := AccountData{
+		Hash:     types.Hash{0x01},
+		Nonce:    1,
+		Balance:  big.NewInt(1000),
+		Root:     types.Hash{0xcc},
+		CodeHash: types.Hash{0xdd},
+	}
+	encoded := encodeAccountForProof(a)
+	if len(encoded) != 104 {
+		t.Fatalf("encoded length: want 104, got %d", len(encoded))
+	}
+}
+
+// --- verifyRangeProof edge cases ---
+
+func TestVerifyRangeProof_EmptyProof(t *testing.T) {
+	err := verifyRangeProof(types.Hash{0x01}, []byte{0x01}, []byte{0x02}, nil)
+	if err != nil {
+		t.Fatalf("empty proof should pass: %v", err)
+	}
+}
+
+func TestVerifyRangeProof_BadRootHash(t *testing.T) {
+	proof := [][]byte{{0x01, 0x02, 0x03}}
+	err := verifyRangeProof(types.Hash{0xff}, []byte{0x01}, []byte{0x02}, proof)
+	if err == nil {
+		t.Fatal("expected error for mismatched proof root")
+	}
+}
+
+// --- estimateAccountSize ---
+
+func TestEstimateAccountSize(t *testing.T) {
+	a := AccountData{
+		Hash:     types.Hash{0x01},
+		Nonce:    1,
+		Balance:  big.NewInt(100),
+		Root:     types.EmptyRootHash,
+		CodeHash: types.EmptyCodeHash,
+	}
+	size := estimateAccountSize(a)
+	// 32 + 20 + 8 + 32 + 32 + 32 = 156
+	if size != 156 {
+		t.Fatalf("estimateAccountSize: want 156, got %d", size)
 	}
 }

@@ -2,7 +2,7 @@
 // ranges, storage ranges, bytecodes, and trie nodes. SnapSync coordinates
 // parallel range downloads with proof verification, pivot point selection,
 // and progress tracking.
-package sync
+package snap
 
 import (
 	"bytes"

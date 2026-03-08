@@ -8,7 +8,7 @@
 //  2. Storage range download -- fetch storage trie leaves for each contract.
 //  3. Bytecode download -- fetch contract code by code hash.
 //  4. Healing -- walk the trie to discover and fetch any missing interior nodes.
-package sync
+package snap
 
 import (
 	"bytes"
