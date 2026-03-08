@@ -180,7 +180,7 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 
 	// Validate receipt root: the Merkle trie hash of receipts must match
 	// header.ReceiptHash.
-	computedReceiptHash := computeReceiptsRoot(receipts)
+	computedReceiptHash := ComputeReceiptsRoot(receipts)
 	if header.ReceiptHash != computedReceiptHash {
 		return fmt.Errorf("%w: header=%s computed=%s", ErrInvalidReceiptRoot,
 			header.ReceiptHash.Hex(), computedReceiptHash.Hex())
@@ -440,6 +440,14 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 	}
 
 	return nil, fmt.Errorf("%w: no block found with state root %v", ErrStateNotFound, root)
+}
+
+// StateAtBlock returns the state after executing up to the given block.
+// This is the public counterpart of stateAt, for use by external packages.
+func (bc *Blockchain) StateAtBlock(block *types.Block) (state.StateDB, error) {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.stateAt(block)
 }
 
 // stateAt returns the state after executing up to (and including) the given block.
