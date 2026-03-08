@@ -8,11 +8,12 @@
 package bn254
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"math/big"
 	"sync"
+
+	"golang.org/x/crypto/sha3"
 
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -96,9 +97,9 @@ type ShieldedCircuitProof struct {
 	ProofHash        types.Hash // Combined proof digest for verification
 }
 
-// scSHA256 computes SHA-256 with domain separation.
-func scSHA256(domain []byte, data ...[]byte) [32]byte {
-	h := sha256.New()
+// scHash computes SHA3-256 with domain separation.
+func scHash(domain []byte, data ...[]byte) [32]byte {
+	h := sha3.New256()
 	h.Write(domain)
 	for _, d := range data {
 		h.Write(d)
@@ -136,7 +137,7 @@ func PedersenCommitBN254(amount uint64, randomness [32]byte) types.Hash {
 func DeriveNullifier(sk [32]byte, commitmentIdx uint64) types.Hash {
 	var idxBuf [8]byte
 	binary.BigEndian.PutUint64(idxBuf[:], commitmentIdx)
-	result := scSHA256(scDomainNullifier, sk[:], idxBuf[:])
+	result := scHash(scDomainNullifier, sk[:], idxBuf[:])
 	return types.Hash(result)
 }
 
@@ -152,14 +153,14 @@ func generateRangeProof(amount uint64, randomness [32]byte) []byte {
 		binary.BigEndian.PutUint64(bitBuf[:], uint64(bit))
 
 		// Per-bit randomness: r_i = SHA256(randomness || bit_index).
-		bitRand := scSHA256(scDomainRange, randomness[:], bitBuf[:])
+		bitRand := scHash(scDomainRange, randomness[:], bitBuf[:])
 
 		// Commit to the bit.
 		bitCommit := PedersenCommitBN254(bitVal, bitRand)
 		proof = append(proof, bitCommit[:]...)
 
 		// Fiat-Shamir challenge.
-		challenge := scSHA256(scDomainChallenge, proof)
+		challenge := scHash(scDomainChallenge, proof)
 
 		// Response: r_i + challenge * bitVal (simulated scalar arithmetic).
 		cBig := new(big.Int).SetBytes(challenge[:])
@@ -207,7 +208,7 @@ func verifyRangeProof(proofData []byte) bool {
 		running = append(running, bitCommit...)
 
 		// Recompute challenge.
-		challenge := scSHA256(scDomainChallenge, running)
+		challenge := scHash(scDomainChallenge, running)
 		allZero := true
 		for _, b := range challenge {
 			if b != 0 {
@@ -299,7 +300,7 @@ func ProveShieldedTransfer(witness *ShieldedTransferWitness) (*ShieldedCircuitPr
 	// 3. Generate nullifier derivation proof.
 	var idxBuf [8]byte
 	binary.BigEndian.PutUint64(idxBuf[:], witness.CommitmentIndex)
-	nullifierProof := scSHA256(
+	nullifierProof := scHash(
 		scDomainNullifier,
 		witness.SecretKey[:],
 		idxBuf[:],
@@ -309,7 +310,7 @@ func ProveShieldedTransfer(witness *ShieldedTransferWitness) (*ShieldedCircuitPr
 	// 4. Generate commitment proof (shows output is well-formed).
 	var amtBuf [8]byte
 	binary.BigEndian.PutUint64(amtBuf[:], witness.Amount)
-	commitmentProof := scSHA256(
+	commitmentProof := scHash(
 		scDomainCommit,
 		amtBuf[:],
 		witness.Randomness[:],
@@ -327,7 +328,7 @@ func ProveShieldedTransfer(witness *ShieldedTransferWitness) (*ShieldedCircuitPr
 	)
 
 	// 7. Combine into proof hash.
-	proofHash := scSHA256(
+	proofHash := scHash(
 		scDomainProof,
 		nullifier[:],
 		outputCommitment[:],
@@ -382,7 +383,7 @@ func VerifyShieldedTransfer(proof *ShieldedCircuitProof, nullifier, outputCommit
 	}
 
 	// Verify combined proof hash.
-	expectedHash := scSHA256(
+	expectedHash := scHash(
 		scDomainProof,
 		nullifier[:],
 		outputCommitment[:],
@@ -427,8 +428,8 @@ func CreateShieldedNote(witness *ShieldedTransferWitness) *ShieldedNote {
 	// Encrypt amount and randomness for the recipient.
 	var amtBuf [8]byte
 	binary.BigEndian.PutUint64(amtBuf[:], witness.Amount)
-	encAmount := scSHA256(scDomainNote, witness.RecipientPK[:], amtBuf[:])
-	encRandom := scSHA256(scDomainNote, witness.RecipientPK[:], witness.Randomness[:])
+	encAmount := scHash(scDomainNote, witness.RecipientPK[:], amtBuf[:])
+	encRandom := scHash(scDomainNote, witness.RecipientPK[:], witness.Randomness[:])
 
 	return &ShieldedNote{
 		Commitment:      commitment,
