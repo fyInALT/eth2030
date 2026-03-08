@@ -1,4 +1,4 @@
-package p2p
+package dispatch
 
 import (
 	"errors"
@@ -6,17 +6,19 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/eth2030/eth2030/p2p/peermgr"
 )
 
 // Protocol manager errors.
-// ErrTooManyInbound, ErrTooManyOutbound are declared in adv_peer_manager.go.
-// ErrProtocolNotFound is declared in multiplexer.go.
 var (
 	ErrPeerAlreadyConnected = errors.New("p2p: peer already connected")
 	ErrPeerNotConnected     = errors.New("p2p: peer not connected")
 	ErrTooManyPeers         = errors.New("p2p: too many peers")
 	ErrProtocolExists       = errors.New("p2p: protocol already registered")
 	ErrNoSharedCaps         = errors.New("p2p: no shared capabilities")
+	// ErrProtocolNotFound is returned when no handler is registered for a protocol.
+	ErrProtocolNotFound = errors.New("p2p: protocol not found")
 )
 
 // Capability represents a sub-protocol name and version pair.
@@ -51,7 +53,6 @@ type registeredProtocol struct {
 }
 
 // ConnectFunc is called by ProtocolManager.Connect to establish a connection.
-// It should return the remote peer's capabilities, or an error.
 type ConnectFunc func(nodeID string) ([]Capability, error)
 
 // ProtocolManagerConfig configures the protocol manager.
@@ -83,12 +84,10 @@ type ProtocolManager struct {
 	inbound   int
 	outbound  int
 
-	// Callbacks for connect/disconnect events.
 	onConnect    []func(info *PeerMgrInfo)
 	onDisconnect []func(nodeID string, reason string)
 
 	// ConnectFn is the function used to establish connections.
-	// If nil, Connect will return an error.
 	ConnectFn ConnectFunc
 }
 
@@ -102,7 +101,6 @@ func NewProtocolManager(cfg ProtocolManagerConfig) *ProtocolManager {
 }
 
 // RegisterProtocol registers a named protocol at a given version with a handler.
-// Returns an error if the exact name+version is already registered.
 func (pm *ProtocolManager) RegisterProtocol(name string, version uint, handler ProtocolHandler) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -133,20 +131,17 @@ func (pm *ProtocolManager) Protocols() []Capability {
 	return caps
 }
 
-// Connect establishes a connection to a remote node, performs capability
-// negotiation, and registers the peer. The actual transport is handled by
-// the ConnectFn callback.
+// Connect establishes a connection to a remote node.
 func (pm *ProtocolManager) Connect(nodeID string) error {
 	pm.mu.Lock()
 
-	// Check limits.
 	if len(pm.peers) >= pm.config.MaxTotal {
 		pm.mu.Unlock()
 		return ErrTooManyPeers
 	}
 	if pm.outbound >= pm.config.MaxOutbound {
 		pm.mu.Unlock()
-		return ErrTooManyOutbound
+		return peermgr.ErrTooManyOutbound
 	}
 	if _, exists := pm.peers[nodeID]; exists {
 		pm.mu.Unlock()
@@ -154,7 +149,6 @@ func (pm *ProtocolManager) Connect(nodeID string) error {
 	}
 	pm.mu.Unlock()
 
-	// Establish connection via callback.
 	var remoteCaps []Capability
 	if pm.ConnectFn != nil {
 		var err error
@@ -164,7 +158,6 @@ func (pm *ProtocolManager) Connect(nodeID string) error {
 		}
 	}
 
-	// Negotiate shared capabilities.
 	localCaps := pm.Protocols()
 	shared := MatchCapabilities(localCaps, remoteCaps)
 	if len(shared) == 0 && len(localCaps) > 0 && len(remoteCaps) > 0 {
@@ -181,7 +174,6 @@ func (pm *ProtocolManager) Connect(nodeID string) error {
 	}
 
 	pm.mu.Lock()
-	// Re-check after connection attempt (in case of concurrent connect).
 	if _, exists := pm.peers[nodeID]; exists {
 		pm.mu.Unlock()
 		return ErrPeerAlreadyConnected
@@ -196,7 +188,6 @@ func (pm *ProtocolManager) Connect(nodeID string) error {
 	copy(callbacks, pm.onConnect)
 	pm.mu.Unlock()
 
-	// Notify subscribers outside the lock.
 	for _, cb := range callbacks {
 		cb(info)
 	}
@@ -212,7 +203,7 @@ func (pm *ProtocolManager) AcceptPeer(nodeID string, remoteCaps []Capability) er
 		return ErrTooManyPeers
 	}
 	if pm.inbound >= pm.config.MaxInbound {
-		return ErrTooManyInbound
+		return peermgr.ErrTooManyInbound
 	}
 	if _, exists := pm.peers[nodeID]; exists {
 		return ErrPeerAlreadyConnected
@@ -240,8 +231,6 @@ func (pm *ProtocolManager) AcceptPeer(nodeID string, remoteCaps []Capability) er
 	callbacks := make([]func(info *PeerMgrInfo), len(pm.onConnect))
 	copy(callbacks, pm.onConnect)
 
-	// Notify outside lock via deferred goroutine is not needed
-	// because the callers here are already unlocked after defer.
 	go func() {
 		for _, cb := range callbacks {
 			cb(info)
@@ -301,7 +290,6 @@ func (pm *ProtocolManager) PeerInfo(nodeID string) *PeerMgrInfo {
 	if !exists {
 		return nil
 	}
-	// Return a copy.
 	cp := *info
 	cp.Capabilities = make([]Capability, len(info.Capabilities))
 	copy(cp.Capabilities, info.Capabilities)
@@ -344,18 +332,15 @@ func (pm *ProtocolManager) AllPeers() []*PeerMgrInfo {
 	return result
 }
 
-// RouteMessage routes an incoming message to the appropriate protocol handler
-// based on the protocol name. Returns an error if the protocol is not found.
+// RouteMessage routes an incoming message to the appropriate protocol handler.
 func (pm *ProtocolManager) RouteMessage(peerID string, protoName string, code uint64, payload []byte) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	// Verify the peer is connected.
 	if _, exists := pm.peers[peerID]; !exists {
 		return ErrPeerNotConnected
 	}
 
-	// Find the handler for the highest matching version.
 	var handler ProtocolHandler
 	var bestVersion uint
 	for _, p := range pm.protocols {
@@ -384,7 +369,6 @@ func (pm *ProtocolManager) UpdateLatency(nodeID string, latency time.Duration) {
 // MatchCapabilities finds the highest shared version for each protocol name
 // present in both local and remote capability lists.
 func MatchCapabilities(local, remote []Capability) []Capability {
-	// Build a map of local capabilities: name -> max version.
 	localMap := make(map[string]uint)
 	for _, c := range local {
 		if v, ok := localMap[c.Name]; !ok || c.Version > v {
@@ -392,7 +376,6 @@ func MatchCapabilities(local, remote []Capability) []Capability {
 		}
 	}
 
-	// Build a map of remote capabilities: name -> max version.
 	remoteMap := make(map[string]uint)
 	for _, c := range remote {
 		if v, ok := remoteMap[c.Name]; !ok || c.Version > v {
@@ -400,7 +383,6 @@ func MatchCapabilities(local, remote []Capability) []Capability {
 		}
 	}
 
-	// Find matching protocols and take the min of the two max versions.
 	var matched []Capability
 	for name, localVer := range localMap {
 		if remoteVer, ok := remoteMap[name]; ok {
@@ -412,7 +394,6 @@ func MatchCapabilities(local, remote []Capability) []Capability {
 		}
 	}
 
-	// Sort by name for deterministic output.
 	sort.Slice(matched, func(i, j int) bool {
 		return matched[i].Name < matched[j].Name
 	})
@@ -420,7 +401,7 @@ func MatchCapabilities(local, remote []Capability) []Capability {
 	return matched
 }
 
-// HasCapability checks if a peer supports a specific protocol name at any version.
+// HasCapability checks if a peer supports a specific protocol name.
 func (pm *ProtocolManager) HasCapability(nodeID string, protoName string) bool {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()

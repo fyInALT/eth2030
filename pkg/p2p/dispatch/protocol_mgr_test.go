@@ -1,10 +1,12 @@
-package p2p
+package dispatch
 
 import (
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/eth2030/eth2030/p2p/peermgr"
 )
 
 func TestProtocolManagerRegister(t *testing.T) {
@@ -185,8 +187,8 @@ func TestPeerLimits(t *testing.T) {
 	}
 
 	// Second outbound should fail.
-	if err := pm.Connect("out2"); err != ErrTooManyOutbound {
-		t.Errorf("Connect(out2) = %v, want ErrTooManyOutbound", err)
+	if err := pm.Connect("out2"); err != peermgr.ErrTooManyOutbound {
+		t.Errorf("Connect(out2) = %v, want peermgr.ErrTooManyOutbound", err)
 	}
 
 	// Accept one inbound.

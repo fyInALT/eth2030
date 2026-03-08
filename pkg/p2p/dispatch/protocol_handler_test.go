@@ -1,4 +1,4 @@
-package p2p
+package dispatch
 
 import (
 	"errors"

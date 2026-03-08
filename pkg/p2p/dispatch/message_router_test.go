@@ -1,6 +1,7 @@
-package p2p
+package dispatch
 
 import (
+	"github.com/eth2030/eth2030/p2p/wire"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func TestMessageRouter_RegisterHandler(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{})
 	defer r.Close()
 
-	handler := func(peerID string, msg Msg) error { return nil }
+	handler := func(peerID string, msg wire.Msg) error { return nil }
 	if err := r.RegisterHandler(0x01, handler); err != nil {
 		t.Fatalf("RegisterHandler: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestMessageRouter_RegisterHandler_Duplicate(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{})
 	defer r.Close()
 
-	handler := func(peerID string, msg Msg) error { return nil }
+	handler := func(peerID string, msg wire.Msg) error { return nil }
 	r.RegisterHandler(0x01, handler)
 
 	err := r.RegisterHandler(0x01, handler)
@@ -60,14 +61,14 @@ func TestMessageRouter_SetHandler(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{})
 	defer r.Close()
 
-	handler := func(peerID string, msg Msg) error { return nil }
+	handler := func(peerID string, msg wire.Msg) error { return nil }
 	r.SetHandler(0x01, handler)
 	if !r.HasHandler(0x01) {
 		t.Fatal("handler should be registered")
 	}
 
 	// Replace.
-	r.SetHandler(0x01, func(peerID string, msg Msg) error { return nil })
+	r.SetHandler(0x01, func(peerID string, msg wire.Msg) error { return nil })
 	if !r.HasHandler(0x01) {
 		t.Fatal("handler should still be registered after replace")
 	}
@@ -83,7 +84,7 @@ func TestMessageRouter_UnregisterHandler(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{})
 	defer r.Close()
 
-	handler := func(peerID string, msg Msg) error { return nil }
+	handler := func(peerID string, msg wire.Msg) error { return nil }
 	r.RegisterHandler(0x01, handler)
 	r.UnregisterHandler(0x01)
 	if r.HasHandler(0x01) {
@@ -95,17 +96,17 @@ func TestMessageRouter_Dispatch(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{RateLimit: 1000, RateBurst: 100})
 	defer r.Close()
 
-	var received Msg
+	var received wire.Msg
 	var receivedPeer string
 
-	r.SetHandler(0x01, func(peerID string, msg Msg) error {
+	r.SetHandler(0x01, func(peerID string, msg wire.Msg) error {
 		received = msg
 		receivedPeer = peerID
 		return nil
 	})
 	r.TrackPeer("peer1")
 
-	msg := Msg{Code: 0x01, Size: 5, Payload: []byte("hello")}
+	msg := wire.Msg{Code: 0x01, Size: 5, Payload: []byte("hello")}
 	if err := r.Dispatch("peer1", msg); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestMessageRouter_Dispatch_NoHandler(t *testing.T) {
 	defer r.Close()
 
 	r.TrackPeer("peer1")
-	err := r.Dispatch("peer1", Msg{Code: 0xFF})
+	err := r.Dispatch("peer1", wire.Msg{Code: 0xFF})
 	if err == nil {
 		t.Fatal("expected error for unregistered code")
 	}
@@ -135,7 +136,7 @@ func TestMessageRouter_Dispatch_Closed(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{})
 	r.Close()
 
-	err := r.Dispatch("peer1", Msg{Code: 0x01})
+	err := r.Dispatch("peer1", wire.Msg{Code: 0x01})
 	if err != ErrRouterClosed {
 		t.Fatalf("expected ErrRouterClosed, got %v", err)
 	}
@@ -146,16 +147,16 @@ func TestMessageRouter_RateLimit(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{RateLimit: 1, RateBurst: 1})
 	defer r.Close()
 
-	r.SetHandler(0x01, func(peerID string, msg Msg) error { return nil })
+	r.SetHandler(0x01, func(peerID string, msg wire.Msg) error { return nil })
 	r.TrackPeer("peer1")
 
 	// First message should succeed (uses the burst token).
-	if err := r.Dispatch("peer1", Msg{Code: 0x01}); err != nil {
+	if err := r.Dispatch("peer1", wire.Msg{Code: 0x01}); err != nil {
 		t.Fatalf("first dispatch: %v", err)
 	}
 
 	// Second message should be rate limited (no tokens left).
-	err := r.Dispatch("peer1", Msg{Code: 0x01})
+	err := r.Dispatch("peer1", wire.Msg{Code: 0x01})
 	if err != ErrRateLimited {
 		t.Fatalf("expected ErrRateLimited, got %v", err)
 	}
@@ -184,15 +185,15 @@ func TestMessageRouter_PriorityQueue_Enqueue(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{OutboundMax: 100})
 	defer r.Close()
 
-	err := r.Enqueue(Msg{Code: 0x01, Payload: []byte("low")}, "peer1", PriorityLow)
+	err := r.Enqueue(wire.Msg{Code: 0x01, Payload: []byte("low")}, "peer1", PriorityLow)
 	if err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
-	err = r.Enqueue(Msg{Code: 0x02, Payload: []byte("high")}, "peer1", PriorityHigh)
+	err = r.Enqueue(wire.Msg{Code: 0x02, Payload: []byte("high")}, "peer1", PriorityHigh)
 	if err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
-	err = r.Enqueue(Msg{Code: 0x03, Payload: []byte("normal")}, "peer1", PriorityNormal)
+	err = r.Enqueue(wire.Msg{Code: 0x03, Payload: []byte("normal")}, "peer1", PriorityNormal)
 	if err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
@@ -207,11 +208,11 @@ func TestMessageRouter_PriorityQueue_Order(t *testing.T) {
 	defer r.Close()
 
 	// Enqueue in reverse priority order.
-	r.Enqueue(Msg{Code: 0x01, Payload: []byte("low")}, "p1", PriorityLow)
+	r.Enqueue(wire.Msg{Code: 0x01, Payload: []byte("low")}, "p1", PriorityLow)
 	time.Sleep(time.Millisecond) // ensure different timestamps
-	r.Enqueue(Msg{Code: 0x02, Payload: []byte("high")}, "p1", PriorityHigh)
+	r.Enqueue(wire.Msg{Code: 0x02, Payload: []byte("high")}, "p1", PriorityHigh)
 	time.Sleep(time.Millisecond)
-	r.Enqueue(Msg{Code: 0x03, Payload: []byte("normal")}, "p1", PriorityNormal)
+	r.Enqueue(wire.Msg{Code: 0x03, Payload: []byte("normal")}, "p1", PriorityNormal)
 
 	// Dequeue should return highest priority first.
 	m1 := r.DequeueNonBlocking()
@@ -240,11 +241,11 @@ func TestMessageRouter_PriorityQueue_FIFO(t *testing.T) {
 	defer r.Close()
 
 	// Same priority: FIFO.
-	r.Enqueue(Msg{Code: 0x01, Payload: []byte("first")}, "p1", PriorityNormal)
+	r.Enqueue(wire.Msg{Code: 0x01, Payload: []byte("first")}, "p1", PriorityNormal)
 	time.Sleep(time.Millisecond)
-	r.Enqueue(Msg{Code: 0x02, Payload: []byte("second")}, "p1", PriorityNormal)
+	r.Enqueue(wire.Msg{Code: 0x02, Payload: []byte("second")}, "p1", PriorityNormal)
 	time.Sleep(time.Millisecond)
-	r.Enqueue(Msg{Code: 0x03, Payload: []byte("third")}, "p1", PriorityNormal)
+	r.Enqueue(wire.Msg{Code: 0x03, Payload: []byte("third")}, "p1", PriorityNormal)
 
 	m1 := r.DequeueNonBlocking()
 	if string(m1.Msg.Payload) != "first" {
@@ -264,10 +265,10 @@ func TestMessageRouter_PriorityQueue_Full(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{OutboundMax: 2})
 	defer r.Close()
 
-	r.Enqueue(Msg{Code: 0x01}, "p1", PriorityNormal)
-	r.Enqueue(Msg{Code: 0x02}, "p1", PriorityNormal)
+	r.Enqueue(wire.Msg{Code: 0x01}, "p1", PriorityNormal)
+	r.Enqueue(wire.Msg{Code: 0x02}, "p1", PriorityNormal)
 
-	err := r.Enqueue(Msg{Code: 0x03}, "p1", PriorityNormal)
+	err := r.Enqueue(wire.Msg{Code: 0x03}, "p1", PriorityNormal)
 	if err != ErrQueueFull {
 		t.Fatalf("expected ErrQueueFull, got %v", err)
 	}
@@ -277,7 +278,7 @@ func TestMessageRouter_Enqueue_Closed(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{})
 	r.Close()
 
-	err := r.Enqueue(Msg{Code: 0x01}, "p1", PriorityNormal)
+	err := r.Enqueue(wire.Msg{Code: 0x01}, "p1", PriorityNormal)
 	if err != ErrRouterClosed {
 		t.Fatalf("expected ErrRouterClosed, got %v", err)
 	}
@@ -288,7 +289,7 @@ func TestMessageRouter_RequestResponse(t *testing.T) {
 	defer r.Close()
 
 	// Use a MsgPipe as transport.
-	a, b := MsgPipe()
+	a, b := wire.MsgPipe()
 	defer a.Close()
 	defer b.Close()
 
@@ -301,7 +302,7 @@ func TestMessageRouter_RequestResponse(t *testing.T) {
 			return
 		}
 		// Echo back as response with code 0x10.
-		b.WriteMsg(Msg{
+		b.WriteMsg(wire.Msg{
 			Code:    0x10,
 			Size:    msg.Size,
 			Payload: msg.Payload, // includes request ID prefix
@@ -318,7 +319,7 @@ func TestMessageRouter_RequestResponse(t *testing.T) {
 	}()
 
 	// Register a handler for 0x10 so Dispatch does not error with "no handler".
-	r.SetHandler(0x10, func(peerID string, msg Msg) error {
+	r.SetHandler(0x10, func(peerID string, msg wire.Msg) error {
 		return nil
 	})
 
@@ -352,7 +353,7 @@ func TestMessageRouter_ExpireRequests(t *testing.T) {
 		code:    0x10,
 		peerID:  "peer1",
 		created: time.Now().Add(-time.Minute),
-		respCh:  make(chan Msg, 1),
+		respCh:  make(chan wire.Msg, 1),
 	}
 	r.reqMu.Unlock()
 
@@ -369,11 +370,11 @@ func TestMessageRouter_Stats(t *testing.T) {
 	r := NewMessageRouter(RouterConfig{RateLimit: 1000, RateBurst: 100})
 	defer r.Close()
 
-	r.SetHandler(0x01, func(peerID string, msg Msg) error { return nil })
+	r.SetHandler(0x01, func(peerID string, msg wire.Msg) error { return nil })
 	r.TrackPeer("peer1")
 
-	r.Dispatch("peer1", Msg{Code: 0x01})
-	r.Dispatch("peer1", Msg{Code: 0x01})
+	r.Dispatch("peer1", wire.Msg{Code: 0x01})
+	r.Dispatch("peer1", wire.Msg{Code: 0x01})
 
 	dispatched, _, _, _ := r.Stats()
 	if dispatched != 2 {
@@ -386,7 +387,7 @@ func TestMessageRouter_DeliverResponse(t *testing.T) {
 	defer r.Close()
 
 	// Register a pending request.
-	respCh := make(chan Msg, 1)
+	respCh := make(chan wire.Msg, 1)
 	r.reqMu.Lock()
 	r.pending[42] = &routerPendingReq{
 		id:      42,
@@ -402,7 +403,7 @@ func TestMessageRouter_DeliverResponse(t *testing.T) {
 	putUint64BE(payload[:8], 42)
 	copy(payload[8:], []byte("reply"))
 
-	delivered := r.deliverResponse(Msg{Code: 0x10, Payload: payload})
+	delivered := r.deliverResponse(wire.Msg{Code: 0x10, Payload: payload})
 	if !delivered {
 		t.Fatal("response should have been delivered")
 	}
@@ -424,7 +425,7 @@ func TestMessageRouter_DeliverResponse_NoMatch(t *testing.T) {
 	// No pending requests.
 	payload := make([]byte, 8)
 	putUint64BE(payload[:8], 999)
-	delivered := r.deliverResponse(Msg{Code: 0x10, Payload: payload})
+	delivered := r.deliverResponse(wire.Msg{Code: 0x10, Payload: payload})
 	if delivered {
 		t.Fatal("should not deliver when no pending request matches")
 	}
@@ -437,7 +438,7 @@ func TestMessageRouter_ConcurrentDispatch(t *testing.T) {
 	var count int64
 	var mu sync.Mutex
 
-	r.SetHandler(0x01, func(peerID string, msg Msg) error {
+	r.SetHandler(0x01, func(peerID string, msg wire.Msg) error {
 		mu.Lock()
 		count++
 		mu.Unlock()
@@ -459,7 +460,7 @@ func TestMessageRouter_ConcurrentDispatch(t *testing.T) {
 		go func(pid string) {
 			defer wg.Done()
 			for j := 0; j < msgsPerPeer; j++ {
-				r.Dispatch(pid, Msg{Code: 0x01, Payload: []byte("data")})
+				r.Dispatch(pid, wire.Msg{Code: 0x01, Payload: []byte("data")})
 			}
 		}(peerID)
 	}

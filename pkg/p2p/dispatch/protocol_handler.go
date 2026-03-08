@@ -1,6 +1,5 @@
-// protocol_handler.go implements a versioned protocol message handling framework
-// with per-code handler registration, multi-version support, and capability matching.
-package p2p
+// Package dispatch implements versioned protocol message routing for devp2p.
+package dispatch
 
 import (
 	"errors"
@@ -58,8 +57,7 @@ func NewProtoDispatcher(name string) *ProtoDispatcher {
 	}
 }
 
-// RegisterVersion registers a protocol version specification. This must be
-// called before registering handlers for that version.
+// RegisterVersion registers a protocol version specification.
 func (pd *ProtoDispatcher) RegisterVersion(spec ProtoVersionSpec) error {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
@@ -76,7 +74,6 @@ func (pd *ProtoDispatcher) RegisterVersion(spec ProtoVersionSpec) error {
 }
 
 // RegisterHandler registers a handler for a specific (version, code) pair.
-// The version must have been registered via RegisterVersion first.
 func (pd *ProtoDispatcher) RegisterHandler(version uint, code uint64, handler ProtoMsgHandler) error {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
@@ -100,7 +97,6 @@ func (pd *ProtoDispatcher) RegisterHandler(version uint, code uint64, handler Pr
 }
 
 // SetHandler sets (or replaces) the handler for a (version, code) pair.
-// Unlike RegisterHandler, it does not error on existing registrations.
 func (pd *ProtoDispatcher) SetHandler(version uint, code uint64, handler ProtoMsgHandler) error {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
@@ -121,7 +117,7 @@ func (pd *ProtoDispatcher) SetHandler(version uint, code uint64, handler ProtoMs
 }
 
 // Route dispatches a message to the handler registered for the given version
-// and code. Returns an error if no handler is found.
+// and code.
 func (pd *ProtoDispatcher) Route(peerID string, version uint, code uint64, payload []byte) error {
 	pd.mu.RLock()
 	if pd.closed {
@@ -139,8 +135,8 @@ func (pd *ProtoDispatcher) Route(peerID string, version uint, code uint64, paylo
 	return handler(peerID, code, payload)
 }
 
-// RouteWithFallback tries to dispatch to the exact version handler, then falls
-// back to the highest registered version that has a handler for the code.
+// RouteWithFallback tries the exact version handler, then falls back to the
+// highest registered version that has a handler for the code.
 func (pd *ProtoDispatcher) RouteWithFallback(peerID string, version uint, code uint64, payload []byte) error {
 	pd.mu.RLock()
 	if pd.closed {
@@ -188,7 +184,6 @@ func (pd *ProtoDispatcher) SupportedVersions() []uint {
 }
 
 // HighestVersion returns the highest registered protocol version.
-// Returns 0 if no versions are registered.
 func (pd *ProtoDispatcher) HighestVersion() uint {
 	pd.mu.RLock()
 	defer pd.mu.RUnlock()
@@ -217,9 +212,7 @@ func (pd *ProtoDispatcher) Capabilities() []Capability {
 	return caps
 }
 
-// NegotiateVersion finds the best (highest) shared version between our
-// registered versions and the remote peer's capabilities for our protocol.
-// Returns the negotiated version or ErrProtoPeerIncompatible if no match.
+// NegotiateVersion finds the best (highest) shared version.
 func (pd *ProtoDispatcher) NegotiateVersion(remoteCaps []Capability) (uint, error) {
 	pd.mu.RLock()
 	defer pd.mu.RUnlock()
@@ -255,7 +248,7 @@ func (pd *ProtoDispatcher) HasHandler(version uint, code uint64) bool {
 	return ok
 }
 
-// HandlerCount returns the total number of registered handlers across all versions.
+// HandlerCount returns the total number of registered handlers.
 func (pd *ProtoDispatcher) HandlerCount() int {
 	pd.mu.RLock()
 	defer pd.mu.RUnlock()
@@ -267,7 +260,7 @@ func (pd *ProtoDispatcher) Name() string {
 	return pd.name
 }
 
-// Close marks the dispatcher as closed. Subsequent Route calls return errors.
+// Close marks the dispatcher as closed.
 func (pd *ProtoDispatcher) Close() {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()

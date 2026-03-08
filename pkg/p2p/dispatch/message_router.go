@@ -1,4 +1,4 @@
-package p2p
+package dispatch
 
 import (
 	"container/heap"
@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 const (
@@ -14,9 +16,11 @@ const (
 	defaultRateBurst         = 50
 	defaultOutboundQueueSize = 4096
 	routerResponseTimeout    = 30 * time.Second
-	PriorityHigh             = 0
-	PriorityNormal           = 1
-	PriorityLow              = 2
+
+	// PriorityHigh, PriorityNormal, PriorityLow define outbound queue priorities.
+	PriorityHigh   = 0
+	PriorityNormal = 1
+	PriorityLow    = 2
 )
 
 var (
@@ -27,9 +31,11 @@ var (
 	ErrDuplicateHandler = errors.New("p2p: handler already registered for code")
 	ErrQueueFull        = errors.New("p2p: outbound queue full")
 	ErrPeerNotTracked   = errors.New("p2p: peer not tracked by router")
+	ErrNilHandler       = errors.New("p2p: nil message handler")
 )
 
-type RouterHandler func(peerID string, msg Msg) error
+// RouterHandler handles a message received from a peer.
+type RouterHandler func(peerID string, msg wire.Msg) error
 
 // MessageRouter demultiplexes protocol messages, tracks request-response
 // correlation, enforces per-peer rate limits, and manages outbound priority queue.
@@ -51,6 +57,7 @@ type MessageRouter struct {
 	stats     RouterStats
 }
 
+// RouterStats tracks message router statistics.
 type RouterStats struct {
 	Dispatched, Dropped, RateLimited, Sent atomic.Uint64
 }
@@ -60,7 +67,7 @@ type routerPendingReq struct {
 	code    uint64
 	peerID  string
 	created time.Time
-	respCh  chan Msg
+	respCh  chan wire.Msg
 }
 
 type rateLimiter struct {
@@ -95,12 +102,14 @@ func (rl *rateLimiter) allow() bool {
 	return true
 }
 
+// RouterConfig configures the message router.
 type RouterConfig struct {
 	RateLimit   int // Max messages/sec/peer (0 = default)
 	RateBurst   int // Burst allowance (0 = default)
 	OutboundMax int // Max outbound queue size (0 = default)
 }
 
+// NewMessageRouter creates a message router with the given config.
 func NewMessageRouter(cfg RouterConfig) *MessageRouter {
 	if cfg.RateLimit <= 0 {
 		cfg.RateLimit = defaultRateLimit
@@ -125,9 +134,10 @@ func NewMessageRouter(cfg RouterConfig) *MessageRouter {
 	return r
 }
 
+// RegisterHandler registers a handler for a message code.
 func (r *MessageRouter) RegisterHandler(code uint64, handler RouterHandler) error {
 	if handler == nil {
-		return ErrNilMessageHandler
+		return ErrNilHandler
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -138,6 +148,7 @@ func (r *MessageRouter) RegisterHandler(code uint64, handler RouterHandler) erro
 	return nil
 }
 
+// SetHandler sets (or replaces) the handler for a message code.
 func (r *MessageRouter) SetHandler(code uint64, handler RouterHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -148,12 +159,14 @@ func (r *MessageRouter) SetHandler(code uint64, handler RouterHandler) {
 	}
 }
 
+// UnregisterHandler removes the handler for a message code.
 func (r *MessageRouter) UnregisterHandler(code uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.handlers, code)
 }
 
+// HasHandler returns true if a handler is registered for the code.
 func (r *MessageRouter) HasHandler(code uint64) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -162,7 +175,7 @@ func (r *MessageRouter) HasHandler(code uint64) bool {
 }
 
 // Dispatch routes an incoming message, checking rate limits and pending requests.
-func (r *MessageRouter) Dispatch(peerID string, msg Msg) error {
+func (r *MessageRouter) Dispatch(peerID string, msg wire.Msg) error {
 	r.mu.RLock()
 	if r.closed {
 		r.mu.RUnlock()
@@ -194,12 +207,12 @@ func (r *MessageRouter) Dispatch(peerID string, msg Msg) error {
 	return handler(peerID, msg)
 }
 
-// SendRequest sends a request and waits for a correlated response (8-byte ID prefix).
-func (r *MessageRouter) SendRequest(transport Transport, requestCode, responseCode uint64, payload []byte, peerID string) (Msg, error) {
+// SendRequest sends a request and waits for a correlated response.
+func (r *MessageRouter) SendRequest(transport wire.Transport, requestCode, responseCode uint64, payload []byte, peerID string) (wire.Msg, error) {
 	r.mu.RLock()
 	if r.closed {
 		r.mu.RUnlock()
-		return Msg{}, ErrRouterClosed
+		return wire.Msg{}, ErrRouterClosed
 	}
 	r.mu.RUnlock()
 
@@ -210,7 +223,7 @@ func (r *MessageRouter) SendRequest(transport Transport, requestCode, responseCo
 		code:    responseCode,
 		peerID:  peerID,
 		created: time.Now(),
-		respCh:  make(chan Msg, 1),
+		respCh:  make(chan wire.Msg, 1),
 	}
 	r.reqMu.Lock()
 	r.pending[reqID] = pr
@@ -220,7 +233,7 @@ func (r *MessageRouter) SendRequest(transport Transport, requestCode, responseCo
 	putUint64BE(reqPayload[:8], reqID)
 	copy(reqPayload[8:], payload)
 
-	if err := transport.WriteMsg(Msg{
+	if err := transport.WriteMsg(wire.Msg{
 		Code:    requestCode,
 		Size:    uint32(len(reqPayload)),
 		Payload: reqPayload,
@@ -228,7 +241,7 @@ func (r *MessageRouter) SendRequest(transport Transport, requestCode, responseCo
 		r.reqMu.Lock()
 		delete(r.pending, reqID)
 		r.reqMu.Unlock()
-		return Msg{}, err
+		return wire.Msg{}, err
 	}
 
 	select {
@@ -238,12 +251,12 @@ func (r *MessageRouter) SendRequest(transport Transport, requestCode, responseCo
 		r.reqMu.Lock()
 		delete(r.pending, reqID)
 		r.reqMu.Unlock()
-		return Msg{}, fmt.Errorf("%w: code=0x%02x id=%d", ErrResponseTimeout, responseCode, reqID)
+		return wire.Msg{}, fmt.Errorf("%w: code=0x%02x id=%d", ErrResponseTimeout, responseCode, reqID)
 	}
 }
 
-// deliverResponse checks if the message matches a pending request (8-byte ID prefix).
-func (r *MessageRouter) deliverResponse(msg Msg) bool {
+// deliverResponse checks if the message matches a pending request.
+func (r *MessageRouter) deliverResponse(msg wire.Msg) bool {
 	if len(msg.Payload) < 8 {
 		return false
 	}
@@ -255,7 +268,7 @@ func (r *MessageRouter) deliverResponse(msg Msg) bool {
 	if ok && pr.code == msg.Code {
 		delete(r.pending, reqID)
 		r.reqMu.Unlock()
-		pr.respCh <- Msg{
+		pr.respCh <- wire.Msg{
 			Code:    msg.Code,
 			Size:    msg.Size - 8,
 			Payload: msg.Payload[8:],
@@ -278,6 +291,7 @@ func (r *MessageRouter) checkRateLimit(peerID string) bool {
 	return rl.allow()
 }
 
+// TrackPeer initializes rate limiting for a peer.
 func (r *MessageRouter) TrackPeer(peerID string) {
 	r.rateMu.Lock()
 	defer r.rateMu.Unlock()
@@ -286,21 +300,24 @@ func (r *MessageRouter) TrackPeer(peerID string) {
 	}
 }
 
+// UntrackPeer removes rate limiting state for a peer.
 func (r *MessageRouter) UntrackPeer(peerID string) {
 	r.rateMu.Lock()
 	defer r.rateMu.Unlock()
 	delete(r.rates, peerID)
 }
 
+// OutboundMsg wraps an outbound message with priority and metadata.
 type OutboundMsg struct {
-	Msg      Msg
+	Msg      wire.Msg
 	PeerID   string
 	Priority int // 0 = highest priority.
 	Enqueued time.Time
 	index    int // heap index
 }
 
-func (r *MessageRouter) Enqueue(msg Msg, peerID string, priority int) error {
+// Enqueue adds a message to the outbound priority queue.
+func (r *MessageRouter) Enqueue(msg wire.Msg, peerID string, priority int) error {
 	r.mu.RLock()
 	if r.closed {
 		r.mu.RUnlock()
@@ -346,6 +363,7 @@ func (r *MessageRouter) Dequeue() (*OutboundMsg, error) {
 	return item, nil
 }
 
+// DequeueNonBlocking returns the next outbound message or nil if the queue is empty.
 func (r *MessageRouter) DequeueNonBlocking() *OutboundMsg {
 	r.outMu.Lock()
 	defer r.outMu.Unlock()
@@ -358,18 +376,21 @@ func (r *MessageRouter) DequeueNonBlocking() *OutboundMsg {
 	return item
 }
 
+// QueueLen returns the number of pending outbound messages.
 func (r *MessageRouter) QueueLen() int {
 	r.outMu.Lock()
 	defer r.outMu.Unlock()
 	return r.outQueue.Len()
 }
 
+// PendingRequests returns the number of in-flight requests.
 func (r *MessageRouter) PendingRequests() int {
 	r.reqMu.Lock()
 	defer r.reqMu.Unlock()
 	return len(r.pending)
 }
 
+// ExpireRequests cancels pending requests older than timeout.
 func (r *MessageRouter) ExpireRequests(timeout time.Duration) int {
 	r.reqMu.Lock()
 	defer r.reqMu.Unlock()
@@ -386,17 +407,20 @@ func (r *MessageRouter) ExpireRequests(timeout time.Duration) int {
 	return expired
 }
 
+// Stats returns router statistics.
 func (r *MessageRouter) Stats() (dispatched, dropped, rateLimited, sent uint64) {
 	return r.stats.Dispatched.Load(), r.stats.Dropped.Load(),
 		r.stats.RateLimited.Load(), r.stats.Sent.Load()
 }
 
+// HandlerCount returns the number of registered handlers.
 func (r *MessageRouter) HandlerCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.handlers)
 }
 
+// Close shuts down the router.
 func (r *MessageRouter) Close() {
 	r.mu.Lock()
 	if r.closed {
@@ -426,14 +450,14 @@ func (pq priorityQueue) Swap(i, j int) {
 	pq[j].index = j
 }
 
-func (pq *priorityQueue) Push(x interface{}) {
+func (pq *priorityQueue) Push(x any) {
 	n := len(*pq)
 	item := x.(*OutboundMsg)
 	item.index = n
 	*pq = append(*pq, item)
 }
 
-func (pq *priorityQueue) Pop() interface{} {
+func (pq *priorityQueue) Pop() any {
 	old := *pq
 	n := len(old)
 	item := old[n-1]

@@ -1,8 +1,4 @@
-// proto_negotiation.go implements sub-protocol negotiation including capability
-// exchange, protocol matching, message ID offset computation for multiplexing,
-// version compatibility checking, handshake timeout handling, and protocol-
-// specific handshake delegation.
-package p2p
+package dispatch
 
 import (
 	"errors"
@@ -11,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 // Protocol negotiation errors.
@@ -57,20 +55,16 @@ type ProtoNegConfig struct {
 func DefaultProtoNegConfig() ProtoNegConfig {
 	return ProtoNegConfig{
 		HandshakeTimeout: 10 * time.Second,
-		MinETHVersion:    ETH68,
+		MinETHVersion:    68, // eth/68
 		MinSNAPVersion:   1,
 	}
 }
 
 // ProtoHandshakeFunc performs a protocol-specific handshake on a transport.
-// It receives the remote peer's ID and the negotiated version. Returns an
-// error if the handshake fails.
-type ProtoHandshakeFunc func(peerID string, version uint, tr Transport) error
+type ProtoHandshakeFunc func(peerID string, version uint, tr wire.Transport) error
 
 // ProtoNeg handles sub-protocol capability exchange, matching, and message
-// ID offset computation. It supports registering known protocols with their
-// message code lengths and performing capability negotiation with remote peers.
-// All methods are safe for concurrent use.
+// ID offset computation.
 type ProtoNeg struct {
 	mu       sync.RWMutex
 	config   ProtoNegConfig
@@ -91,7 +85,6 @@ func NewProtoNeg(cfg ProtoNegConfig) *ProtoNeg {
 }
 
 // RegisterProtocol adds a known protocol with its message code length.
-// Returns an error if the exact name+version combination is already registered.
 func (pn *ProtoNeg) RegisterProtocol(name string, version uint, length uint64) error {
 	pn.mu.Lock()
 	defer pn.mu.Unlock()
@@ -109,9 +102,7 @@ func (pn *ProtoNeg) RegisterProtocol(name string, version uint, length uint64) e
 	return nil
 }
 
-// SetHandshakeFunc registers a protocol-specific handshake function for a
-// given protocol name and version. This function will be called after
-// capability matching to perform any protocol-level handshake.
+// SetHandshakeFunc registers a protocol-specific handshake function.
 func (pn *ProtoNeg) SetHandshakeFunc(name string, version uint, fn ProtoHandshakeFunc) {
 	pn.mu.Lock()
 	defer pn.mu.Unlock()
@@ -119,8 +110,7 @@ func (pn *ProtoNeg) SetHandshakeFunc(name string, version uint, fn ProtoHandshak
 	pn.handlers[key] = fn
 }
 
-// LocalCapabilities returns the list of capabilities we advertise, sorted
-// by name then version. These are suitable for inclusion in the hello packet.
+// LocalCapabilities returns the list of capabilities we advertise.
 func (pn *ProtoNeg) LocalCapabilities() []ProtoCapability {
 	pn.mu.RLock()
 	defer pn.mu.RUnlock()
@@ -138,15 +128,11 @@ func (pn *ProtoNeg) LocalCapabilities() []ProtoCapability {
 }
 
 // NegotiateCapabilities performs capability matching between our known protocols
-// and the remote peer's advertised capabilities. For each protocol name present
-// in both lists, the highest mutually-supported version is selected. Returns
-// the matched capabilities with computed message code offsets, or an error if
-// no protocols match.
+// and the remote peer's advertised capabilities.
 func (pn *ProtoNeg) NegotiateCapabilities(remoteCaps []ProtoCapability) ([]ProtoCapability, error) {
 	pn.mu.RLock()
 	defer pn.mu.RUnlock()
 
-	// Build local map: name -> list of (version, length).
 	type verLen struct {
 		version uint
 		length  uint64
@@ -156,7 +142,6 @@ func (pn *ProtoNeg) NegotiateCapabilities(remoteCaps []ProtoCapability) ([]Proto
 		localMap[kp.Name] = append(localMap[kp.Name], verLen{kp.Version, kp.Length})
 	}
 
-	// Build remote map: name -> max version.
 	remoteMap := make(map[string]uint)
 	for _, rc := range remoteCaps {
 		if v, ok := remoteMap[rc.Name]; !ok || rc.Version > v {
@@ -164,7 +149,6 @@ func (pn *ProtoNeg) NegotiateCapabilities(remoteCaps []ProtoCapability) ([]Proto
 		}
 	}
 
-	// Find best shared version for each protocol.
 	type matchResult struct {
 		name    string
 		version uint
@@ -178,10 +162,8 @@ func (pn *ProtoNeg) NegotiateCapabilities(remoteCaps []ProtoCapability) ([]Proto
 			continue
 		}
 
-		// Check minimum version requirements.
 		minVer := pn.minVersionFor(name)
 
-		// Find the highest local version that is <= remoteMax and >= minVer.
 		var bestVer uint
 		var bestLen uint64
 		found := false
@@ -203,13 +185,10 @@ func (pn *ProtoNeg) NegotiateCapabilities(remoteCaps []ProtoCapability) ([]Proto
 		return nil, ErrNegNoSharedProtocols
 	}
 
-	// Sort matches by name for deterministic offset assignment.
 	sort.Slice(matches, func(i, j int) bool {
 		return matches[i].name < matches[j].name
 	})
 
-	// Compute message code offsets. Each protocol gets a contiguous block of
-	// message IDs starting after the base protocol messages (offset 0x10).
 	const baseOffset uint64 = 0x10
 	var offset = baseOffset
 	result := make([]ProtoCapability, len(matches))
@@ -227,9 +206,8 @@ func (pn *ProtoNeg) NegotiateCapabilities(remoteCaps []ProtoCapability) ([]Proto
 }
 
 // PerformProtocolHandshakes runs protocol-specific handshakes for all matched
-// capabilities, subject to the configured timeout. Returns an error if any
-// handshake fails.
-func (pn *ProtoNeg) PerformProtocolHandshakes(peerID string, matched []ProtoCapability, tr Transport) error {
+// capabilities.
+func (pn *ProtoNeg) PerformProtocolHandshakes(peerID string, matched []ProtoCapability, tr wire.Transport) error {
 	pn.mu.RLock()
 	handlers := make(map[string]ProtoHandshakeFunc, len(pn.handlers))
 	for k, v := range pn.handlers {
@@ -242,7 +220,7 @@ func (pn *ProtoNeg) PerformProtocolHandshakes(peerID string, matched []ProtoCapa
 		key := fmt.Sprintf("%s/%d", cap.Name, cap.Version)
 		fn, ok := handlers[key]
 		if !ok {
-			continue // No protocol-specific handshake needed.
+			continue
 		}
 
 		done := make(chan error, 1)
@@ -262,8 +240,7 @@ func (pn *ProtoNeg) PerformProtocolHandshakes(peerID string, matched []ProtoCapa
 	return nil
 }
 
-// IsVersionCompatible checks whether a remote protocol version is acceptable
-// for the given protocol name, according to our minimum version constraints.
+// IsVersionCompatible checks whether a remote protocol version is acceptable.
 func (pn *ProtoNeg) IsVersionCompatible(name string, version uint) bool {
 	pn.mu.RLock()
 	defer pn.mu.RUnlock()
@@ -273,8 +250,7 @@ func (pn *ProtoNeg) IsVersionCompatible(name string, version uint) bool {
 }
 
 // ComputeOffsets takes a list of matched capabilities and computes fresh
-// message code offsets, returning the updated list. This is useful after
-// renegotiation.
+// message code offsets.
 func (pn *ProtoNeg) ComputeOffsets(caps []ProtoCapability) []ProtoCapability {
 	sorted := make([]ProtoCapability, len(caps))
 	copy(sorted, caps)
@@ -289,8 +265,7 @@ func (pn *ProtoNeg) ComputeOffsets(caps []ProtoCapability) []ProtoCapability {
 	return sorted
 }
 
-// TotalMessageSpace returns the total message code space needed for the
-// given set of matched capabilities.
+// TotalMessageSpace returns the total message code space for the given caps.
 func (pn *ProtoNeg) TotalMessageSpace(caps []ProtoCapability) uint64 {
 	var total uint64
 	for _, c := range caps {
@@ -299,8 +274,7 @@ func (pn *ProtoNeg) TotalMessageSpace(caps []ProtoCapability) uint64 {
 	return total
 }
 
-// FindProtocol returns the matched capability for a given protocol name,
-// or nil if not found in the list.
+// FindProtocol returns the matched capability for a given protocol name.
 func FindProtocol(caps []ProtoCapability, name string) *ProtoCapability {
 	for i, c := range caps {
 		if c.Name == name {
@@ -310,8 +284,7 @@ func FindProtocol(caps []ProtoCapability, name string) *ProtoCapability {
 	return nil
 }
 
-// MessageToProtocol finds which protocol owns a given wire message code
-// and returns the protocol capability and the protocol-relative code.
+// MessageToProtocol finds which protocol owns a given wire message code.
 func MessageToProtocol(caps []ProtoCapability, wireCode uint64) (*ProtoCapability, uint64, error) {
 	for i, c := range caps {
 		if wireCode >= c.Offset && wireCode < c.Offset+c.Length {
@@ -321,25 +294,23 @@ func MessageToProtocol(caps []ProtoCapability, wireCode uint64) (*ProtoCapabilit
 	return nil, 0, fmt.Errorf("%w: code 0x%02x", ErrNegInvalidOffset, wireCode)
 }
 
-// CapsToCaps converts ProtoCapability list to the handshake Cap format.
-func CapsToCaps(caps []ProtoCapability) []Cap {
-	result := make([]Cap, len(caps))
+// CapsToCaps converts ProtoCapability list to the wire Cap format.
+func CapsToCaps(caps []ProtoCapability) []wire.Cap {
+	result := make([]wire.Cap, len(caps))
 	for i, c := range caps {
-		result[i] = Cap{Name: c.Name, Version: c.Version}
+		result[i] = wire.Cap{Name: c.Name, Version: c.Version}
 	}
 	return result
 }
 
-// CapsFromCaps converts handshake Cap list to ProtoCapability (without offsets).
-func CapsFromCaps(caps []Cap) []ProtoCapability {
+// CapsFromCaps converts wire Cap list to ProtoCapability (without offsets).
+func CapsFromCaps(caps []wire.Cap) []ProtoCapability {
 	result := make([]ProtoCapability, len(caps))
 	for i, c := range caps {
 		result[i] = ProtoCapability{Name: c.Name, Version: c.Version}
 	}
 	return result
 }
-
-// --- internal helpers ---
 
 // minVersionFor returns the minimum acceptable version for a protocol.
 func (pn *ProtoNeg) minVersionFor(name string) uint {
@@ -349,7 +320,7 @@ func (pn *ProtoNeg) minVersionFor(name string) uint {
 	case "snap":
 		return pn.config.MinSNAPVersion
 	default:
-		return 1 // Accept version 1+ for unknown protocols.
+		return 1
 	}
 }
 
