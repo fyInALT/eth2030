@@ -458,4 +458,3 @@ func tierToPercentile(tier string) int {
 		return standardPercentile
 	}
 }
-
