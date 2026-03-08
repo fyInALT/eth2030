@@ -3,7 +3,7 @@
 // for each block, determines when enough pieces have arrived for
 // reconstruction (k-of-n threshold), and uses sqrt(n) fanout for
 // efficient piece propagation to connected peers.
-package p2p
+package broadcast
 
 import (
 	"encoding/binary"

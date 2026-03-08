@@ -6,7 +6,7 @@
 //
 // EIP2PBroadcaster manages fanout-based message broadcasting with topic
 // subscriptions, configurable redundancy, and broadcast statistics tracking.
-package p2p
+package broadcast
 
 import (
 	"errors"

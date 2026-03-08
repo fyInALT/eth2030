@@ -5,7 +5,7 @@
 //
 // The broadcaster uses topic-based gossip with deduplication via bloom
 // filters and per-authority rate limiting to prevent spam.
-package p2p
+package broadcast
 
 import (
 	"crypto/sha256"

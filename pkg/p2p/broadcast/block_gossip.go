@@ -2,7 +2,7 @@
 //
 // BlockGossipHandler manages block announcement receipt and propagation
 // to connected peers using sqrt(n) fanout for efficient distribution.
-package p2p
+package broadcast
 
 import (
 	"errors"
