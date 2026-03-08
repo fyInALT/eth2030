@@ -60,17 +60,17 @@ func (m *mockBeaconBackend) HeaderByHash(hash coretypes.Hash) *coretypes.Header 
 func (m *mockBeaconBackend) CurrentHeader() *coretypes.Header { return m.current }
 func (m *mockBeaconBackend) ChainID() *big.Int                { return big.NewInt(1) }
 
-func (m *mockBeaconBackend) BlockByNumber(rpctypes.BlockNumber) *coretypes.Block  { return nil }
-func (m *mockBeaconBackend) BlockByHash(coretypes.Hash) *coretypes.Block          { return nil }
-func (m *mockBeaconBackend) StateAt(coretypes.Hash) (state.StateDB, error)        { return nil, nil }
-func (m *mockBeaconBackend) SendTransaction(*coretypes.Transaction) error          { return nil }
+func (m *mockBeaconBackend) BlockByNumber(rpctypes.BlockNumber) *coretypes.Block { return nil }
+func (m *mockBeaconBackend) BlockByHash(coretypes.Hash) *coretypes.Block         { return nil }
+func (m *mockBeaconBackend) StateAt(coretypes.Hash) (state.StateDB, error)       { return nil, nil }
+func (m *mockBeaconBackend) SendTransaction(*coretypes.Transaction) error        { return nil }
 func (m *mockBeaconBackend) GetTransaction(coretypes.Hash) (*coretypes.Transaction, uint64, uint64) {
 	return nil, 0, 0
 }
 func (m *mockBeaconBackend) SuggestGasPrice() *big.Int                       { return big.NewInt(0) }
-func (m *mockBeaconBackend) GetReceipts(coretypes.Hash) []*coretypes.Receipt  { return nil }
-func (m *mockBeaconBackend) GetLogs(coretypes.Hash) []*coretypes.Log          { return nil }
-func (m *mockBeaconBackend) GetBlockReceipts(uint64) []*coretypes.Receipt     { return nil }
+func (m *mockBeaconBackend) GetReceipts(coretypes.Hash) []*coretypes.Receipt { return nil }
+func (m *mockBeaconBackend) GetLogs(coretypes.Hash) []*coretypes.Log         { return nil }
+func (m *mockBeaconBackend) GetBlockReceipts(uint64) []*coretypes.Receipt    { return nil }
 func (m *mockBeaconBackend) GetProof(coretypes.Address, []coretypes.Hash, rpctypes.BlockNumber) (*trie.AccountProof, error) {
 	return nil, nil
 }
