@@ -1,6 +1,7 @@
-package txpool
+package tracking
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -10,6 +11,31 @@ var (
 	ntAddr1 = types.BytesToAddress([]byte{0xA1})
 	ntAddr2 = types.BytesToAddress([]byte{0xA2})
 )
+
+// mockNonceState implements NonceStateReader for testing.
+type mockNonceState struct {
+	nonces   map[types.Address]uint64
+	balances map[types.Address]*big.Int
+}
+
+func newMockNonceState() *mockNonceState {
+	return &mockNonceState{
+		nonces:   make(map[types.Address]uint64),
+		balances: make(map[types.Address]*big.Int),
+	}
+}
+
+func (s *mockNonceState) GetNonce(addr types.Address) uint64 {
+	return s.nonces[addr]
+}
+
+func (s *mockNonceState) GetBalance(addr types.Address) *big.Int {
+	bal, ok := s.balances[addr]
+	if !ok {
+		return new(big.Int)
+	}
+	return bal
+}
 
 // --- DefaultNonceTrackerConfig ---
 
@@ -23,7 +49,7 @@ func TestDefaultNonceTrackerConfig(t *testing.T) {
 // --- NewNonceTracker ---
 
 func TestNewNonceTracker(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	if nt == nil {
 		t.Fatal("expected non-nil NonceTracker")
@@ -36,7 +62,7 @@ func TestNewNonceTracker(t *testing.T) {
 // --- GetNonce ---
 
 func TestNonceTracker_GetNonce_FromState(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 7
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	if got := nt.GetNonce(ntAddr1); got != 7 {
@@ -52,7 +78,7 @@ func TestNonceTracker_GetNonce_NilState(t *testing.T) {
 }
 
 func TestNonceTracker_GetNonce_PendingMaxPlusOne(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 3)
 	if got := nt.GetNonce(ntAddr1); got != 4 {
@@ -63,7 +89,7 @@ func TestNonceTracker_GetNonce_PendingMaxPlusOne(t *testing.T) {
 // --- SetNonce ---
 
 func TestNonceTracker_SetNonce(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 1)
@@ -78,16 +104,11 @@ func TestNonceTracker_SetNonce(t *testing.T) {
 }
 
 func TestNonceTracker_SetNonce_ClearsAllPending(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 1)
 	nt.SetNonce(ntAddr1, 5) // all txs included
-	if nt.AccountCount() != 0 {
-		// Account should be gone since knownNonces is now empty after pruning.
-		// SetNonce removes from knownNonces but account may remain with empty map.
-		// Either way GetNonce should return 5.
-	}
 	if got := nt.GetNonce(ntAddr1); got != 5 {
 		t.Errorf("GetNonce after SetNonce(5) = %d, want 5", got)
 	}
@@ -96,7 +117,7 @@ func TestNonceTracker_SetNonce_ClearsAllPending(t *testing.T) {
 // --- TrackTx ---
 
 func TestNonceTracker_TrackTx(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 1)
@@ -110,7 +131,7 @@ func TestNonceTracker_TrackTx(t *testing.T) {
 }
 
 func TestNonceTracker_TrackTx_MultipleAddresses(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr2, 0)
@@ -122,7 +143,7 @@ func TestNonceTracker_TrackTx_MultipleAddresses(t *testing.T) {
 // --- UntrackTx ---
 
 func TestNonceTracker_UntrackTx(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 1)
@@ -136,7 +157,7 @@ func TestNonceTracker_UntrackTx(t *testing.T) {
 }
 
 func TestNonceTracker_UntrackTx_RemovesEmptyAccount(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.UntrackTx(ntAddr1, 0)
@@ -146,7 +167,7 @@ func TestNonceTracker_UntrackTx_RemovesEmptyAccount(t *testing.T) {
 }
 
 func TestNonceTracker_UntrackTx_UnknownAddr(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	// Should not panic.
 	nt.UntrackTx(ntAddr1, 0)
@@ -155,7 +176,7 @@ func TestNonceTracker_UntrackTx_UnknownAddr(t *testing.T) {
 // --- DetectGap ---
 
 func TestNonceTracker_DetectGap_NoGap(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	// txNonce == stateNonce → no gap (stateNonce=0 since no explicit set).
@@ -166,7 +187,7 @@ func TestNonceTracker_DetectGap_NoGap(t *testing.T) {
 }
 
 func TestNonceTracker_DetectGap_Gap(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 0
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	// No nonce 0 tracked — gap when txNonce=2.
@@ -183,7 +204,7 @@ func TestNonceTracker_DetectGap_Gap(t *testing.T) {
 }
 
 func TestNonceTracker_DetectGap_EqualToStateNonce(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 5
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	// txNonce == stateNonce → no gap.
@@ -194,7 +215,7 @@ func TestNonceTracker_DetectGap_EqualToStateNonce(t *testing.T) {
 }
 
 func TestNonceTracker_DetectGap_BelowStateNonce(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 10
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	// Stale nonce — below state → no gap.
@@ -205,7 +226,7 @@ func TestNonceTracker_DetectGap_BelowStateNonce(t *testing.T) {
 }
 
 func TestNonceTracker_DetectGap_ContiguousNonces(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 1)
@@ -219,7 +240,7 @@ func TestNonceTracker_DetectGap_ContiguousNonces(t *testing.T) {
 // --- IsTooFarAhead ---
 
 func TestNonceTracker_IsTooFarAhead_True(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 0
 	cfg := DefaultNonceTrackerConfig()
 	cfg.MaxNonceAhead = 10
@@ -230,7 +251,7 @@ func TestNonceTracker_IsTooFarAhead_True(t *testing.T) {
 }
 
 func TestNonceTracker_IsTooFarAhead_False(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 0
 	cfg := DefaultNonceTrackerConfig()
 	cfg.MaxNonceAhead = 10
@@ -241,7 +262,7 @@ func TestNonceTracker_IsTooFarAhead_False(t *testing.T) {
 }
 
 func TestNonceTracker_IsTooFarAhead_Boundary(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	s.nonces[ntAddr1] = 0
 	cfg := DefaultNonceTrackerConfig()
 	cfg.MaxNonceAhead = 10
@@ -255,7 +276,7 @@ func TestNonceTracker_IsTooFarAhead_Boundary(t *testing.T) {
 // --- AllGaps ---
 
 func TestNonceTracker_AllGaps_NoGaps(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 1)
@@ -267,7 +288,7 @@ func TestNonceTracker_AllGaps_NoGaps(t *testing.T) {
 }
 
 func TestNonceTracker_AllGaps_WithGaps(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr1, 2) // gap at 1
@@ -284,7 +305,7 @@ func TestNonceTracker_AllGaps_WithGaps(t *testing.T) {
 }
 
 func TestNonceTracker_AllGaps_NotTracked(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	gaps := nt.AllGaps(ntAddr1)
 	if gaps != nil {
@@ -295,7 +316,7 @@ func TestNonceTracker_AllGaps_NotTracked(t *testing.T) {
 // --- KnownNonces ---
 
 func TestNonceTracker_KnownNonces_Sorted(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	for _, n := range []uint64{5, 2, 8, 1} {
 		nt.TrackTx(ntAddr1, n)
@@ -310,7 +331,7 @@ func TestNonceTracker_KnownNonces_Sorted(t *testing.T) {
 }
 
 func TestNonceTracker_KnownNonces_NotTracked(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	if got := nt.KnownNonces(ntAddr1); got != nil {
 		t.Errorf("expected nil, got %v", got)
@@ -320,7 +341,7 @@ func TestNonceTracker_KnownNonces_NotTracked(t *testing.T) {
 // --- Reset ---
 
 func TestNonceTracker_Reset(t *testing.T) {
-	s := newMockState()
+	s := newMockNonceState()
 	nt := NewNonceTracker(DefaultNonceTrackerConfig(), s)
 	nt.TrackTx(ntAddr1, 0)
 	nt.TrackTx(ntAddr2, 0)
@@ -328,7 +349,7 @@ func TestNonceTracker_Reset(t *testing.T) {
 		t.Fatalf("AccountCount = %d, want 2", nt.AccountCount())
 	}
 
-	s2 := newMockState()
+	s2 := newMockNonceState()
 	s2.nonces[ntAddr1] = 5
 	nt.Reset(s2)
 

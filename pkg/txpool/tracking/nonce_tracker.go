@@ -1,13 +1,17 @@
 // nonce_tracker.go implements per-account nonce tracking for the transaction
 // pool. NonceTracker manages the expected next nonce for each sender, detects
 // nonce gaps, and provides efficient nonce lookup and update operations.
-package txpool
+package tracking
 
 import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// MaxNonceGap is the maximum allowed gap between a transaction's nonce
+// and the current state nonce for the sender.
+const MaxNonceGap = 64
 
 // NonceGap represents a gap in the nonce sequence for a sender.
 type NonceGap struct {
@@ -38,12 +42,17 @@ type accountNonceState struct {
 	knownNonces map[uint64]bool // set of nonces currently in the pool
 }
 
+// NonceStateReader is the minimal interface needed by NonceTracker.
+type NonceStateReader interface {
+	GetNonce(addr types.Address) uint64
+}
+
 // NonceTracker manages expected nonces for transaction senders. It tracks
 // both the on-chain state nonce and the pool's pending nonce to detect gaps
 // and determine whether a transaction's nonce is valid.
 type NonceTracker struct {
 	config NonceTrackerConfig
-	state  StateReader
+	state  NonceStateReader
 
 	mu       sync.RWMutex
 	accounts map[types.Address]*accountNonceState
@@ -51,7 +60,7 @@ type NonceTracker struct {
 
 // NewNonceTracker creates a new NonceTracker with the given configuration
 // and state reader for on-chain nonce lookups.
-func NewNonceTracker(config NonceTrackerConfig, state StateReader) *NonceTracker {
+func NewNonceTracker(config NonceTrackerConfig, state NonceStateReader) *NonceTracker {
 	return &NonceTracker{
 		config:   config,
 		state:    state,
@@ -253,7 +262,7 @@ func (nt *NonceTracker) AccountCount() int {
 
 // Reset updates the state reader and clears all tracking data. Called
 // when the pool is reset after chain reorganization.
-func (nt *NonceTracker) Reset(state StateReader) {
+func (nt *NonceTracker) Reset(state NonceStateReader) {
 	nt.mu.Lock()
 	defer nt.mu.Unlock()
 

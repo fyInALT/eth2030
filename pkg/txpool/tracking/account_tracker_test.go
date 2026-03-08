@@ -1,4 +1,4 @@
-package txpool
+package tracking
 
 import (
 	"math/big"
@@ -11,6 +11,45 @@ var (
 	acctAddr1 = types.BytesToAddress([]byte{0x01})
 	acctAddr2 = types.BytesToAddress([]byte{0x02})
 )
+
+// mockState implements AccountStateReader for testing.
+type mockState struct {
+	nonces   map[types.Address]uint64
+	balances map[types.Address]*big.Int
+}
+
+func newMockState() *mockState {
+	return &mockState{
+		nonces:   make(map[types.Address]uint64),
+		balances: make(map[types.Address]*big.Int),
+	}
+}
+
+func (s *mockState) GetNonce(addr types.Address) uint64 {
+	return s.nonces[addr]
+}
+
+func (s *mockState) GetBalance(addr types.Address) *big.Int {
+	bal, ok := s.balances[addr]
+	if !ok {
+		return new(big.Int)
+	}
+	return bal
+}
+
+func makeTxFrom(from types.Address, nonce uint64, gasPrice int64, gas uint64) *types.Transaction {
+	to := types.BytesToAddress([]byte{0xde, 0xad})
+	tx := types.NewTransaction(&types.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: big.NewInt(gasPrice),
+		Gas:      gas,
+		To:       &to,
+		Value:    big.NewInt(0),
+		Data:     nil,
+	})
+	tx.SetSender(from)
+	return tx
+}
 
 // --- AcctInfo helpers ---
 

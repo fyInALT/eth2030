@@ -2,7 +2,7 @@
 // the transaction pool. It manages pending nonces, balance reservations,
 // nonce gap detection, balance deficit detection, and lazy state loading
 // from an underlying StateDB.
-package txpool
+package tracking
 
 import (
 	"errors"
@@ -19,6 +19,12 @@ var (
 	ErrAcctInsufficientBal = errors.New("account has insufficient balance for pending txs")
 	ErrAcctNonceGap        = errors.New("account has nonce gap in pending txs")
 )
+
+// AccountStateReader provides both nonce and balance lookups for account tracking.
+type AccountStateReader interface {
+	GetNonce(addr types.Address) uint64
+	GetBalance(addr types.Address) *big.Int
+}
 
 // AcctInfo holds the tracked state for a single account in the pool.
 type AcctInfo struct {
@@ -80,18 +86,18 @@ func (ai *AcctInfo) NonceGaps() []uint64 {
 }
 
 // AcctTrack manages per-account nonce and balance tracking for the
-// transaction pool. It lazily loads state from the underlying StateReader
+// transaction pool. It lazily loads state from the underlying AccountStateReader
 // and caches it, supporting batch refreshes for efficiency during reorgs.
 // It is safe for concurrent use.
 type AcctTrack struct {
 	mu    sync.RWMutex
-	state StateReader
+	state AccountStateReader
 	accts map[types.Address]*AcctInfo
 }
 
 // NewAcctTrack creates a new account tracker using the given state reader
 // for lazy state loading.
-func NewAcctTrack(state StateReader) *AcctTrack {
+func NewAcctTrack(state AccountStateReader) *AcctTrack {
 	return &AcctTrack{
 		state: state,
 		accts: make(map[types.Address]*AcctInfo),
@@ -275,10 +281,10 @@ func (at *AcctTrack) DetectNonceGaps(addr types.Address) []uint64 {
 }
 
 // ResetOnReorg marks all tracked accounts as dirty and refreshes their
-// state from the provided StateReader. Pending transactions whose nonces
+// state from the provided AccountStateReader. Pending transactions whose nonces
 // are below the new state nonce are removed. Returns the list of accounts
 // that had transactions invalidated.
-func (at *AcctTrack) ResetOnReorg(newState StateReader) []types.Address {
+func (at *AcctTrack) ResetOnReorg(newState AccountStateReader) []types.Address {
 	at.mu.Lock()
 	defer at.mu.Unlock()
 
@@ -382,14 +388,6 @@ func (at *AcctTrack) computePendingNonce(info *AcctInfo) uint64 {
 		return info.StateNonce
 	}
 
-	// Find the highest nonce present.
-	maxNonce := info.StateNonce
-	for n := range info.PendingTxs {
-		if n >= maxNonce {
-			maxNonce = n + 1
-		}
-	}
-
 	// Walk forward from state nonce to find the contiguous range.
 	pending := info.StateNonce
 	for {
@@ -469,4 +467,12 @@ func txTotalCost(tx *types.Transaction) *big.Int {
 		}
 	}
 	return cost
+}
+
+// cloneBigInt returns a copy of v, or nil if v is nil.
+func cloneBigInt(v *big.Int) *big.Int {
+	if v == nil {
+		return nil
+	}
+	return new(big.Int).Set(v)
 }
