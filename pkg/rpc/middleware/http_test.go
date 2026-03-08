@@ -1,4 +1,4 @@
-package rpc
+package middleware
 
 import (
 	"compress/gzip"
@@ -162,14 +162,12 @@ func TestCORSMiddleware_NoOriginHeader(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	// No Origin header.
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if !called {
 		t.Fatal("inner handler should be called when no Origin header")
 	}
-	// When no origin but wildcard, CORS header should still be set.
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Fatalf("want *, got %q", got)
 	}
@@ -389,7 +387,6 @@ func TestLoggingMiddleware_RecordsEntry(t *testing.T) {
 func TestLoggingMiddleware_DefaultStatusOK(t *testing.T) {
 	store := NewLogStore()
 	handler := LoggingMiddleware(store)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Write body without explicit WriteHeader -- should default to 200.
 		w.Write([]byte("ok")) //nolint:errcheck
 	}))
 
@@ -419,7 +416,6 @@ func TestCompressionMiddleware_WithGzipAccept(t *testing.T) {
 		t.Fatalf("want Content-Encoding: gzip, got %q", ce)
 	}
 
-	// Decompress and verify content.
 	gr, err := gzip.NewReader(rr.Body)
 	if err != nil {
 		t.Fatalf("gzip.NewReader: %v", err)
@@ -440,7 +436,6 @@ func TestCompressionMiddleware_WithoutGzipAccept(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	// No Accept-Encoding header.
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -476,7 +471,6 @@ func TestRateLimitMiddleware_ExceedsRateLimit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Send requests rapidly from the same IP.
 	denied := 0
 	for range 10 {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -528,7 +522,6 @@ func TestExtractClientIP_RemoteAddrNoPort(t *testing.T) {
 	req.Header.Del("X-Forwarded-For")
 	req.Header.Del("X-Real-IP")
 	ip := extractClientIP(req)
-	// No port to strip.
 	if ip != "192.168.1.100" {
 		t.Fatalf("want 192.168.1.100, got %q", ip)
 	}
@@ -562,7 +555,6 @@ func TestMiddlewareChain_OrderIsPreserved(t *testing.T) {
 	rr := httptest.NewRecorder()
 	chain.ServeHTTP(rr, req)
 
-	// mw1 is outermost, so mw1-before runs first, then mw2-before, then inner.
 	expected := []string{"mw1-before", "mw2-before", "inner", "mw2-after", "mw1-after"}
 	if len(order) != len(expected) {
 		t.Fatalf("want %v, got %v", expected, order)
@@ -605,13 +597,11 @@ func TestStatusRecorder_CapturesCode(t *testing.T) {
 // --- RateLimitMiddleware default RPS ---
 
 func TestRateLimitMiddleware_ZeroRPS_UsesDefault(t *testing.T) {
-	// When RequestsPerSecond is 0, the middleware uses 100 as default.
 	cfg := RateLimitConfig{RequestsPerSecond: 0}
 	handler := RateLimitMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// A single request should be allowed (default is 100/s).
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.99:1234"
 	rr := httptest.NewRecorder()
