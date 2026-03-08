@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/ethapi"
 	rpcsub "github.com/eth2030/eth2030/rpc/subscription"
 )
 
@@ -19,16 +20,15 @@ type (
 // Re-export notification helper.
 var FormatWSNotification = rpcsub.FormatWSNotification
 
-// SubType distinguishes the kind of WebSocket subscription.
-type SubType int
+// SubType is a type alias for ethapi.SubType so SubscriptionManager satisfies
+// the ethapi.SubscriptionService interface.
+type SubType = ethapi.SubType
 
+// Re-export SubType constants from ethapi.
 const (
-	// SubNewHeads watches for new block headers.
-	SubNewHeads SubType = iota
-	// SubLogs watches for matching log events.
-	SubLogs
-	// SubPendingTx watches for new pending transaction hashes.
-	SubPendingTx
+	SubNewHeads  SubType = ethapi.SubNewHeads
+	SubLogs      SubType = ethapi.SubLogs
+	SubPendingTx SubType = ethapi.SubPendingTx
 )
 
 // Subscription represents an active WebSocket subscription.

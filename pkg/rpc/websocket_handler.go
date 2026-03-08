@@ -154,7 +154,7 @@ func (h *WSHandler) removeConnection(conn *WSConn) {
 	// Clean up subscriptions for this connection.
 	conn.mu.Lock()
 	for subID := range conn.subscriptions {
-		h.api.subs.Unsubscribe(subID)
+		h.api.UnsubscribeID(subID)
 	}
 	conn.subscriptions = nil
 	conn.mu.Unlock()

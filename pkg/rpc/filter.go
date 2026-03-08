@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/ethapi"
 	rpcfilter "github.com/eth2030/eth2030/rpc/filter"
 )
 
@@ -28,4 +29,14 @@ func bloomMatchesAddress(bloom types.Bloom, addr types.Address) bool {
 // bloomMatchesTopic returns true if the bloom may contain the given topic hash.
 func bloomMatchesTopic(bloom types.Bloom, topic types.Hash) bool {
 	return types.BloomContains(bloom, topic.Bytes())
+}
+
+// matchLog is a package-level wrapper delegating to rpc/ethapi.
+func matchLog(log *types.Log, addrFilter map[types.Address]bool, topicFilter [][]types.Hash) bool {
+	return ethapi.MatchLog(log, addrFilter, topicFilter)
+}
+
+// criteriaToQuery is a package-level wrapper delegating to rpc/ethapi.
+func criteriaToQuery(c FilterCriteria, backend Backend) FilterQuery {
+	return ethapi.CriteriaToQuery(c, backend)
 }

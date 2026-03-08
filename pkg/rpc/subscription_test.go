@@ -774,7 +774,7 @@ func TestRPC_EthGetFilterChanges_BlockFilter(t *testing.T) {
 
 	// Notify a new block via the subscription manager.
 	newHash := types.HexToHash("0xfeed")
-	api.subs.NotifyNewBlock(newHash)
+	apiSubs(api).NotifyNewBlock(newHash)
 
 	changes := callRPC(t, api, "eth_getFilterChanges", filterID)
 	if changes.Error != nil {
@@ -800,7 +800,7 @@ func TestRPC_EthGetFilterChanges_PendingTxFilter(t *testing.T) {
 	filterID := resp.Result.(string)
 
 	txHash := types.HexToHash("0xabcdef")
-	api.subs.NotifyPendingTx(txHash)
+	apiSubs(api).NotifyPendingTx(txHash)
 
 	changes := callRPC(t, api, "eth_getFilterChanges", filterID)
 	if changes.Error != nil {
@@ -1408,7 +1408,7 @@ func TestRPC_EthSubscribe_LogsWithFilter(t *testing.T) {
 	}
 	subID := resp.Result.(string)
 
-	sub := api.subs.GetSubscription(subID)
+	sub := apiSubs(api).GetSubscription(subID)
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
@@ -1435,7 +1435,7 @@ func TestRPC_EthSubscribe_LogsNoFilter(t *testing.T) {
 	}
 	subID := resp.Result.(string)
 
-	sub := api.subs.GetSubscription(subID)
+	sub := apiSubs(api).GetSubscription(subID)
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
@@ -1460,13 +1460,13 @@ func TestRPC_EthSubscribe_FullLifecycle(t *testing.T) {
 	subID := subResp.Result.(string)
 
 	// Step 2: Verify subscription exists.
-	sub := api.subs.GetSubscription(subID)
+	sub := apiSubs(api).GetSubscription(subID)
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
 
 	// Step 3: Send a notification.
-	api.subs.NotifyNewHead(&types.Header{
+	apiSubs(api).NotifyNewHead(&types.Header{
 		Number:  big.NewInt(200),
 		BaseFee: big.NewInt(2000000000),
 	})
@@ -1492,11 +1492,11 @@ func TestRPC_EthSubscribe_FullLifecycle(t *testing.T) {
 	}
 
 	// Step 6: Verify it's gone.
-	if api.subs.GetSubscription(subID) != nil {
+	if apiSubs(api).GetSubscription(subID) != nil {
 		t.Fatal("subscription should be removed after unsubscribe")
 	}
-	if api.subs.SubscriptionCount() != 0 {
-		t.Fatalf("want 0 subscriptions, got %d", api.subs.SubscriptionCount())
+	if apiSubs(api).SubscriptionCount() != 0 {
+		t.Fatalf("want 0 subscriptions, got %d", apiSubs(api).SubscriptionCount())
 	}
 }
 

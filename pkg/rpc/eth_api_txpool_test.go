@@ -386,7 +386,7 @@ func TestEffectiveGasPrice_NilBaseFee(t *testing.T) {
 func TestValidateTransaction_ZeroGas(t *testing.T) {
 	api := NewTxPoolAPI(newMockBackend())
 	tx := types.NewTransaction(&types.LegacyTx{Gas: 0})
-	err := api.validateTransaction(tx)
+	err := api.ValidateTransaction(tx)
 	if err == nil {
 		t.Fatal("expected error for zero gas")
 	}
@@ -395,7 +395,7 @@ func TestValidateTransaction_ZeroGas(t *testing.T) {
 func TestValidateTransaction_NegativeValue(t *testing.T) {
 	api := NewTxPoolAPI(newMockBackend())
 	tx := types.NewTransaction(&types.LegacyTx{Gas: 21000, Value: big.NewInt(-1)})
-	err := api.validateTransaction(tx)
+	err := api.ValidateTransaction(tx)
 	if err == nil {
 		t.Fatal("expected error for negative value")
 	}
@@ -408,7 +408,7 @@ func TestValidateTransaction_ValidTx(t *testing.T) {
 		GasPrice: big.NewInt(1000),
 		Value:    big.NewInt(100),
 	})
-	err := api.validateTransaction(tx)
+	err := api.ValidateTransaction(tx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

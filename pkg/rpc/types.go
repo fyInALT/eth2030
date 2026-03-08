@@ -5,6 +5,7 @@ package rpc
 // types.go re-exports types from rpc/types for backward compatibility.
 
 import (
+	"encoding/json"
 	"math/big"
 
 	coretypes "github.com/eth2030/eth2030/core/types"
@@ -76,4 +77,14 @@ func formatAccessList(al coretypes.AccessList) []RPCAccessTuple {
 }
 func formatAuthorizationList(auths []coretypes.Authorization) []RPCAuthorization {
 	return rpctypes.FormatAuthorizationList(auths)
+}
+
+// successResponse creates a JSON-RPC 2.0 success response.
+func successResponse(id json.RawMessage, result interface{}) *Response {
+	return rpctypes.NewSuccessResponse(id, result)
+}
+
+// errorResponse creates a JSON-RPC 2.0 error response.
+func errorResponse(id json.RawMessage, code int, message string) *Response {
+	return rpctypes.NewErrorResponse(id, code, message)
 }

@@ -242,7 +242,7 @@ func TestSubscription_NewHeads(t *testing.T) {
 	}
 
 	// Get the subscription and verify channel works
-	sub := api.subs.GetSubscription(subID)
+	sub := apiSubs(api).GetSubscription(subID)
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
@@ -255,7 +255,7 @@ func TestSubscription_NewHeads(t *testing.T) {
 		Number:  big.NewInt(100),
 		BaseFee: big.NewInt(1000000000),
 	}
-	api.subs.NotifyNewHead(header)
+	apiSubs(api).NotifyNewHead(header)
 
 	// Read from channel
 	select {
@@ -281,8 +281,8 @@ func TestSubscription_NewHeads(t *testing.T) {
 	}
 
 	// Verify subscription was removed
-	if api.subs.SubscriptionCount() != 0 {
-		t.Fatalf("want 0 subscriptions, got %d", api.subs.SubscriptionCount())
+	if apiSubs(api).SubscriptionCount() != 0 {
+		t.Fatalf("want 0 subscriptions, got %d", apiSubs(api).SubscriptionCount())
 	}
 }
 
@@ -302,7 +302,7 @@ func TestSubscription_Logs(t *testing.T) {
 	}
 	subID := resp.Result.(string)
 
-	sub := api.subs.GetSubscription(subID)
+	sub := apiSubs(api).GetSubscription(subID)
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
@@ -320,7 +320,7 @@ func TestSubscription_Logs(t *testing.T) {
 		Data:        []byte{0x02},
 		BlockNumber: 42,
 	}
-	api.subs.NotifyLogs([]*types.Log{matchingLog, nonMatchingLog})
+	apiSubs(api).NotifyLogs([]*types.Log{matchingLog, nonMatchingLog})
 
 	// Should only receive the matching log
 	select {
@@ -357,11 +357,11 @@ func TestSubscription_NewPendingTransactions(t *testing.T) {
 		t.Fatalf("error: %v", resp.Error.Message)
 	}
 	subID := resp.Result.(string)
-	sub := api.subs.GetSubscription(subID)
+	sub := apiSubs(api).GetSubscription(subID)
 
 	// Notify a pending tx
 	txHash := types.HexToHash("0xabcdef")
-	api.subs.NotifyPendingTxHash(txHash)
+	apiSubs(api).NotifyPendingTxHash(txHash)
 
 	select {
 	case msg := <-sub.Channel():
@@ -415,7 +415,7 @@ func TestFilter_GetFilterChanges(t *testing.T) {
 
 	// Notify a new block
 	newHash := types.HexToHash("0xbeef")
-	api.subs.NotifyNewBlock(newHash)
+	apiSubs(api).NotifyNewBlock(newHash)
 
 	// Get filter changes
 	changes := callRPC(t, api, "eth_getFilterChanges", filterID)

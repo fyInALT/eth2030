@@ -159,7 +159,7 @@ func TestEstimateGasBinarySearch_QuickSuccess(t *testing.T) {
 	api := NewEthAPI(mb)
 	// Mock always succeeds, so lo (21000) should work.
 	from := types.HexToAddress("0xaaaa")
-	gas, err := api.estimateGasBinarySearch(from, nil, nil, new(big.Int), 21000, 30000000, LatestBlockNumber)
+	gas, err := estimateGasBinarySearch(api, from, nil, nil, new(big.Int), 21000, 30000000, LatestBlockNumber)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
