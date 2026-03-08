@@ -1,6 +1,7 @@
-package txpool
+package journal
 
 import (
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,23 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// testSender is the default sender address used in tests.
+var testSender = types.BytesToAddress([]byte{0x01, 0x02, 0x03})
+
+// makeTx creates a minimal legacy transaction for testing.
+func makeTx(nonce uint64, gasPrice int64, gas uint64) *types.Transaction {
+	to := types.BytesToAddress([]byte{0xde, 0xad})
+	tx := types.NewTransaction(&types.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: big.NewInt(gasPrice),
+		Gas:      gas,
+		To:       &to,
+		Value:    big.NewInt(0),
+	})
+	tx.SetSender(testSender)
+	return tx
+}
 
 func newTestJrnl(t *testing.T) (*TxJrnl, string) {
 	t.Helper()

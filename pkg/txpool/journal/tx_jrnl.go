@@ -2,7 +2,7 @@
 // flush, corruption recovery, metrics tracking, and RLP-based persistence.
 // Unlike the simpler TxJournal, TxJrnl supports configurable auto-flush,
 // rotation by entry count or age, and exposes detailed operational metrics.
-package txpool
+package journal
 
 import (
 	"encoding/binary"

@@ -1,4 +1,4 @@
-package txpool
+package journal
 
 import (
 	"encoding/json"
