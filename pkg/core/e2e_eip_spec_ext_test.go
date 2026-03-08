@@ -1,3 +1,5 @@
+//go:build integration
+
 // e2e_eip_spec_ext_test.go extends e2e_eip_spec_test.go with additional
 // chain-level integration tests for SPEC-5.4, SPEC-6.1, and SPEC-6.4.
 package core

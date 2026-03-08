@@ -1,3 +1,5 @@
+//go:build integration
+
 package core
 
 // e2e_eip_spec_test.go exercises the new EIP spec compliance code
