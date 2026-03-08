@@ -1,4 +1,4 @@
-package p2p
+package ethproto
 
 import (
 	"errors"
@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/p2p/peermgr"
+	"github.com/eth2030/eth2030/p2p/wire"
 	"github.com/eth2030/eth2030/rlp"
 )
 
@@ -43,7 +45,7 @@ const (
 // HandlerFunc is a function that handles a single protocol message from a peer.
 // The decoded payload is passed as msg.Payload. Returning an error signals that
 // the peer misbehaved and should be penalized.
-type HandlerFunc func(backend Backend, peer *Peer, msg Message) error
+type HandlerFunc func(backend Backend, peer *peermgr.Peer, msg wire.Message) error
 
 // Backend is the interface that the protocol handler uses to access chain data
 // for serving requests. Implementations are provided by the sync/downloader layer.
@@ -64,17 +66,17 @@ type Backend interface {
 	GetPooledTransaction(hash types.Hash) *types.Transaction
 
 	// HandleNewBlock is called when a NewBlock broadcast is received.
-	HandleNewBlock(peer *Peer, block *types.Block, td *big.Int)
+	HandleNewBlock(peer *peermgr.Peer, block *types.Block, td *big.Int)
 
 	// HandleNewBlockHashes is called when a NewBlockHashes broadcast is received.
-	HandleNewBlockHashes(peer *Peer, hashes []NewBlockHashesEntry)
+	HandleNewBlockHashes(peer *peermgr.Peer, hashes []NewBlockHashesEntry)
 
 	// HandleTransactions is called when a Transactions broadcast is received.
-	HandleTransactions(peer *Peer, txs []*types.Transaction)
+	HandleTransactions(peer *peermgr.Peer, txs []*types.Transaction)
 
 	// HandleNewPooledTransactionHashes is called when a NewPooledTransactionHashes
 	// broadcast (eth/68 format) is received.
-	HandleNewPooledTransactionHashes(peer *Peer, types []byte, sizes []uint32, hashes []types.Hash)
+	HandleNewPooledTransactionHashes(peer *peermgr.Peer, types []byte, sizes []uint32, hashes []types.Hash)
 }
 
 // HandlerRegistry maps eth/68 message codes to their handler functions.
@@ -100,7 +102,7 @@ func (r *HandlerRegistry) Register(code uint64, h HandlerFunc) {
 }
 
 // Handle dispatches a message to the registered handler for its code.
-func (r *HandlerRegistry) Handle(backend Backend, peer *Peer, msg Message) error {
+func (r *HandlerRegistry) Handle(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	r.mu.RLock()
 	h, ok := r.handlers[msg.Code]
 	r.mu.RUnlock()
@@ -140,12 +142,12 @@ func (r *HandlerRegistry) registerDefaults() {
 // Request-response: GetBlockHeaders / BlockHeaders
 // ---------------------------------------------------------------------------
 
-func handleGetBlockHeaders(backend Backend, peer *Peer, msg Message) error {
+func handleGetBlockHeaders(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	if backend == nil {
 		return ErrNilBackend
 	}
 	var pkt GetBlockHeadersPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 
@@ -208,9 +210,9 @@ func resolveHeaders(backend Backend, req GetBlockHeadersRequest) []*types.Header
 	return headers
 }
 
-func handleBlockHeaders(_ Backend, peer *Peer, msg Message) error {
+func handleBlockHeaders(_ Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var pkt BlockHeadersPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 	// Deliver the response to the request tracker.
@@ -222,12 +224,12 @@ func handleBlockHeaders(_ Backend, peer *Peer, msg Message) error {
 // Request-response: GetBlockBodies / BlockBodies
 // ---------------------------------------------------------------------------
 
-func handleGetBlockBodies(backend Backend, peer *Peer, msg Message) error {
+func handleGetBlockBodies(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	if backend == nil {
 		return ErrNilBackend
 	}
 	var pkt GetBlockBodiesPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 
@@ -252,9 +254,9 @@ func handleGetBlockBodies(backend Backend, peer *Peer, msg Message) error {
 	return nil
 }
 
-func handleBlockBodies(_ Backend, peer *Peer, msg Message) error {
+func handleBlockBodies(_ Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var pkt BlockBodiesPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 	peer.DeliverResponse(pkt.RequestID, &pkt)
@@ -265,12 +267,12 @@ func handleBlockBodies(_ Backend, peer *Peer, msg Message) error {
 // Request-response: GetReceipts / Receipts
 // ---------------------------------------------------------------------------
 
-func handleGetReceipts(backend Backend, peer *Peer, msg Message) error {
+func handleGetReceipts(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	if backend == nil {
 		return ErrNilBackend
 	}
 	var pkt GetReceiptsPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 
@@ -295,9 +297,9 @@ func handleGetReceipts(backend Backend, peer *Peer, msg Message) error {
 	return nil
 }
 
-func handleReceipts(_ Backend, peer *Peer, msg Message) error {
+func handleReceipts(_ Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var pkt ReceiptsPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 	peer.DeliverResponse(pkt.RequestID, &pkt)
@@ -308,12 +310,12 @@ func handleReceipts(_ Backend, peer *Peer, msg Message) error {
 // Request-response: GetPooledTransactions / PooledTransactions
 // ---------------------------------------------------------------------------
 
-func handleGetPooledTransactions(backend Backend, peer *Peer, msg Message) error {
+func handleGetPooledTransactions(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	if backend == nil {
 		return ErrNilBackend
 	}
 	var pkt GetPooledTransactionsPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 
@@ -338,9 +340,9 @@ func handleGetPooledTransactions(backend Backend, peer *Peer, msg Message) error
 	return nil
 }
 
-func handlePooledTransactions(_ Backend, peer *Peer, msg Message) error {
+func handlePooledTransactions(_ Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var pkt PooledTransactionsPacket
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 	peer.DeliverResponse(pkt.RequestID, &pkt)
@@ -351,9 +353,9 @@ func handlePooledTransactions(_ Backend, peer *Peer, msg Message) error {
 // Broadcast: NewBlockHashes
 // ---------------------------------------------------------------------------
 
-func handleNewBlockHashes(backend Backend, peer *Peer, msg Message) error {
+func handleNewBlockHashes(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var entries []NewBlockHashesEntry
-	if err := DecodeMessage(msg, &entries); err != nil {
+	if err := wire.DecodeMessage(msg, &entries); err != nil {
 		return err
 	}
 	if backend != nil {
@@ -373,12 +375,12 @@ func handleNewBlockHashes(backend Backend, peer *Peer, msg Message) error {
 // Broadcast: NewBlock
 // ---------------------------------------------------------------------------
 
-func handleNewBlock(backend Backend, peer *Peer, msg Message) error {
+func handleNewBlock(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	// NewBlockData contains a *Block which requires custom RLP decoding
 	// (the generic decoder cannot handle Block's unexported fields).
 	block, td, err := decodeNewBlockData(msg.Payload)
 	if err != nil {
-		return fmt.Errorf("%w: code 0x%02x: %v", ErrDecode, msg.Code, err)
+		return fmt.Errorf("%w: code 0x%02x: %v", wire.ErrDecode, msg.Code, err)
 	}
 	// Update the peer's head.
 	peer.SetHead(block.Hash(), td)
@@ -424,9 +426,9 @@ func decodeNewBlockData(payload []byte) (*types.Block, *big.Int, error) {
 // Broadcast: Transactions
 // ---------------------------------------------------------------------------
 
-func handleTransactions(backend Backend, peer *Peer, msg Message) error {
+func handleTransactions(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var txs []*types.Transaction
-	if err := DecodeMessage(msg, &txs); err != nil {
+	if err := wire.DecodeMessage(msg, &txs); err != nil {
 		return err
 	}
 	if backend != nil {
@@ -439,9 +441,9 @@ func handleTransactions(backend Backend, peer *Peer, msg Message) error {
 // Broadcast: NewPooledTransactionHashes (eth/68)
 // ---------------------------------------------------------------------------
 
-func handleNewPooledTransactionHashes(backend Backend, peer *Peer, msg Message) error {
+func handleNewPooledTransactionHashes(backend Backend, peer *peermgr.Peer, msg wire.Message) error {
 	var pkt NewPooledTransactionHashesPacket68
-	if err := DecodeMessage(msg, &pkt); err != nil {
+	if err := wire.DecodeMessage(msg, &pkt); err != nil {
 		return err
 	}
 	// Validate that Types, Sizes, and Hashes have the same length.

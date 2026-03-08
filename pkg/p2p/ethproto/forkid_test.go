@@ -1,4 +1,4 @@
-package p2p
+package ethproto
 
 import (
 	"encoding/binary"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 // Ethereum mainnet genesis hash for test vectors.
@@ -230,13 +231,13 @@ func TestForkIDRoundtrip(t *testing.T) {
 	// Encode and decode a ForkID through the Message system.
 	original := CalcForkID(mainnetGenesisHash, 0, []uint64{1150000})
 
-	msg, err := EncodeMessage(StatusMsg, original)
+	msg, err := wire.EncodeMessage(StatusMsg, original)
 	if err != nil {
 		t.Fatalf("EncodeMessage: %v", err)
 	}
 
 	var decoded ForkID
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("DecodeMessage: %v", err)
 	}
 

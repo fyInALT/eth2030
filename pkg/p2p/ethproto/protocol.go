@@ -1,5 +1,5 @@
 // Package p2p implements the devp2p eth protocol types for peer-to-peer networking.
-package p2p
+package ethproto
 
 import (
 	"math/big"

@@ -1,7 +1,8 @@
-package p2p
+package ethproto
 
 import (
 	"testing"
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 func TestForkID(t *testing.T) {
@@ -38,7 +39,7 @@ func TestEncodeDecodeMessage(t *testing.T) {
 	}
 
 	original := testPayload{Value: 42, Name: "hello"}
-	msg, err := EncodeMessage(StatusMsg, original)
+	msg, err := wire.EncodeMessage(StatusMsg, original)
 	if err != nil {
 		t.Fatalf("EncodeMessage error: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestEncodeDecodeMessage(t *testing.T) {
 	}
 
 	var decoded testPayload
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("DecodeMessage error: %v", err)
 	}
 	if decoded.Value != 42 {
@@ -76,13 +77,13 @@ func TestEncodeDecodeStatusMsg(t *testing.T) {
 		Next: 1920000,
 	}
 
-	msg, err := EncodeMessage(StatusMsg, original)
+	msg, err := wire.EncodeMessage(StatusMsg, original)
 	if err != nil {
 		t.Fatalf("EncodeMessage error: %v", err)
 	}
 
 	var decoded ForkID
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("DecodeMessage error: %v", err)
 	}
 
@@ -96,13 +97,13 @@ func TestEncodeDecodeStatusMsg(t *testing.T) {
 
 func TestEncodeDecodeUint64Payload(t *testing.T) {
 	var val uint64 = 12345
-	msg, err := EncodeMessage(TransactionsMsg, val)
+	msg, err := wire.EncodeMessage(TransactionsMsg, val)
 	if err != nil {
 		t.Fatalf("EncodeMessage error: %v", err)
 	}
 
 	var decoded uint64
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("DecodeMessage error: %v", err)
 	}
 	if decoded != val {
@@ -169,33 +170,33 @@ func TestMessageName(t *testing.T) {
 }
 
 func TestMaxMessageSize(t *testing.T) {
-	if MaxMessageSize != 16*1024*1024 {
-		t.Errorf("MaxMessageSize = %d, want %d", MaxMessageSize, 16*1024*1024)
+	if wire.MaxMessageSize != 16*1024*1024 {
+		t.Errorf("wire.MaxMessageSize = %d, want %d", wire.MaxMessageSize, 16*1024*1024)
 	}
 }
 
 func TestMessageErrors(t *testing.T) {
-	if ErrMessageTooLarge == nil {
-		t.Error("ErrMessageTooLarge is nil")
+	if wire.ErrMessageTooLarge == nil {
+		t.Error("wire.ErrMessageTooLarge is nil")
 	}
-	if ErrInvalidMsgCode == nil {
-		t.Error("ErrInvalidMsgCode is nil")
+	if wire.ErrInvalidMsgCode == nil {
+		t.Error("wire.ErrInvalidMsgCode is nil")
 	}
-	if ErrDecode == nil {
-		t.Error("ErrDecode is nil")
+	if wire.ErrDecode == nil {
+		t.Error("wire.ErrDecode is nil")
 	}
 }
 
 func TestDecodeMessageError(t *testing.T) {
 	// Construct a message with invalid RLP payload.
-	msg := Message{
+	msg := wire.Message{
 		Code:    StatusMsg,
 		Size:    3,
 		Payload: []byte{0xff, 0xff, 0xff},
 	}
 
 	var decoded ForkID
-	err := DecodeMessage(msg, &decoded)
+	err := wire.DecodeMessage(msg, &decoded)
 	if err == nil {
 		t.Error("DecodeMessage with invalid payload should return error")
 	}

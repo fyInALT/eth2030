@@ -1,4 +1,4 @@
-package p2p
+package ethproto
 
 import (
 	"math/big"
@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/p2p/peermgr"
+	"github.com/eth2030/eth2030/p2p/wire"
 	"github.com/eth2030/eth2030/rlp"
 )
 
@@ -28,13 +30,13 @@ type mockBackend struct {
 }
 
 type newBlockCall struct {
-	Peer  *Peer
+	Peer  *peermgr.Peer
 	Block *types.Block
 	TD    *big.Int
 }
 
 type pooledTxHashCall struct {
-	Peer   *Peer
+	Peer   *peermgr.Peer
 	Types  []byte
 	Sizes  []uint32
 	Hashes []types.Hash
@@ -70,19 +72,19 @@ func (m *mockBackend) GetPooledTransaction(hash types.Hash) *types.Transaction {
 	return m.pooledTxs[hash]
 }
 
-func (m *mockBackend) HandleNewBlock(peer *Peer, block *types.Block, td *big.Int) {
+func (m *mockBackend) HandleNewBlock(peer *peermgr.Peer, block *types.Block, td *big.Int) {
 	m.newBlocks = append(m.newBlocks, newBlockCall{Peer: peer, Block: block, TD: td})
 }
 
-func (m *mockBackend) HandleNewBlockHashes(peer *Peer, hashes []NewBlockHashesEntry) {
+func (m *mockBackend) HandleNewBlockHashes(peer *peermgr.Peer, hashes []NewBlockHashesEntry) {
 	m.newBlockHashes = append(m.newBlockHashes, hashes)
 }
 
-func (m *mockBackend) HandleTransactions(peer *Peer, txs []*types.Transaction) {
+func (m *mockBackend) HandleTransactions(peer *peermgr.Peer, txs []*types.Transaction) {
 	m.transactions = append(m.transactions, txs)
 }
 
-func (m *mockBackend) HandleNewPooledTransactionHashes(peer *Peer, txTypes []byte, sizes []uint32, hashes []types.Hash) {
+func (m *mockBackend) HandleNewPooledTransactionHashes(peer *peermgr.Peer, txTypes []byte, sizes []uint32, hashes []types.Hash) {
 	m.pooledTxHashes = append(m.pooledTxHashes, pooledTxHashCall{
 		Peer: peer, Types: txTypes, Sizes: sizes, Hashes: hashes,
 	})
@@ -106,8 +108,8 @@ func (m *mockBackend) addHeaders(start, count uint64) []*types.Header {
 	return headers
 }
 
-func testPeer() *Peer {
-	return NewPeer("test-peer", "127.0.0.1:30303", nil)
+func testPeer() *peermgr.Peer {
+	return peermgr.NewPeer("test-peer", "127.0.0.1:30303", nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +137,7 @@ func TestHandlerRegistry_DefaultHandlers(t *testing.T) {
 func TestHandlerRegistry_UnknownCode(t *testing.T) {
 	reg := NewHandlerRegistry()
 	peer := testPeer()
-	msg := Message{Code: 0xFF}
+	msg := wire.Message{Code: 0xFF}
 	err := reg.Handle(newMockBackend(), peer, msg)
 	if err == nil {
 		t.Fatal("expected error for unknown code")
@@ -145,11 +147,11 @@ func TestHandlerRegistry_UnknownCode(t *testing.T) {
 func TestHandlerRegistry_CustomHandler(t *testing.T) {
 	reg := NewHandlerRegistry()
 	called := false
-	reg.Register(StatusMsg, func(_ Backend, _ *Peer, _ Message) error {
+	reg.Register(StatusMsg, func(_ Backend, _ *peermgr.Peer, _ wire.Message) error {
 		called = true
 		return nil
 	})
-	err := reg.Handle(nil, testPeer(), Message{Code: StatusMsg})
+	err := reg.Handle(nil, testPeer(), wire.Message{Code: StatusMsg})
 	if err != nil {
 		t.Fatalf("Handle returned error: %v", err)
 	}
@@ -175,7 +177,7 @@ func TestHandleGetBlockHeaders_ByNumber(t *testing.T) {
 			Skip:   0,
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -222,7 +224,7 @@ func TestHandleGetBlockHeaders_ByHash(t *testing.T) {
 			Skip:   0,
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -255,7 +257,7 @@ func TestHandleGetBlockHeaders_Reverse(t *testing.T) {
 			Reverse: true,
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -291,7 +293,7 @@ func TestHandleGetBlockHeaders_WithSkip(t *testing.T) {
 			Skip:   2, // every 3rd block
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -325,7 +327,7 @@ func TestHandleGetBlockHeaders_UnknownOrigin(t *testing.T) {
 			Amount: 10,
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -353,7 +355,7 @@ func TestHandleGetBlockHeaders_AmountCap(t *testing.T) {
 			Amount: MaxHeadersServe + 100, // exceeds cap
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -379,7 +381,7 @@ func TestHandleGetBlockHeaders_NilBackend(t *testing.T) {
 			Amount: 1,
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -403,7 +405,7 @@ func TestHandleBlockHeaders(t *testing.T) {
 			{Number: big.NewInt(100), Difficulty: big.NewInt(1)},
 		},
 	}
-	msg, err := EncodeMessage(BlockHeadersMsg, pkt)
+	msg, err := wire.EncodeMessage(BlockHeadersMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -455,7 +457,7 @@ func TestHandleGetBlockBodies(t *testing.T) {
 		RequestID: 10,
 		Hashes:    GetBlockBodiesRequest{h1, h2, h3},
 	}
-	msg, err := EncodeMessage(GetBlockBodiesMsg, pkt)
+	msg, err := wire.EncodeMessage(GetBlockBodiesMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -490,7 +492,7 @@ func TestHandleBlockBodies_Response(t *testing.T) {
 			{Transactions: nil, Uncles: nil},
 		},
 	}
-	msg, err := EncodeMessage(BlockBodiesMsg, pkt)
+	msg, err := wire.EncodeMessage(BlockBodiesMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -529,7 +531,7 @@ func TestHandleGetReceipts(t *testing.T) {
 		RequestID: 30,
 		Hashes:    GetReceiptsRequest{h1, h2},
 	}
-	msg, err := EncodeMessage(GetReceiptsMsg, pkt)
+	msg, err := wire.EncodeMessage(GetReceiptsMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -561,7 +563,7 @@ func TestHandleReceipts_Response(t *testing.T) {
 		RequestID: 31,
 		Receipts:  [][]*types.Receipt{{}},
 	}
-	msg, err := EncodeMessage(ReceiptsMsg, pkt)
+	msg, err := wire.EncodeMessage(ReceiptsMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -603,7 +605,7 @@ func TestHandleGetPooledTransactions(t *testing.T) {
 		RequestID: 40,
 		Hashes:    GetPooledTransactionsRequest{txHash, missingHash},
 	}
-	msg, err := EncodeMessage(GetPooledTransactionsMsg, pkt)
+	msg, err := wire.EncodeMessage(GetPooledTransactionsMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -628,7 +630,7 @@ func TestHandlePooledTransactions_Response(t *testing.T) {
 		RequestID:    41,
 		Transactions: []*types.Transaction{},
 	}
-	msg, err := EncodeMessage(PooledTransactionsMsg, pkt)
+	msg, err := wire.EncodeMessage(PooledTransactionsMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -660,7 +662,7 @@ func TestHandleNewBlockHashes(t *testing.T) {
 		{Hash: types.HexToHash("aa"), Number: 50},
 		{Hash: types.HexToHash("bb"), Number: 100},
 	}
-	msg, err := EncodeMessage(NewBlockHashesMsg, entries)
+	msg, err := wire.EncodeMessage(NewBlockHashesMsg, entries)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -725,9 +727,9 @@ func TestHandleNewBlock(t *testing.T) {
 	}
 }
 
-// encodeNewBlockMsg manually constructs a Message for NewBlock by using the
+// encodeNewBlockMsg manually constructs a wire.Message for NewBlock by using the
 // Block's custom EncodeRLP method and combining it with the TD field.
-func encodeNewBlockMsg(t *testing.T, block *types.Block, td *big.Int) Message {
+func encodeNewBlockMsg(t *testing.T, block *types.Block, td *big.Int) wire.Message {
 	t.Helper()
 
 	blockRLP, err := block.EncodeRLP()
@@ -745,7 +747,7 @@ func encodeNewBlockMsg(t *testing.T, block *types.Block, td *big.Int) Message {
 	payload = append(payload, tdRLP...)
 	wrapped := rlp.WrapList(payload)
 
-	return Message{
+	return wire.Message{
 		Code:    NewBlockMsg,
 		Size:    uint32(len(wrapped)),
 		Payload: wrapped,
@@ -768,7 +770,7 @@ func TestHandleTransactions(t *testing.T) {
 			Value:    big.NewInt(0),
 		}),
 	}
-	msg, err := EncodeMessage(TransactionsMsg, txs)
+	msg, err := wire.EncodeMessage(TransactionsMsg, txs)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -799,7 +801,7 @@ func TestHandleNewPooledTransactionHashes(t *testing.T) {
 		Sizes:  []uint32{128, 256},
 		Hashes: []types.Hash{types.HexToHash("aa"), types.HexToHash("bb")},
 	}
-	msg, err := EncodeMessage(NewPooledTransactionHashesMsg, pkt)
+	msg, err := wire.EncodeMessage(NewPooledTransactionHashesMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -826,7 +828,7 @@ func TestHandleNewPooledTransactionHashes_MismatchedLengths(t *testing.T) {
 		Sizes:  []uint32{128, 256}, // length mismatch
 		Hashes: []types.Hash{types.HexToHash("aa")},
 	}
-	msg, err := EncodeMessage(NewPooledTransactionHashesMsg, pkt)
+	msg, err := wire.EncodeMessage(NewPooledTransactionHashesMsg, pkt)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -1045,7 +1047,7 @@ func TestRequestTracker_Close(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Message encoding round-trip tests
+// wire.Message encoding round-trip tests
 // ---------------------------------------------------------------------------
 
 func TestEncodeDecodeGetBlockHeadersPacket(t *testing.T) {
@@ -1058,13 +1060,13 @@ func TestEncodeDecodeGetBlockHeadersPacket(t *testing.T) {
 			Reverse: true,
 		},
 	}
-	msg, err := EncodeMessage(GetBlockHeadersMsg, original)
+	msg, err := wire.EncodeMessage(GetBlockHeadersMsg, original)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
 	var decoded GetBlockHeadersPacket
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if decoded.RequestID != 77 {
@@ -1091,13 +1093,13 @@ func TestEncodeDecodeGetBlockBodiesPacket(t *testing.T) {
 		RequestID: 88,
 		Hashes:    GetBlockBodiesRequest{h1, h2},
 	}
-	msg, err := EncodeMessage(GetBlockBodiesMsg, original)
+	msg, err := wire.EncodeMessage(GetBlockBodiesMsg, original)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
 	var decoded GetBlockBodiesPacket
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if decoded.RequestID != 88 {
@@ -1117,13 +1119,13 @@ func TestEncodeDecodeGetReceiptsPacket(t *testing.T) {
 		RequestID: 99,
 		Hashes:    GetReceiptsRequest{h},
 	}
-	msg, err := EncodeMessage(GetReceiptsMsg, original)
+	msg, err := wire.EncodeMessage(GetReceiptsMsg, original)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
 	var decoded GetReceiptsPacket
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if decoded.RequestID != 99 {
@@ -1140,13 +1142,13 @@ func TestEncodeDecodeGetPooledTransactionsPacket(t *testing.T) {
 		RequestID: 55,
 		Hashes:    GetPooledTransactionsRequest{h},
 	}
-	msg, err := EncodeMessage(GetPooledTransactionsMsg, original)
+	msg, err := wire.EncodeMessage(GetPooledTransactionsMsg, original)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
 	var decoded GetPooledTransactionsPacket
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if decoded.RequestID != 55 {
@@ -1162,13 +1164,13 @@ func TestEncodeDecodeNewBlockHashesEntries(t *testing.T) {
 		{Hash: types.HexToHash("ff00"), Number: 42},
 		{Hash: types.HexToHash("ff01"), Number: 43},
 	}
-	msg, err := EncodeMessage(NewBlockHashesMsg, entries)
+	msg, err := wire.EncodeMessage(NewBlockHashesMsg, entries)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
 	var decoded []NewBlockHashesEntry
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(decoded) != 2 {
@@ -1185,13 +1187,13 @@ func TestEncodeDecodeNewPooledTransactionHashesPacket68(t *testing.T) {
 		Sizes:  []uint32{100, 200},
 		Hashes: []types.Hash{types.HexToHash("a1"), types.HexToHash("b2")},
 	}
-	msg, err := EncodeMessage(NewPooledTransactionHashesMsg, original)
+	msg, err := wire.EncodeMessage(NewPooledTransactionHashesMsg, original)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
 	var decoded NewPooledTransactionHashesPacket68
-	if err := DecodeMessage(msg, &decoded); err != nil {
+	if err := wire.DecodeMessage(msg, &decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(decoded.Types) != 2 || len(decoded.Sizes) != 2 || len(decoded.Hashes) != 2 {
@@ -1215,7 +1217,7 @@ func TestHandleGetBlockHeaders_DecodeError(t *testing.T) {
 	backend := newMockBackend()
 
 	// Deliberately invalid payload.
-	msg := Message{
+	msg := wire.Message{
 		Code:    GetBlockHeadersMsg,
 		Size:    3,
 		Payload: []byte{0xff, 0xff, 0xff},
@@ -1230,7 +1232,7 @@ func TestHandleGetBlockBodies_NilBackend(t *testing.T) {
 	reg := NewHandlerRegistry()
 	peer := testPeer()
 	pkt := GetBlockBodiesPacket{RequestID: 1, Hashes: GetBlockBodiesRequest{}}
-	msg, _ := EncodeMessage(GetBlockBodiesMsg, pkt)
+	msg, _ := wire.EncodeMessage(GetBlockBodiesMsg, pkt)
 	err := reg.Handle(nil, peer, msg)
 	if err != ErrNilBackend {
 		t.Errorf("expected ErrNilBackend, got %v", err)
@@ -1241,7 +1243,7 @@ func TestHandleGetReceipts_NilBackend(t *testing.T) {
 	reg := NewHandlerRegistry()
 	peer := testPeer()
 	pkt := GetReceiptsPacket{RequestID: 1, Hashes: GetReceiptsRequest{}}
-	msg, _ := EncodeMessage(GetReceiptsMsg, pkt)
+	msg, _ := wire.EncodeMessage(GetReceiptsMsg, pkt)
 	err := reg.Handle(nil, peer, msg)
 	if err != ErrNilBackend {
 		t.Errorf("expected ErrNilBackend, got %v", err)
@@ -1252,7 +1254,7 @@ func TestHandleGetPooledTransactions_NilBackend(t *testing.T) {
 	reg := NewHandlerRegistry()
 	peer := testPeer()
 	pkt := GetPooledTransactionsPacket{RequestID: 1, Hashes: GetPooledTransactionsRequest{}}
-	msg, _ := EncodeMessage(GetPooledTransactionsMsg, pkt)
+	msg, _ := wire.EncodeMessage(GetPooledTransactionsMsg, pkt)
 	err := reg.Handle(nil, peer, msg)
 	if err != ErrNilBackend {
 		t.Errorf("expected ErrNilBackend, got %v", err)
@@ -1266,14 +1268,14 @@ func TestBroadcastHandlers_NilBackend(t *testing.T) {
 
 	// NewBlockHashes with nil backend.
 	entries := []NewBlockHashesEntry{{Hash: types.HexToHash("aa"), Number: 1}}
-	msg, _ := EncodeMessage(NewBlockHashesMsg, entries)
+	msg, _ := wire.EncodeMessage(NewBlockHashesMsg, entries)
 	if err := reg.Handle(nil, peer, msg); err != nil {
 		t.Errorf("NewBlockHashes nil backend: %v", err)
 	}
 
 	// Transactions with nil backend.
 	txs := []*types.Transaction{}
-	msg, _ = EncodeMessage(TransactionsMsg, txs)
+	msg, _ = wire.EncodeMessage(TransactionsMsg, txs)
 	if err := reg.Handle(nil, peer, msg); err != nil {
 		t.Errorf("Transactions nil backend: %v", err)
 	}
@@ -1282,7 +1284,7 @@ func TestBroadcastHandlers_NilBackend(t *testing.T) {
 	pkt := NewPooledTransactionHashesPacket68{
 		Types: []byte{}, Sizes: []uint32{}, Hashes: []types.Hash{},
 	}
-	msg, _ = EncodeMessage(NewPooledTransactionHashesMsg, pkt)
+	msg, _ = wire.EncodeMessage(NewPooledTransactionHashesMsg, pkt)
 	if err := reg.Handle(nil, peer, msg); err != nil {
 		t.Errorf("NewPooledTransactionHashes nil backend: %v", err)
 	}

@@ -1,6 +1,10 @@
-package p2p
+package ethproto
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/eth2030/eth2030/p2p/wire"
+)
 
 // ForkID is the EIP-2124 fork identifier for chain compatibility checks.
 // It consists of a CRC32 checksum of the genesis hash and fork block numbers,
@@ -24,7 +28,7 @@ func ValidateMessageCode(code uint64) error {
 		GetBlockAccessListsMsg, BlockAccessListsMsg:
 		return nil
 	default:
-		return fmt.Errorf("%w: 0x%02x", ErrInvalidMsgCode, code)
+		return fmt.Errorf("%w: 0x%02x", wire.ErrInvalidMsgCode, code)
 	}
 }
 
