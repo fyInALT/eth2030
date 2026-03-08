@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/engine/apierrors"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -55,7 +55,7 @@ func (m *mockGlamsterdamBackend) NewPayloadV5(
 	}
 	hash := p.BlockHash
 	return &PayloadStatusV1{
-		Status:          apierrors.StatusValid,
+		Status:          engerrors.StatusValid,
 		LatestValidHash: &hash,
 	}, nil
 }
@@ -77,7 +77,7 @@ func (m *mockGlamsterdamBackend) ForkchoiceUpdatedV4G(
 	hash := state.HeadBlockHash
 	return &ForkchoiceUpdatedResult{
 		PayloadStatus: PayloadStatusV1{
-			Status:          apierrors.StatusValid,
+			Status:          engerrors.StatusValid,
 			LatestValidHash: &hash,
 		},
 	}, nil
@@ -93,7 +93,7 @@ func (m *mockGlamsterdamBackend) GetPayloadV5(id engpayload.PayloadID) (*GetPayl
 	if m.getPayloadResp != nil {
 		return m.getPayloadResp, nil
 	}
-	return nil, apierrors.ErrUnknownPayload
+	return nil, engerrors.ErrUnknownPayload
 }
 
 func (m *mockGlamsterdamBackend) GetBlobsV2(hashes []types.Hash) ([]*BlobAndProofV2, error) {
@@ -155,7 +155,7 @@ func TestGlamsterdam_NewPayloadV5_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != apierrors.StatusValid {
+	if status.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 	if status.LatestValidHash == nil || *status.LatestValidHash != p.BlockHash {
@@ -168,8 +168,8 @@ func TestGlamsterdam_NewPayloadV5_NilPayload(t *testing.T) {
 	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleNewPayloadV5(nil, nil, types.HexToHash("0xbeef"), [][]byte{})
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -179,8 +179,8 @@ func TestGlamsterdam_NewPayloadV5_ZeroBeaconRoot(t *testing.T) {
 
 	p := makeGlamsterdamPayload()
 	_, err := e.HandleNewPayloadV5(p, nil, types.Hash{}, [][]byte{})
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -190,8 +190,8 @@ func TestGlamsterdam_NewPayloadV5_NilRequests(t *testing.T) {
 
 	p := makeGlamsterdamPayload()
 	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), nil)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -202,8 +202,8 @@ func TestGlamsterdam_NewPayloadV5_NilBlockAccessList(t *testing.T) {
 	p := makeGlamsterdamPayload()
 	p.BlockAccessList = nil
 	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), [][]byte{})
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -215,8 +215,8 @@ func TestGlamsterdam_NewPayloadV5_BadRequestOrder(t *testing.T) {
 	// Request types not ascending (0x02 before 0x01).
 	requests := [][]byte{{0x02, 0xaa}, {0x01, 0xbb}}
 	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), requests)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -228,8 +228,8 @@ func TestGlamsterdam_NewPayloadV5_ShortRequest(t *testing.T) {
 	// Request with only 1 byte (too short per EIP-7685).
 	requests := [][]byte{{0x01}}
 	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), requests)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -241,19 +241,19 @@ func TestGlamsterdam_NewPayloadV5_DuplicateRequestType(t *testing.T) {
 	// Duplicate request type 0x01.
 	requests := [][]byte{{0x01, 0xaa}, {0x01, 0xbb}}
 	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), requests)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_BackendError(t *testing.T) {
-	b := &mockGlamsterdamBackend{newPayloadErr: apierrors.ErrUnsupportedFork}
+	b := &mockGlamsterdamBackend{newPayloadErr: engerrors.ErrUnsupportedFork}
 	e := NewEngineGlamsterdam(b)
 
 	p := makeGlamsterdamPayload()
 	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), [][]byte{})
-	if err != apierrors.ErrUnsupportedFork {
-		t.Fatalf("expected apierrors.ErrUnsupportedFork, got %v", err)
+	if err != engerrors.ErrUnsupportedFork {
+		t.Fatalf("expected engerrors.ErrUnsupportedFork, got %v", err)
 	}
 }
 
@@ -279,7 +279,7 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
@@ -289,8 +289,8 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_NilState(t *testing.T) {
 	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleForkchoiceUpdatedV4(nil, nil)
-	if err != apierrors.ErrInvalidForkchoiceState {
-		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
+	if err != engerrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected engerrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
@@ -299,8 +299,8 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroHead(t *testing.T) {
 	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleForkchoiceUpdatedV4(&ForkchoiceStateV1{}, nil)
-	if err != apierrors.ErrInvalidForkchoiceState {
-		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
+	if err != engerrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected engerrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
@@ -313,7 +313,7 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_NilAttrs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
@@ -328,8 +328,8 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroTimestamp(t *testing.T) {
 		ParentBeaconBlockRoot: types.HexToHash("0xee"),
 	}
 	_, err := e.HandleForkchoiceUpdatedV4(state, attrs)
-	if err != apierrors.ErrInvalidPayloadAttributes {
-		t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
+	if err != engerrors.ErrInvalidPayloadAttributes {
+		t.Fatalf("expected engerrors.ErrInvalidPayloadAttributes, got %v", err)
 	}
 }
 
@@ -343,8 +343,8 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroBeaconRoot(t *testing.T) {
 		ParentBeaconBlockRoot: types.Hash{}, // zero
 	}
 	_, err := e.HandleForkchoiceUpdatedV4(state, attrs)
-	if err != apierrors.ErrInvalidPayloadAttributes {
-		t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
+	if err != engerrors.ErrInvalidPayloadAttributes {
+		t.Fatalf("expected engerrors.ErrInvalidPayloadAttributes, got %v", err)
 	}
 }
 
@@ -352,7 +352,7 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_WithPayloadID(t *testing.T) {
 	pid := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	b := &mockGlamsterdamBackend{
 		fcuResult: &ForkchoiceUpdatedResult{
-			PayloadStatus: PayloadStatusV1{Status: apierrors.StatusValid},
+			PayloadStatus: PayloadStatusV1{Status: engerrors.StatusValid},
 			PayloadID:     &pid,
 		},
 	}
@@ -374,13 +374,13 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_WithPayloadID(t *testing.T) {
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_BackendError(t *testing.T) {
-	b := &mockGlamsterdamBackend{fcuErr: apierrors.ErrInvalidForkchoiceState}
+	b := &mockGlamsterdamBackend{fcuErr: engerrors.ErrInvalidForkchoiceState}
 	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	_, err := e.HandleForkchoiceUpdatedV4(state, nil)
-	if err != apierrors.ErrInvalidForkchoiceState {
-		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
+	if err != engerrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected engerrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
@@ -415,8 +415,8 @@ func TestGlamsterdam_GetPayloadV5_ZeroID(t *testing.T) {
 	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleGetPayloadV5(engpayload.PayloadID{})
-	if err != apierrors.ErrUnknownPayload {
-		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
+	if err != engerrors.ErrUnknownPayload {
+		t.Fatalf("expected engerrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
@@ -426,8 +426,8 @@ func TestGlamsterdam_GetPayloadV5_NotFound(t *testing.T) {
 
 	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	_, err := e.HandleGetPayloadV5(id)
-	if err != apierrors.ErrUnknownPayload {
-		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
+	if err != engerrors.ErrUnknownPayload {
+		t.Fatalf("expected engerrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
@@ -453,8 +453,8 @@ func TestGlamsterdam_GetBlobsV2_NilHashes(t *testing.T) {
 	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleGetBlobsV2(nil)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -464,8 +464,8 @@ func TestGlamsterdam_GetBlobsV2_TooMany(t *testing.T) {
 
 	hashes := make([]types.Hash, 129) // exceeds 128
 	_, err := e.HandleGetBlobsV2(hashes)
-	if err != apierrors.ErrTooLargeRequest {
-		t.Fatalf("expected apierrors.ErrTooLargeRequest, got %v", err)
+	if err != engerrors.ErrTooLargeRequest {
+		t.Fatalf("expected engerrors.ErrTooLargeRequest, got %v", err)
 	}
 }
 
@@ -569,13 +569,13 @@ func TestGlamsterdam_Concurrency(t *testing.T) {
 		}()
 	}
 
-	// Concurrent HandleGetPayloadV5 (expected to fail with apierrors.ErrUnknownPayload).
+	// Concurrent HandleGetPayloadV5 (expected to fail with engerrors.ErrUnknownPayload).
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-			e.HandleGetPayloadV5(id) // Will return apierrors.ErrUnknownPayload, which is expected.
+			e.HandleGetPayloadV5(id) // Will return engerrors.ErrUnknownPayload, which is expected.
 		}()
 	}
 
@@ -606,7 +606,7 @@ func TestGlamsterdam_JSONRPC_NewPayloadV5(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *PayloadStatusV1, got %T", result)
 	}
-	if status.Status != apierrors.StatusValid {
+	if status.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 }
@@ -627,7 +627,7 @@ func TestGlamsterdam_JSONRPC_ForkchoiceUpdatedV4(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *ForkchoiceUpdatedResult, got %T", result)
 	}
-	if fcu.PayloadStatus.Status != apierrors.StatusValid {
+	if fcu.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", fcu.PayloadStatus.Status)
 	}
 }
@@ -690,8 +690,8 @@ func TestGlamsterdam_JSONRPC_MethodNotFound(t *testing.T) {
 	if rpcErr == nil {
 		t.Fatal("expected RPC error for unknown method")
 	}
-	if rpcErr.Code != apierrors.MethodNotFoundCode {
-		t.Fatalf("expected code %d, got %d", apierrors.MethodNotFoundCode, rpcErr.Code)
+	if rpcErr.Code != engerrors.MethodNotFoundCode {
+		t.Fatalf("expected code %d, got %d", engerrors.MethodNotFoundCode, rpcErr.Code)
 	}
 }
 
@@ -704,8 +704,8 @@ func TestGlamsterdam_JSONRPC_InvalidParamCount(t *testing.T) {
 	if rpcErr == nil {
 		t.Fatal("expected RPC error for wrong param count")
 	}
-	if rpcErr.Code != apierrors.InvalidParamsCode {
-		t.Fatalf("expected code %d, got %d", apierrors.InvalidParamsCode, rpcErr.Code)
+	if rpcErr.Code != engerrors.InvalidParamsCode {
+		t.Fatalf("expected code %d, got %d", engerrors.InvalidParamsCode, rpcErr.Code)
 	}
 }
 
@@ -739,12 +739,12 @@ func TestGlamsterdam_ErrorMapping(t *testing.T) {
 		err      error
 		wantCode int
 	}{
-		{apierrors.ErrUnknownPayload, apierrors.UnknownPayloadCode},
-		{apierrors.ErrInvalidForkchoiceState, apierrors.InvalidForkchoiceStateCode},
-		{apierrors.ErrInvalidPayloadAttributes, apierrors.InvalidPayloadAttributeCode},
-		{apierrors.ErrInvalidParams, apierrors.InvalidParamsCode},
-		{apierrors.ErrTooLargeRequest, apierrors.TooLargeRequestCode},
-		{apierrors.ErrUnsupportedFork, apierrors.UnsupportedForkCode},
+		{engerrors.ErrUnknownPayload, engerrors.UnknownPayloadCode},
+		{engerrors.ErrInvalidForkchoiceState, engerrors.InvalidForkchoiceStateCode},
+		{engerrors.ErrInvalidPayloadAttributes, engerrors.InvalidPayloadAttributeCode},
+		{engerrors.ErrInvalidParams, engerrors.InvalidParamsCode},
+		{engerrors.ErrTooLargeRequest, engerrors.TooLargeRequestCode},
+		{engerrors.ErrUnsupportedFork, engerrors.UnsupportedForkCode},
 	}
 
 	for _, tt := range tests {

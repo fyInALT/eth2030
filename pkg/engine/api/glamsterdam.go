@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/engine/apierrors"
 	"github.com/eth2030/eth2030/engine/backendapi"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -75,27 +75,27 @@ func (e *EngineGlamsterdam) HandleNewPayloadV5(
 	defer e.mu.Unlock()
 
 	if p == nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	// EIP-4788: parentBeaconBlockRoot must be provided (non-zero).
 	if parentBeaconBlockRoot == (types.Hash{}) {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	// EIP-7685: executionRequests must be provided (can be empty, not nil).
 	if executionRequests == nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	// Validate execution request ordering.
 	if err := validateExecutionRequestsGlamsterdam(executionRequests); err != nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	// Block access list must be present for Amsterdam payloads.
 	if p.BlockAccessList == nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	return e.backend.NewPayloadV5(p, expectedBlobVersionedHashes, parentBeaconBlockRoot, executionRequests)
@@ -111,22 +111,22 @@ func (e *EngineGlamsterdam) HandleForkchoiceUpdatedV4(
 	defer e.mu.Unlock()
 
 	if state == nil {
-		return nil, apierrors.ErrInvalidForkchoiceState
+		return nil, engerrors.ErrInvalidForkchoiceState
 	}
 
 	// Head block hash must be non-zero.
 	if state.HeadBlockHash == (types.Hash{}) {
-		return nil, apierrors.ErrInvalidForkchoiceState
+		return nil, engerrors.ErrInvalidForkchoiceState
 	}
 
 	// Validate attributes if provided.
 	if attrs != nil {
 		if attrs.Timestamp == 0 {
-			return nil, apierrors.ErrInvalidPayloadAttributes
+			return nil, engerrors.ErrInvalidPayloadAttributes
 		}
 		// ParentBeaconBlockRoot must be provided for V4.
 		if attrs.ParentBeaconBlockRoot == (types.Hash{}) {
-			return nil, apierrors.ErrInvalidPayloadAttributes
+			return nil, engerrors.ErrInvalidPayloadAttributes
 		}
 	}
 
@@ -139,7 +139,7 @@ func (e *EngineGlamsterdam) HandleGetPayloadV5(payloadID payload.PayloadID) (*Ge
 	defer e.mu.Unlock()
 
 	if payloadID == (payload.PayloadID{}) {
-		return nil, apierrors.ErrUnknownPayload
+		return nil, engerrors.ErrUnknownPayload
 	}
 
 	return e.backend.GetPayloadV5(payloadID)
@@ -151,12 +151,12 @@ func (e *EngineGlamsterdam) HandleGetBlobsV2(versionedHashes []types.Hash) ([]*B
 	defer e.mu.Unlock()
 
 	if versionedHashes == nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	// Spec: MUST support at least 128, MUST return TooLargeRequest if exceeded.
 	if len(versionedHashes) > 128 {
-		return nil, apierrors.ErrTooLargeRequest
+		return nil, engerrors.ErrTooLargeRequest
 	}
 
 	return e.backend.GetBlobsV2(versionedHashes)
@@ -201,7 +201,7 @@ func (e *EngineGlamsterdam) HandleJSONRPC(method string, params []json.RawMessag
 		return e.handleGetClientVersionV2RPC(params)
 	default:
 		return nil, &jsonrpcError{
-			Code:    apierrors.MethodNotFoundCode,
+			Code:    engerrors.MethodNotFoundCode,
 			Message: fmt.Sprintf("method %q not found", method),
 		}
 	}
@@ -210,29 +210,29 @@ func (e *EngineGlamsterdam) HandleJSONRPC(method string, params []json.RawMessag
 func (e *EngineGlamsterdam) handleNewPayloadV5RPC(params []json.RawMessage) (any, *jsonrpcError) {
 	if len(params) != 4 {
 		return nil, &jsonrpcError{
-			Code:    apierrors.InvalidParamsCode,
+			Code:    engerrors.InvalidParamsCode,
 			Message: fmt.Sprintf("expected 4 params, got %d", len(params)),
 		}
 	}
 
 	var p payload.ExecutionPayloadV5
 	if err := json.Unmarshal(params[0], &p); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid payload: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid payload: %v", err)}
 	}
 
 	var hashes []types.Hash
 	if err := json.Unmarshal(params[1], &hashes); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid blob hashes: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid blob hashes: %v", err)}
 	}
 
 	var root types.Hash
 	if err := json.Unmarshal(params[2], &root); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid beacon root: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid beacon root: %v", err)}
 	}
 
 	var requests [][]byte
 	if err := json.Unmarshal(params[3], &requests); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid requests: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid requests: %v", err)}
 	}
 
 	result, err := e.HandleNewPayloadV5(&p, hashes, root, requests)
@@ -245,21 +245,21 @@ func (e *EngineGlamsterdam) handleNewPayloadV5RPC(params []json.RawMessage) (any
 func (e *EngineGlamsterdam) handleForkchoiceUpdatedV4RPC(params []json.RawMessage) (any, *jsonrpcError) {
 	if len(params) < 1 || len(params) > 2 {
 		return nil, &jsonrpcError{
-			Code:    apierrors.InvalidParamsCode,
+			Code:    engerrors.InvalidParamsCode,
 			Message: fmt.Sprintf("expected 1-2 params, got %d", len(params)),
 		}
 	}
 
 	var state ForkchoiceStateV1
 	if err := json.Unmarshal(params[0], &state); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid state: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid state: %v", err)}
 	}
 
 	var attrs *GlamsterdamPayloadAttributes
 	if len(params) == 2 && string(params[1]) != "null" {
 		attrs = new(GlamsterdamPayloadAttributes)
 		if err := json.Unmarshal(params[1], attrs); err != nil {
-			return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid attrs: %v", err)}
+			return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid attrs: %v", err)}
 		}
 	}
 
@@ -273,14 +273,14 @@ func (e *EngineGlamsterdam) handleForkchoiceUpdatedV4RPC(params []json.RawMessag
 func (e *EngineGlamsterdam) handleGetPayloadV5RPC(params []json.RawMessage) (any, *jsonrpcError) {
 	if len(params) != 1 {
 		return nil, &jsonrpcError{
-			Code:    apierrors.InvalidParamsCode,
+			Code:    engerrors.InvalidParamsCode,
 			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
 		}
 	}
 
 	var payloadID payload.PayloadID
 	if err := json.Unmarshal(params[0], &payloadID); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid ID: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid ID: %v", err)}
 	}
 
 	result, err := e.HandleGetPayloadV5(payloadID)
@@ -293,14 +293,14 @@ func (e *EngineGlamsterdam) handleGetPayloadV5RPC(params []json.RawMessage) (any
 func (e *EngineGlamsterdam) handleGetBlobsV2RPC(params []json.RawMessage) (any, *jsonrpcError) {
 	if len(params) != 1 {
 		return nil, &jsonrpcError{
-			Code:    apierrors.InvalidParamsCode,
+			Code:    engerrors.InvalidParamsCode,
 			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
 		}
 	}
 
 	var hashes []types.Hash
 	if err := json.Unmarshal(params[0], &hashes); err != nil {
-		return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid hashes: %v", err)}
+		return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid hashes: %v", err)}
 	}
 
 	result, err := e.HandleGetBlobsV2(hashes)
@@ -315,7 +315,7 @@ func (e *EngineGlamsterdam) handleGetClientVersionV2RPC(params []json.RawMessage
 	if len(params) > 0 {
 		peerVersion = new(ClientVersionV1)
 		if err := json.Unmarshal(params[0], peerVersion); err != nil {
-			return nil, &jsonrpcError{Code: apierrors.InvalidParamsCode, Message: fmt.Sprintf("invalid version: %v", err)}
+			return nil, &jsonrpcError{Code: engerrors.InvalidParamsCode, Message: fmt.Sprintf("invalid version: %v", err)}
 		}
 	}
 	return e.HandleGetClientVersionV2(peerVersion), nil
@@ -342,20 +342,20 @@ func validateExecutionRequestsGlamsterdam(requests [][]byte) error {
 
 // glamsterdamErrorToRPC maps engine errors to JSON-RPC error responses.
 func glamsterdamErrorToRPC(err error) *jsonrpcError {
-	code := apierrors.InternalErrorCode
+	code := engerrors.InternalErrorCode
 	switch {
-	case errors.Is(err, apierrors.ErrUnknownPayload):
-		code = apierrors.UnknownPayloadCode
-	case errors.Is(err, apierrors.ErrInvalidForkchoiceState):
-		code = apierrors.InvalidForkchoiceStateCode
-	case errors.Is(err, apierrors.ErrInvalidPayloadAttributes):
-		code = apierrors.InvalidPayloadAttributeCode
-	case errors.Is(err, apierrors.ErrInvalidParams):
-		code = apierrors.InvalidParamsCode
-	case errors.Is(err, apierrors.ErrTooLargeRequest):
-		code = apierrors.TooLargeRequestCode
-	case errors.Is(err, apierrors.ErrUnsupportedFork):
-		code = apierrors.UnsupportedForkCode
+	case errors.Is(err, engerrors.ErrUnknownPayload):
+		code = engerrors.UnknownPayloadCode
+	case errors.Is(err, engerrors.ErrInvalidForkchoiceState):
+		code = engerrors.InvalidForkchoiceStateCode
+	case errors.Is(err, engerrors.ErrInvalidPayloadAttributes):
+		code = engerrors.InvalidPayloadAttributeCode
+	case errors.Is(err, engerrors.ErrInvalidParams):
+		code = engerrors.InvalidParamsCode
+	case errors.Is(err, engerrors.ErrTooLargeRequest):
+		code = engerrors.TooLargeRequestCode
+	case errors.Is(err, engerrors.ErrUnsupportedFork):
+		code = engerrors.UnsupportedForkCode
 	}
 	return &jsonrpcError{Code: code, Message: err.Error()}
 }

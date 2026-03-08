@@ -1,53 +1,108 @@
-package engine
+// Package errors defines Engine API error variables, codes, and utilities.
+package errors
 
 import (
 	"encoding/json"
-	"errors"
+	stderrors "errors"
 	"fmt"
 )
 
-// Extended engine error variables for all Engine API error conditions.
+// Standard Engine API error sentinels per the execution-apis spec.
 var (
+	// ErrInvalidParams is returned when the request parameters are invalid.
+	ErrInvalidParams = stderrors.New("invalid params")
+
+	// ErrUnknownPayload is returned when the requested payload is not found.
+	ErrUnknownPayload = stderrors.New("unknown payload")
+
+	// ErrInvalidForkchoiceState is returned when the forkchoice state is invalid.
+	ErrInvalidForkchoiceState = stderrors.New("invalid forkchoice state")
+
+	// ErrInvalidPayloadAttributes is returned when payload attributes are invalid.
+	ErrInvalidPayloadAttributes = stderrors.New("invalid payload attributes")
+
+	// ErrTooLargeRequest is returned when the request size exceeds limits.
+	ErrTooLargeRequest = stderrors.New("too large request")
+
+	// ErrUnsupportedFork is returned when the requested fork is not supported.
+	ErrUnsupportedFork = stderrors.New("unsupported fork")
+
+	// ErrInvalidBlockHash is returned when the block hash in the payload
+	// does not match the computed block hash.
+	ErrInvalidBlockHash = stderrors.New("invalid block hash")
+
+	// ErrInvalidBlobHashes is returned when the blob versioned hashes
+	// in the payload do not match the expected hashes from the CL.
+	ErrInvalidBlobHashes = stderrors.New("invalid blob versioned hashes")
+
+	// ErrMissingBeaconRoot is returned when the parent beacon block root
+	// is missing (zero) in a V3+ newPayload call.
+	ErrMissingBeaconRoot = stderrors.New("missing parent beacon block root")
+
 	// ErrRequestTooLarge is returned when a request exceeds the maximum allowed size.
-	ErrRequestTooLarge = errors.New("request too large")
+	ErrRequestTooLarge = stderrors.New("request too large")
 
 	// ErrServerBusy is returned when the server is too busy to process the request.
-	ErrServerBusy = errors.New("server busy")
+	ErrServerBusy = stderrors.New("server busy")
 
 	// ErrRequestTimeout is returned when request processing times out.
-	ErrRequestTimeout = errors.New("request timeout")
+	ErrRequestTimeout = stderrors.New("request timeout")
 
 	// ErrPayloadNotBuilding is returned when getPayload is called but no
 	// payload is being built for the given ID.
-	ErrPayloadNotBuilding = errors.New("payload not building")
+	ErrPayloadNotBuilding = stderrors.New("payload not building")
 
 	// ErrInvalidTerminalBlock is returned when the terminal block does not
 	// satisfy the terminal total difficulty condition.
-	ErrInvalidTerminalBlock = errors.New("invalid terminal block")
+	ErrInvalidTerminalBlock = stderrors.New("invalid terminal block")
 
 	// ErrPayloadTimestamp is returned when the payload timestamp does not
 	// advance beyond the parent block's timestamp.
-	ErrPayloadTimestamp = errors.New("invalid payload timestamp")
+	ErrPayloadTimestamp = stderrors.New("invalid payload timestamp")
 
 	// ErrMissingWithdrawals is returned when withdrawals are expected but
 	// not provided in V2+ payloads.
-	ErrMissingWithdrawals = errors.New("missing withdrawals")
+	ErrMissingWithdrawals = stderrors.New("missing withdrawals")
 
 	// ErrMissingExecutionRequests is returned when execution requests are
 	// expected but not provided in V4+ payloads.
-	ErrMissingExecutionRequests = errors.New("missing execution requests")
+	ErrMissingExecutionRequests = stderrors.New("missing execution requests")
 
 	// ErrMissingBlockAccessList is returned when the block access list is
 	// expected but not provided in V5+ payloads.
-	ErrMissingBlockAccessList = errors.New("missing block access list")
+	ErrMissingBlockAccessList = stderrors.New("missing block access list")
 )
 
-// Engine API extended error codes for additional conditions.
+// Payload status strings per the execution-apis spec.
 const (
-	// ServerBusyCode indicates the server is overloaded.
-	ServerBusyCode = -32005
+	StatusValid            = "VALID"
+	StatusInvalid          = "INVALID"
+	StatusSyncing          = "SYNCING"
+	StatusAccepted         = "ACCEPTED"
+	StatusInvalidBlockHash = "INVALID_BLOCK_HASH"
+)
 
-	// RequestTimeoutCode indicates the request timed out.
+// Standard JSON-RPC 2.0 error codes.
+const (
+	ParseErrorCode     = -32700
+	InvalidRequestCode = -32600
+	MethodNotFoundCode = -32601
+	InvalidParamsCode  = -32602
+	InternalErrorCode  = -32603
+)
+
+// Engine API specific error codes (per execution-apis spec).
+const (
+	UnknownPayloadCode          = -38001
+	InvalidForkchoiceStateCode  = -38002
+	InvalidPayloadAttributeCode = -38003
+	TooLargeRequestCode         = -38004
+	UnsupportedForkCode         = -38005
+)
+
+// Extended error codes for additional server conditions.
+const (
+	ServerBusyCode     = -32005
 	RequestTimeoutCode = -32006
 )
 
@@ -100,42 +155,40 @@ func ErrorCodeFromError(err error) int {
 		return 0
 	}
 
-	// Check for EngineError type first.
 	var engineErr *EngineError
-	if errors.As(err, &engineErr) {
+	if stderrors.As(err, &engineErr) {
 		return engineErr.Code
 	}
 
 	switch {
-	case errors.Is(err, ErrUnknownPayload), errors.Is(err, ErrPayloadNotBuilding):
+	case stderrors.Is(err, ErrUnknownPayload), stderrors.Is(err, ErrPayloadNotBuilding):
 		return UnknownPayloadCode
-	case errors.Is(err, ErrInvalidForkchoiceState):
+	case stderrors.Is(err, ErrInvalidForkchoiceState):
 		return InvalidForkchoiceStateCode
-	case errors.Is(err, ErrInvalidPayloadAttributes):
+	case stderrors.Is(err, ErrInvalidPayloadAttributes):
 		return InvalidPayloadAttributeCode
-	case errors.Is(err, ErrTooLargeRequest), errors.Is(err, ErrRequestTooLarge):
+	case stderrors.Is(err, ErrTooLargeRequest), stderrors.Is(err, ErrRequestTooLarge):
 		return TooLargeRequestCode
-	case errors.Is(err, ErrUnsupportedFork):
+	case stderrors.Is(err, ErrUnsupportedFork):
 		return UnsupportedForkCode
-	case errors.Is(err, ErrInvalidParams):
+	case stderrors.Is(err, ErrInvalidParams):
 		return InvalidParamsCode
-	case errors.Is(err, ErrInvalidBlockHash):
+	case stderrors.Is(err, ErrInvalidBlockHash):
 		return InvalidParamsCode
-	case errors.Is(err, ErrInvalidBlobHashes):
+	case stderrors.Is(err, ErrInvalidBlobHashes):
 		return InvalidParamsCode
-	case errors.Is(err, ErrMissingBeaconRoot):
+	case stderrors.Is(err, ErrMissingBeaconRoot):
 		return InvalidParamsCode
-	case errors.Is(err, ErrServerBusy):
+	case stderrors.Is(err, ErrServerBusy):
 		return ServerBusyCode
-	case errors.Is(err, ErrRequestTimeout):
+	case stderrors.Is(err, ErrRequestTimeout):
 		return RequestTimeoutCode
 	default:
 		return InternalErrorCode
 	}
 }
 
-// IsClientError returns true if the error code indicates a client-side error
-// (invalid request, params, etc).
+// IsClientError returns true if the error code indicates a client-side error.
 func IsClientError(code int) bool {
 	return code >= -32699 && code <= -32600
 }
@@ -145,8 +198,7 @@ func IsServerError(code int) bool {
 	return code >= -32099 && code <= -32000
 }
 
-// IsEngineError returns true if the error code is an Engine API specific
-// error (-38001 through -38005).
+// IsEngineError returns true if the error code is an Engine API specific error.
 func IsEngineError(code int) bool {
 	return code >= -38005 && code <= -38001
 }
@@ -202,7 +254,7 @@ func ErrorName(code int) string {
 }
 
 // ValidatePayloadVersion checks that required fields are present for the
-// given payload version. Returns an appropriate EngineError if validation fails.
+// given payload version.
 func ValidatePayloadVersion(version int, hasWithdrawals, hasExecutionRequests, hasBlockAccessList bool) *EngineError {
 	if version >= 2 && !hasWithdrawals {
 		return WrapEngineError(InvalidParamsCode, "withdrawals required for V2+ payload", ErrMissingWithdrawals)

@@ -8,8 +8,8 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
-	"github.com/eth2030/eth2030/engine/apierrors"
 	"github.com/eth2030/eth2030/engine/backendapi"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -50,8 +50,8 @@ var (
 	ErrMissingInclusionProof  = errors.New("engine: missing inclusion proof")
 	ErrInvalidInclusionProof  = errors.New("engine: invalid inclusion proof")
 	ErrInclusionProofMismatch = errors.New("engine: inclusion proof root mismatch")
-	// ErrMissingBeaconRoot is aliased to apierrors to match the engine package sentinel.
-	ErrMissingBeaconRoot = apierrors.ErrMissingBeaconRoot
+	// ErrMissingBeaconRoot is aliased to engerrors to match the engine package sentinel.
+	ErrMissingBeaconRoot = engerrors.ErrMissingBeaconRoot
 )
 
 // Validate performs basic structural validation of the envelope.
@@ -60,10 +60,10 @@ func (e *UncoupledPayloadEnvelope) Validate() error {
 		return ErrMissingBeaconRoot
 	}
 	if e.Slot == 0 {
-		return apierrors.ErrInvalidParams
+		return engerrors.ErrInvalidParams
 	}
 	if e.Payload == nil {
-		return apierrors.ErrInvalidPayloadAttributes
+		return engerrors.ErrInvalidPayloadAttributes
 	}
 	if e.Proof == nil {
 		return ErrMissingInclusionProof

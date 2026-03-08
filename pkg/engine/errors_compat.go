@@ -1,36 +1,36 @@
 package engine
 
-// errors_compat.go re-exports errors and codes from engine/apierrors for backward compatibility.
+// errors_compat.go re-exports errors and codes from engine/errors for backward compatibility.
 
-import "github.com/eth2030/eth2030/engine/apierrors"
+import engerrors "github.com/eth2030/eth2030/engine/errors"
 
 // Engine API errors.
 var (
-	ErrInvalidParams            = apierrors.ErrInvalidParams
-	ErrUnknownPayload           = apierrors.ErrUnknownPayload
-	ErrInvalidForkchoiceState   = apierrors.ErrInvalidForkchoiceState
-	ErrInvalidPayloadAttributes = apierrors.ErrInvalidPayloadAttributes
-	ErrTooLargeRequest          = apierrors.ErrTooLargeRequest
-	ErrUnsupportedFork          = apierrors.ErrUnsupportedFork
-	ErrInvalidBlockHash         = apierrors.ErrInvalidBlockHash
-	ErrInvalidBlobHashes        = apierrors.ErrInvalidBlobHashes
-	ErrMissingBeaconRoot        = apierrors.ErrMissingBeaconRoot
+	ErrInvalidParams            = engerrors.ErrInvalidParams
+	ErrUnknownPayload           = engerrors.ErrUnknownPayload
+	ErrInvalidForkchoiceState   = engerrors.ErrInvalidForkchoiceState
+	ErrInvalidPayloadAttributes = engerrors.ErrInvalidPayloadAttributes
+	ErrTooLargeRequest          = engerrors.ErrTooLargeRequest
+	ErrUnsupportedFork          = engerrors.ErrUnsupportedFork
+	ErrInvalidBlockHash         = engerrors.ErrInvalidBlockHash
+	ErrInvalidBlobHashes        = engerrors.ErrInvalidBlobHashes
+	ErrMissingBeaconRoot        = engerrors.ErrMissingBeaconRoot
 )
 
 // Standard JSON-RPC 2.0 error codes.
 const (
-	ParseErrorCode     = apierrors.ParseErrorCode
-	InvalidRequestCode = apierrors.InvalidRequestCode
-	MethodNotFoundCode = apierrors.MethodNotFoundCode
-	InvalidParamsCode  = apierrors.InvalidParamsCode
-	InternalErrorCode  = apierrors.InternalErrorCode
+	ParseErrorCode     = engerrors.ParseErrorCode
+	InvalidRequestCode = engerrors.InvalidRequestCode
+	MethodNotFoundCode = engerrors.MethodNotFoundCode
+	InvalidParamsCode  = engerrors.InvalidParamsCode
+	InternalErrorCode  = engerrors.InternalErrorCode
 )
 
 // Engine API specific error codes.
 const (
-	UnknownPayloadCode          = apierrors.UnknownPayloadCode
-	InvalidForkchoiceStateCode  = apierrors.InvalidForkchoiceStateCode
-	InvalidPayloadAttributeCode = apierrors.InvalidPayloadAttributeCode
-	TooLargeRequestCode         = apierrors.TooLargeRequestCode
-	UnsupportedForkCode         = apierrors.UnsupportedForkCode
+	UnknownPayloadCode          = engerrors.UnknownPayloadCode
+	InvalidForkchoiceStateCode  = engerrors.InvalidForkchoiceStateCode
+	InvalidPayloadAttributeCode = engerrors.InvalidPayloadAttributeCode
+	TooLargeRequestCode         = engerrors.TooLargeRequestCode
+	UnsupportedForkCode         = engerrors.UnsupportedForkCode
 )

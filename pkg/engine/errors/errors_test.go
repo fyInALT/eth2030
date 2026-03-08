@@ -1,28 +1,85 @@
-package engine
+package errors
 
 import (
 	"encoding/json"
-	"errors"
+	stderrors "errors"
 	"strings"
 	"testing"
 )
 
+// ---- error sentinel tests (from apierrors) ---------------------------------
+
+func TestErrors(t *testing.T) {
+	errs := []error{
+		ErrInvalidParams,
+		ErrUnknownPayload,
+		ErrInvalidForkchoiceState,
+		ErrInvalidPayloadAttributes,
+		ErrTooLargeRequest,
+		ErrUnsupportedFork,
+		ErrInvalidBlockHash,
+		ErrInvalidBlobHashes,
+		ErrMissingBeaconRoot,
+	}
+	for _, err := range errs {
+		if err == nil {
+			t.Fatal("error var is nil")
+		}
+		for _, other := range errs {
+			if err != other && stderrors.Is(err, other) {
+				t.Errorf("%v unexpectedly matches %v", err, other)
+			}
+		}
+	}
+}
+
+func TestErrorCodes(t *testing.T) {
+	if ParseErrorCode != -32700 {
+		t.Errorf("ParseErrorCode = %d, want -32700", ParseErrorCode)
+	}
+	if InvalidRequestCode != -32600 {
+		t.Errorf("InvalidRequestCode = %d, want -32600", InvalidRequestCode)
+	}
+	if MethodNotFoundCode != -32601 {
+		t.Errorf("MethodNotFoundCode = %d, want -32601", MethodNotFoundCode)
+	}
+	if InvalidParamsCode != -32602 {
+		t.Errorf("InvalidParamsCode = %d, want -32602", InvalidParamsCode)
+	}
+	if InternalErrorCode != -32603 {
+		t.Errorf("InternalErrorCode = %d, want -32603", InternalErrorCode)
+	}
+	if UnknownPayloadCode != -38001 {
+		t.Errorf("UnknownPayloadCode = %d, want -38001", UnknownPayloadCode)
+	}
+	if InvalidForkchoiceStateCode != -38002 {
+		t.Errorf("InvalidForkchoiceStateCode = %d, want -38002", InvalidForkchoiceStateCode)
+	}
+	if InvalidPayloadAttributeCode != -38003 {
+		t.Errorf("InvalidPayloadAttributeCode = %d, want -38003", InvalidPayloadAttributeCode)
+	}
+	if TooLargeRequestCode != -38004 {
+		t.Errorf("TooLargeRequestCode = %d, want -38004", TooLargeRequestCode)
+	}
+	if UnsupportedForkCode != -38005 {
+		t.Errorf("UnsupportedForkCode = %d, want -38005", UnsupportedForkCode)
+	}
+}
+
 // ---- IsClientError / IsServerError / IsEngineError -------------------------
 
 func TestIsClientError(t *testing.T) {
-	// IsClientError: code >= -32699 && code <= -32600
-	// ParseErrorCode (-32700) is outside this range per implementation.
 	tests := []struct {
 		code int
 		want bool
 	}{
-		{ParseErrorCode, false},     // -32700 is outside [-32699,-32600]
-		{InvalidRequestCode, true},  // -32600
-		{MethodNotFoundCode, true},  // -32601
-		{InvalidParamsCode, true},   // -32602
-		{InternalErrorCode, true},   // -32603
-		{UnknownPayloadCode, false}, // -38001 is an Engine error
-		{ServerBusyCode, false},     // -32005 is outside [-32699,-32600]
+		{ParseErrorCode, false},
+		{InvalidRequestCode, true},
+		{MethodNotFoundCode, true},
+		{InvalidParamsCode, true},
+		{InternalErrorCode, true},
+		{UnknownPayloadCode, false},
+		{ServerBusyCode, false},
 		{0, false},
 	}
 	for _, tc := range tests {
@@ -42,7 +99,7 @@ func TestIsServerError(t *testing.T) {
 		{-32099, true},
 		{-32005, true},
 		{-32006, true},
-		{InternalErrorCode, false}, // -32603 outside [-32099,-32000]
+		{InternalErrorCode, false},
 		{0, false},
 	}
 	for _, tc := range tests {
@@ -112,12 +169,12 @@ func TestEngineError_Error(t *testing.T) {
 }
 
 func TestEngineError_WithCause(t *testing.T) {
-	cause := errors.New("root cause")
+	cause := stderrors.New("root cause")
 	e := WrapEngineError(InternalErrorCode, "wrapped", cause)
 	if !strings.Contains(e.Error(), "root cause") {
 		t.Errorf("Error() = %q, want to contain 'root cause'", e.Error())
 	}
-	if !errors.Is(e, cause) {
+	if !stderrors.Is(e, cause) {
 		t.Error("errors.Is should find cause via Unwrap")
 	}
 }
@@ -160,7 +217,7 @@ func TestErrorCodeFromError(t *testing.T) {
 		{ErrUnsupportedFork, UnsupportedForkCode},
 		{ErrServerBusy, ServerBusyCode},
 		{ErrRequestTimeout, RequestTimeoutCode},
-		{errors.New("unknown"), InternalErrorCode},
+		{stderrors.New("unknown"), InternalErrorCode},
 	}
 	for _, tc := range tests {
 		got := ErrorCodeFromError(tc.err)
@@ -189,11 +246,11 @@ func TestValidatePayloadVersion(t *testing.T) {
 	}{
 		{1, false, false, false, true},
 		{2, true, false, false, true},
-		{2, false, false, false, false}, // missing withdrawals
+		{2, false, false, false, false},
 		{4, true, true, false, true},
-		{4, true, false, false, false}, // missing execution requests
+		{4, true, false, false, false},
 		{5, true, true, true, true},
-		{5, true, true, false, false}, // missing BAL
+		{5, true, true, false, false},
 	}
 	for _, tc := range tests {
 		err := ValidatePayloadVersion(tc.version, tc.withdrawals, tc.requests, tc.bal)

@@ -5,7 +5,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
-	"github.com/eth2030/eth2030/engine/apierrors"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -300,7 +300,7 @@ func TestUncoupledPayloadEnvelope_Validate(t *testing.T) {
 				Payload:         validPayload,
 				Proof:           proof,
 			},
-			wantErr: apierrors.ErrInvalidParams,
+			wantErr: engerrors.ErrInvalidParams,
 		},
 		{
 			name: "nil payload",
@@ -309,7 +309,7 @@ func TestUncoupledPayloadEnvelope_Validate(t *testing.T) {
 				Slot:            100,
 				Proof:           proof,
 			},
-			wantErr: apierrors.ErrInvalidPayloadAttributes,
+			wantErr: engerrors.ErrInvalidPayloadAttributes,
 		},
 		{
 			name: "nil proof",

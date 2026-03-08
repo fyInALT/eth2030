@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/engine/apierrors"
 	"github.com/eth2030/eth2030/engine/backendapi"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -42,7 +42,7 @@ func (e *EngineV7) HandleNewPayloadV7(p *ExecutionPayloadV7) (*PayloadStatusV1, 
 	defer e.mu.Unlock()
 
 	if p == nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	// Validate blob commitments are present when blob gas is used.
@@ -56,7 +56,7 @@ func (e *EngineV7) HandleNewPayloadV7(p *ExecutionPayloadV7) (*PayloadStatusV1, 
 
 	// Validate proof submissions format.
 	if p.ProofSubmissions == nil {
-		return nil, apierrors.ErrInvalidParams
+		return nil, engerrors.ErrInvalidParams
 	}
 
 	for i, proof := range p.ProofSubmissions {
@@ -82,30 +82,30 @@ func (e *EngineV7) HandleForkchoiceUpdatedV7(
 	defer e.mu.Unlock()
 
 	if state == nil {
-		return nil, apierrors.ErrInvalidForkchoiceState
+		return nil, engerrors.ErrInvalidForkchoiceState
 	}
 
 	if state.HeadBlockHash == (types.Hash{}) {
-		return nil, apierrors.ErrInvalidForkchoiceState
+		return nil, engerrors.ErrInvalidForkchoiceState
 	}
 
 	if attrs != nil {
 		if attrs.Timestamp == 0 {
-			return nil, apierrors.ErrInvalidPayloadAttributes
+			return nil, engerrors.ErrInvalidPayloadAttributes
 		}
 
 		if attrs.ProofRequirements != nil {
 			if err := attrs.ProofRequirements.Validate(); err != nil {
-				return nil, apierrors.ErrInvalidPayloadAttributes
+				return nil, engerrors.ErrInvalidPayloadAttributes
 			}
 		}
 
 		if attrs.DALayerConfig != nil {
 			if attrs.DALayerConfig.SampleCount == 0 {
-				return nil, apierrors.ErrInvalidPayloadAttributes
+				return nil, engerrors.ErrInvalidPayloadAttributes
 			}
 			if attrs.DALayerConfig.ColumnCount == 0 {
-				return nil, apierrors.ErrInvalidPayloadAttributes
+				return nil, engerrors.ErrInvalidPayloadAttributes
 			}
 		}
 	}
@@ -119,7 +119,7 @@ func (e *EngineV7) HandleGetPayloadV7(payloadID payload.PayloadID) (*ExecutionPa
 	defer e.mu.Unlock()
 
 	if payloadID == (payload.PayloadID{}) {
-		return nil, apierrors.ErrUnknownPayload
+		return nil, engerrors.ErrUnknownPayload
 	}
 
 	return e.backend.GetPayloadV7(payloadID)

@@ -10,12 +10,12 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	corevm "github.com/eth2030/eth2030/core/vm"
-	"github.com/eth2030/eth2030/engine/apierrors"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	"github.com/eth2030/eth2030/proofs"
 )
 
 // ErrUnknownPayload is returned when a payload ID is not found.
-var ErrUnknownPayload = apierrors.ErrUnknownPayload
+var ErrUnknownPayload = engerrors.ErrUnknownPayload
 
 // BuiltPayload holds the result of a payload build process.
 type BuiltPayload struct {

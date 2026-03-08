@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/engine/apierrors"
+	engerrors "github.com/eth2030/eth2030/engine/errors"
 	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -39,7 +39,7 @@ func (m *mockV7Backend) NewPayloadV7(payload *ExecutionPayloadV7) (*PayloadStatu
 	}
 	hash := payload.BlockHash
 	return &PayloadStatusV1{
-		Status:          apierrors.StatusValid,
+		Status:          engerrors.StatusValid,
 		LatestValidHash: &hash,
 	}, nil
 }
@@ -58,7 +58,7 @@ func (m *mockV7Backend) ForkchoiceUpdatedV7(state *ForkchoiceStateV1, attrs *Pay
 	hash := state.HeadBlockHash
 	return &ForkchoiceUpdatedResult{
 		PayloadStatus: PayloadStatusV1{
-			Status:          apierrors.StatusValid,
+			Status:          engerrors.StatusValid,
 			LatestValidHash: &hash,
 		},
 	}, nil
@@ -74,7 +74,7 @@ func (m *mockV7Backend) GetPayloadV7(id engpayload.PayloadID) (*ExecutionPayload
 	if m.getPayloadResp != nil {
 		return m.getPayloadResp, nil
 	}
-	return nil, apierrors.ErrUnknownPayload
+	return nil, engerrors.ErrUnknownPayload
 }
 
 func makeTestPayloadV7() *ExecutionPayloadV7 {
@@ -125,7 +125,7 @@ func TestHandleNewPayloadV7_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != apierrors.StatusValid {
+	if status.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 	if status.LatestValidHash == nil {
@@ -141,8 +141,8 @@ func TestHandleNewPayloadV7_NilPayload(t *testing.T) {
 	e := NewEngineV7(b)
 
 	_, err := e.HandleNewPayloadV7(nil)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -153,8 +153,8 @@ func TestHandleNewPayloadV7_NilProofSubmissions(t *testing.T) {
 	p := makeTestPayloadV7()
 	p.ProofSubmissions = nil
 	_, err := e.HandleNewPayloadV7(p)
-	if err != apierrors.ErrInvalidParams {
-		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
+	if err != engerrors.ErrInvalidParams {
+		t.Fatalf("expected engerrors.ErrInvalidParams, got %v", err)
 	}
 }
 
@@ -168,7 +168,7 @@ func TestHandleNewPayloadV7_EmptyProofEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != apierrors.StatusInvalid {
+	if status.Status != engerrors.StatusInvalid {
 		t.Fatalf("expected INVALID, got %s", status.Status)
 	}
 	if status.ValidationError == nil {
@@ -187,7 +187,7 @@ func TestHandleNewPayloadV7_BlobGasWithoutCommitments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != apierrors.StatusInvalid {
+	if status.Status != engerrors.StatusInvalid {
 		t.Fatalf("expected INVALID, got %s", status.Status)
 	}
 }
@@ -204,21 +204,21 @@ func TestHandleNewPayloadV7_NoBlobGasNoCommitmentsOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != apierrors.StatusValid {
+	if status.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 }
 
 func TestHandleNewPayloadV7_BackendError(t *testing.T) {
 	b := &mockV7Backend{
-		newPayloadErr: apierrors.ErrUnsupportedFork,
+		newPayloadErr: engerrors.ErrUnsupportedFork,
 	}
 	e := NewEngineV7(b)
 
 	p := makeTestPayloadV7()
 	_, err := e.HandleNewPayloadV7(p)
-	if err != apierrors.ErrUnsupportedFork {
-		t.Fatalf("expected apierrors.ErrUnsupportedFork, got %v", err)
+	if err != engerrors.ErrUnsupportedFork {
+		t.Fatalf("expected engerrors.ErrUnsupportedFork, got %v", err)
 	}
 }
 
@@ -248,7 +248,7 @@ func TestHandleForkchoiceUpdatedV7_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
@@ -258,8 +258,8 @@ func TestHandleForkchoiceUpdatedV7_NilState(t *testing.T) {
 	e := NewEngineV7(b)
 
 	_, err := e.HandleForkchoiceUpdatedV7(nil, nil)
-	if err != apierrors.ErrInvalidForkchoiceState {
-		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
+	if err != engerrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected engerrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
@@ -269,8 +269,8 @@ func TestHandleForkchoiceUpdatedV7_ZeroHead(t *testing.T) {
 
 	state := &ForkchoiceStateV1{}
 	_, err := e.HandleForkchoiceUpdatedV7(state, nil)
-	if err != apierrors.ErrInvalidForkchoiceState {
-		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
+	if err != engerrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected engerrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
@@ -285,7 +285,7 @@ func TestHandleForkchoiceUpdatedV7_NilAttrs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
@@ -307,8 +307,8 @@ func TestHandleForkchoiceUpdatedV7_ZeroTimestamp(t *testing.T) {
 		},
 	}
 	_, err := e.HandleForkchoiceUpdatedV7(state, attrs)
-	if err != apierrors.ErrInvalidPayloadAttributes {
-		t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
+	if err != engerrors.ErrInvalidPayloadAttributes {
+		t.Fatalf("expected engerrors.ErrInvalidPayloadAttributes, got %v", err)
 	}
 }
 
@@ -351,8 +351,8 @@ func TestHandleForkchoiceUpdatedV7_InvalidProofRequirements(t *testing.T) {
 				ProofRequirements: tt.pr,
 			}
 			_, err := e.HandleForkchoiceUpdatedV7(state, attrs)
-			if err != apierrors.ErrInvalidPayloadAttributes {
-				t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
+			if err != engerrors.ErrInvalidPayloadAttributes {
+				t.Fatalf("expected engerrors.ErrInvalidPayloadAttributes, got %v", err)
 			}
 		})
 	}
@@ -384,7 +384,7 @@ func TestHandleForkchoiceUpdatedV7_ValidProofRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
@@ -424,8 +424,8 @@ func TestHandleForkchoiceUpdatedV7_InvalidDAConfig(t *testing.T) {
 				DALayerConfig: tt.da,
 			}
 			_, err := e.HandleForkchoiceUpdatedV7(state, attrs)
-			if err != apierrors.ErrInvalidPayloadAttributes {
-				t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
+			if err != engerrors.ErrInvalidPayloadAttributes {
+				t.Fatalf("expected engerrors.ErrInvalidPayloadAttributes, got %v", err)
 			}
 		})
 	}
@@ -456,7 +456,7 @@ func TestHandleForkchoiceUpdatedV7_WithShieldedTxs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 
@@ -493,19 +493,19 @@ func TestHandleGetPayloadV7_ZeroID(t *testing.T) {
 	e := NewEngineV7(b)
 
 	_, err := e.HandleGetPayloadV7(engpayload.PayloadID{})
-	if err != apierrors.ErrUnknownPayload {
-		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
+	if err != engerrors.ErrUnknownPayload {
+		t.Fatalf("expected engerrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
 func TestHandleGetPayloadV7_NotFound(t *testing.T) {
-	b := &mockV7Backend{} // no getPayloadResp set, returns apierrors.ErrUnknownPayload
+	b := &mockV7Backend{} // no getPayloadResp set, returns engerrors.ErrUnknownPayload
 	e := NewEngineV7(b)
 
 	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	_, err := e.HandleGetPayloadV7(id)
-	if err != apierrors.ErrUnknownPayload {
-		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
+	if err != engerrors.ErrUnknownPayload {
+		t.Fatalf("expected engerrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
@@ -550,7 +550,7 @@ func TestEngineV7_Concurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-			// This will return apierrors.ErrUnknownPayload, which is expected.
+			// This will return engerrors.ErrUnknownPayload, which is expected.
 			e.HandleGetPayloadV7(id)
 		}()
 	}
@@ -722,14 +722,14 @@ func TestHandleNewPayloadV7_EmptyProofSubmissionsOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != apierrors.StatusValid {
+	if status.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_BackendError(t *testing.T) {
 	b := &mockV7Backend{
-		fcuErr: apierrors.ErrInvalidForkchoiceState,
+		fcuErr: engerrors.ErrInvalidForkchoiceState,
 	}
 	e := NewEngineV7(b)
 
@@ -737,8 +737,8 @@ func TestHandleForkchoiceUpdatedV7_BackendError(t *testing.T) {
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	_, err := e.HandleForkchoiceUpdatedV7(state, nil)
-	if err != apierrors.ErrInvalidForkchoiceState {
-		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
+	if err != engerrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected engerrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
@@ -746,7 +746,7 @@ func TestHandleForkchoiceUpdatedV7_WithPayloadID(t *testing.T) {
 	pid := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	b := &mockV7Backend{
 		fcuResult: &ForkchoiceUpdatedResult{
-			PayloadStatus: PayloadStatusV1{Status: apierrors.StatusValid},
+			PayloadStatus: PayloadStatusV1{Status: engerrors.StatusValid},
 			PayloadID:     &pid,
 		},
 	}
@@ -803,7 +803,7 @@ func TestHandleForkchoiceUpdatedV7_ValidDAConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != apierrors.StatusValid {
+	if result.PayloadStatus.Status != engerrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
