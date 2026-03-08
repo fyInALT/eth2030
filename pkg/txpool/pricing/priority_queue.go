@@ -2,7 +2,7 @@
 // ordering that considers EIP-1559 effective tip, multidimensional gas (EIP-7706),
 // blob count, and nonce gaps. It supports eviction of lowest-tip transactions,
 // nonce gap tracking with pending state, and reorg re-insertion.
-package txpool
+package pricing
 
 import (
 	"container/heap"

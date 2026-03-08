@@ -1,4 +1,4 @@
-package txpool
+package pricing
 
 import (
 	"math/big"
@@ -6,6 +6,18 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// makeTx creates a minimal legacy transaction for testing.
+func makeTx(nonce uint64, gasPrice int64, gas uint64) *types.Transaction {
+	to := types.BytesToAddress([]byte{0xde, 0xad})
+	return types.NewTransaction(&types.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: big.NewInt(gasPrice),
+		Gas:      gas,
+		To:       &to,
+		Value:    big.NewInt(0),
+	})
+}
 
 // --- DefaultBumperConfig ---
 

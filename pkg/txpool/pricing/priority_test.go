@@ -1,4 +1,4 @@
-package txpool
+package pricing
 
 import (
 	"sync"

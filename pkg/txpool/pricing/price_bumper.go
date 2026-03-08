@@ -3,7 +3,7 @@
 // provides EIP-1559-aware fee suggestions, percentile-based gas price
 // estimation, blob fee estimation from excess blob gas, and tiered fee
 // recommendations (urgent/fast/standard/slow).
-package txpool
+package pricing
 
 import (
 	"math/big"
@@ -459,10 +459,3 @@ func tierToPercentile(tier string) int {
 	}
 }
 
-// cloneBigInt returns a copy of v, or nil if v is nil.
-func cloneBigInt(v *big.Int) *big.Int {
-	if v == nil {
-		return nil
-	}
-	return new(big.Int).Set(v)
-}
