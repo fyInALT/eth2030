@@ -44,6 +44,9 @@ func (m *builderMockBackend) GetHeadTimestamp() uint64   { return 1000 }
 func (m *builderMockBackend) IsCancun(ts uint64) bool    { return true }
 func (m *builderMockBackend) IsPrague(ts uint64) bool    { return true }
 func (m *builderMockBackend) IsAmsterdam(ts uint64) bool { return true }
+func (m *builderMockBackend) GetHeadHash() types.Hash      { return types.Hash{} }
+func (m *builderMockBackend) GetSafeHash() types.Hash      { return types.Hash{} }
+func (m *builderMockBackend) GetFinalizedHash() types.Hash { return types.Hash{} }
 
 // registerBuilderForAPI registers a builder on an EngineAPI and returns its index.
 func registerBuilderForAPI(t *testing.T, api *EngineAPI) BuilderIndex {

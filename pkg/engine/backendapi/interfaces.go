@@ -46,6 +46,15 @@ type Backend interface {
 
 	// IsAmsterdam returns true if the given timestamp falls within the Amsterdam fork.
 	IsAmsterdam(timestamp uint64) bool
+
+	// GetHeadHash returns the current canonical head block hash.
+	GetHeadHash() types.Hash
+
+	// GetSafeHash returns the current safe (justified) block hash.
+	GetSafeHash() types.Hash
+
+	// GetFinalizedHash returns the current finalized block hash.
+	GetFinalizedHash() types.Hash
 }
 
 // InclusionListBackend extends Backend with inclusion list support (EIP-7805 FOCIL).

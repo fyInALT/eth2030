@@ -8,6 +8,27 @@ import (
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 )
 
+// GetHeadHash returns the current canonical head block hash.
+func (b *EngineBackend) GetHeadHash() types.Hash {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.headHash
+}
+
+// GetSafeHash returns the current safe (justified) block hash.
+func (b *EngineBackend) GetSafeHash() types.Hash {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.safeHash
+}
+
+// GetFinalizedHash returns the current finalized block hash.
+func (b *EngineBackend) GetFinalizedHash() types.Hash {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.finalHash
+}
+
 // GetPayloadBodiesByHash returns payload bodies for the given block hashes.
 // Entries for unknown or out-of-retention-window blocks are nil.
 // Implements backendapi.PayloadBodiesBackend.

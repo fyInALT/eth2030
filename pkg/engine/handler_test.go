@@ -43,6 +43,9 @@ func (m *handlerMockBackend) GetHeadTimestamp() uint64   { return 1000 }
 func (m *handlerMockBackend) IsCancun(ts uint64) bool    { return true }
 func (m *handlerMockBackend) IsPrague(ts uint64) bool    { return true }
 func (m *handlerMockBackend) IsAmsterdam(ts uint64) bool { return true }
+func (m *handlerMockBackend) GetHeadHash() types.Hash      { return types.Hash{} }
+func (m *handlerMockBackend) GetSafeHash() types.Hash      { return types.Hash{} }
+func (m *handlerMockBackend) GetFinalizedHash() types.Hash { return types.Hash{} }
 
 // TestHandler_ParseError tests that invalid JSON returns a parse error.
 func TestHandler_ParseError(t *testing.T) {
