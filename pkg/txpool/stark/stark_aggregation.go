@@ -1,4 +1,4 @@
-package txpool
+package stark
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/proofs"
+	"github.com/eth2030/eth2030/txpool/peertick"
 )
 
 // STARK mempool aggregation errors.
@@ -227,7 +228,7 @@ type STARKAggregator struct {
 	stopCh       chan struct{}
 	tickCh       chan *MempoolAggregationTick
 	broadcaster  P2PBroadcaster
-	peerCache    *PeerTickCache
+	peerCache    *peertick.PeerTickCache
 }
 
 // NewSTARKAggregator creates a new STARK mempool aggregator.
@@ -239,7 +240,7 @@ func NewSTARKAggregator(peerID string) *STARKAggregator {
 		peerID:       peerID,
 		stopCh:       make(chan struct{}),
 		tickCh:       make(chan *MempoolAggregationTick, 16),
-		peerCache:    NewPeerTickCache(2),
+		peerCache:    peertick.NewPeerTickCache(2),
 	}
 }
 
@@ -471,7 +472,7 @@ func (sa *STARKAggregator) MergeTickAtSlot(remote *MempoolAggregationTick, slot 
 }
 
 // PeerCache returns the peer tick cache.
-func (sa *STARKAggregator) PeerCache() *PeerTickCache {
+func (sa *STARKAggregator) PeerCache() *peertick.PeerTickCache {
 	return sa.peerCache
 }
 

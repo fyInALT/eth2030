@@ -1,10 +1,40 @@
 package txpool
 
 import (
+	"crypto/sha256"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// computeTxMerkleRoot computes a simple binary Merkle root of transaction hashes.
+func computeTxMerkleRoot(hashes []types.Hash) types.Hash {
+	if len(hashes) == 0 {
+		return types.Hash{}
+	}
+	if len(hashes) == 1 {
+		return hashes[0]
+	}
+	layer := make([]types.Hash, len(hashes))
+	copy(layer, hashes)
+	for len(layer) > 1 {
+		var next []types.Hash
+		for i := 0; i < len(layer); i += 2 {
+			h := sha256.New()
+			h.Write(layer[i][:])
+			if i+1 < len(layer) {
+				h.Write(layer[i+1][:])
+			} else {
+				h.Write(layer[i][:])
+			}
+			var hash types.Hash
+			copy(hash[:], h.Sum(nil))
+			next = append(next, hash)
+		}
+		layer = next
+	}
+	return layer[0]
+}
 
 func TestPeerTickCache_MarkAndCheck(t *testing.T) {
 	c := NewPeerTickCache(2)
