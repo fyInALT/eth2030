@@ -1,7 +1,9 @@
-package das
+package sampling
 
 import (
 	"testing"
+
+	"github.com/eth2030/eth2030/das/dastypes"
 )
 
 // --- GetCustodyGroups tests ---
@@ -23,17 +25,17 @@ func TestGetCustodyGroupsOverflowWrap(t *testing.T) {
 	for i := range nodeID {
 		nodeID[i] = 0xff
 	}
-	groups, err := GetCustodyGroups(nodeID, CustodyRequirement)
+	groups, err := GetCustodyGroups(nodeID, dastypes.CustodyRequirement)
 	if err != nil {
 		t.Fatalf("GetCustodyGroups near max: %v", err)
 	}
-	if len(groups) != int(CustodyRequirement) {
-		t.Fatalf("expected %d groups, got %d", CustodyRequirement, len(groups))
+	if len(groups) != int(dastypes.CustodyRequirement) {
+		t.Fatalf("expected %d groups, got %d", dastypes.CustodyRequirement, len(groups))
 	}
 	// Verify sorted and unique.
-	seen := make(map[CustodyGroup]bool)
+	seen := make(map[dastypes.CustodyGroup]bool)
 	for i, g := range groups {
-		if uint64(g) >= NumberOfCustodyGroups {
+		if uint64(g) >= dastypes.NumberOfCustodyGroups {
 			t.Errorf("group %d out of range", g)
 		}
 		if seen[g] {
@@ -51,8 +53,8 @@ func TestGetCustodyGroupsOverflowWrap(t *testing.T) {
 func TestComputeColumnsForCustodyGroupAllGroups(t *testing.T) {
 	// Verify that each group maps to the correct column.
 	// Since NumberOfColumns == NumberOfCustodyGroups, each group gets 1 column.
-	for g := uint64(0); g < NumberOfCustodyGroups; g++ {
-		cols, err := ComputeColumnsForCustodyGroup(CustodyGroup(g))
+	for g := uint64(0); g < dastypes.NumberOfCustodyGroups; g++ {
+		cols, err := ComputeColumnsForCustodyGroup(dastypes.CustodyGroup(g))
 		if err != nil {
 			t.Fatalf("group %d: %v", g, err)
 		}
@@ -69,7 +71,7 @@ func TestComputeColumnsForCustodyGroupAllGroups(t *testing.T) {
 
 func TestGetCustodyColumnsInvalidCount(t *testing.T) {
 	nodeID := [32]byte{}
-	_, err := GetCustodyColumns(nodeID, NumberOfCustodyGroups+1)
+	_, err := GetCustodyColumns(nodeID, dastypes.NumberOfCustodyGroups+1)
 	if err != ErrInvalidCustodyCount {
 		t.Fatalf("expected ErrInvalidCustodyCount, got %v", err)
 	}
@@ -77,16 +79,16 @@ func TestGetCustodyColumnsInvalidCount(t *testing.T) {
 
 func TestGetCustodyColumnsAll(t *testing.T) {
 	nodeID := [32]byte{0x42}
-	columns, err := GetCustodyColumns(nodeID, NumberOfCustodyGroups)
+	columns, err := GetCustodyColumns(nodeID, dastypes.NumberOfCustodyGroups)
 	if err != nil {
 		t.Fatalf("GetCustodyColumns(all): %v", err)
 	}
-	if len(columns) != int(NumberOfColumns) {
-		t.Fatalf("expected %d columns, got %d", NumberOfColumns, len(columns))
+	if len(columns) != int(dastypes.NumberOfColumns) {
+		t.Fatalf("expected %d columns, got %d", dastypes.NumberOfColumns, len(columns))
 	}
 	// All columns should be present and sorted.
-	for i := 0; i < int(NumberOfColumns); i++ {
-		if columns[i] != ColumnIndex(i) {
+	for i := 0; i < int(dastypes.NumberOfColumns); i++ {
+		if columns[i] != dastypes.ColumnIndex(i) {
 			t.Errorf("columns[%d] = %d, want %d", i, columns[i], i)
 		}
 	}
@@ -98,18 +100,18 @@ func TestShouldCustodyColumnEmpty(t *testing.T) {
 	if ShouldCustodyColumn(0, nil) {
 		t.Error("should not custody any column with nil set")
 	}
-	if ShouldCustodyColumn(0, []ColumnIndex{}) {
+	if ShouldCustodyColumn(0, []dastypes.ColumnIndex{}) {
 		t.Error("should not custody any column with empty set")
 	}
 }
 
 func TestShouldCustodyColumnAllColumns(t *testing.T) {
-	allCols := make([]ColumnIndex, NumberOfColumns)
+	allCols := make([]dastypes.ColumnIndex, dastypes.NumberOfColumns)
 	for i := range allCols {
-		allCols[i] = ColumnIndex(i)
+		allCols[i] = dastypes.ColumnIndex(i)
 	}
-	for i := uint64(0); i < NumberOfColumns; i++ {
-		if !ShouldCustodyColumn(ColumnIndex(i), allCols) {
+	for i := uint64(0); i < dastypes.NumberOfColumns; i++ {
+		if !ShouldCustodyColumn(dastypes.ColumnIndex(i), allCols) {
 			t.Errorf("should custody column %d with all columns", i)
 		}
 	}
@@ -119,10 +121,10 @@ func TestShouldCustodyColumnAllColumns(t *testing.T) {
 
 func TestVerifyDataColumnSidecarMaxBlobs(t *testing.T) {
 	// Valid sidecar with maximum blobs per block.
-	cells := make([]Cell, MaxBlobCommitmentsPerBlock)
-	commits := make([]KZGCommitment, MaxBlobCommitmentsPerBlock)
-	proofs := make([]KZGProof, MaxBlobCommitmentsPerBlock)
-	sidecar := &DataColumnSidecar{
+	cells := make([]dastypes.Cell, dastypes.MaxBlobCommitmentsPerBlock)
+	commits := make([]dastypes.KZGCommitment, dastypes.MaxBlobCommitmentsPerBlock)
+	proofs := make([]dastypes.KZGProof, dastypes.MaxBlobCommitmentsPerBlock)
+	sidecar := &dastypes.DataColumnSidecar{
 		Index:          0,
 		Column:         cells,
 		KZGCommitments: commits,
@@ -134,11 +136,11 @@ func TestVerifyDataColumnSidecarMaxBlobs(t *testing.T) {
 }
 
 func TestVerifyDataColumnSidecarMismatchedProofs(t *testing.T) {
-	sidecar := &DataColumnSidecar{
+	sidecar := &dastypes.DataColumnSidecar{
 		Index:          0,
-		Column:         []Cell{{}, {}},
-		KZGCommitments: []KZGCommitment{{}, {}},
-		KZGProofs:      []KZGProof{{}}, // only 1 proof for 2 cells
+		Column:         []dastypes.Cell{{}, {}},
+		KZGCommitments: []dastypes.KZGCommitment{{}, {}},
+		KZGProofs:      []dastypes.KZGProof{{}}, // only 1 proof for 2 cells
 	}
 	if err := VerifyDataColumnSidecar(sidecar); err == nil {
 		t.Error("expected error for mismatched proof count")
@@ -149,25 +151,11 @@ func TestVerifyDataColumnSidecarMismatchedProofs(t *testing.T) {
 
 func TestColumnSubnetAllColumns(t *testing.T) {
 	// Verify subnet assignment for all columns.
-	for i := uint64(0); i < NumberOfColumns; i++ {
-		subnet := ColumnSubnet(ColumnIndex(i))
-		expected := SubnetID(i % DataColumnSidecarSubnetCount)
+	for i := uint64(0); i < dastypes.NumberOfColumns; i++ {
+		subnet := ColumnSubnet(dastypes.ColumnIndex(i))
+		expected := dastypes.SubnetID(i % dastypes.DataColumnSidecarSubnetCount)
 		if subnet != expected {
 			t.Errorf("ColumnSubnet(%d) = %d, want %d", i, subnet, expected)
 		}
-	}
-}
-
-// --- CanReconstruct tests ---
-
-func TestCanReconstructBoundary(t *testing.T) {
-	if CanReconstruct(ReconstructionThreshold - 1) {
-		t.Error("should not reconstruct with threshold-1")
-	}
-	if !CanReconstruct(ReconstructionThreshold) {
-		t.Error("should reconstruct at exactly threshold")
-	}
-	if !CanReconstruct(ReconstructionThreshold + 1) {
-		t.Error("should reconstruct above threshold")
 	}
 }

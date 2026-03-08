@@ -5,7 +5,7 @@
 // custody requirements. Supports both regular and extended sampling modes.
 //
 // Reference: consensus-specs/specs/fulu/das-core.md
-package das
+package sampling
 
 import (
 	"encoding/binary"
@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eth2030/eth2030/das/dastypes"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -67,8 +68,8 @@ type SchedulerConfig struct {
 // DefaultSchedulerConfig returns production defaults.
 func DefaultSchedulerConfig() SchedulerConfig {
 	return SchedulerConfig{
-		BaseSamplesPerSlot:   SamplesPerSlot,
-		NumberOfColumns:      NumberOfColumns,
+		BaseSamplesPerSlot:   dastypes.SamplesPerSlot,
+		NumberOfColumns:      dastypes.NumberOfColumns,
 		MaxConcurrentSlots:   32,
 		AdaptiveMinRate:      0.5,
 		AdaptiveMaxRate:      3.0,
@@ -86,16 +87,16 @@ type SamplingRound struct {
 	Mode SamplingMode
 
 	// TargetColumns are the columns to sample.
-	TargetColumns []ColumnIndex
+	TargetColumns []dastypes.ColumnIndex
 
 	// SampledColumns tracks which columns have been sampled.
-	SampledColumns map[ColumnIndex]bool
+	SampledColumns map[dastypes.ColumnIndex]bool
 
 	// SuccessColumns tracks which sampled columns passed verification.
-	SuccessColumns map[ColumnIndex]bool
+	SuccessColumns map[dastypes.ColumnIndex]bool
 
 	// FailedColumns tracks which sampled columns failed verification.
-	FailedColumns map[ColumnIndex]bool
+	FailedColumns map[dastypes.ColumnIndex]bool
 
 	// Quota is the remaining number of samples allowed.
 	Quota int
@@ -152,7 +153,7 @@ type SamplingScheduler struct {
 	recentSuccessRate float64
 
 	// custodyColumns is the set of columns this node custodies.
-	custodyColumns map[ColumnIndex]bool
+	custodyColumns map[dastypes.ColumnIndex]bool
 
 	// closed indicates the scheduler has been shut down.
 	closed bool
@@ -161,10 +162,10 @@ type SamplingScheduler struct {
 // NewSamplingScheduler creates a new sampling scheduler for the given node.
 func NewSamplingScheduler(config SchedulerConfig, nodeID [32]byte) *SamplingScheduler {
 	if config.BaseSamplesPerSlot <= 0 {
-		config.BaseSamplesPerSlot = SamplesPerSlot
+		config.BaseSamplesPerSlot = dastypes.SamplesPerSlot
 	}
 	if config.NumberOfColumns <= 0 {
-		config.NumberOfColumns = NumberOfColumns
+		config.NumberOfColumns = dastypes.NumberOfColumns
 	}
 	if config.MaxConcurrentSlots <= 0 {
 		config.MaxConcurrentSlots = 32
@@ -183,8 +184,8 @@ func NewSamplingScheduler(config SchedulerConfig, nodeID [32]byte) *SamplingSche
 	}
 
 	// Pre-compute custody columns.
-	custodyCols := make(map[ColumnIndex]bool)
-	cols, err := GetCustodyColumns(nodeID, CustodyRequirement)
+	custodyCols := make(map[dastypes.ColumnIndex]bool)
+	cols, err := GetCustodyColumns(nodeID, dastypes.CustodyRequirement)
 	if err == nil {
 		for _, c := range cols {
 			custodyCols[c] = true
@@ -239,9 +240,9 @@ func (ss *SamplingScheduler) StartRound(slot uint64, mode SamplingMode) (*Sampli
 		Slot:           slot,
 		Mode:           mode,
 		TargetColumns:  targets,
-		SampledColumns: make(map[ColumnIndex]bool),
-		SuccessColumns: make(map[ColumnIndex]bool),
-		FailedColumns:  make(map[ColumnIndex]bool),
+		SampledColumns: make(map[dastypes.ColumnIndex]bool),
+		SuccessColumns: make(map[dastypes.ColumnIndex]bool),
+		FailedColumns:  make(map[dastypes.ColumnIndex]bool),
 		Quota:          effectiveSamples,
 		StartedAt:      time.Now(),
 	}
@@ -254,7 +255,7 @@ func (ss *SamplingScheduler) StartRound(slot uint64, mode SamplingMode) (*Sampli
 }
 
 // RecordSample records a successful or failed sample for a slot.
-func (ss *SamplingScheduler) RecordSample(slot uint64, col ColumnIndex, success bool) error {
+func (ss *SamplingScheduler) RecordSample(slot uint64, col dastypes.ColumnIndex, success bool) error {
 	if uint64(col) >= uint64(ss.config.NumberOfColumns) {
 		return fmt.Errorf("%w: %d >= %d", ErrSchedColumnOOB, col, ss.config.NumberOfColumns)
 	}
@@ -371,7 +372,7 @@ func (ss *SamplingScheduler) RoundSuccessRate(slot uint64) float64 {
 }
 
 // UnsampledColumns returns the columns that haven't been sampled yet for a slot.
-func (ss *SamplingScheduler) UnsampledColumns(slot uint64) []ColumnIndex {
+func (ss *SamplingScheduler) UnsampledColumns(slot uint64) []dastypes.ColumnIndex {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 
@@ -380,7 +381,7 @@ func (ss *SamplingScheduler) UnsampledColumns(slot uint64) []ColumnIndex {
 		return nil
 	}
 
-	var unsampled []ColumnIndex
+	var unsampled []dastypes.ColumnIndex
 	for _, col := range round.TargetColumns {
 		if !round.SampledColumns[col] {
 			unsampled = append(unsampled, col)
@@ -436,7 +437,7 @@ func (ss *SamplingScheduler) SetAdaptiveRate(rate float64) {
 }
 
 // IsCustodyColumn returns true if the given column is in this node's custody.
-func (ss *SamplingScheduler) IsCustodyColumn(col ColumnIndex) bool {
+func (ss *SamplingScheduler) IsCustodyColumn(col dastypes.ColumnIndex) bool {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 	return ss.custodyColumns[col]
@@ -539,7 +540,7 @@ func (ss *SamplingScheduler) evictOldRoundsLocked() {
 
 // selectSchedulerColumns selects columns for a sampling round using a
 // deterministic hash chain.
-func selectSchedulerColumns(nodeID [32]byte, slot uint64, count int, totalColumns int) []ColumnIndex {
+func selectSchedulerColumns(nodeID [32]byte, slot uint64, count int, totalColumns int) []dastypes.ColumnIndex {
 	if count <= 0 || totalColumns <= 0 {
 		return nil
 	}
@@ -556,8 +557,8 @@ func selectSchedulerColumns(nodeID [32]byte, slot uint64, count int, totalColumn
 	h.Write([]byte("das/scheduler"))
 	seed := h.Sum(nil)
 
-	seen := make(map[ColumnIndex]bool, count)
-	result := make([]ColumnIndex, 0, count)
+	seen := make(map[dastypes.ColumnIndex]bool, count)
+	result := make([]dastypes.ColumnIndex, 0, count)
 
 	for counter := uint64(0); len(result) < count; counter++ {
 		sh := sha3.NewLegacyKeccak256()
@@ -568,7 +569,7 @@ func selectSchedulerColumns(nodeID [32]byte, slot uint64, count int, totalColumn
 		digest := sh.Sum(nil)
 
 		val := binary.LittleEndian.Uint64(digest[:8])
-		col := ColumnIndex(val % uint64(totalColumns))
+		col := dastypes.ColumnIndex(val % uint64(totalColumns))
 
 		if !seen[col] {
 			seen[col] = true

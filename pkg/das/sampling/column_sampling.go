@@ -10,7 +10,7 @@
 // must download and verify these columns to attest to data availability.
 //
 // Reference: consensus-specs/specs/fulu/das-core.md
-package das
+package sampling
 
 import (
 	"encoding/binary"
@@ -19,6 +19,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/eth2030/eth2030/das/dastypes"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -37,7 +38,7 @@ type ColumnSample struct {
 	Slot uint64
 
 	// ColumnIndex is the column in [0, NumberOfColumns).
-	ColumnIndex ColumnIndex
+	ColumnIndex dastypes.ColumnIndex
 
 	// Verified is true if the sample was verified against the column root.
 	Verified bool
@@ -52,14 +53,14 @@ type ColumnAvailability struct {
 	Slot uint64
 
 	// RequiredColumns is the set of columns the validator must sample.
-	RequiredColumns []ColumnIndex
+	RequiredColumns []dastypes.ColumnIndex
 
 	// DownloadedColumns is the set of columns successfully downloaded.
-	DownloadedColumns []ColumnIndex
+	DownloadedColumns []dastypes.ColumnIndex
 
 	// VerifiedColumns is the subset of downloaded columns that passed
 	// proof verification.
-	VerifiedColumns []ColumnIndex
+	VerifiedColumns []dastypes.ColumnIndex
 
 	// Score is the availability score: verified / required (0.0 to 1.0).
 	Score float64
@@ -86,18 +87,18 @@ type ColumnSamplerConfig struct {
 // DefaultColumnSamplerConfig returns production defaults from the Fulu spec.
 func DefaultColumnSamplerConfig() ColumnSamplerConfig {
 	return ColumnSamplerConfig{
-		SamplesPerSlot:    SamplesPerSlot,
-		NumberOfColumns:   NumberOfColumns,
-		CustodyGroupCount: CustodyRequirement,
+		SamplesPerSlot:    dastypes.SamplesPerSlot,
+		NumberOfColumns:   dastypes.NumberOfColumns,
+		CustodyGroupCount: dastypes.CustodyRequirement,
 		TrackSlots:        64,
 	}
 }
 
 // slotTracker holds per-slot column download and verification state.
 type slotTracker struct {
-	required   map[ColumnIndex]bool
-	downloaded map[ColumnIndex]bool
-	verified   map[ColumnIndex]bool
+	required   map[dastypes.ColumnIndex]bool
+	downloaded map[dastypes.ColumnIndex]bool
+	verified   map[dastypes.ColumnIndex]bool
 	samples    []ColumnSample
 }
 
@@ -114,7 +115,7 @@ type ColumnSampler struct {
 	nodeID [32]byte
 
 	// custodyColumns is the pre-computed set of columns this node custodies.
-	custodyColumns map[ColumnIndex]bool
+	custodyColumns map[dastypes.ColumnIndex]bool
 
 	// slots maps slot numbers to their tracking state.
 	slots map[uint64]*slotTracker
@@ -123,20 +124,20 @@ type ColumnSampler struct {
 // NewColumnSampler creates a new column sampler for the given validator node ID.
 func NewColumnSampler(config ColumnSamplerConfig, nodeID [32]byte) *ColumnSampler {
 	if config.SamplesPerSlot <= 0 {
-		config.SamplesPerSlot = SamplesPerSlot
+		config.SamplesPerSlot = dastypes.SamplesPerSlot
 	}
 	if config.NumberOfColumns <= 0 {
-		config.NumberOfColumns = NumberOfColumns
+		config.NumberOfColumns = dastypes.NumberOfColumns
 	}
 	if config.CustodyGroupCount == 0 {
-		config.CustodyGroupCount = CustodyRequirement
+		config.CustodyGroupCount = dastypes.CustodyRequirement
 	}
 	if config.TrackSlots <= 0 {
 		config.TrackSlots = 64
 	}
 
 	// Pre-compute custody columns.
-	custodyCols := make(map[ColumnIndex]bool)
+	custodyCols := make(map[dastypes.ColumnIndex]bool)
 	cols, err := GetCustodyColumns(nodeID, config.CustodyGroupCount)
 	if err == nil {
 		for _, c := range cols {
@@ -155,7 +156,7 @@ func NewColumnSampler(config ColumnSamplerConfig, nodeID [32]byte) *ColumnSample
 // SelectColumns returns the deterministic set of column indices this validator
 // should sample for the given slot. The result is sorted and always the same
 // for a given (nodeID, slot) pair.
-func (cs *ColumnSampler) SelectColumns(slot uint64) ([]ColumnIndex, error) {
+func (cs *ColumnSampler) SelectColumns(slot uint64) ([]dastypes.ColumnIndex, error) {
 	if slot == 0 {
 		return nil, ErrColSamplingSlotZero
 	}
@@ -163,11 +164,11 @@ func (cs *ColumnSampler) SelectColumns(slot uint64) ([]ColumnIndex, error) {
 }
 
 // CustodyColumns returns the set of columns this validator custodies.
-func (cs *ColumnSampler) CustodyColumns() []ColumnIndex {
+func (cs *ColumnSampler) CustodyColumns() []dastypes.ColumnIndex {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
-	cols := make([]ColumnIndex, 0, len(cs.custodyColumns))
+	cols := make([]dastypes.ColumnIndex, 0, len(cs.custodyColumns))
 	for c := range cs.custodyColumns {
 		cols = append(cols, c)
 	}
@@ -176,15 +177,15 @@ func (cs *ColumnSampler) CustodyColumns() []ColumnIndex {
 }
 
 // IsCustodyColumn returns true if the given column is in this node's custody set.
-func (cs *ColumnSampler) IsCustodyColumn(col ColumnIndex) bool {
+func (cs *ColumnSampler) IsCustodyColumn(col dastypes.ColumnIndex) bool {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 	return cs.custodyColumns[col]
 }
 
 // CustodySubnet returns the subnet ID for a given column index.
-func (cs *ColumnSampler) CustodySubnet(col ColumnIndex) SubnetID {
-	return SubnetID(uint64(col) % DataColumnSidecarSubnetCount)
+func (cs *ColumnSampler) CustodySubnet(col dastypes.ColumnIndex) dastypes.SubnetID {
+	return dastypes.SubnetID(uint64(col) % dastypes.DataColumnSidecarSubnetCount)
 }
 
 // InitSlot initializes tracking for a slot by computing the required columns.
@@ -207,15 +208,15 @@ func (cs *ColumnSampler) InitSlot(slot uint64) error {
 		return nil
 	}
 
-	required := make(map[ColumnIndex]bool, len(cols))
+	required := make(map[dastypes.ColumnIndex]bool, len(cols))
 	for _, c := range cols {
 		required[c] = true
 	}
 
 	cs.slots[slot] = &slotTracker{
 		required:   required,
-		downloaded: make(map[ColumnIndex]bool),
-		verified:   make(map[ColumnIndex]bool),
+		downloaded: make(map[dastypes.ColumnIndex]bool),
+		verified:   make(map[dastypes.ColumnIndex]bool),
 		samples:    make([]ColumnSample, 0),
 	}
 
@@ -224,7 +225,7 @@ func (cs *ColumnSampler) InitSlot(slot uint64) error {
 }
 
 // RecordDownload records that a column was successfully downloaded for a slot.
-func (cs *ColumnSampler) RecordDownload(slot uint64, col ColumnIndex, dataSize int) error {
+func (cs *ColumnSampler) RecordDownload(slot uint64, col dastypes.ColumnIndex, dataSize int) error {
 	if uint64(col) >= uint64(cs.config.NumberOfColumns) {
 		return fmt.Errorf("%w: %d >= %d", ErrColSamplingColumnOOB, col, cs.config.NumberOfColumns)
 	}
@@ -246,7 +247,7 @@ func (cs *ColumnSampler) RecordDownload(slot uint64, col ColumnIndex, dataSize i
 // VerifySample verifies a column sample against an expected column root.
 // The root is computed as keccak256(slot || columnIndex || data).
 // On success, the column is marked as verified.
-func (cs *ColumnSampler) VerifySample(slot uint64, col ColumnIndex, data []byte, expectedRoot [32]byte) error {
+func (cs *ColumnSampler) VerifySample(slot uint64, col dastypes.ColumnIndex, data []byte, expectedRoot [32]byte) error {
 	if uint64(col) >= uint64(cs.config.NumberOfColumns) {
 		return fmt.Errorf("%w: %d >= %d", ErrColSamplingColumnOOB, col, cs.config.NumberOfColumns)
 	}
@@ -290,7 +291,7 @@ func (cs *ColumnSampler) GetAvailability(slot uint64) (*ColumnAvailability, erro
 		}, nil
 	}
 
-	var downloaded, verified []ColumnIndex
+	var downloaded, verified []dastypes.ColumnIndex
 	for _, c := range cols {
 		if tracker.downloaded[c] {
 			downloaded = append(downloaded, c)
@@ -348,9 +349,9 @@ func (cs *ColumnSampler) getOrCreateSlotLocked(slot uint64) *slotTracker {
 		return t
 	}
 	t := &slotTracker{
-		required:   make(map[ColumnIndex]bool),
-		downloaded: make(map[ColumnIndex]bool),
-		verified:   make(map[ColumnIndex]bool),
+		required:   make(map[dastypes.ColumnIndex]bool),
+		downloaded: make(map[dastypes.ColumnIndex]bool),
+		verified:   make(map[dastypes.ColumnIndex]bool),
 		samples:    make([]ColumnSample, 0),
 	}
 	cs.slots[slot] = t
@@ -373,7 +374,7 @@ func (cs *ColumnSampler) evictOldSlotsLocked(currentSlot uint64) {
 
 // selectSampleColumns deterministically selects sample columns for a
 // (nodeID, slot) pair using a hash-chain approach.
-func selectSampleColumns(nodeID [32]byte, slot uint64, count int, totalColumns int) []ColumnIndex {
+func selectSampleColumns(nodeID [32]byte, slot uint64, count int, totalColumns int) []dastypes.ColumnIndex {
 	if count <= 0 || totalColumns <= 0 {
 		return nil
 	}
@@ -386,8 +387,8 @@ func selectSampleColumns(nodeID [32]byte, slot uint64, count int, totalColumns i
 	h.Write(slotBuf[:])
 	seed := h.Sum(nil)
 
-	seen := make(map[ColumnIndex]bool, count)
-	result := make([]ColumnIndex, 0, count)
+	seen := make(map[dastypes.ColumnIndex]bool, count)
+	result := make([]dastypes.ColumnIndex, 0, count)
 
 	for counter := uint64(0); len(result) < count; counter++ {
 		sh := sha3.NewLegacyKeccak256()
@@ -398,7 +399,7 @@ func selectSampleColumns(nodeID [32]byte, slot uint64, count int, totalColumns i
 		digest := sh.Sum(nil)
 
 		val := binary.LittleEndian.Uint64(digest[:8])
-		col := ColumnIndex(val % uint64(totalColumns))
+		col := dastypes.ColumnIndex(val % uint64(totalColumns))
 
 		if !seen[col] {
 			seen[col] = true

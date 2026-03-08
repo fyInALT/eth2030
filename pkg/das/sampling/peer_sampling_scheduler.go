@@ -5,13 +5,15 @@
 // samples.
 //
 // Reference: consensus-specs/specs/fulu/das-core.md
-package das
+package sampling
 
 import (
 	"errors"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/eth2030/eth2030/das/dastypes"
 )
 
 // Peer sampling scheduler errors.
@@ -66,8 +68,8 @@ type PeerSamplingConfig struct {
 // DefaultPeerSamplingConfig returns production defaults.
 func DefaultPeerSamplingConfig() PeerSamplingConfig {
 	return PeerSamplingConfig{
-		SamplesPerSlot:     SamplesPerSlot,
-		CustodyRequirement: int(CustodyRequirement),
+		SamplesPerSlot:     dastypes.SamplesPerSlot,
+		CustodyRequirement: int(dastypes.CustodyRequirement),
 		SampleTimeout:      2 * time.Second,
 		MaxRetries:         3,
 		FailureThreshold:   0.5,
@@ -169,7 +171,7 @@ type peerStatEntry struct {
 // NewPeerSamplingScheduler creates a new peer-aware sampling scheduler.
 func NewPeerSamplingScheduler(config PeerSamplingConfig) *PeerSamplingScheduler {
 	if config.SamplesPerSlot <= 0 {
-		config.SamplesPerSlot = SamplesPerSlot
+		config.SamplesPerSlot = dastypes.SamplesPerSlot
 	}
 	if config.MaxRetries <= 0 {
 		config.MaxRetries = 3
@@ -295,7 +297,7 @@ func pickBestPeer(peers []SamplingPeerInfo) SamplingPeerInfo {
 	return best
 }
 
-// peerScore computes a selection score for a peer.
+// samplingPeerScore computes a selection score for a peer.
 func samplingPeerScore(p SamplingPeerInfo) float64 {
 	latMs := float64(p.Latency.Milliseconds())
 	if latMs < 1 {

@@ -1,9 +1,11 @@
-package das
+package sampling
 
 import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eth2030/eth2030/das/dastypes"
 )
 
 // --- helpers ---
@@ -457,8 +459,8 @@ func TestPeerDAVerdictString(t *testing.T) {
 
 func TestPeerSamplingDefaultConfig(t *testing.T) {
 	cfg := DefaultPeerSamplingConfig()
-	if cfg.SamplesPerSlot != SamplesPerSlot {
-		t.Errorf("SamplesPerSlot = %d, want %d", cfg.SamplesPerSlot, SamplesPerSlot)
+	if cfg.SamplesPerSlot != dastypes.SamplesPerSlot {
+		t.Errorf("SamplesPerSlot = %d, want %d", cfg.SamplesPerSlot, dastypes.SamplesPerSlot)
 	}
 	if cfg.MaxRetries <= 0 {
 		t.Error("MaxRetries should be > 0")

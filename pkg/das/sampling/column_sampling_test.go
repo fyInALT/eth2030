@@ -1,7 +1,9 @@
-package das
+package sampling
 
 import (
 	"testing"
+
+	"github.com/eth2030/eth2030/das/dastypes"
 )
 
 // testNodeID returns a deterministic 32-byte node ID from a seed byte.
@@ -29,14 +31,14 @@ func TestNewColumnSampler_DefaultsApplied(t *testing.T) {
 	nodeID := testNodeID(2)
 	// Pass zero-valued config; defaults should be applied.
 	cs := NewColumnSampler(ColumnSamplerConfig{}, nodeID)
-	if cs.config.SamplesPerSlot != SamplesPerSlot {
-		t.Errorf("SamplesPerSlot = %d, want %d", cs.config.SamplesPerSlot, SamplesPerSlot)
+	if cs.config.SamplesPerSlot != dastypes.SamplesPerSlot {
+		t.Errorf("SamplesPerSlot = %d, want %d", cs.config.SamplesPerSlot, dastypes.SamplesPerSlot)
 	}
-	if cs.config.NumberOfColumns != NumberOfColumns {
-		t.Errorf("NumberOfColumns = %d, want %d", cs.config.NumberOfColumns, NumberOfColumns)
+	if cs.config.NumberOfColumns != dastypes.NumberOfColumns {
+		t.Errorf("NumberOfColumns = %d, want %d", cs.config.NumberOfColumns, dastypes.NumberOfColumns)
 	}
-	if cs.config.CustodyGroupCount != CustodyRequirement {
-		t.Errorf("CustodyGroupCount = %d, want %d", cs.config.CustodyGroupCount, CustodyRequirement)
+	if cs.config.CustodyGroupCount != dastypes.CustodyRequirement {
+		t.Errorf("CustodyGroupCount = %d, want %d", cs.config.CustodyGroupCount, dastypes.CustodyRequirement)
 	}
 	if cs.config.TrackSlots != 64 {
 		t.Errorf("TrackSlots = %d, want 64", cs.config.TrackSlots)
@@ -122,8 +124,8 @@ func TestSelectColumns_Count(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cols) != SamplesPerSlot {
-		t.Errorf("got %d columns, want %d", len(cols), SamplesPerSlot)
+	if len(cols) != dastypes.SamplesPerSlot {
+		t.Errorf("got %d columns, want %d", len(cols), dastypes.SamplesPerSlot)
 	}
 }
 
@@ -154,8 +156,8 @@ func TestIsCustodyColumn(t *testing.T) {
 func TestCustodySubnet(t *testing.T) {
 	nodeID := testNodeID(10)
 	cs := NewColumnSampler(DefaultColumnSamplerConfig(), nodeID)
-	sub := cs.CustodySubnet(ColumnIndex(65))
-	expected := SubnetID(65 % DataColumnSidecarSubnetCount)
+	sub := cs.CustodySubnet(dastypes.ColumnIndex(65))
+	expected := dastypes.SubnetID(65 % dastypes.DataColumnSidecarSubnetCount)
 	if sub != expected {
 		t.Errorf("CustodySubnet(65) = %d, want %d", sub, expected)
 	}
@@ -185,7 +187,7 @@ func TestInitSlot_Idempotent(t *testing.T) {
 func TestRecordDownload_ColumnOOB(t *testing.T) {
 	nodeID := testNodeID(13)
 	cs := NewColumnSampler(DefaultColumnSamplerConfig(), nodeID)
-	err := cs.RecordDownload(1, ColumnIndex(NumberOfColumns), 100)
+	err := cs.RecordDownload(1, dastypes.ColumnIndex(dastypes.NumberOfColumns), 100)
 	if err == nil {
 		t.Fatal("expected error for out-of-bound column")
 	}
@@ -209,7 +211,7 @@ func TestRecordDownload_Success(t *testing.T) {
 func TestVerifySample_ColumnOOB(t *testing.T) {
 	nodeID := testNodeID(15)
 	cs := NewColumnSampler(DefaultColumnSamplerConfig(), nodeID)
-	err := cs.VerifySample(1, ColumnIndex(NumberOfColumns), nil, [32]byte{})
+	err := cs.VerifySample(1, dastypes.ColumnIndex(dastypes.NumberOfColumns), nil, [32]byte{})
 	if err == nil {
 		t.Fatal("expected error for out-of-bound column")
 	}

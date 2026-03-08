@@ -1,4 +1,4 @@
-package das
+package sampling
 
 import (
 	"encoding/binary"
@@ -7,14 +7,15 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/eth2030/eth2030/das/dastypes"
 	"golang.org/x/crypto/sha3"
 )
 
 var (
-	ErrInvalidCustodyCount = errors.New("das: custody count exceeds number of custody groups")
-	ErrInvalidColumnIndex  = errors.New("das: column index out of range")
-	ErrInvalidSidecar      = errors.New("das: invalid data column sidecar")
-	ErrMismatchedLengths   = errors.New("das: mismatched commitment/proof/cell lengths")
+	ErrInvalidCustodyCount = errors.New("das/sampling: custody count exceeds number of custody groups")
+	ErrInvalidColumnIndex  = errors.New("das/sampling: column index out of range")
+	ErrInvalidSidecar      = errors.New("das/sampling: invalid data column sidecar")
+	ErrMismatchedLengths   = errors.New("das/sampling: mismatched commitment/proof/cell lengths")
 )
 
 // uint256Max is 2^256 - 1, used for overflow prevention in GetCustodyGroups.
@@ -25,22 +26,22 @@ var uint256Max = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewI
 //
 // The node ID is hashed iteratively to produce pseudo-random custody group
 // assignments. The result is sorted in ascending order.
-func GetCustodyGroups(nodeID [32]byte, custodyGroupCount uint64) ([]CustodyGroup, error) {
-	if custodyGroupCount > NumberOfCustodyGroups {
+func GetCustodyGroups(nodeID [32]byte, custodyGroupCount uint64) ([]dastypes.CustodyGroup, error) {
+	if custodyGroupCount > dastypes.NumberOfCustodyGroups {
 		return nil, ErrInvalidCustodyCount
 	}
 	// Fast path: if all groups are custodied, return them all.
-	if custodyGroupCount == NumberOfCustodyGroups {
-		groups := make([]CustodyGroup, NumberOfCustodyGroups)
-		for i := uint64(0); i < NumberOfCustodyGroups; i++ {
-			groups[i] = CustodyGroup(i)
+	if custodyGroupCount == dastypes.NumberOfCustodyGroups {
+		groups := make([]dastypes.CustodyGroup, dastypes.NumberOfCustodyGroups)
+		for i := uint64(0); i < dastypes.NumberOfCustodyGroups; i++ {
+			groups[i] = dastypes.CustodyGroup(i)
 		}
 		return groups, nil
 	}
 
 	currentID := new(big.Int).SetBytes(nodeID[:])
-	seen := make(map[CustodyGroup]bool)
-	groups := make([]CustodyGroup, 0, custodyGroupCount)
+	seen := make(map[dastypes.CustodyGroup]bool)
+	groups := make([]dastypes.CustodyGroup, 0, custodyGroupCount)
 
 	for uint64(len(groups)) < custodyGroupCount {
 		// Hash the current ID to get a pseudo-random value.
@@ -53,7 +54,7 @@ func GetCustodyGroups(nodeID [32]byte, custodyGroupCount uint64) ([]CustodyGroup
 
 		// Take the first 8 bytes as a uint64 and mod by NumberOfCustodyGroups.
 		val := binary.LittleEndian.Uint64(digest[:8])
-		group := CustodyGroup(val % NumberOfCustodyGroups)
+		group := dastypes.CustodyGroup(val % dastypes.NumberOfCustodyGroups)
 
 		if !seen[group] {
 			seen[group] = true
@@ -78,14 +79,14 @@ func GetCustodyGroups(nodeID [32]byte, custodyGroupCount uint64) ([]CustodyGroup
 // ComputeColumnsForCustodyGroup returns the column indices assigned to a
 // given custody group, following the consensus spec's
 // compute_columns_for_custody_group algorithm.
-func ComputeColumnsForCustodyGroup(group CustodyGroup) ([]ColumnIndex, error) {
-	if uint64(group) >= NumberOfCustodyGroups {
+func ComputeColumnsForCustodyGroup(group dastypes.CustodyGroup) ([]dastypes.ColumnIndex, error) {
+	if uint64(group) >= dastypes.NumberOfCustodyGroups {
 		return nil, fmt.Errorf("%w: group %d", ErrInvalidColumnIndex, group)
 	}
-	columnsPerGroup := NumberOfColumns / NumberOfCustodyGroups
-	columns := make([]ColumnIndex, columnsPerGroup)
+	columnsPerGroup := dastypes.NumberOfColumns / dastypes.NumberOfCustodyGroups
+	columns := make([]dastypes.ColumnIndex, columnsPerGroup)
 	for i := 0; i < columnsPerGroup; i++ {
-		columns[i] = ColumnIndex(NumberOfCustodyGroups*uint64(i) + uint64(group))
+		columns[i] = dastypes.ColumnIndex(dastypes.NumberOfCustodyGroups*uint64(i) + uint64(group))
 	}
 	return columns, nil
 }
@@ -93,13 +94,13 @@ func ComputeColumnsForCustodyGroup(group CustodyGroup) ([]ColumnIndex, error) {
 // GetCustodyColumns returns all column indices that a node should custody,
 // given its node ID and custody group count. This is a convenience wrapper
 // that combines GetCustodyGroups and ComputeColumnsForCustodyGroup.
-func GetCustodyColumns(nodeID [32]byte, custodyGroupCount uint64) ([]ColumnIndex, error) {
+func GetCustodyColumns(nodeID [32]byte, custodyGroupCount uint64) ([]dastypes.ColumnIndex, error) {
 	groups, err := GetCustodyGroups(nodeID, custodyGroupCount)
 	if err != nil {
 		return nil, err
 	}
 
-	var columns []ColumnIndex
+	var columns []dastypes.ColumnIndex
 	for _, g := range groups {
 		cols, err := ComputeColumnsForCustodyGroup(g)
 		if err != nil {
@@ -115,7 +116,7 @@ func GetCustodyColumns(nodeID [32]byte, custodyGroupCount uint64) ([]ColumnIndex
 }
 
 // ShouldCustodyColumn returns true if columnIndex is in the node's custody set.
-func ShouldCustodyColumn(columnIndex ColumnIndex, custodyColumns []ColumnIndex) bool {
+func ShouldCustodyColumn(columnIndex dastypes.ColumnIndex, custodyColumns []dastypes.ColumnIndex) bool {
 	for _, c := range custodyColumns {
 		if c == columnIndex {
 			return true
@@ -130,19 +131,19 @@ func ShouldCustodyColumn(columnIndex ColumnIndex, custodyColumns []ColumnIndex) 
 //
 // Cryptographic verification (KZG proof checking) is left to higher-level
 // callers that have access to the full KZG library.
-func VerifyDataColumnSidecar(sidecar *DataColumnSidecar) error {
+func VerifyDataColumnSidecar(sidecar *dastypes.DataColumnSidecar) error {
 	if sidecar == nil {
 		return ErrInvalidSidecar
 	}
-	if uint64(sidecar.Index) >= NumberOfColumns {
-		return fmt.Errorf("%w: index %d >= %d", ErrInvalidColumnIndex, sidecar.Index, NumberOfColumns)
+	if uint64(sidecar.Index) >= dastypes.NumberOfColumns {
+		return fmt.Errorf("%w: index %d >= %d", ErrInvalidColumnIndex, sidecar.Index, dastypes.NumberOfColumns)
 	}
 	blobCount := len(sidecar.Column)
 	if blobCount == 0 {
 		return fmt.Errorf("%w: empty column", ErrInvalidSidecar)
 	}
-	if blobCount > MaxBlobCommitmentsPerBlock {
-		return fmt.Errorf("%w: too many cells %d > %d", ErrInvalidSidecar, blobCount, MaxBlobCommitmentsPerBlock)
+	if blobCount > dastypes.MaxBlobCommitmentsPerBlock {
+		return fmt.Errorf("%w: too many cells %d > %d", ErrInvalidSidecar, blobCount, dastypes.MaxBlobCommitmentsPerBlock)
 	}
 	if len(sidecar.KZGCommitments) != blobCount {
 		return fmt.Errorf("%w: %d commitments for %d cells", ErrMismatchedLengths, len(sidecar.KZGCommitments), blobCount)
@@ -155,6 +156,6 @@ func VerifyDataColumnSidecar(sidecar *DataColumnSidecar) error {
 
 // ColumnSubnet returns the subnet ID for a given column index.
 // subnet = column_index % DATA_COLUMN_SIDECAR_SUBNET_COUNT
-func ColumnSubnet(columnIndex ColumnIndex) SubnetID {
-	return SubnetID(uint64(columnIndex) % DataColumnSidecarSubnetCount)
+func ColumnSubnet(columnIndex dastypes.ColumnIndex) dastypes.SubnetID {
+	return dastypes.SubnetID(uint64(columnIndex) % dastypes.DataColumnSidecarSubnetCount)
 }

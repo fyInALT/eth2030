@@ -1,7 +1,9 @@
-package das
+package sampling
 
 import (
 	"testing"
+
+	"github.com/eth2030/eth2030/das/dastypes"
 )
 
 func schedTestNodeID(seed byte) [32]byte {
@@ -125,7 +127,7 @@ func TestSamplingSchedulerRecordSampleOOB(t *testing.T) {
 	ss := NewSamplingScheduler(cfg, schedTestNodeID(8))
 	_, _ = ss.StartRound(1, RegularSampling)
 
-	err := ss.RecordSample(1, ColumnIndex(20), true)
+	err := ss.RecordSample(1, dastypes.ColumnIndex(20), true)
 	if err == nil {
 		t.Fatal("expected error for column OOB")
 	}
@@ -333,7 +335,7 @@ func TestSamplingSchedulerIsCustodyColumn(t *testing.T) {
 
 	// The node should have some custody columns.
 	hasCustody := false
-	for col := ColumnIndex(0); col < ColumnIndex(NumberOfColumns); col++ {
+	for col := dastypes.ColumnIndex(0); col < dastypes.ColumnIndex(dastypes.NumberOfColumns); col++ {
 		if ss.IsCustodyColumn(col) {
 			hasCustody = true
 			break
@@ -434,11 +436,11 @@ func TestSamplingSchedulerDeterministicColumns(t *testing.T) {
 
 func TestSamplingSchedulerDefaultConfig(t *testing.T) {
 	cfg := DefaultSchedulerConfig()
-	if cfg.BaseSamplesPerSlot != SamplesPerSlot {
-		t.Errorf("BaseSamplesPerSlot = %d, want %d", cfg.BaseSamplesPerSlot, SamplesPerSlot)
+	if cfg.BaseSamplesPerSlot != dastypes.SamplesPerSlot {
+		t.Errorf("BaseSamplesPerSlot = %d, want %d", cfg.BaseSamplesPerSlot, dastypes.SamplesPerSlot)
 	}
-	if cfg.NumberOfColumns != NumberOfColumns {
-		t.Errorf("NumberOfColumns = %d, want %d", cfg.NumberOfColumns, NumberOfColumns)
+	if cfg.NumberOfColumns != dastypes.NumberOfColumns {
+		t.Errorf("NumberOfColumns = %d, want %d", cfg.NumberOfColumns, dastypes.NumberOfColumns)
 	}
 	if cfg.AdaptiveMinRate <= 0 {
 		t.Error("AdaptiveMinRate should be > 0")
