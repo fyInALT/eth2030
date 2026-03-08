@@ -222,11 +222,9 @@ func TestForkChoice_ReorgToLongerChain(t *testing.T) {
 	b2 := makeForkBlock(b1, 12)
 	b3 := makeForkBlock(b2, 12)
 
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.blockCache[b2.Hash()] = b2
-	bc.blockCache[b3.Hash()] = b3
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
+	bc.StoreBlockInCache(b2)
+	bc.StoreBlockInCache(b3)
 
 	// Reorg to chain B via fork choice update.
 	err := fc.ForkchoiceUpdate(b3.Hash(), genesis.Hash(), genesis.Hash())
@@ -273,9 +271,7 @@ func TestForkChoice_ReorgToShorterChainNotAllowed(t *testing.T) {
 
 	// Build fork chain B: genesis -> b1 (diverges at block 1, below finalized a2).
 	b1 := makeForkBlock(genesis, 6)
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
 
 	// Try to reorg to b1 -- should fail because common ancestor (genesis)
 	// is below finalized block a2.
@@ -327,10 +323,8 @@ func TestFindCommonAncestor_Fork(t *testing.T) {
 	b2 := makeForkBlock(b1, 12)
 
 	// Manually add to block cache (they are side chain blocks).
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.blockCache[b2.Hash()] = b2
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
+	bc.StoreBlockInCache(b2)
 
 	// Common ancestor of a2 and b2 should be genesis.
 	ancestor := FindCommonAncestor(bc, chainA[1], b2)
@@ -359,10 +353,8 @@ func TestFindCommonAncestor_ForkAtBlock1(t *testing.T) {
 	b2 := makeForkBlock(chainA[0], 6)
 	b3 := makeForkBlock(b2, 12)
 
-	bc.mu.Lock()
-	bc.blockCache[b2.Hash()] = b2
-	bc.blockCache[b3.Hash()] = b3
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b2)
+	bc.StoreBlockInCache(b3)
 
 	// Common ancestor of a3 and b3 should be a1.
 	ancestor := FindCommonAncestor(bc, chainA[2], b3)
@@ -389,9 +381,7 @@ func TestFindCommonAncestor_UnequalHeights(t *testing.T) {
 
 	// Build chain B: genesis -> a1 -> a2 -> b3 (fork at a2, shorter chain).
 	b3 := makeForkBlock(blocks[1], 6)
-	bc.mu.Lock()
-	bc.blockCache[b3.Hash()] = b3
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b3)
 
 	// Common ancestor of a5 and b3 should be a2.
 	ancestor := FindCommonAncestor(bc, blocks[4], b3)
@@ -464,12 +454,10 @@ func TestForkChoice_FinalizationPreventsReorg(t *testing.T) {
 	fork5 := makeForkBlock(fork4, 12)
 
 	// Manually add fork blocks to cache so they are known.
-	bc.mu.Lock()
-	bc.blockCache[fork2.Hash()] = fork2
-	bc.blockCache[fork3.Hash()] = fork3
-	bc.blockCache[fork4.Hash()] = fork4
-	bc.blockCache[fork5.Hash()] = fork5
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(fork2)
+	bc.StoreBlockInCache(fork3)
+	bc.StoreBlockInCache(fork4)
+	bc.StoreBlockInCache(fork5)
 
 	// Try to reorg to fork5, which would revert past finalized b3.
 	err = fc.ForkchoiceUpdate(fork5.Hash(), genesis.Hash(), genesis.Hash())
@@ -507,10 +495,8 @@ func TestForkChoice_ReorgAboveFinalized(t *testing.T) {
 	fork3 := makeForkBlock(chain[1], 6)
 	fork4 := makeForkBlock(fork3, 12)
 
-	bc.mu.Lock()
-	bc.blockCache[fork3.Hash()] = fork3
-	bc.blockCache[fork4.Hash()] = fork4
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(fork3)
+	bc.StoreBlockInCache(fork4)
 
 	// This reorg is valid because the fork point (b2) is above finalized (b1).
 	err = fc.ForkchoiceUpdate(fork4.Hash(), chain[0].Hash(), chain[0].Hash())
@@ -545,11 +531,9 @@ func TestForkChoice_ReorgWithValidation_Success(t *testing.T) {
 	b2 := makeForkBlock(b1, 12)
 	b3 := makeForkBlock(b2, 12)
 
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.blockCache[b2.Hash()] = b2
-	bc.blockCache[b3.Hash()] = b3
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
+	bc.StoreBlockInCache(b2)
+	bc.StoreBlockInCache(b3)
 
 	// ReorgWithValidation should succeed (finalized is genesis).
 	err := fc.ReorgWithValidation(b3)
@@ -575,11 +559,7 @@ func TestForkChoice_ReorgWithValidation_BlockedByFinalized(t *testing.T) {
 	}
 
 	// Set finalized to b2 via internal update.
-	fc.mu.Lock()
-	fc.head = chain[2]
-	fc.safe = chain[1]
-	fc.finalized = chain[1]
-	fc.mu.Unlock()
+	fc.SetStateForTest(chain[2], chain[1], chain[1])
 
 	// Build fork diverging at genesis.
 	fork1 := makeForkBlock(genesis, 6)
@@ -587,12 +567,10 @@ func TestForkChoice_ReorgWithValidation_BlockedByFinalized(t *testing.T) {
 	fork3 := makeForkBlock(fork2, 12)
 	fork4 := makeForkBlock(fork3, 12)
 
-	bc.mu.Lock()
-	bc.blockCache[fork1.Hash()] = fork1
-	bc.blockCache[fork2.Hash()] = fork2
-	bc.blockCache[fork3.Hash()] = fork3
-	bc.blockCache[fork4.Hash()] = fork4
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(fork1)
+	bc.StoreBlockInCache(fork2)
+	bc.StoreBlockInCache(fork3)
+	bc.StoreBlockInCache(fork4)
 
 	// Should fail because fork point is genesis (block 0), below finalized b2.
 	err := fc.ReorgWithValidation(fork4)
@@ -610,9 +588,7 @@ func TestForkChoice_ReorgWithValidation_NoOp(t *testing.T) {
 	}
 
 	// Update fork choice to b1.
-	fc.mu.Lock()
-	fc.head = b1
-	fc.mu.Unlock()
+	fc.SetHeadForTest(b1)
 
 	// Reorg to the same block should be a no-op.
 	err := fc.ReorgWithValidation(b1)
@@ -654,9 +630,7 @@ func TestForkChoice_FinalizedNotInHeadAncestry(t *testing.T) {
 
 	// Build chain B: genesis -> b1.
 	b1 := makeForkBlock(genesis, 6)
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
 
 	// Try to set head=a2 with finalized=b1 (b1 is NOT in a2's ancestry).
 	err := fc.ForkchoiceUpdate(chainA[1].Hash(), genesis.Hash(), b1.Hash())
@@ -679,9 +653,7 @@ func TestForkChoice_SafeNotInHeadAncestry(t *testing.T) {
 
 	// Build chain B: genesis -> b1.
 	b1 := makeForkBlock(genesis, 6)
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
 
 	// Try to set head=a2 with safe=b1 (b1 is NOT in a2's ancestry).
 	err := fc.ForkchoiceUpdate(chainA[1].Hash(), b1.Hash(), genesis.Hash())
@@ -763,9 +735,7 @@ func TestForkChoice_StateRollbackOnReorg(t *testing.T) {
 		b1 = types.NewBlock(b1Header, nil)
 	}
 
-	bc.mu.Lock()
-	bc.blockCache[b1.Hash()] = b1
-	bc.mu.Unlock()
+	bc.StoreBlockInCache(b1)
 
 	// Reorg to chain B.
 	err = fc.ForkchoiceUpdate(b1.Hash(), genesis.Hash(), genesis.Hash())

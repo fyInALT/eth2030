@@ -1,10 +1,11 @@
-package core
+package chain
 
 import (
 	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -20,7 +21,7 @@ var (
 type HeaderChain struct {
 	mu        sync.RWMutex
 	config    *config.ChainConfig
-	validator *BlockValidator
+	validator block.Validator
 
 	// In-memory canonical chain (number -> header).
 	headers map[uint64]*types.Header
@@ -36,7 +37,7 @@ type HeaderChain struct {
 func NewHeaderChain(config *config.ChainConfig, genesis *types.Header) *HeaderChain {
 	hc := &HeaderChain{
 		config:        config,
-		validator:     NewBlockValidator(config),
+		validator:     block.NewBlockValidator(config),
 		headers:       make(map[uint64]*types.Header),
 		headersByHash: make(map[types.Hash]*types.Header),
 	}
@@ -108,7 +109,7 @@ func (hc *HeaderChain) insertHeader(header *types.Header) error {
 	// Find parent.
 	parent, ok := hc.headersByHash[header.ParentHash]
 	if !ok {
-		return fmt.Errorf("%w: parent %v", ErrUnknownParent, header.ParentHash)
+		return fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
 	}
 
 	// Validate header against parent.

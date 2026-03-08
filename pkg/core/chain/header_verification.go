@@ -1,10 +1,11 @@
-package core
+package chain
 
 import (
 	"errors"
 	"fmt"
 	"math/big"
 
+	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
@@ -153,9 +154,9 @@ func verifyTimestampMonotonicity(header, parent *types.Header) error {
 // verifyExtraDataLimit checks that the extra data does not exceed
 // the protocol maximum of 32 bytes.
 func verifyExtraDataLimit(header *types.Header) error {
-	if len(header.Extra) > MaxExtraDataSize {
+	if len(header.Extra) > block.MaxExtraDataSize {
 		return fmt.Errorf("%w: len=%d, max=%d",
-			ErrExtraDataOverflow, len(header.Extra), MaxExtraDataSize)
+			ErrExtraDataOverflow, len(header.Extra), block.MaxExtraDataSize)
 	}
 	return nil
 }
@@ -164,13 +165,13 @@ func verifyExtraDataLimit(header *types.Header) error {
 // allowed range [MinGasLimit, MaxGasLimit] and that the change from
 // parent does not exceed 1/1024 of the parent gas limit.
 func verifyGasLimitBounds(header, parent *types.Header) error {
-	if header.GasLimit < MinGasLimit {
+	if header.GasLimit < block.MinGasLimit {
 		return fmt.Errorf("%w: %d < %d",
-			gas.ErrGasLimitTooLow, header.GasLimit, MinGasLimit)
+			gas.ErrGasLimitTooLow, header.GasLimit, block.MinGasLimit)
 	}
-	if header.GasLimit > MaxGasLimit {
+	if header.GasLimit > block.MaxGasLimit {
 		return fmt.Errorf("%w: %d > %d",
-			gas.ErrGasLimitTooHigh, header.GasLimit, MaxGasLimit)
+			gas.ErrGasLimitTooHigh, header.GasLimit, block.MaxGasLimit)
 	}
 
 	// The gas limit may change by at most 1/GasLimitBoundDivisor per block.
@@ -180,7 +181,7 @@ func verifyGasLimitBounds(header, parent *types.Header) error {
 	} else {
 		diff = parent.GasLimit - header.GasLimit
 	}
-	bound := parent.GasLimit / GasLimitBoundDivisor
+	bound := parent.GasLimit / block.GasLimitBoundDivisor
 	if diff >= bound {
 		return fmt.Errorf("%w: delta=%d, max_allowed=%d (parent=%d)",
 			ErrGasLimitJump, diff, bound, parent.GasLimit)
@@ -210,7 +211,7 @@ func verifyPoSTransition(header *types.Header) error {
 		return fmt.Errorf("%w: nonce=%x",
 			ErrNoncePostMerge, header.Nonce)
 	}
-	if header.UncleHash != (types.Hash{}) && header.UncleHash != EmptyUncleHash {
+	if header.UncleHash != (types.Hash{}) && header.UncleHash != block.EmptyUncleHash {
 		return fmt.Errorf("%w: uncle_hash=%s",
 			ErrUnclesPostMerge, header.UncleHash.Hex())
 	}
@@ -301,7 +302,7 @@ func (v *HeaderVerifier) verifyCalldataGas(header, parent *types.Header) error {
 func VerifyTimestampWindow(header *types.Header, currentTime uint64, allowedDrift uint64) error {
 	if header.Time > currentTime+allowedDrift {
 		return fmt.Errorf("%w: header time %d exceeds current time %d + drift %d",
-			ErrFutureBlock, header.Time, currentTime, allowedDrift)
+			block.ErrFutureBlock, header.Time, currentTime, allowedDrift)
 	}
 	return nil
 }
@@ -310,13 +311,13 @@ func VerifyTimestampWindow(header *types.Header, currentTime uint64, allowedDrif
 // for the next block, given the parent gas limit. The gas limit may
 // change by at most parent/1024 - 1 per block.
 func CalcGasLimitRange(parentGasLimit uint64) (min, max uint64) {
-	bound := parentGasLimit / GasLimitBoundDivisor
+	bound := parentGasLimit / block.GasLimitBoundDivisor
 	if bound == 0 {
 		bound = 1
 	}
 
 	// Minimum: max(parent - (bound-1), MinGasLimit)
-	min = MinGasLimit
+	min = block.MinGasLimit
 	if parentGasLimit > bound-1 {
 		candidate := parentGasLimit - (bound - 1)
 		if candidate > min {
@@ -326,8 +327,8 @@ func CalcGasLimitRange(parentGasLimit uint64) (min, max uint64) {
 
 	// Maximum: min(parent + (bound-1), MaxGasLimit)
 	max = parentGasLimit + (bound - 1)
-	if max > MaxGasLimit {
-		max = MaxGasLimit
+	if max > block.MaxGasLimit {
+		max = block.MaxGasLimit
 	}
 	if max < min {
 		max = min

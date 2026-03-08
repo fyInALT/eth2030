@@ -1176,11 +1176,9 @@ func TestE2E_BlockchainPersistence(t *testing.T) {
 	}
 
 	// Evict blocks from in-memory cache.
-	bc.mu.Lock()
 	for _, hash := range blockHashes {
-		delete(bc.blockCache, hash)
+		bc.EvictBlockFromCache(hash)
 	}
-	bc.mu.Unlock()
 
 	// Blocks should still be retrievable from rawdb.
 	for i, hash := range blockHashes {

@@ -1,4 +1,4 @@
-package core
+package chain
 
 import (
 	"errors"
@@ -6,7 +6,9 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -36,8 +38,8 @@ type Blockchain struct {
 	config    *config.ChainConfig
 	db        rawdb.Database
 	hc        *HeaderChain
-	processor *StateProcessor
-	validator *BlockValidator
+	processor *execution.StateProcessor
+	validator block.Validator
 
 	// Block cache: hash -> block.
 	blockCache map[types.Hash]*types.Block
@@ -74,12 +76,12 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *st
 		return nil, ErrNoGenesis
 	}
 
-	proc := NewStateProcessor(config)
+	proc := execution.NewStateProcessor(config)
 	bc := &Blockchain{
 		config:       config,
 		db:           db,
 		processor:    proc,
-		validator:    NewBlockValidator(config),
+		validator:    block.NewBlockValidator(config),
 		blockCache:   make(map[types.Hash]*types.Block),
 		canonCache:   make(map[uint64]types.Hash),
 		receiptCache: make(map[types.Hash][]*types.Receipt),
@@ -116,22 +118,22 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *st
 }
 
 // InsertBlock validates, executes, and inserts a single block.
-func (bc *Blockchain) InsertBlock(block *types.Block) error {
+func (bc *Blockchain) InsertBlock(blk *types.Block) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
-	return bc.insertBlock(block)
+	return bc.insertBlock(blk)
 }
 
 // insertBlock is the internal insert without locking.
-func (bc *Blockchain) insertBlock(block *types.Block) error {
-	hash := block.Hash()
+func (bc *Blockchain) insertBlock(blk *types.Block) error {
+	hash := blk.Hash()
 
 	// Skip if already known.
 	if _, ok := bc.blockCache[hash]; ok {
 		return nil
 	}
 
-	header := block.Header()
+	header := blk.Header()
 
 	// Find parent: check cache first, then fall back to rawdb.
 	parent := bc.blockCache[header.ParentHash]
@@ -142,7 +144,7 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 		}
 	}
 	if parent == nil {
-		return fmt.Errorf("%w: parent %v", ErrUnknownParent, header.ParentHash)
+		return fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
 	}
 
 	// Validate header against parent.
@@ -152,7 +154,7 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 	}
 
 	// Validate body.
-	if err := bc.validator.ValidateBody(block); err != nil {
+	if err := bc.validator.ValidateBody(blk); err != nil {
 		return err
 	}
 
@@ -163,9 +165,9 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 	}
 
 	// Execute transactions (with BAL tracking when Amsterdam is active).
-	result, err := bc.processor.ProcessWithBAL(block, statedb)
+	result, err := bc.processor.ProcessWithBAL(blk, statedb)
 	if err != nil {
-		return fmt.Errorf("process block %d: %w", block.NumberU64(), err)
+		return fmt.Errorf("process block %d: %w", blk.NumberU64(), err)
 	}
 	receipts := result.Receipts
 
@@ -175,14 +177,14 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 		totalGasUsed += r.GasUsed
 	}
 	if header.GasUsed != totalGasUsed {
-		return fmt.Errorf("%w: header=%d computed=%d", ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
+		return fmt.Errorf("%w: header=%d computed=%d", block.ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
 	}
 
 	// Validate receipt root: the Merkle trie hash of receipts must match
 	// header.ReceiptHash.
-	computedReceiptHash := ComputeReceiptsRoot(receipts)
+	computedReceiptHash := block.ComputeReceiptsRoot(receipts)
 	if header.ReceiptHash != computedReceiptHash {
-		return fmt.Errorf("%w: header=%s computed=%s", ErrInvalidReceiptRoot,
+		return fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidReceiptRoot,
 			header.ReceiptHash.Hex(), computedReceiptHash.Hex())
 	}
 
@@ -197,15 +199,15 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 	// ProcessRequests may modify state (e.g. clearing request count slots),
 	// so it must run before computing the state root.
 	if bc.config != nil && bc.config.IsPrague(header.Time) {
-		if _, err := ProcessRequests(bc.config, statedb, header); err != nil {
-			return fmt.Errorf("process requests block %d: %w", block.NumberU64(), err)
+		if _, err := execution.ProcessRequests(bc.config, statedb, header); err != nil {
+			return fmt.Errorf("process requests block %d: %w", blk.NumberU64(), err)
 		}
 	}
 
 	// Validate state root: the post-execution state root must match header.Root.
 	computedRoot := statedb.GetRoot()
 	if header.Root != computedRoot {
-		return fmt.Errorf("%w: header=%s computed=%s", ErrInvalidStateRoot,
+		return fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidStateRoot,
 			header.Root.Hex(), computedRoot.Hex())
 	}
 
@@ -220,10 +222,10 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 	}
 
 	// Store in block cache.
-	bc.blockCache[hash] = block
+	bc.blockCache[hash] = blk
 
-	num := block.NumberU64()
-	txs := block.Transactions()
+	num := blk.NumberU64()
+	txs := blk.Transactions()
 
 	// Populate derived fields on receipts and store tx lookup entries.
 	for i, receipt := range receipts {
@@ -258,11 +260,11 @@ func (bc *Blockchain) insertBlock(block *types.Block) error {
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
 		bc.canonCache[num] = hash
-		bc.currentBlock = block
+		bc.currentBlock = blk
 		bc.currentState = statedb.(*state.MemoryStateDB)
 
 		// Persist to rawdb.
-		bc.writeBlock(block)
+		bc.writeBlock(blk)
 		bc.writeReceipts(num, hash, receipts)
 		bc.writeTxLookups(txs, num)
 		rawdb.WriteCanonicalHash(bc.db, num, hash)
@@ -288,8 +290,8 @@ func (bc *Blockchain) InsertChain(blocks []*types.Block) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
-	for i, block := range blocks {
-		if err := bc.insertBlock(block); err != nil {
+	for i, blk := range blocks {
+		if err := bc.insertBlock(blk); err != nil {
 			return i, err
 		}
 	}
@@ -433,9 +435,9 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 	}
 
 	// Search canonical blocks for a block with this state root.
-	for _, block := range bc.blockCache {
-		if block.Header().Root == root {
-			return bc.stateAt(block)
+	for _, blk := range bc.blockCache {
+		if blk.Header().Root == root {
+			return bc.stateAt(blk)
 		}
 	}
 
@@ -443,30 +445,30 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 }
 
 // StateAtBlock returns the state after executing up to the given block.
-// This is the public counterpart of stateAt, for use by external packages.
-func (bc *Blockchain) StateAtBlock(block *types.Block) (state.StateDB, error) {
+// This is public for use by external packages (e.g. core/block).
+func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	return bc.stateAt(block)
+	return bc.stateAt(blk)
 }
 
 // stateAt returns the state after executing up to (and including) the given block.
 // For the genesis block, this is the genesis state directly.
 // It checks the state cache for a snapshot closer to the target block to avoid
 // re-executing the entire chain from genesis.
-func (bc *Blockchain) stateAt(block *types.Block) (state.StateDB, error) {
-	if block.Hash() == bc.genesis.Hash() {
+func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
+	if blk.Hash() == bc.genesis.Hash() {
 		return bc.genesisState.Copy(), nil
 	}
 
 	// Check if we have an exact cached state for this block.
-	if cached, ok := bc.sc.get(block.Hash()); ok {
+	if cached, ok := bc.sc.get(blk.Hash()); ok {
 		return cached, nil
 	}
 
 	// Collect the chain of blocks from genesis (or a cached snapshot) to this block.
 	var chain []*types.Block
-	current := block
+	current := blk
 	var baseState *state.MemoryStateDB
 
 	for current.Hash() != bc.genesis.Hash() {
@@ -508,19 +510,19 @@ func (bc *Blockchain) stateAt(block *types.Block) (state.StateDB, error) {
 }
 
 // writeBlock persists a block's header and body to rawdb using RLP encoding.
-func (bc *Blockchain) writeBlock(block *types.Block) {
-	num := block.NumberU64()
-	hash := block.Hash()
+func (bc *Blockchain) writeBlock(blk *types.Block) {
+	num := blk.NumberU64()
+	hash := blk.Hash()
 
 	// RLP-encode the header.
-	headerData, err := block.Header().EncodeRLP()
+	headerData, err := blk.Header().EncodeRLP()
 	if err != nil {
 		return
 	}
 	rawdb.WriteHeader(bc.db, num, hash, headerData)
 
 	// RLP-encode the body (transactions list + uncles list).
-	bodyData, err := encodeBlockBody(block.Body())
+	bodyData, err := encodeBlockBody(blk.Body())
 	if err != nil {
 		return
 	}
@@ -844,10 +846,10 @@ func (bc *Blockchain) GetReceipts(blockHash types.Hash) []*types.Receipt {
 	if err != nil {
 		return nil
 	}
-	block := bc.readBlock(blockHash)
+	blk := bc.readBlock(blockHash)
 	var txs []*types.Transaction
-	if block != nil {
-		txs = block.Transactions()
+	if blk != nil {
+		txs = blk.Transactions()
 	}
 	return bc.readReceiptsFromDB(num, blockHash, txs)
 }
@@ -869,10 +871,10 @@ func (bc *Blockchain) GetBlockReceipts(number uint64) []*types.Receipt {
 		return r
 	}
 	// Fallback: read from rawdb.
-	block := bc.readBlock(hash)
+	blk := bc.readBlock(hash)
 	var txs []*types.Transaction
-	if block != nil {
-		txs = block.Transactions()
+	if blk != nil {
+		txs = blk.Transactions()
 	}
 	return bc.readReceiptsFromDB(number, hash, txs)
 }
@@ -886,10 +888,10 @@ func (bc *Blockchain) GetLogs(blockHash types.Hash) []*types.Log {
 		// Fallback: read from rawdb.
 		num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
 		if err == nil {
-			block := bc.readBlock(blockHash)
+			blk := bc.readBlock(blockHash)
 			var txs []*types.Transaction
-			if block != nil {
-				txs = block.Transactions()
+			if blk != nil {
+				txs = blk.Transactions()
 			}
 			receipts = bc.readReceiptsFromDB(num, blockHash, txs)
 		}
@@ -918,11 +920,11 @@ func (bc *Blockchain) GetTransactionLookup(txHash types.Hash) (blockHash types.H
 		return types.Hash{}, 0, 0, false
 	}
 	// Find the transaction index within the block.
-	block := bc.readBlock(hash)
-	if block == nil {
+	blk := bc.readBlock(hash)
+	if blk == nil {
 		return types.Hash{}, 0, 0, false
 	}
-	for i, tx := range block.Transactions() {
+	for i, tx := range blk.Transactions() {
 		if tx.Hash() == txHash {
 			return hash, num, uint64(i), true
 		}
@@ -1076,29 +1078,24 @@ func (bc *Blockchain) readReceiptsFromDB(num uint64, hash types.Hash, txs []*typ
 	return receipts
 }
 
-// makeGenesis is a helper for creating a genesis block with the given gas limit and base fee.
-func makeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
-	blobGasUsed := uint64(0)
-	excessBlobGas := uint64(0)
-	calldataGasUsed := uint64(0)
-	calldataExcessGas := uint64(0)
-	emptyWithdrawalsHash := types.EmptyRootHash
-	emptyRoot := types.EmptyRootHash
-	header := &types.Header{
-		Number:            big.NewInt(0),
-		GasLimit:          gasLimit,
-		GasUsed:           0,
-		Time:              0,
-		Difficulty:        new(big.Int),
-		BaseFee:           baseFee,
-		UncleHash:         EmptyUncleHash,
-		WithdrawalsHash:   &emptyWithdrawalsHash,
-		BlobGasUsed:       &blobGasUsed,
-		ExcessBlobGas:     &excessBlobGas,
-		ParentBeaconRoot:  &emptyRoot,
-		RequestsHash:      &emptyRoot,
-		CalldataGasUsed:   &calldataGasUsed,
-		CalldataExcessGas: &calldataExcessGas,
-	}
-	return types.NewBlock(header, &types.Body{Withdrawals: []*types.Withdrawal{}})
+// shouldSnapshot returns true if a state snapshot should be cached at
+// the given block number.
+func shouldSnapshot(num uint64) bool {
+	return num%stateSnapshotInterval == 0
+}
+
+// EvictBlockFromCache removes a block from the in-memory block cache,
+// forcing subsequent lookups to fall back to rawdb. Used in tests.
+func (bc *Blockchain) EvictBlockFromCache(hash types.Hash) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	delete(bc.blockCache, hash)
+}
+
+// StoreBlockInCache inserts a block directly into the in-memory block cache
+// without validation or state execution. Used in tests to set up fork scenarios.
+func (bc *Blockchain) StoreBlockInCache(block *types.Block) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	bc.blockCache[block.Hash()] = block
 }

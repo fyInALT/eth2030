@@ -1,4 +1,4 @@
-package core
+package chain
 
 import (
 	"errors"
@@ -106,24 +106,17 @@ func (h *ChainReorgHandler) handleReorg(newNumber uint64, newHash types.Hash, ne
 	oldNumber := h.headNumber
 
 	// Find the fork point by walking back from both chains.
-	// The fork point is where the new chain diverges from the canonical chain.
 	var forkPoint uint64
 	found := false
 
-	// Walk back on the canonical chain to find a common ancestor.
-	// The new block's parent should be at newNumber-1.
 	if newNumber > 0 {
-		// Check if parentHash matches canonical at newNumber-1.
 		if canonHash, ok := h.canonical[newNumber-1]; ok && canonHash == newParentHash {
 			forkPoint = newNumber - 1
 			found = true
 		}
 	}
 
-	// If we could not find a direct match, search backwards.
 	if !found {
-		// Walk back to find where canonical and new chain diverge.
-		// Start from the minimum of old and new head.
 		searchFrom := oldNumber
 		if newNumber < searchFrom {
 			searchFrom = newNumber
@@ -151,13 +144,13 @@ func (h *ChainReorgHandler) handleReorg(newNumber uint64, newHash types.Hash, ne
 		return nil, ErrReorgTooDeep
 	}
 
-	// Collect old blocks being removed (from forkPoint+1 to oldNumber).
+	// Collect old blocks being removed.
 	var oldBlocks []uint64
 	for n := forkPoint + 1; n <= oldNumber; n++ {
 		oldBlocks = append(oldBlocks, n)
 	}
 
-	// Collect new blocks being added (from forkPoint+1 to newNumber).
+	// Collect new blocks being added.
 	var newBlocks []uint64
 	for n := forkPoint + 1; n <= newNumber; n++ {
 		newBlocks = append(newBlocks, n)
@@ -182,7 +175,6 @@ func (h *ChainReorgHandler) handleReorg(newNumber uint64, newHash types.Hash, ne
 		Timestamp: time.Now().Unix(),
 	}
 
-	// Track metrics.
 	if h.config.TrackMetrics {
 		h.reorgCount++
 		if depth > h.maxDepthSeen {
@@ -190,7 +182,6 @@ func (h *ChainReorgHandler) handleReorg(newNumber uint64, newHash types.Hash, ne
 		}
 	}
 
-	// Record event if configured.
 	if h.config.NotifyOnReorg {
 		h.reorgHistory = append(h.reorgHistory, *event)
 	}
@@ -199,7 +190,6 @@ func (h *ChainReorgHandler) handleReorg(newNumber uint64, newHash types.Hash, ne
 }
 
 // GetCanonicalHash returns the canonical block hash at the given height.
-// Returns a zero hash if the height is not in the canonical chain.
 func (h *ChainReorgHandler) GetCanonicalHash(number uint64) types.Hash {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -221,7 +211,6 @@ func (h *ChainReorgHandler) ChainHead() (uint64, types.Hash) {
 }
 
 // ReorgHistory returns the most recent reorg events, up to the given limit.
-// Returns events in chronological order (oldest first).
 func (h *ChainReorgHandler) ReorgHistory(limit int) []ReorgEvent {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

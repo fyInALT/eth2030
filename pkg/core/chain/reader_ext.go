@@ -1,8 +1,8 @@
-// chain_reader_ext.go provides extended chain reader functionality including
+// reader_ext.go provides extended chain reader functionality including
 // transaction and receipt lookups, chain traversal utilities, and a
 // FullChainReader interface that wraps the base ChainReader with additional
 // capabilities such as GetTransaction, GetReceipt, and GetTD operations.
-package core
+package chain
 
 import (
 	"math/big"
@@ -35,8 +35,7 @@ type MemoryFullChain struct {
 }
 
 // txLookup stores the location of a transaction in the chain for the
-// MemoryFullChain. This is distinct from the TxLookupEntry in blockchain.go
-// to avoid symbol conflicts.
+// MemoryFullChain.
 type txLookup struct {
 	blockHash   types.Hash
 	blockNumber uint64

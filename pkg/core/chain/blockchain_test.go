@@ -1,15 +1,44 @@
-package core
+package chain
 
 import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// makeGenesis creates a genesis block with the given gas limit and base fee.
+func makeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
+	blobGasUsed := uint64(0)
+	excessBlobGas := uint64(0)
+	calldataGasUsed := uint64(0)
+	calldataExcessGas := uint64(0)
+	emptyWithdrawalsHash := types.EmptyRootHash
+	emptyRoot := types.EmptyRootHash
+	header := &types.Header{
+		Number:            big.NewInt(0),
+		GasLimit:          gasLimit,
+		GasUsed:           0,
+		Time:              0,
+		Difficulty:        new(big.Int),
+		BaseFee:           baseFee,
+		UncleHash:         block.EmptyUncleHash,
+		WithdrawalsHash:   &emptyWithdrawalsHash,
+		BlobGasUsed:       &blobGasUsed,
+		ExcessBlobGas:     &excessBlobGas,
+		ParentBeaconRoot:  &emptyRoot,
+		RequestsHash:      &emptyRoot,
+		CalldataGasUsed:   &calldataGasUsed,
+		CalldataExcessGas: &calldataExcessGas,
+	}
+	return types.NewBlock(header, &types.Body{Withdrawals: []*types.Withdrawal{}})
+}
 
 // testChain is a helper that creates a blockchain with a genesis block.
 func testChain(t *testing.T) (*Blockchain, *state.MemoryStateDB) {
@@ -84,7 +113,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 		Time:              parentHeader.Time + 12,
 		Difficulty:        new(big.Int),
 		BaseFee:           gas.CalcBaseFee(parentHeader),
-		UncleHash:         EmptyUncleHash,
+		UncleHash:         block.EmptyUncleHash,
 		WithdrawalsHash:   &emptyWHash,
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
@@ -99,13 +128,13 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 		Withdrawals:  []*types.Withdrawal{}, // Shanghai+ requires withdrawals (may be empty)
 	}
 
-	block := types.NewBlock(header, body)
+	blk := types.NewBlock(header, body)
 
 	// Execute transactions directly on the provided state to compute gas used,
 	// bloom, BAL hash, state root, transaction root, and receipt root.
 	// The state is advanced in place so that callers can chain multiple blocks.
-	proc := NewStateProcessor(config.TestConfig)
-	result, err := proc.ProcessWithBAL(block, statedb)
+	proc := execution.NewStateProcessor(config.TestConfig)
+	result, err := proc.ProcessWithBAL(blk, statedb)
 	if err == nil {
 		// Compute gas used from receipts.
 		var gasUsed uint64
@@ -131,14 +160,14 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 		header.Bloom = types.CreateBloom(result.Receipts)
 
 		// Set receipt root from the computed receipts.
-		header.ReceiptHash = deriveReceiptsRoot(result.Receipts)
+		header.ReceiptHash = block.DeriveReceiptsRoot(result.Receipts)
 
 		// Set state root from the post-execution state.
 		header.Root = statedb.GetRoot()
 	}
 
 	// Set transaction trie root.
-	header.TxHash = deriveTxsRoot(txs)
+	header.TxHash = block.DeriveTxsRoot(txs)
 
 	return types.NewBlock(header, body)
 }
@@ -364,7 +393,7 @@ func TestBlockchain_InvalidBlock(t *testing.T) {
 		Time:            gen.Time() + 12,
 		Difficulty:      new(big.Int),
 		BaseFee:         gas.CalcBaseFee(gen.Header()),
-		UncleHash:       EmptyUncleHash,
+		UncleHash:       block.EmptyUncleHash,
 		WithdrawalsHash: &badWHash1,
 		BlobGasUsed:     &badBlobGas1,
 		ExcessBlobGas:   &badExcess1,
@@ -386,7 +415,7 @@ func TestBlockchain_InvalidBlock(t *testing.T) {
 		Time:            gen.Time() + 12,
 		Difficulty:      new(big.Int),
 		BaseFee:         gas.CalcBaseFee(gen.Header()),
-		UncleHash:       EmptyUncleHash,
+		UncleHash:       block.EmptyUncleHash,
 		WithdrawalsHash: &badWHash2,
 		BlobGasUsed:     &badBlobGas2,
 		ExcessBlobGas:   &badExcess2,
@@ -408,7 +437,7 @@ func TestBlockchain_InvalidBlock(t *testing.T) {
 		Time:            0, // same as genesis
 		Difficulty:      new(big.Int),
 		BaseFee:         gas.CalcBaseFee(gen.Header()),
-		UncleHash:       EmptyUncleHash,
+		UncleHash:       block.EmptyUncleHash,
 		WithdrawalsHash: &badWHash3,
 		BlobGasUsed:     &badBlobGas3,
 		ExcessBlobGas:   &badExcess3,
@@ -659,7 +688,7 @@ func TestBlockchain_StateCachePopulated(t *testing.T) {
 	bc, statedb := testChain(t)
 
 	// Insert blocks up to stateSnapshotInterval to trigger a cache snapshot.
-	// stateSnapshotInterval is 16, so block 16 should trigger caching.
+	// stateSnapshotInterval is 128, so block 128 should trigger caching.
 	buildState := statedb.Copy()
 	parent := bc.Genesis()
 	for i := 0; i < int(stateSnapshotInterval); i++ {

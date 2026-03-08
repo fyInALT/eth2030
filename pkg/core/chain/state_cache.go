@@ -1,4 +1,4 @@
-package core
+package chain
 
 import (
 	"sync"
@@ -110,9 +110,4 @@ func (sc *stateCache) clear() {
 	defer sc.mu.Unlock()
 	sc.snapshots = make(map[types.Hash]*stateCacheEntry)
 	sc.order = nil
-}
-
-// shouldSnapshot returns true if we should take a state snapshot at this block.
-func shouldSnapshot(blockNumber uint64) bool {
-	return blockNumber%stateSnapshotInterval == 0
 }

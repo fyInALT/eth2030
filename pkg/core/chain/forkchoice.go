@@ -1,4 +1,4 @@
-package core
+package chain
 
 import (
 	"errors"
@@ -201,37 +201,37 @@ func FindCommonAncestor(bc *Blockchain, oldHead, newHead *types.Block) *types.Bl
 	}
 
 	old := oldHead
-	new := newHead
+	newBlk := newHead
 
 	// First, bring both chains to the same height by walking back the longer one.
-	for old.NumberU64() > new.NumberU64() {
+	for old.NumberU64() > newBlk.NumberU64() {
 		parent := bc.GetBlock(old.ParentHash())
 		if parent == nil {
 			return nil
 		}
 		old = parent
 	}
-	for new.NumberU64() > old.NumberU64() {
-		parent := bc.GetBlock(new.ParentHash())
+	for newBlk.NumberU64() > old.NumberU64() {
+		parent := bc.GetBlock(newBlk.ParentHash())
 		if parent == nil {
 			return nil
 		}
-		new = parent
+		newBlk = parent
 	}
 
 	// Now walk both back in lockstep until hashes match.
-	for old.Hash() != new.Hash() {
+	for old.Hash() != newBlk.Hash() {
 		if old.NumberU64() == 0 {
 			// Reached genesis without matching -- should not happen in valid chains.
 			return nil
 		}
 		oldParent := bc.GetBlock(old.ParentHash())
-		newParent := bc.GetBlock(new.ParentHash())
+		newParent := bc.GetBlock(newBlk.ParentHash())
 		if oldParent == nil || newParent == nil {
 			return nil
 		}
 		old = oldParent
-		new = newParent
+		newBlk = newParent
 	}
 
 	return old
@@ -269,4 +269,22 @@ func (fc *ForkChoice) ReorgWithValidation(newHead *types.Block) error {
 	// Update head to the new head (safe/finalized unchanged).
 	fc.head = newHead
 	return nil
+}
+
+// SetHeadForTest directly sets the head block pointer. Used in tests to set up
+// specific fork choice states without going through ForkchoiceUpdate validation.
+func (fc *ForkChoice) SetHeadForTest(head *types.Block) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.head = head
+}
+
+// SetStateForTest directly sets head, safe, and finalized pointers.
+// Used in tests to configure specific fork choice states.
+func (fc *ForkChoice) SetStateForTest(head, safe, finalized *types.Block) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.head = head
+	fc.safe = safe
+	fc.finalized = finalized
 }
