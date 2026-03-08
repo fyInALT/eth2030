@@ -3,7 +3,7 @@
 // transaction replacement (EIP-4844 with 100% blob fee bump), tracks
 // replacement chains per account/nonce, and prevents spam via replacement
 // count limits.
-package txpool
+package replacement
 
 import (
 	"errors"

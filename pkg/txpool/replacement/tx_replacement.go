@@ -1,7 +1,7 @@
 // tx_replacement.go implements transaction replacement rules including
 // price bump validation, EIP-1559-aware gas price comparison, and
 // pending transaction promotion for the transaction pool.
-package txpool
+package replacement
 
 import (
 	"errors"
@@ -190,6 +190,27 @@ func EffectiveGasPriceCapped(tx *types.Transaction, baseFee *big.Int) *big.Int {
 		return new(big.Int)
 	}
 	return EffectiveGasPrice(tx, baseFee)
+}
+
+// EffectiveGasPrice returns the effective gas price of a transaction given the
+// current base fee. For EIP-1559 transactions: min(feeCap, baseFee+tipCap);
+// for legacy transactions: gasPrice.
+func EffectiveGasPrice(tx *types.Transaction, baseFee *big.Int) *big.Int {
+	if feeCap := tx.GasFeeCap(); feeCap != nil && baseFee != nil {
+		tip := tx.GasTipCap()
+		if tip == nil {
+			tip = new(big.Int)
+		}
+		effective := new(big.Int).Add(baseFee, tip)
+		if effective.Cmp(feeCap) > 0 {
+			effective.Set(feeCap)
+		}
+		return effective
+	}
+	if gp := tx.GasPrice(); gp != nil {
+		return new(big.Int).Set(gp)
+	}
+	return new(big.Int)
 }
 
 // SortByPrice sorts a slice of transactions by effective gas price in
