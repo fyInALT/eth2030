@@ -3,7 +3,7 @@
 // GossipManager provides topic-based publish/subscribe messaging with peer
 // scoring, banning, and message validation. It supports the Ethereum 2028
 // roadmap's distributed block building and fast confirmation requirements.
-package p2p
+package gossip
 
 import (
 	"errors"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/p2p/scoring"
 )
 
 // Gossip protocol errors.
@@ -267,11 +268,11 @@ func (gm *GossipManager) UpdatePeerScore(peerID types.Hash, delta float64) {
 	defer gm.mu.Unlock()
 
 	score := gm.peerScores[peerID] + delta
-	if score > MaxScore {
-		score = MaxScore
+	if score > scoring.MaxScore {
+		score = scoring.MaxScore
 	}
-	if score < MinScore {
-		score = MinScore
+	if score < scoring.MinScore {
+		score = scoring.MinScore
 	}
 	gm.peerScores[peerID] = score
 }
@@ -290,7 +291,7 @@ func (gm *GossipManager) BanPeer(peerID types.Hash, reason string, duration uint
 	}
 
 	// Also set score to minimum.
-	gm.peerScores[peerID] = MinScore
+	gm.peerScores[peerID] = scoring.MinScore
 }
 
 // GetTopicPeers returns the list of peer IDs subscribed to a topic.

@@ -87,3 +87,59 @@ func DefaultMeshBanConfig() MeshBanConfig             { return gossip.DefaultMes
 func NewGossipMeshScoreManager(params MeshScoreParams, decay MeshDecayConfig, ban MeshBanConfig) *GossipMeshScoreManager {
 	return gossip.NewGossipMeshScoreManager(params, decay, ban)
 }
+
+// GossipManager types.
+type (
+	GossipConfig        = gossip.GossipConfig
+	GossipMessage       = gossip.GossipMessage
+	GossipSubscription  = gossip.GossipSubscription
+	GossipManager       = gossip.GossipManager
+	GossipScoreWeights  = gossip.GossipScoreWeights
+	GossipScoreConfig   = gossip.GossipScoreConfig
+	GossipScorerSnapshot = gossip.GossipScorerSnapshot
+	GossipScoreManager  = gossip.GossipScoreManager
+	MsgValidatorConfig  = gossip.MsgValidatorConfig
+	GossipMsgEnvelope   = gossip.GossipMsgEnvelope
+	ValidationResult    = gossip.ValidationResult
+	MsgValidator        = gossip.MsgValidator
+	MsgValidatorStats   = gossip.MsgValidatorStats
+)
+
+// GossipManager errors.
+var (
+	ErrGossipClosed        = gossip.ErrGossipClosed
+	ErrGossipNilMsg        = gossip.ErrGossipNilMsg
+	ErrGossipEmptyTopic    = gossip.ErrGossipEmptyTopic
+	ErrGossipEmptyData     = gossip.ErrGossipEmptyData
+	ErrGossipMsgTooLarge   = gossip.ErrGossipMsgTooLarge
+	ErrGossipZeroSender    = gossip.ErrGossipZeroSender
+	ErrGossipZeroTimestamp = gossip.ErrGossipZeroTimestamp
+	ErrGossipZeroMessageID = gossip.ErrGossipZeroMessageID
+	ErrGossipSubNotFound   = gossip.ErrGossipSubNotFound
+	ErrGossipSubInactive   = gossip.ErrGossipSubInactive
+	ErrGossipTopicMismatch = gossip.ErrGossipTopicMismatch
+)
+
+// MsgValidator errors.
+var (
+	ErrMsgValNilMessage   = gossip.ErrMsgValNilMessage
+	ErrMsgValEmptyPayload = gossip.ErrMsgValEmptyPayload
+	ErrMsgValTooLarge     = gossip.ErrMsgValTooLarge
+	ErrMsgValStale        = gossip.ErrMsgValStale
+	ErrMsgValFuture       = gossip.ErrMsgValFuture
+	ErrMsgValRateLimited  = gossip.ErrMsgValRateLimited
+	ErrMsgValDuplicate    = gossip.ErrMsgValDuplicate
+	ErrMsgValInvalidSig   = gossip.ErrMsgValInvalidSig
+	ErrMsgValZeroSender   = gossip.ErrMsgValZeroSender
+	ErrMsgValZeroMsgID    = gossip.ErrMsgValZeroMsgID
+)
+
+// GossipManager constructors.
+func DefaultGossipConfig() GossipConfig             { return gossip.DefaultGossipConfig() }
+func NewGossipManager(cfg GossipConfig) *GossipManager { return gossip.NewGossipManager(cfg) }
+func DefaultGossipScoreConfig() GossipScoreConfig   { return gossip.DefaultGossipScoreConfig() }
+func NewGossipScoreManager(cfg GossipScoreConfig, scorer *PeerScorer) *GossipScoreManager {
+	return gossip.NewGossipScoreManager(cfg, scorer)
+}
+func DefaultMsgValidatorConfig() MsgValidatorConfig  { return gossip.DefaultMsgValidatorConfig() }
+func NewMsgValidator(cfg MsgValidatorConfig) *MsgValidator { return gossip.NewMsgValidator(cfg) }

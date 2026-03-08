@@ -2,7 +2,7 @@
 // protocol. It validates incoming messages against protocol rules, checks
 // freshness, verifies signatures, deduplicates using a bloom filter, and
 // applies per-peer rate limiting.
-package p2p
+package gossip
 
 import (
 	"errors"

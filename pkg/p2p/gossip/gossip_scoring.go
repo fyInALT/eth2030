@@ -2,13 +2,15 @@
 // integrates gossip topic scores with protocol-level reputation. It
 // provides weighted score aggregation, response latency tracking, and
 // gossip-aware ban management for peer selection decisions.
-package p2p
+package gossip
 
 import (
 	"math"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/eth2030/eth2030/p2p/scoring"
 )
 
 // GossipScoreWeights controls the relative importance of each scoring
@@ -88,7 +90,7 @@ type GossipScoreManager struct {
 	config GossipScoreConfig
 
 	// Protocol scorer provides the base peer reputation.
-	scorer *PeerScorer
+	scorer *scoring.PeerScorer
 
 	// Per-peer gossip and latency state.
 	gossipStates  map[string]*peerGossipState
@@ -99,7 +101,7 @@ type GossipScoreManager struct {
 }
 
 // NewGossipScoreManager creates a GossipScoreManager backed by the given PeerScorer.
-func NewGossipScoreManager(config GossipScoreConfig, scorer *PeerScorer) *GossipScoreManager {
+func NewGossipScoreManager(config GossipScoreConfig, scorer *scoring.PeerScorer) *GossipScoreManager {
 	return &GossipScoreManager{
 		config:        config,
 		scorer:        scorer,

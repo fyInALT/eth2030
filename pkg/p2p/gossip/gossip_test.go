@@ -1,4 +1,4 @@
-package p2p
+package gossip
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/p2p/scoring"
 )
 
 func gossipPeerID(b byte) types.Hash {
@@ -201,12 +202,12 @@ func TestPeerScoring(t *testing.T) {
 		t.Fatalf("expected -5, got %f", s)
 	}
 	gm.UpdatePeerScore(pid, 200.0)
-	if s := gm.PeerScore(pid); s != MaxScore {
-		t.Fatalf("expected clamped to %f, got %f", MaxScore, s)
+	if s := gm.PeerScore(pid); s != scoring.MaxScore {
+		t.Fatalf("expected clamped to %f, got %f", scoring.MaxScore, s)
 	}
 	gm.UpdatePeerScore(pid, -300.0)
-	if s := gm.PeerScore(pid); s != MinScore {
-		t.Fatalf("expected clamped to %f, got %f", MinScore, s)
+	if s := gm.PeerScore(pid); s != scoring.MinScore {
+		t.Fatalf("expected clamped to %f, got %f", scoring.MinScore, s)
 	}
 }
 
@@ -215,8 +216,8 @@ func TestBanPeer(t *testing.T) {
 	pid := gossipPeerID(7)
 	gm.UpdatePeerScore(pid, 50.0)
 	gm.BanPeer(pid, "protocol violation", 3600)
-	if s := gm.PeerScore(pid); s != MinScore {
-		t.Fatalf("expected %f after ban, got %f", MinScore, s)
+	if s := gm.PeerScore(pid); s != scoring.MinScore {
+		t.Fatalf("expected %f after ban, got %f", scoring.MinScore, s)
 	}
 }
 
@@ -360,7 +361,7 @@ func TestConcurrentPeerScoring(t *testing.T) {
 	}
 	wg.Wait()
 	s := gm.PeerScore(pid)
-	if s < MinScore || s > MaxScore {
+	if s < scoring.MinScore || s > scoring.MaxScore {
 		t.Fatalf("score %f out of bounds", s)
 	}
 }
