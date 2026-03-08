@@ -1,7 +1,6 @@
-package engine
+package payload
 
 import (
-	"encoding/json"
 	"log/slog"
 	"math/big"
 	"sync"
@@ -11,8 +10,12 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	corevm "github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/engine/apierrors"
 	"github.com/eth2030/eth2030/proofs"
 )
+
+// ErrUnknownPayload is returned when a payload ID is not found.
+var ErrUnknownPayload = apierrors.ErrUnknownPayload
 
 // BuiltPayload holds the result of a payload build process.
 type BuiltPayload struct {
@@ -167,25 +170,4 @@ func effectiveTipPerGas(tx *types.Transaction, baseFee *big.Int) *big.Int {
 		return new(big.Int).Set(tx.GasTipCap())
 	}
 	return maxTip
-}
-
-// blockToPayloadV5 converts a built block to an ExecutionPayloadV5 with BAL.
-func blockToPayloadV5(block *types.Block, prevRandao types.Hash, withdrawals []*Withdrawal, blockBAL *bal.BlockAccessList) *ExecutionPayloadV5 {
-	ep4 := blockToPayload(block, prevRandao, withdrawals)
-
-	var balData json.RawMessage
-	if blockBAL != nil {
-		encoded, err := blockBAL.EncodeRLP()
-		if err == nil {
-			balData, _ = json.Marshal(encoded)
-		}
-	}
-	if balData == nil {
-		balData = json.RawMessage("null")
-	}
-
-	return &ExecutionPayloadV5{
-		ExecutionPayloadV4: *ep4,
-		BlockAccessList:    balData,
-	}
 }

@@ -1,11 +1,11 @@
-// payload_validation.go implements comprehensive execution payload validation
+// validation.go implements comprehensive execution payload validation
 // for the Engine API. It validates all fields of an ExecutionPayloadV3 including
 // block hash, timestamp progression, EIP-1559 base fee, gas limits, extra data,
 // transactions, blob gas (EIP-4844), withdrawals, and beacon block root.
 //
 // Constants like MaxExtraDataSize, MinGasLimit, GasLimitBoundDivisor, CalcBaseFee
-// are defined in payload_processor.go and reused here.
-package engine
+// are defined in processor.go and reused here.
+package payload
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ import (
 	"github.com/eth2030/eth2030/rlp"
 )
 
-// Payload validation constants (supplement those in payload_processor.go).
+// Payload validation constants (supplement those in processor.go).
 const (
 	// MaxTransactionsPerPayload is the soft limit for transactions per payload.
 	MaxTransactionsPerPayload = 1 << 20 // ~1M
@@ -77,52 +77,52 @@ func NewPayloadValidator() *PayloadValidator {
 
 // ValidatePayloadFull runs all validation checks on the payload, returning all errors found.
 // This performs structural checks only; it does not execute transactions.
-func (v *PayloadValidator) ValidatePayloadFull(payload *ExecutionPayloadV3) []error {
-	if payload == nil {
+func (v *PayloadValidator) ValidatePayloadFull(p *ExecutionPayloadV3) []error {
+	if p == nil {
 		return []error{ErrPayloadNil}
 	}
 
 	var errs []error
 
 	// Validate extra data length.
-	if err := ValidateExtraData(payload.ExtraData); err != nil {
+	if err := ValidateExtraData(p.ExtraData); err != nil {
 		errs = append(errs, err)
 	}
 
 	// Validate gas used does not exceed gas limit.
-	if payload.GasUsed > payload.GasLimit {
+	if p.GasUsed > p.GasLimit {
 		errs = append(errs, fmt.Errorf("%w: used %d, limit %d",
-			ErrGasUsedExceedsLimit, payload.GasUsed, payload.GasLimit))
+			ErrGasUsedExceedsLimit, p.GasUsed, p.GasLimit))
 	}
 
 	// Validate base fee.
-	if payload.BaseFeePerGas == nil {
+	if p.BaseFeePerGas == nil {
 		errs = append(errs, ErrBaseFeeNil)
-	} else if payload.BaseFeePerGas.Sign() < 0 {
+	} else if p.BaseFeePerGas.Sign() < 0 {
 		errs = append(errs, ErrBaseFeeNegative)
-	} else if payload.BaseFeePerGas.Sign() == 0 {
+	} else if p.BaseFeePerGas.Sign() == 0 {
 		errs = append(errs, ErrBaseFeeZero)
 	}
 
 	// Validate timestamp is nonzero.
-	if payload.Timestamp == 0 {
+	if p.Timestamp == 0 {
 		errs = append(errs, ErrTimestampZero)
 	}
 
 	// Decode and validate transactions.
-	txs, err := ValidateTransactions(payload.Transactions)
+	txs, err := ValidateTransactions(p.Transactions)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
 	// Validate blob gas used against transactions.
-	blobGasUsed := payload.BlobGasUsed
+	blobGasUsed := p.BlobGasUsed
 	if err := ValidateBlobGasUsed(blobGasUsed, txs); err != nil {
 		errs = append(errs, err)
 	}
 
 	// Validate withdrawals.
-	if err := ValidateWithdrawals(payload.Withdrawals); err != nil {
+	if err := ValidateWithdrawals(p.Withdrawals); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -132,13 +132,13 @@ func (v *PayloadValidator) ValidatePayloadFull(payload *ExecutionPayloadV3) []er
 // ValidateBlockHashComputed recomputes the block hash from header fields and compares
 // it against the declared BlockHash in the payload. It constructs an RLP-encoded
 // header from the payload fields and hashes it with Keccak-256.
-func ValidateBlockHashComputed(payload *ExecutionPayloadV3) error {
-	if payload == nil {
+func ValidateBlockHashComputed(p *ExecutionPayloadV3) error {
+	if p == nil {
 		return ErrPayloadNil
 	}
 
 	// Reconstruct a header from the payload fields.
-	header := headerFromPayloadV3(payload)
+	header := headerFromPayloadV3(p)
 
 	// Encode the header via RLP and hash with Keccak-256.
 	encoded, err := rlp.EncodeToBytes(headerToRLPFieldsV3(header))
@@ -147,31 +147,31 @@ func ValidateBlockHashComputed(payload *ExecutionPayloadV3) error {
 	}
 
 	computed := types.BytesToHash(crypto.Keccak256(encoded))
-	if computed != payload.BlockHash {
+	if computed != p.BlockHash {
 		return fmt.Errorf("%w: computed %s, declared %s",
-			ErrBlockHashMismatch, computed.Hex(), payload.BlockHash.Hex())
+			ErrBlockHashMismatch, computed.Hex(), p.BlockHash.Hex())
 	}
 	return nil
 }
 
 // headerFromPayloadV3 builds a types.Header from an ExecutionPayloadV3.
-func headerFromPayloadV3(payload *ExecutionPayloadV3) *types.Header {
-	blobGasUsed := payload.BlobGasUsed
-	excessBlobGas := payload.ExcessBlobGas
+func headerFromPayloadV3(p *ExecutionPayloadV3) *types.Header {
+	blobGasUsed := p.BlobGasUsed
+	excessBlobGas := p.ExcessBlobGas
 	h := &types.Header{
-		ParentHash:    payload.ParentHash,
+		ParentHash:    p.ParentHash,
 		UncleHash:     types.EmptyUncleHash,
-		Coinbase:      payload.FeeRecipient,
-		Root:          payload.StateRoot,
-		ReceiptHash:   payload.ReceiptsRoot,
-		Bloom:         payload.LogsBloom,
+		Coinbase:      p.FeeRecipient,
+		Root:          p.StateRoot,
+		ReceiptHash:   p.ReceiptsRoot,
+		Bloom:         p.LogsBloom,
 		Difficulty:    new(big.Int),
-		Number:        new(big.Int).SetUint64(payload.BlockNumber),
-		GasLimit:      payload.GasLimit,
-		GasUsed:       payload.GasUsed,
-		Time:          payload.Timestamp,
-		Extra:         payload.ExtraData,
-		BaseFee:       payload.BaseFeePerGas,
+		Number:        new(big.Int).SetUint64(p.BlockNumber),
+		GasLimit:      p.GasLimit,
+		GasUsed:       p.GasUsed,
+		Time:          p.Timestamp,
+		Extra:         p.ExtraData,
+		BaseFee:       p.BaseFeePerGas,
 		BlobGasUsed:   &blobGasUsed,
 		ExcessBlobGas: &excessBlobGas,
 	}
@@ -266,7 +266,7 @@ func ValidateBaseFee(parent, current *big.Int, parentGasUsed, parentGasTarget ui
 }
 
 // CalcBaseFeeBig computes the EIP-1559 base fee for the next block using big.Int
-// arithmetic. This complements CalcBaseFee (in payload_processor.go) which uses uint64.
+// arithmetic. This complements CalcBaseFee (in processor.go) which uses uint64.
 // If parentGasUsed == parentGasTarget, base fee stays the same.
 // If parentGasUsed > parentGasTarget, base fee increases.
 // If parentGasUsed < parentGasTarget, base fee decreases.

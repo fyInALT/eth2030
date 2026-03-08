@@ -6,15 +6,12 @@ import (
 
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
+	enginepayload "github.com/eth2030/eth2030/engine/payload"
 )
 
 // ExecutionPayloadBodyV2 is the response body for engine_getPayloadBodiesByHash/RangeV2.
 // It extends V1 (transactions + withdrawals) with a blockAccessList field (EIP-7928).
-type ExecutionPayloadBodyV2 struct {
-	Transactions    [][]byte      `json:"transactions"`
-	Withdrawals     []*Withdrawal `json:"withdrawals"`
-	BlockAccessList []byte        `json:"blockAccessList,omitempty"`
-}
+type ExecutionPayloadBodyV2 = enginepayload.ExecutionPayloadBodyV2
 
 // GetPayloadBodiesByHashV2 returns payload bodies for the given block hashes,
 // including the Block Access List per EIP-7928 §engine-api.
@@ -39,7 +36,7 @@ func (api *EngineAPI) GetPayloadBodiesByHashV2(hashes []types.Hash) ([]*Executio
 			results[i] = nil
 			continue
 		}
-		body := blockToPayloadBodyV2(block)
+		body := enginepayload.BlockToPayloadBodyV2(block)
 		// Attach stored BAL if available.
 		if bal, ok := backend.bals[h]; ok {
 			balBytes, _ := json.Marshal(bal)
@@ -84,7 +81,7 @@ func (api *EngineAPI) GetPayloadBodiesByRangeV2(start, count uint64) ([]*Executi
 			results[i] = nil
 			continue
 		}
-		body := blockToPayloadBodyV2(found)
+		body := enginepayload.BlockToPayloadBodyV2(found)
 		if bal, ok := backend.bals[found.Hash()]; ok {
 			balBytes, _ := json.Marshal(bal)
 			body.BlockAccessList = balBytes
@@ -94,29 +91,10 @@ func (api *EngineAPI) GetPayloadBodiesByRangeV2(start, count uint64) ([]*Executi
 	return results, nil
 }
 
+// blockToPayloadBodyV2 is a package-level wrapper for tests that access this
+// function directly (in the engine package).
 func blockToPayloadBodyV2(block *types.Block) *ExecutionPayloadBodyV2 {
-	txs := make([][]byte, 0, len(block.Transactions()))
-	for _, tx := range block.Transactions() {
-		enc, err := tx.EncodeRLP()
-		if err == nil {
-			txs = append(txs, enc)
-		}
-	}
-	ws := make([]*Withdrawal, 0, len(block.Withdrawals()))
-	for _, w := range block.Withdrawals() {
-		if w != nil {
-			ws = append(ws, &Withdrawal{
-				Index:          w.Index,
-				ValidatorIndex: w.ValidatorIndex,
-				Address:        w.Address,
-				Amount:         w.Amount,
-			})
-		}
-	}
-	return &ExecutionPayloadBodyV2{
-		Transactions: txs,
-		Withdrawals:  ws,
-	}
+	return enginepayload.BlockToPayloadBodyV2(block)
 }
 
 // handleGetPayloadBodiesByHashV2 processes engine_getPayloadBodiesByHashV2.

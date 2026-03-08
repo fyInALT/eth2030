@@ -12,6 +12,7 @@ import (
 	"github.com/eth2030/eth2030/core"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
 )
 
@@ -252,7 +253,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 		return nil, ErrUnknownPayload
 	}
 
-	ep := blockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+	ep := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
 
 	return &GetPayloadResponse{
 		ExecutionPayload: ep,
@@ -595,7 +596,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 		return nil, ErrUnknownPayload
 	}
 
-	ep4 := blockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
 
 	return &GetPayloadV4Response{
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
@@ -618,7 +619,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 		return nil, ErrUnknownPayload
 	}
 
-	ep5 := blockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
+	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
 
 	return &GetPayloadV6Response{
 		ExecutionPayload:  ep5,

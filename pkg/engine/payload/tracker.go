@@ -1,14 +1,9 @@
-// payload_tracker.go manages in-flight payload build lifecycle for the
-// Engine API. It connects payload IDs to their build attributes, tracks
-// build status (pending/building/ready/failed), handles concurrent
-// forkchoiceUpdated calls that may request builds for the same attributes,
-// and integrates with the PayloadCache for completed payload storage.
-//
-// The PayloadTracker sits between the EngineAPI handler and the
-// PayloadBuilder: forkchoiceUpdated registers a build via Track, the
-// builder updates status via MarkBuilding/MarkReady/MarkFailed, and
-// getPayload reads the completed result.
-package engine
+// tracker.go manages in-flight payload build lifecycle for the Engine API.
+// It connects payload IDs to their build attributes, tracks build status
+// (pending/building/ready/failed), handles concurrent forkchoiceUpdated
+// calls that may request builds for the same attributes, and integrates
+// with the PayloadCache for completed payload storage.
+package payload
 
 import (
 	"errors"

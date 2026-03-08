@@ -1,12 +1,12 @@
-// payload_validator.go implements fork-aware execution payload validation for
+// validator.go implements fork-aware execution payload validation for
 // Engine API V3-V7. It provides per-fork validation rules (Cancun, Prague,
 // Amsterdam) covering parent hash, timestamp, gas usage, base fee,
 // transactions root, withdrawals, blob gas, and EIP-7685 execution requests.
 //
-// This complements payload_validation.go (structural checks) and
-// payload_processor.go (processing) by adding fork-context-aware validation
+// This complements validation.go (structural checks) and
+// processor.go (processing) by adding fork-context-aware validation
 // that requires knowledge of the active fork and parent block state.
-package engine
+package payload
 
 import (
 	"errors"
@@ -67,7 +67,10 @@ type ForkPayloadValidator struct {
 	// activeFork is the current fork identifier.
 	activeFork string
 
-	// maxBlobGasPerBlock is the configured max blob gas.
+	// maxBlobsPerBlock is the configured max blob count per block.
+	maxBlobsPerBlock uint64
+
+	// maxBlobGasPerBlock is the configured max blob gas per block.
 	maxBlobGasPerBlock uint64
 
 	// blobGasPerBlob is gas consumed per blob.
@@ -79,8 +82,10 @@ type ForkPayloadValidator struct {
 
 // NewForkPayloadValidator creates a validator for the specified fork.
 func NewForkPayloadValidator(fork string) *ForkPayloadValidator {
+	const defaultMaxBlobsPerBlock = 6
 	return &ForkPayloadValidator{
 		activeFork:          fork,
+		maxBlobsPerBlock:    defaultMaxBlobsPerBlock,
 		maxBlobGasPerBlock:  types.MaxBlobGasPerBlock,
 		blobGasPerBlob:      types.BlobTxBlobGasPerBlob,
 		targetBlobsPerBlock: 3, // EIP-4844 default target

@@ -1,7 +1,7 @@
-// payload_lru_cache.go implements an LRU cache for recently-built execution
+// lru_cache.go implements an LRU cache for recently-built execution
 // payloads, keyed by PayloadID. It avoids redundant computation when the
 // consensus layer requests the same payload multiple times.
-package engine
+package payload
 
 import (
 	"errors"
@@ -79,8 +79,8 @@ func NewPayloadLRUCache(maxEntries int) *PayloadLRUCache {
 // Put stores a payload in the cache under the given PayloadID. If the cache
 // is at capacity, the least-recently-used entry is evicted first. Storing a
 // payload with an existing ID updates the entry and moves it to the front.
-func (c *PayloadLRUCache) Put(id PayloadID, payload *LRUCachePayload) error {
-	if payload == nil {
+func (c *PayloadLRUCache) Put(id PayloadID, p *LRUCachePayload) error {
+	if p == nil {
 		return errors.New("payload_lru_cache: nil payload")
 	}
 
@@ -90,11 +90,11 @@ func (c *PayloadLRUCache) Put(id PayloadID, payload *LRUCachePayload) error {
 	// If key already exists, update in place and move to front.
 	if entry, ok := c.entries[id]; ok {
 		// Remove old block hash index entry if hash changed.
-		if entry.payload.BlockHash != payload.BlockHash {
+		if entry.payload.BlockHash != p.BlockHash {
 			delete(c.hashIndex, entry.payload.BlockHash)
 		}
-		entry.payload = payload
-		c.hashIndex[payload.BlockHash] = id
+		entry.payload = p
+		c.hashIndex[p.BlockHash] = id
 		c.moveToFront(entry)
 		return nil
 	}
@@ -104,9 +104,9 @@ func (c *PayloadLRUCache) Put(id PayloadID, payload *LRUCachePayload) error {
 		c.evictLRU()
 	}
 
-	entry := &lruEntry{id: id, payload: payload}
+	entry := &lruEntry{id: id, payload: p}
 	c.entries[id] = entry
-	c.hashIndex[payload.BlockHash] = id
+	c.hashIndex[p.BlockHash] = id
 	c.pushFront(entry)
 	return nil
 }

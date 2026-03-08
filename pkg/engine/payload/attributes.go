@@ -1,8 +1,8 @@
-// payload_attributes.go implements payload attribute management for the
-// Engine API. It provides validation, processing, and payload ID derivation
-// for the attributes that the consensus layer passes to the execution layer
-// when requesting a new payload build via forkchoiceUpdated.
-package engine
+// Package payload implements payload attribute management for the Engine API.
+// It provides validation, processing, and payload ID derivation for the
+// attributes that the consensus layer passes to the execution layer when
+// requesting a new payload build via forkchoiceUpdated.
+package payload
 
 import (
 	"encoding/binary"
@@ -97,8 +97,7 @@ func ProcessWithdrawals(withdrawals []*Withdrawal) ([]*Withdrawal, uint64, error
 
 // ResolveFeeRecipient returns the fee recipient to use for block building.
 // If the suggested recipient is the zero address and a fallback is provided,
-// the fallback is used instead. This allows node operators to configure a
-// default coinbase while still respecting CL suggestions.
+// the fallback is used instead.
 func ResolveFeeRecipient(suggested, fallback types.Address) types.Address {
 	if suggested.IsZero() && !fallback.IsZero() {
 		return fallback
@@ -127,14 +126,7 @@ func ValidateBeaconRoot(root types.Hash) error {
 }
 
 // DerivePayloadID computes a deterministic 8-byte PayloadID from the
-// payload attributes following the execution-apis spec convention:
-//
-//	PayloadID = first 8 bytes of keccak256(
-//	  parentHash || timestamp || prevRandao || suggestedFeeRecipient || [withdrawals] || parentBeaconBlockRoot
-//	)
-//
-// This ensures that two identical forkchoiceUpdated calls with the same
-// attributes produce the same payload ID, enabling idempotent builds.
+// payload attributes following the execution-apis spec convention.
 func DerivePayloadID(
 	parentHash types.Hash,
 	timestamp uint64,

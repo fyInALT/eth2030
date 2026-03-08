@@ -1,4 +1,4 @@
-package engine
+package payload
 
 import (
 	"errors"
@@ -64,11 +64,11 @@ func NewPayloadCache(config PayloadCacheConfig) *PayloadCache {
 
 // Store adds a payload to the cache. If the cache is at capacity, the
 // least-recently-used entry is evicted first.
-func (pc *PayloadCache) Store(payload *CachedPayload) error {
-	if payload == nil {
+func (pc *PayloadCache) Store(p *CachedPayload) error {
+	if p == nil {
 		return errors.New("nil payload")
 	}
-	if payload.Size > pc.config.MaxPayloadSize {
+	if p.Size > pc.config.MaxPayloadSize {
 		return errors.New("payload exceeds maximum size")
 	}
 
@@ -76,12 +76,12 @@ func (pc *PayloadCache) Store(payload *CachedPayload) error {
 	defer pc.mu.Unlock()
 
 	// Evict LRU entry if at capacity and this is a new key.
-	if _, exists := pc.entries[payload.ID]; !exists && len(pc.entries) >= pc.config.MaxPayloads {
+	if _, exists := pc.entries[p.ID]; !exists && len(pc.entries) >= pc.config.MaxPayloads {
 		pc.evictOldest()
 	}
 
-	pc.entries[payload.ID] = &payloadEntry{
-		payload:    payload,
+	pc.entries[p.ID] = &payloadEntry{
+		payload:    p,
 		accessTime: time.Now(),
 	}
 	return nil

@@ -1,4 +1,4 @@
-// payload_attributes_v4.go implements payload attribute extensions for Prague+.
+// attributes_v4.go implements payload attribute extensions for Prague+.
 //
 // PayloadAttributesV4Prague extends V3 with target_blob_count and max_blob_count
 // fields that the consensus layer passes to the execution layer for blob gas
@@ -8,7 +8,7 @@
 // Note: The existing PayloadAttributesV4 in types.go is the Amsterdam/FOCIL
 // variant with slot number and inclusion list. This file adds the Prague blob
 // count extension as a separate type to avoid conflicts.
-package engine
+package payload
 
 import (
 	"errors"

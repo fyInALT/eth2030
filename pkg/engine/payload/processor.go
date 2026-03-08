@@ -1,7 +1,7 @@
-// payload_processor.go implements execution payload validation and processing
+// processor.go implements execution payload validation and processing
 // for the Engine API. Includes full block validation, EIP-1559 base fee
 // calculation, gas limit bounds checking, and timestamp validation.
-package engine
+package payload
 
 import (
 	"errors"
@@ -64,27 +64,27 @@ func NewPayloadProcessor() *PayloadProcessor {
 // ValidatePayload performs full validation of an execution payload against
 // consensus rules. This checks intrinsic validity (gas, extra data, base fee)
 // without comparing to parent.
-func (pp *PayloadProcessor) ValidatePayload(payload *ExecutionPayloadV3) error {
-	if payload == nil {
+func (pp *PayloadProcessor) ValidatePayload(p *ExecutionPayloadV3) error {
+	if p == nil {
 		return ErrPPNilPayload
 	}
 	// Gas used must not exceed gas limit.
-	if payload.GasUsed > payload.GasLimit {
-		return fmt.Errorf("%w: used %d > limit %d", ErrPPGasExceedsLimit, payload.GasUsed, payload.GasLimit)
+	if p.GasUsed > p.GasLimit {
+		return fmt.Errorf("%w: used %d > limit %d", ErrPPGasExceedsLimit, p.GasUsed, p.GasLimit)
 	}
 	// Gas limit must be positive.
-	if payload.GasLimit == 0 {
+	if p.GasLimit == 0 {
 		return ErrPPZeroGasLimit
 	}
 	// Extra data length check (max 32 bytes per spec).
-	if len(payload.ExtraData) > MaxExtraDataSize {
-		return fmt.Errorf("%w: length %d", ErrPPExtraDataTooLong, len(payload.ExtraData))
+	if len(p.ExtraData) > MaxExtraDataSize {
+		return fmt.Errorf("%w: length %d", ErrPPExtraDataTooLong, len(p.ExtraData))
 	}
 	// Base fee must be present and non-negative.
-	if payload.BaseFeePerGas == nil {
+	if p.BaseFeePerGas == nil {
 		return ErrPPNilBaseFee
 	}
-	if payload.BaseFeePerGas.Sign() < 0 {
+	if p.BaseFeePerGas.Sign() < 0 {
 		return fmt.Errorf("%w: negative base fee", ErrPPBaseFeeInvalid)
 	}
 	return nil
@@ -92,15 +92,15 @@ func (pp *PayloadProcessor) ValidatePayload(payload *ExecutionPayloadV3) error {
 
 // ValidateBlockHash verifies that the block hash in the payload matches
 // the hash computed from the payload's header fields.
-func (pp *PayloadProcessor) ValidateBlockHash(payload *ExecutionPayloadV3) error {
-	if payload == nil {
+func (pp *PayloadProcessor) ValidateBlockHash(p *ExecutionPayloadV3) error {
+	if p == nil {
 		return ErrPPNilPayload
 	}
-	v4 := &ExecutionPayloadV4{ExecutionPayloadV3: *payload}
+	v4 := &ExecutionPayloadV4{ExecutionPayloadV3: *p}
 	header := PayloadToHeader(v4)
 	computed := header.Hash()
-	if payload.BlockHash != (types.Hash{}) && computed != payload.BlockHash {
-		return fmt.Errorf("%w: computed %s, got %s", ErrPPBlockHashMismatch, computed, payload.BlockHash)
+	if p.BlockHash != (types.Hash{}) && computed != p.BlockHash {
+		return fmt.Errorf("%w: computed %s, got %s", ErrPPBlockHashMismatch, computed, p.BlockHash)
 	}
 	return nil
 }
@@ -108,13 +108,13 @@ func (pp *PayloadProcessor) ValidateBlockHash(payload *ExecutionPayloadV3) error
 // ValidateGasLimits checks that the gas limit change between parent and child
 // is within the allowed bounds. Per the spec, the gas limit may change by at
 // most parent_gas_limit / GasLimitBoundDivisor.
-func (pp *PayloadProcessor) ValidateGasLimits(payload *ExecutionPayloadV3, parentGasLimit uint64) error {
-	if payload == nil {
+func (pp *PayloadProcessor) ValidateGasLimits(p *ExecutionPayloadV3, parentGasLimit uint64) error {
+	if p == nil {
 		return ErrPPNilPayload
 	}
 	// Gas limit must be at least MinGasLimit.
-	if payload.GasLimit < pp.minGasLimit {
-		return fmt.Errorf("%w: %d below minimum %d", ErrPPGasLimitDelta, payload.GasLimit, pp.minGasLimit)
+	if p.GasLimit < pp.minGasLimit {
+		return fmt.Errorf("%w: %d below minimum %d", ErrPPGasLimitDelta, p.GasLimit, pp.minGasLimit)
 	}
 	// Calculate allowed delta.
 	maxDelta := parentGasLimit / pp.gasLimitBoundDivisor
@@ -122,10 +122,10 @@ func (pp *PayloadProcessor) ValidateGasLimits(payload *ExecutionPayloadV3, paren
 		maxDelta = 1
 	}
 	var diff uint64
-	if payload.GasLimit > parentGasLimit {
-		diff = payload.GasLimit - parentGasLimit
+	if p.GasLimit > parentGasLimit {
+		diff = p.GasLimit - parentGasLimit
 	} else {
-		diff = parentGasLimit - payload.GasLimit
+		diff = parentGasLimit - p.GasLimit
 	}
 	// The difference must be strictly less than maxDelta per the spec.
 	if diff >= maxDelta {
@@ -136,12 +136,12 @@ func (pp *PayloadProcessor) ValidateGasLimits(payload *ExecutionPayloadV3, paren
 
 // ValidateTimestamp checks that the payload timestamp is strictly after the
 // parent timestamp.
-func (pp *PayloadProcessor) ValidateTimestamp(payload *ExecutionPayloadV3, parentTimestamp uint64) error {
-	if payload == nil {
+func (pp *PayloadProcessor) ValidateTimestamp(p *ExecutionPayloadV3, parentTimestamp uint64) error {
+	if p == nil {
 		return ErrPPNilPayload
 	}
-	if payload.Timestamp <= parentTimestamp {
-		return fmt.Errorf("%w: %d <= %d", ErrPPTimestampNotAfter, payload.Timestamp, parentTimestamp)
+	if p.Timestamp <= parentTimestamp {
+		return fmt.Errorf("%w: %d <= %d", ErrPPTimestampNotAfter, p.Timestamp, parentTimestamp)
 	}
 	return nil
 }
@@ -149,18 +149,18 @@ func (pp *PayloadProcessor) ValidateTimestamp(payload *ExecutionPayloadV3, paren
 // ValidateBaseFee checks that the base fee in the payload matches the
 // expected value derived from the parent's gas usage.
 func (pp *PayloadProcessor) ValidateBaseFee(
-	payload *ExecutionPayloadV3,
+	p *ExecutionPayloadV3,
 	parentBaseFee, parentGasUsed, parentGasTarget uint64,
 ) error {
-	if payload == nil {
+	if p == nil {
 		return ErrPPNilPayload
 	}
 	expected := CalcBaseFee(parentBaseFee, parentGasUsed, parentGasTarget)
-	if payload.BaseFeePerGas == nil {
+	if p.BaseFeePerGas == nil {
 		return ErrPPNilBaseFee
 	}
-	if payload.BaseFeePerGas.Uint64() != expected {
-		return fmt.Errorf("%w: expected %d, got %d", ErrPPBaseFeeInvalid, expected, payload.BaseFeePerGas.Uint64())
+	if p.BaseFeePerGas.Uint64() != expected {
+		return fmt.Errorf("%w: expected %d, got %d", ErrPPBaseFeeInvalid, expected, p.BaseFeePerGas.Uint64())
 	}
 	return nil
 }
@@ -168,19 +168,19 @@ func (pp *PayloadProcessor) ValidateBaseFee(
 // ProcessPayload executes a payload by converting to a block, running
 // basic validation, and returning a ProcessResult. This is a simplified
 // execution path; the full state transition is handled by the EngineBackend.
-func (pp *PayloadProcessor) ProcessPayload(payload *ExecutionPayloadV3) (*ProcessResult, error) {
-	if payload == nil {
+func (pp *PayloadProcessor) ProcessPayload(p *ExecutionPayloadV3) (*ProcessResult, error) {
+	if p == nil {
 		return nil, ErrPPNilPayload
 	}
 	// Run intrinsic validation first.
-	if err := pp.ValidatePayload(payload); err != nil {
+	if err := pp.ValidatePayload(p); err != nil {
 		return nil, err
 	}
 	return &ProcessResult{
-		StateRoot:    payload.StateRoot,
-		ReceiptsRoot: payload.ReceiptsRoot,
-		LogsBloom:    payload.LogsBloom,
-		GasUsed:      payload.GasUsed,
+		StateRoot:    p.StateRoot,
+		ReceiptsRoot: p.ReceiptsRoot,
+		LogsBloom:    p.LogsBloom,
+		GasUsed:      p.GasUsed,
 	}, nil
 }
 

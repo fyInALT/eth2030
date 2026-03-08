@@ -1,4 +1,4 @@
-package engine
+package payload
 
 import (
 	"math/big"
@@ -155,9 +155,9 @@ func TestBlockToPayloadV5_Conversion(t *testing.T) {
 	block := types.NewBlock(header, nil)
 	prevRandao := types.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
 
-	ep := blockToPayloadV5(block, prevRandao, nil, nil)
+	ep := BlockToPayloadV5(block, prevRandao, nil, nil)
 	if ep == nil {
-		t.Fatal("blockToPayloadV5 returned nil")
+		t.Fatal("BlockToPayloadV5 returned nil")
 	}
 	if ep.BlockNumber != 10 {
 		t.Fatalf("want block number 10, got %d", ep.BlockNumber)
