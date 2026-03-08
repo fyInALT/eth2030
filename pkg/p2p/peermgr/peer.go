@@ -1,4 +1,4 @@
-package p2p
+package peermgr
 
 import (
 	"errors"
@@ -6,15 +6,14 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 var (
-	// ErrPeerAlreadyRegistered is returned when attempting to register a peer
-	// that already exists in the peer set.
+	// ErrPeerAlreadyRegistered is returned when registering a duplicate peer.
 	ErrPeerAlreadyRegistered = errors.New("p2p: peer already registered")
 
-	// ErrPeerNotRegistered is returned when attempting to unregister a peer
-	// that is not in the peer set.
+	// ErrPeerNotRegistered is returned when removing a peer that is not found.
 	ErrPeerNotRegistered = errors.New("p2p: peer not registered")
 )
 
@@ -22,22 +21,22 @@ var (
 type Peer struct {
 	id         string     // Unique peer identifier (e.g., enode ID).
 	remoteAddr string     // Remote network address (ip:port).
-	caps       []Cap      // Negotiated capabilities.
+	caps       []wire.Cap // Negotiated capabilities.
 	head       types.Hash // Hash of the peer's best known block.
 	td         *big.Int   // Total difficulty of the peer's best known block.
 	version    uint32     // Negotiated eth protocol version.
 	headNumber uint64     // Best known block number.
 
 	// Handler state: last responses and delivered request-correlated responses.
-	lastResponses      map[uint64]interface{}
-	deliveredResponses map[uint64]interface{}
+	lastResponses      map[uint64]any
+	deliveredResponses map[uint64]any
 
 	mu sync.RWMutex
 }
 
 // NewPeer creates a new Peer with the given identity and address.
-func NewPeer(id, remoteAddr string, caps []Cap) *Peer {
-	capsCopy := make([]Cap, len(caps))
+func NewPeer(id, remoteAddr string, caps []wire.Cap) *Peer {
+	capsCopy := make([]wire.Cap, len(caps))
 	copy(capsCopy, caps)
 	return &Peer{
 		id:         id,
@@ -58,10 +57,10 @@ func (p *Peer) RemoteAddr() string {
 }
 
 // Caps returns the peer's advertised capabilities.
-func (p *Peer) Caps() []Cap {
+func (p *Peer) Caps() []wire.Cap {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	c := make([]Cap, len(p.caps))
+	c := make([]wire.Cap, len(p.caps))
 	copy(c, p.caps)
 	return c
 }
@@ -102,6 +101,64 @@ func (p *Peer) SetVersion(v uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.version = v
+}
+
+// SetHeadNumber sets the peer's best known block number.
+func (p *Peer) SetHeadNumber(num uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.headNumber = num
+}
+
+// HeadNumber returns the peer's best known block number.
+func (p *Peer) HeadNumber() uint64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.headNumber
+}
+
+// SetLastResponse stores the most recent response message for a given code.
+func (p *Peer) SetLastResponse(code uint64, value any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.lastResponses == nil {
+		p.lastResponses = make(map[uint64]any)
+	}
+	p.lastResponses[code] = value
+}
+
+// LastResponse returns the most recently stored response for a message code.
+func (p *Peer) LastResponse(code uint64) any {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.lastResponses == nil {
+		return nil
+	}
+	return p.lastResponses[code]
+}
+
+// DeliverResponse stores a response value indexed by request ID on the peer.
+func (p *Peer) DeliverResponse(requestID uint64, value any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.deliveredResponses == nil {
+		p.deliveredResponses = make(map[uint64]any)
+	}
+	p.deliveredResponses[requestID] = value
+}
+
+// GetDeliveredResponse returns and removes a delivered response by request ID.
+func (p *Peer) GetDeliveredResponse(requestID uint64) (any, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.deliveredResponses == nil {
+		return nil, false
+	}
+	v, ok := p.deliveredResponses[requestID]
+	if ok {
+		delete(p.deliveredResponses, requestID)
+	}
+	return v, ok
 }
 
 // PeerSet is a thread-safe collection of peers.

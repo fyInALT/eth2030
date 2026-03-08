@@ -1,4 +1,4 @@
-package p2p
+package peermgr
 
 import (
 	"errors"
@@ -211,8 +211,7 @@ func (m *AdvPeerManager) OutboundCount() int {
 	return m.outboundCountLocked()
 }
 
-// RecordBytes records bandwidth usage for a peer. Both in and out are
-// added atomically to the peer's running totals.
+// RecordBytes records bandwidth usage for a peer.
 func (m *AdvPeerManager) RecordBytes(id string, in, out uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

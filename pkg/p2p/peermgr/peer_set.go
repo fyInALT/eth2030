@@ -1,4 +1,4 @@
-package p2p
+package peermgr
 
 import (
 	"errors"
@@ -94,7 +94,6 @@ func (ps *ManagedPeerSet) Close() {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.closed = true
-	// Clear the map.
 	for k := range ps.peers {
 		delete(ps.peers, k)
 	}
