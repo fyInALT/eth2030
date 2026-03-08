@@ -1,8 +1,8 @@
-// Package core - teragas_scheduler.go implements scheduling for teragas L2
-// throughput targeting 1 Gbyte/sec. It manages a priority queue of blob
-// requests, enforces bandwidth limits, and produces scheduling decisions
-// with estimated delivery times and allocated bandwidth.
-package core
+// Package teragas implements scheduling for teragas L2 throughput targeting
+// 1 Gbyte/sec. It manages a priority queue of blob requests, enforces bandwidth
+// limits, and produces scheduling decisions with estimated delivery times and
+// allocated bandwidth.
+package teragas
 
 import (
 	"container/heap"
