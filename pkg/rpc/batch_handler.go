@@ -1,35 +1,30 @@
+// batch_handler.go implements BatchHandler for processing JSON-RPC batch
+// requests. Independent types are re-exported from rpc/batch.
 package rpc
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
+
+	rpcbatch "github.com/eth2030/eth2030/rpc/batch"
 )
 
-// Batch processing errors.
+// Re-export batch errors.
 var (
-	ErrBatchEmpty    = errors.New("rpc: empty batch")
-	ErrBatchTooLarge = fmt.Errorf("rpc: batch exceeds maximum size of %d", MaxBatchSize)
-	ErrNotBatch      = errors.New("rpc: request is not a JSON array")
+	ErrBatchEmpty    = rpcbatch.ErrBatchEmpty
+	ErrBatchTooLarge = rpcbatch.ErrBatchTooLarge
+	ErrNotBatch      = rpcbatch.ErrNotBatch
 )
 
-// Batch processing constants.
+// Re-export batch constants.
 const (
-	// MaxBatchSize is the maximum number of requests in a single batch.
-	MaxBatchSize = 100
-
-	// DefaultParallelism is the default number of goroutines for parallel execution.
-	DefaultParallelism = 16
+	MaxBatchSize       = rpcbatch.MaxBatchSize
+	DefaultParallelism = rpcbatch.DefaultParallelism
 )
 
-// BatchRequest represents a single request within a JSON-RPC batch.
-type BatchRequest struct {
-	JSONRPC string            `json:"jsonrpc"`
-	Method  string            `json:"method"`
-	Params  []json.RawMessage `json:"params"`
-	ID      json.RawMessage   `json:"id"`
-}
+// Re-export batch request type.
+type BatchRequest = rpcbatch.BatchRequest
 
 // BatchResponse represents a single response within a JSON-RPC batch response.
 type BatchResponse struct {
@@ -39,9 +34,7 @@ type BatchResponse struct {
 	ID      json.RawMessage `json:"id"`
 }
 
-// BatchHandler processes JSON-RPC batch requests. It parses a batch array,
-// executes each request (optionally in parallel), and assembles the results
-// in the original request order.
+// BatchHandler processes JSON-RPC batch requests.
 type BatchHandler struct {
 	api          *EthAPI
 	adminAPI     *AdminDispatchAPI
@@ -72,7 +65,7 @@ func (bh *BatchHandler) SetMaxBatchSize(n int) {
 }
 
 // SetParallelism sets the maximum number of goroutines used for parallel
-// batch execution. Must be at least 1.
+// batch execution.
 func (bh *BatchHandler) SetParallelism(n int) {
 	if n < 1 {
 		n = 1
@@ -81,8 +74,7 @@ func (bh *BatchHandler) SetParallelism(n int) {
 }
 
 // HandleBatch parses a raw JSON body as a batch request and returns the
-// batch response. If the body is not a JSON array, it returns a single
-// error response indicating an invalid request.
+// batch response.
 func (bh *BatchHandler) HandleBatch(body []byte) ([]BatchResponse, error) {
 	requests, err := parseBatchRequests(body)
 	if err != nil {
@@ -125,7 +117,6 @@ func (bh *BatchHandler) ExecuteParallel(requests []BatchRequest) []BatchResponse
 // executeOne dispatches a single BatchRequest to the API and wraps the
 // result into a BatchResponse.
 func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
-	// Validate jsonrpc version.
 	if req.JSONRPC != "2.0" {
 		return BatchResponse{
 			JSONRPC: "2.0",
@@ -133,7 +124,6 @@ func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 			ID:      req.ID,
 		}
 	}
-	// Validate method is not empty.
 	if req.Method == "" {
 		return BatchResponse{
 			JSONRPC: "2.0",
@@ -142,7 +132,6 @@ func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 		}
 	}
 
-	// Convert to the standard Request type and dispatch.
 	apiReq := &Request{
 		JSONRPC: req.JSONRPC,
 		Method:  req.Method,
@@ -171,8 +160,7 @@ func MarshalBatchResponse(responses []BatchResponse) ([]byte, error) {
 
 // parseBatchRequests parses a JSON byte slice as an array of BatchRequest.
 func parseBatchRequests(body []byte) ([]BatchRequest, error) {
-	// Quick check: must start with '['.
-	trimmed := trimWhitespace(body)
+	trimmed := rpcbatch.TrimWhitespace(body)
 	if len(trimmed) == 0 || trimmed[0] != '[' {
 		return nil, ErrNotBatch
 	}
@@ -185,15 +173,10 @@ func parseBatchRequests(body []byte) ([]BatchRequest, error) {
 }
 
 // trimWhitespace returns body with leading whitespace removed.
+// Kept for internal backward compatibility.
 func trimWhitespace(b []byte) []byte {
-	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t' || b[0] == '\r' || b[0] == '\n') {
-		b = b[1:]
-	}
-	return b
+	return rpcbatch.TrimWhitespace(b)
 }
 
-// IsBatchRequest checks whether a JSON body is a batch request (starts with '[').
-func IsBatchRequest(body []byte) bool {
-	trimmed := trimWhitespace(body)
-	return len(trimmed) > 0 && trimmed[0] == '['
-}
+// IsBatchRequest checks whether a JSON body is a batch request.
+var IsBatchRequest = rpcbatch.IsBatchRequest

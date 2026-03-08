@@ -1,63 +1,37 @@
+// batch_handler_ext.go extends batch handling with validation, statistics,
+// and notification batching support. Independent types delegate to rpc/batch.
 package rpc
 
 import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"sync/atomic"
+
+	rpcbatch "github.com/eth2030/eth2030/rpc/batch"
 )
 
-// Batch processing extended constants.
+// Re-export independent batch types from rpc/batch.
+type (
+	BatchStats          = rpcbatch.BatchStats
+	BatchStatsSnapshot  = rpcbatch.BatchStatsSnapshot
+	BatchItemResult     = rpcbatch.BatchItemResult
+	BatchRequestSummary = rpcbatch.BatchRequestSummary
+)
+
+// Re-export extended batch constants from rpc/batch.
 const (
-	// MinBatchSize is the minimum number of requests for a valid batch.
-	MinBatchSize = 1
-
-	// MaxNotificationBatchSize is the max number of notifications batched together.
-	MaxNotificationBatchSize = 50
-
-	// DefaultBatchTimeout is the default timeout per batch item in milliseconds.
-	DefaultBatchTimeout = 5000
+	MinBatchSize             = rpcbatch.MinBatchSize
+	MaxNotificationBatchSize = rpcbatch.MaxNotificationBatchSize
+	DefaultBatchTimeout      = rpcbatch.DefaultBatchTimeout
 )
 
-// BatchStats tracks statistics about batch processing for diagnostics.
-type BatchStats struct {
-	TotalBatches    atomic.Uint64
-	TotalRequests   atomic.Uint64
-	TotalErrors     atomic.Uint64
-	LargestBatch    atomic.Uint64
-	ParallelBatches atomic.Uint64
-}
+// Re-export batch utility functions from rpc/batch.
+var (
+	SummarizeBatch = rpcbatch.SummarizeBatch
+	SplitBatch     = rpcbatch.SplitBatch
+)
 
-// Snapshot returns a point-in-time snapshot of the batch statistics.
-func (s *BatchStats) Snapshot() BatchStatsSnapshot {
-	return BatchStatsSnapshot{
-		TotalBatches:    s.TotalBatches.Load(),
-		TotalRequests:   s.TotalRequests.Load(),
-		TotalErrors:     s.TotalErrors.Load(),
-		LargestBatch:    s.LargestBatch.Load(),
-		ParallelBatches: s.ParallelBatches.Load(),
-	}
-}
-
-// BatchStatsSnapshot is a non-atomic copy of BatchStats for serialization.
-type BatchStatsSnapshot struct {
-	TotalBatches    uint64 `json:"totalBatches"`
-	TotalRequests   uint64 `json:"totalRequests"`
-	TotalErrors     uint64 `json:"totalErrors"`
-	LargestBatch    uint64 `json:"largestBatch"`
-	ParallelBatches uint64 `json:"parallelBatches"`
-}
-
-// BatchItemResult contains the result of executing a single batch item,
-// including timing information.
-type BatchItemResult struct {
-	Response BatchResponse
-	Index    int
-	Error    bool
-}
-
-// BatchValidator checks the structural validity of a batch request before
-// processing. It returns detailed error information for each invalid item.
+// BatchValidator checks the structural validity of a batch request.
 type BatchValidator struct {
 	maxSize int
 }
@@ -73,18 +47,18 @@ func NewBatchValidator(maxSize int) *BatchValidator {
 // Validate checks the structural validity of a parsed batch. Returns a
 // slice of per-item validation errors (nil entries mean the item is valid).
 func (v *BatchValidator) Validate(requests []BatchRequest) []error {
-	errors := make([]error, len(requests))
+	errs := make([]error, len(requests))
 	for i, req := range requests {
 		if req.JSONRPC != "2.0" {
-			errors[i] = fmt.Errorf("invalid jsonrpc version: %q", req.JSONRPC)
+			errs[i] = fmt.Errorf("invalid jsonrpc version: %q", req.JSONRPC)
 			continue
 		}
 		if req.Method == "" {
-			errors[i] = fmt.Errorf("method is required")
+			errs[i] = fmt.Errorf("method is required")
 			continue
 		}
 	}
-	return errors
+	return errs
 }
 
 // ValidateBatchSize checks the batch size constraints.
@@ -96,6 +70,64 @@ func (v *BatchValidator) ValidateBatchSize(count int) error {
 		return fmt.Errorf("rpc: batch exceeds maximum size of %d", v.maxSize)
 	}
 	return nil
+}
+
+// NotificationBatch accumulates subscription notifications and flushes
+// them as a batch when the batch is full or a flush interval is reached.
+type NotificationBatch struct {
+	mu    sync.Mutex
+	items []json.RawMessage
+	limit int
+}
+
+// NewNotificationBatch creates a new batch with the given flush limit.
+func NewNotificationBatch(limit int) *NotificationBatch {
+	if limit <= 0 {
+		limit = MaxNotificationBatchSize
+	}
+	return &NotificationBatch{
+		items: make([]json.RawMessage, 0, limit),
+		limit: limit,
+	}
+}
+
+// Add appends a notification to the batch. Returns the serialized batch
+// if the limit is reached, or nil if more items can be added.
+func (nb *NotificationBatch) Add(notification interface{}) []byte {
+	data, err := json.Marshal(notification)
+	if err != nil {
+		return nil
+	}
+	nb.mu.Lock()
+	defer nb.mu.Unlock()
+	nb.items = append(nb.items, json.RawMessage(data))
+	if len(nb.items) >= nb.limit {
+		return nb.flushLocked()
+	}
+	return nil
+}
+
+// Flush forces the batch to be serialized and returned, even if not full.
+func (nb *NotificationBatch) Flush() []byte {
+	nb.mu.Lock()
+	defer nb.mu.Unlock()
+	return nb.flushLocked()
+}
+
+func (nb *NotificationBatch) flushLocked() []byte {
+	if len(nb.items) == 0 {
+		return nil
+	}
+	data, _ := json.Marshal(nb.items)
+	nb.items = nb.items[:0]
+	return data
+}
+
+// Len returns the number of buffered notifications.
+func (nb *NotificationBatch) Len() int {
+	nb.mu.Lock()
+	defer nb.mu.Unlock()
+	return len(nb.items)
 }
 
 // ExtendedBatchHandler extends BatchHandler with validation, statistics,
@@ -125,8 +157,6 @@ func (bh *ExtendedBatchHandler) SetParallelism(n int) {
 }
 
 // HandleBatchValidated parses, validates, and executes a batch request.
-// Invalid items receive per-item error responses rather than failing
-// the entire batch.
 func (bh *ExtendedBatchHandler) HandleBatchValidated(body []byte) ([]BatchResponse, error) {
 	requests, err := parseBatchRequests(body)
 	if err != nil {
@@ -136,10 +166,8 @@ func (bh *ExtendedBatchHandler) HandleBatchValidated(body []byte) ([]BatchRespon
 		return nil, err
 	}
 
-	// Validate each item.
 	itemErrors := bh.validator.Validate(requests)
 
-	// Update stats.
 	bh.stats.TotalBatches.Add(1)
 	bh.stats.TotalRequests.Add(uint64(len(requests)))
 	current := uint64(len(requests))
@@ -153,7 +181,6 @@ func (bh *ExtendedBatchHandler) HandleBatchValidated(body []byte) ([]BatchRespon
 		}
 	}
 
-	// Execute valid items in parallel, skip invalid ones.
 	return bh.executeWithValidation(requests, itemErrors), nil
 }
 
@@ -171,7 +198,6 @@ func (bh *ExtendedBatchHandler) executeWithValidation(
 
 	for i, req := range requests {
 		if itemErrors[i] != nil {
-			// Return a validation error for this item.
 			responses[i] = BatchResponse{
 				JSONRPC: "2.0",
 				Error:   &RPCError{Code: ErrCodeInvalidRequest, Message: itemErrors[i].Error()},
@@ -214,103 +240,4 @@ func (bh *ExtendedBatchHandler) executeWithValidation(
 // Stats returns the current batch processing statistics.
 func (bh *ExtendedBatchHandler) Stats() BatchStatsSnapshot {
 	return bh.stats.Snapshot()
-}
-
-// NotificationBatch accumulates subscription notifications and flushes
-// them as a batch when the batch is full or a flush interval is reached.
-type NotificationBatch struct {
-	mu    sync.Mutex
-	items []json.RawMessage
-	limit int
-}
-
-// NewNotificationBatch creates a new batch with the given flush limit.
-func NewNotificationBatch(limit int) *NotificationBatch {
-	if limit <= 0 {
-		limit = MaxNotificationBatchSize
-	}
-	return &NotificationBatch{
-		items: make([]json.RawMessage, 0, limit),
-		limit: limit,
-	}
-}
-
-// Add appends a notification to the batch. Returns the serialized batch
-// if the limit is reached, or nil if more items can be added.
-func (nb *NotificationBatch) Add(notification interface{}) []byte {
-	data, err := json.Marshal(notification)
-	if err != nil {
-		return nil
-	}
-
-	nb.mu.Lock()
-	defer nb.mu.Unlock()
-
-	nb.items = append(nb.items, json.RawMessage(data))
-	if len(nb.items) >= nb.limit {
-		return nb.flushLocked()
-	}
-	return nil
-}
-
-// Flush forces the batch to be serialized and returned, even if not full.
-// Returns nil if the batch is empty.
-func (nb *NotificationBatch) Flush() []byte {
-	nb.mu.Lock()
-	defer nb.mu.Unlock()
-	return nb.flushLocked()
-}
-
-// flushLocked serializes all accumulated items as a JSON array and resets.
-// Caller must hold nb.mu.
-func (nb *NotificationBatch) flushLocked() []byte {
-	if len(nb.items) == 0 {
-		return nil
-	}
-	data, _ := json.Marshal(nb.items)
-	nb.items = nb.items[:0]
-	return data
-}
-
-// Len returns the number of buffered notifications.
-func (nb *NotificationBatch) Len() int {
-	nb.mu.Lock()
-	defer nb.mu.Unlock()
-	return len(nb.items)
-}
-
-// BatchRequestSummary provides a human-readable summary of a batch request
-// for logging and debugging purposes.
-type BatchRequestSummary struct {
-	Count   int      `json:"count"`
-	Methods []string `json:"methods"`
-}
-
-// SummarizeBatch extracts method names from a batch for diagnostic logging.
-func SummarizeBatch(requests []BatchRequest) BatchRequestSummary {
-	methods := make([]string, len(requests))
-	for i, req := range requests {
-		methods[i] = req.Method
-	}
-	return BatchRequestSummary{
-		Count:   len(requests),
-		Methods: methods,
-	}
-}
-
-// SplitBatch splits a large batch into smaller sub-batches of at most chunkSize.
-// This is useful when batch size limits need to be imposed at a higher level.
-func SplitBatch(requests []BatchRequest, chunkSize int) [][]BatchRequest {
-	if chunkSize <= 0 {
-		chunkSize = MaxBatchSize
-	}
-	var chunks [][]BatchRequest
-	for i := 0; i < len(requests); i += chunkSize {
-		end := i + chunkSize
-		if end > len(requests) {
-			end = len(requests)
-		}
-		chunks = append(chunks, requests[i:end])
-	}
-	return chunks
 }
