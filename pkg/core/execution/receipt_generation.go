@@ -2,7 +2,7 @@
 // results. It handles bloom filter creation from logs, cumulative gas tracking,
 // status derivation, EIP-4844 blob gas accounting, and receipt trie root
 // calculation using a proper Merkle Patricia Trie.
-package core
+package execution
 
 import (
 	"math/big"

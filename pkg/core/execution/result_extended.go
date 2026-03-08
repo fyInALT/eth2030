@@ -1,4 +1,7 @@
-package core
+// result_extended.go implements extended execution result with trace output,
+// revert reason parsing, gas breakdown (execution/calldata/blob), and access
+// list generation.
+package execution
 
 import (
 	"encoding/hex"
@@ -8,9 +11,6 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 )
-
-// Extended execution result with trace output, revert reason parsing,
-// gas breakdown (execution/calldata/blob), and access list generation.
 
 // Revert reason decoding: Solidity's revert strings use the Error(string)
 // ABI selector 0x08c379a0, followed by ABI-encoded string.

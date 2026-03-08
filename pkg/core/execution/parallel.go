@@ -1,4 +1,4 @@
-package core
+package execution
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -68,8 +69,8 @@ func (p *ParallelProcessor) ProcessParallel(statedb state.StateDB, block *types.
 			if idx >= len(txs) {
 				return nil, fmt.Errorf("BAL references tx index %d but block has only %d transactions", idx, len(txs))
 			}
-			gasPool := new(GasPool).AddGas(block.GasLimit())
-			receipt, _, err := applyTransactionAt(p.config, memDB, header, txs[idx], gasPool, idx)
+			gp := new(gaspool.GasPool).AddGas(block.GasLimit())
+			receipt, _, err := applyTransactionAt(p.config, memDB, header, txs[idx], gp, idx)
 			if err != nil {
 				return nil, fmt.Errorf("could not apply tx %d: %w", idx, err)
 			}
@@ -99,7 +100,7 @@ func (p *ParallelProcessor) ProcessParallel(statedb state.StateDB, block *types.
 
 				// Each goroutine gets its own copy of state.
 				localState := memDB.Copy()
-				localGasPool := new(GasPool).AddGas(block.GasLimit())
+				localGasPool := new(gaspool.GasPool).AddGas(block.GasLimit())
 
 				receipt, _, err := applyTransactionAt(p.config, localState, header, txs[idx], localGasPool, idx)
 				results[slot] = txResult{
@@ -130,14 +131,14 @@ func (p *ParallelProcessor) ProcessParallel(statedb state.StateDB, block *types.
 func (p *ParallelProcessor) processSequential(statedb state.StateDB, block *types.Block) ([]*types.Receipt, error) {
 	var (
 		receipts []*types.Receipt
-		gasPool  = new(GasPool).AddGas(block.GasLimit())
+		gp       = new(gaspool.GasPool).AddGas(block.GasLimit())
 		header   = block.Header()
 		txs      = block.Transactions()
 	)
 
 	for i, tx := range txs {
 		statedb.SetTxContext(tx.Hash(), i)
-		receipt, _, err := ApplyTransaction(p.config, statedb, header, tx, gasPool)
+		receipt, _, err := ApplyTransaction(p.config, statedb, header, tx, gp)
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx, err)
 		}
@@ -147,9 +148,9 @@ func (p *ParallelProcessor) processSequential(statedb state.StateDB, block *type
 }
 
 // applyTransactionAt applies a transaction and sets the TransactionIndex on the receipt.
-func applyTransactionAt(config *config.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, txIndex int) (*types.Receipt, uint64, error) {
+func applyTransactionAt(cfg *config.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, txIndex int) (*types.Receipt, uint64, error) {
 	statedb.SetTxContext(tx.Hash(), txIndex)
-	receipt, gasUsed, err := ApplyTransaction(config, statedb, header, tx, gp)
+	receipt, gasUsed, err := ApplyTransaction(cfg, statedb, header, tx, gp)
 	if err != nil {
 		return nil, 0, err
 	}

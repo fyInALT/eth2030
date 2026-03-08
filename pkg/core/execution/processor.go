@@ -1,4 +1,4 @@
-package core
+package execution
 
 import (
 	"errors"
@@ -9,9 +9,12 @@ import (
 	corconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/rlp"
+	"github.com/eth2030/eth2030/trie"
 )
 
 // balTrackerOrNil converts a typed *bal.AccessTracker to the vm.BALTracker
@@ -97,7 +100,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb state.StateDB) ([]*
 func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateDB) (*ProcessResult, error) {
 	var (
 		receipts []*types.Receipt
-		gasPool  = new(GasPool).AddGas(block.GasLimit())
+		gasPool  = new(gaspool.GasPool).AddGas(block.GasLimit())
 		header   = block.Header()
 	)
 
@@ -378,7 +381,22 @@ func ProcessWithdrawals(statedb state.StateDB, withdrawals []*types.Withdrawal) 
 // address, amount] and inserted into a Merkle Patricia Trie keyed by its
 // position index. Returns EmptyRootHash for nil or empty withdrawals.
 func CalcWithdrawalsHash(withdrawals []*types.Withdrawal) types.Hash {
-	return deriveWithdrawalsRoot(withdrawals)
+	return calcWithdrawalsRoot(withdrawals)
+}
+
+// calcWithdrawalsRoot computes the withdrawals root using a Merkle Patricia Trie.
+func calcWithdrawalsRoot(ws []*types.Withdrawal) types.Hash {
+	if len(ws) == 0 {
+		return types.EmptyRootHash
+	}
+	t := trie.New()
+	for i, w := range ws {
+		key, _ := rlp.EncodeToBytes(uint64(i))
+		// RLP-encode withdrawal as [index, validatorIndex, address, amount].
+		val, _ := rlp.EncodeToBytes([]interface{}{w.Index, w.ValidatorIndex, w.Address, w.Amount})
+		t.Put(key, val)
+	}
+	return t.Hash()
 }
 
 // ProcessWithRequests executes all transactions in a block and then collects
@@ -444,8 +462,6 @@ func ProcessRequests(config *corconfig.ChainConfig, statedb state.StateDB, heade
 }
 
 // processDepositRequests reads deposit request data from the deposit contract.
-// In a full implementation, this would read the contract's storage or logs.
-// For now, it reads any data stored at well-known storage slots.
 func processDepositRequests(statedb state.StateDB) (types.Requests, error) {
 	addr := types.DepositContractAddress
 	if !statedb.Exist(addr) {
@@ -557,38 +573,38 @@ func trimTrailingZeros(b []byte) []byte {
 
 // ApplyTransaction applies a single transaction to the state and returns a receipt.
 // It is a convenience wrapper that calls applyTransaction with no GetHash function.
-func ApplyTransaction(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
+func ApplyTransaction(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool) (*types.Receipt, uint64, error) {
 	return applyTransaction(config, nil, statedb, header, tx, gp)
 }
 
 // ApplyTransactionWithBAL applies a single transaction to the state with
 // EIP-7928 BAL tracking enabled. The provided tracker is injected into the
 // EVM so opcodes record state accesses during execution.
-func ApplyTransactionWithBAL(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+func ApplyTransactionWithBAL(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
 	return applyTransactionWithBAL(config, nil, statedb, header, tx, gp, tracker)
 }
 
 // applyTransaction is the internal implementation that accepts an optional GetHash function.
-func applyTransaction(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
+func applyTransaction(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil, nil)
 }
 
 // applyTransactionWithBAL is like applyTransaction but injects the BAL tracker
 // into the EVM so that opcodes record state accesses for EIP-7928.
-func applyTransactionWithBAL(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+func applyTransactionWithBAL(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker, nil)
 }
 
 // applyTransactionFull is like applyTransactionWithBAL but also accepts a
 // corconfig.PaymasterSlasher for EIP-8141 paymaster slashing (AA-1.3).
-func applyTransactionFull(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
+func applyTransactionFull(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker, slasher)
 }
 
 // applyTransactionInternal is the shared implementation for all applyTransaction
 // variants. tracker enables EIP-7928 BAL recording; slasher enables EIP-8141
 // paymaster slashing on bad gas settlement.
-func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
+func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
 	// Enforce I+ fork guard for PQ transactions.
 	rules := config.Rules(header.Number, config.IsMerge(), header.Time)
 	if tx.Type() == types.PQTransactionType && !rules.IsIPlus {
@@ -680,26 +696,26 @@ func setLogContext(receipt *types.Receipt, header *types.Header, blockHash types
 // entries, and emptyAuthCount is the number of those entries targeting accounts
 // that do not yet exist in state.
 func intrinsicGas(data []byte, isCreate, isShanghai bool, authCount, emptyAuthCount uint64) uint64 {
-	gas := TxGas
+	g := TxGas
 	if isCreate {
-		gas += TxCreateGas
+		g += TxCreateGas
 	}
 	for _, b := range data {
 		if b == 0 {
-			gas += TxDataZeroGas
+			g += TxDataZeroGas
 		} else {
-			gas += TxDataNonZeroGas
+			g += TxDataNonZeroGas
 		}
 	}
 	// EIP-3860: init code word gas for contract creations (Shanghai+).
 	if isCreate && isShanghai {
 		words := (uint64(len(data)) + 31) / 32
-		gas += words * vm.InitCodeWordGas
+		g += words * vm.InitCodeWordGas
 	}
 	// EIP-7702: per-authorization gas costs.
-	gas += authCount * PerAuthBaseCost
-	gas += emptyAuthCount * PerEmptyAccountCost
-	return gas
+	g += authCount * PerAuthBaseCost
+	g += emptyAuthCount * PerEmptyAccountCost
+	return g
 }
 
 // EIP-7623: calldata gas cost floor constants.
@@ -808,60 +824,60 @@ func accessListDataTokens(accessList types.AccessList) uint64 {
 // accessListGas computes the gas cost for an EIP-2930 access list.
 // Per EIP-2930: 2400 gas per address, 1900 gas per storage key.
 func accessListGas(accessList types.AccessList) uint64 {
-	var gas uint64
+	var g uint64
 	for _, tuple := range accessList {
-		gas += 2400                                  // TxAccessListAddressGas
-		gas += uint64(len(tuple.StorageKeys)) * 1900 // TxAccessListStorageKeyGas
+		g += 2400                                  // TxAccessListAddressGas
+		g += uint64(len(tuple.StorageKeys)) * 1900 // TxAccessListStorageKeyGas
 	}
-	return gas
+	return g
 }
 
 // accessListGasGlamst computes gas cost for access lists under Glamsterdam.
 // EIP-8038: increased per-entry costs.
 // EIP-7981: adds data token cost (TOTAL_COST_FLOOR_PER_TOKEN * tokens).
 func accessListGasGlamst(accessList types.AccessList) uint64 {
-	var gas uint64
+	var g uint64
 	for _, tuple := range accessList {
-		gas += vm.AccessListAddressGlamst
-		gas += uint64(len(tuple.StorageKeys)) * vm.AccessListStorageGlamst
+		g += vm.AccessListAddressGlamst
+		g += uint64(len(tuple.StorageKeys)) * vm.AccessListStorageGlamst
 	}
 	// EIP-7981: charge data cost on access list.
 	tokens := accessListDataTokens(accessList)
-	gas += tokens * TotalCostFloorPerTokenGlamst
-	return gas
+	g += tokens * TotalCostFloorPerTokenGlamst
+	return g
 }
 
 // intrinsicGasGlamst computes intrinsic gas for Glamsterdam per EIP-2780.
 // TX_BASE_COST = 4500. Calldata pricing unchanged. Access list uses Glamsterdam costs.
 // GAS_NEW_ACCOUNT surcharge when value > 0 to non-existent non-precompile non-create.
 func intrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool, authCount, emptyAuthCount uint64) uint64 {
-	gas := vm.TxBaseGlamsterdam
+	g := vm.TxBaseGlamsterdam
 	if isCreate {
-		gas += TxCreateGas
+		g += TxCreateGas
 	}
 	// Standard calldata pricing (unchanged by EIP-2780).
 	for _, b := range data {
 		if b == 0 {
-			gas += TxDataZeroGas
+			g += TxDataZeroGas
 		} else {
-			gas += TxDataNonZeroGas
+			g += TxDataNonZeroGas
 		}
 	}
 	// EIP-2780: new-account surcharge for value transfers to non-existent accounts.
 	if !isCreate && hasValue && !toExists {
-		gas += vm.GasNewAccount
+		g += vm.GasNewAccount
 	}
 	// EIP-7702: per-authorization gas costs.
-	gas += authCount * PerAuthBaseCost
-	gas += emptyAuthCount * PerEmptyAccountCost
-	return gas
+	g += authCount * PerAuthBaseCost
+	g += emptyAuthCount * PerEmptyAccountCost
+	return g
 }
 
 // applyMessage executes a transaction message against the state.
 // An optional BALTracker can be provided for EIP-7928 state access tracking;
 // when non-nil, the tracker is injected into the EVM so opcodes record
 // storage reads, storage changes, and address touches during execution.
-func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *corconfig.Message, gp *GasPool, balTracker ...vm.BALTracker) (*ExecutionResult, error) {
+func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *corconfig.Message, gp *gaspool.GasPool, balTracker ...vm.BALTracker) (*ExecutionResult, error) {
 	// Validate and consume gas from the pool
 	if err := gp.SubGas(msg.GasLimit); err != nil {
 		return nil, err
@@ -1242,7 +1258,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 				// AA-1.3: if the payer's balance went negative, they failed to cover
 				// gas — slash the paymaster.
 				if msg.Slasher != nil {
-					if bal := statedb.GetBalance(frameCtx.Payer); bal.Sign() < 0 {
+					if b := statedb.GetBalance(frameCtx.Payer); b.Sign() < 0 {
 						_ = msg.Slasher.SlashOnBadSettlement(frameCtx.Payer)
 					}
 				}
@@ -1394,4 +1410,98 @@ func fakeExponential(factor, numerator, denominator *big.Int) *big.Int {
 		i.Add(i, big.NewInt(1))
 	}
 	return output.Div(output, denominator)
+}
+
+// --- Exported helpers for callers inside core/ ---
+
+// CalldataFloorGas computes the EIP-7623 calldata floor gas (pre-Glamsterdam).
+func CalldataFloorGas(data []byte, isCreate bool) uint64 {
+	return calldataFloorGas(data, isCreate)
+}
+
+// CalldataFloorGasGlamst computes the EIP-7976 calldata floor gas (Glamsterdam+).
+func CalldataFloorGasGlamst(data []byte, accessList types.AccessList, isCreate bool) uint64 {
+	return calldataFloorGasGlamst(data, accessList, isCreate)
+}
+
+// CapturePreState captures balance and nonce values for a transaction's addresses.
+func CapturePreState(statedb state.StateDB, tx *types.Transaction) (map[types.Address]*big.Int, map[types.Address]uint64) {
+	return capturePreState(statedb, tx)
+}
+
+// BalTrackerOrNil converts a *bal.AccessTracker to vm.BALTracker safely.
+func BalTrackerOrNil(t *bal.AccessTracker) vm.BALTracker {
+	return balTrackerOrNil(t)
+}
+
+// PopulateTracker records balance and nonce changes into the BAL tracker.
+func PopulateTracker(tracker *bal.AccessTracker, statedb state.StateDB, preBalances map[types.Address]*big.Int, preNonces map[types.Address]uint64) {
+	populateTracker(tracker, statedb, preBalances, preNonces)
+}
+
+// CalcBlobBaseFee computes the blob base fee from the excess blob gas.
+func CalcBlobBaseFee(excessBlobGas uint64) *big.Int {
+	return calcBlobBaseFee(excessBlobGas)
+}
+
+// ApplyTransactionInternal is an exported version of applyTransaction for
+// callers within the core/ package that need the internal signature.
+func ApplyTransactionInternal(cfg *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool) (*types.Receipt, uint64, error) {
+	return applyTransaction(cfg, getHash, statedb, header, tx, gp)
+}
+
+// IntrinsicGasGlamst is an exported version of intrinsicGasGlamst for tests.
+func IntrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool, authCount, emptyAuthCount uint64) uint64 {
+	return intrinsicGasGlamst(data, isCreate, hasValue, toExists, authCount, emptyAuthCount)
+}
+
+// IntrinsicGas is an exported version of intrinsicGas for tests.
+func IntrinsicGas(data []byte, isCreate, isShanghai bool, authCount, emptyAuthCount uint64) uint64 {
+	return intrinsicGas(data, isCreate, isShanghai, authCount, emptyAuthCount)
+}
+
+// CalldataTokens is an exported version of calldataTokens for tests.
+func CalldataTokens(data []byte) uint64 {
+	return calldataTokens(data)
+}
+
+// AccessListDataTokens is an exported version of accessListDataTokens for tests.
+func AccessListDataTokens(accessList types.AccessList) uint64 {
+	return accessListDataTokens(accessList)
+}
+
+// AccessListGasGlamst is an exported version of accessListGasGlamst for tests.
+func AccessListGasGlamst(accessList types.AccessList) uint64 {
+	return accessListGasGlamst(accessList)
+}
+
+// ApplyMessage is an exported version of applyMessage for tests.
+func ApplyMessage(cfg *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *corconfig.Message, gp *gaspool.GasPool, balTrackers ...vm.BALTracker) (*ExecutionResult, error) {
+	return applyMessage(cfg, getHash, statedb, header, msg, gp, balTrackers...)
+}
+
+// ValidateBAL is an exported version of validateBAL for tests.
+func ValidateBAL(header *types.Header, accessList *bal.BlockAccessList) error {
+	return validateBAL(header, accessList)
+}
+
+// RequestCountSlot exposes the request count storage slot for tests.
+var RequestCountSlot = requestCountSlot
+
+// RequestDataSlotBase exposes the request data base storage slot for tests.
+var RequestDataSlotBase = requestDataSlotBase
+
+// IncrementSlot is an exported version of incrementSlot for tests.
+func IncrementSlot(base types.Hash, offset uint64) types.Hash {
+	return incrementSlot(base, offset)
+}
+
+// CountToUint64 is an exported version of countToUint64 for tests.
+func CountToUint64(val types.Hash) uint64 {
+	return countToUint64(val)
+}
+
+// TrimTrailingZeros is an exported version of trimTrailingZeros for tests.
+func TrimTrailingZeros(b []byte) []byte {
+	return trimTrailingZeros(b)
 }

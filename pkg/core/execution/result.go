@@ -1,4 +1,4 @@
-package core
+package execution
 
 import "github.com/eth2030/eth2030/core/types"
 
