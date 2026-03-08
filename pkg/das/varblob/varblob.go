@@ -1,4 +1,4 @@
-package das
+package varblob
 
 import (
 	"encoding/binary"
@@ -12,11 +12,11 @@ import (
 
 // Variable-size blob errors.
 var (
-	ErrVarBlobTooLarge     = errors.New("das: blob data exceeds MaxBlobSize")
-	ErrVarBlobInvalidChunk = errors.New("das: chunk size must be a power of 2 within [MinChunkSize, MaxChunkSize]")
-	ErrVarBlobDecodeShort  = errors.New("das: encoded varblob too short")
-	ErrVarBlobDecodeLen    = errors.New("das: encoded varblob length mismatch")
-	ErrVarBlobEmptyData    = errors.New("das: blob data must not be empty")
+	ErrVarBlobTooLarge     = errors.New("das/varblob: blob data exceeds MaxBlobSize")
+	ErrVarBlobInvalidChunk = errors.New("das/varblob: chunk size must be a power of 2 within [MinChunkSize, MaxChunkSize]")
+	ErrVarBlobDecodeShort  = errors.New("das/varblob: encoded varblob too short")
+	ErrVarBlobDecodeLen    = errors.New("das/varblob: encoded varblob length mismatch")
+	ErrVarBlobEmptyData    = errors.New("das/varblob: blob data must not be empty")
 )
 
 // VarBlobConfig holds configuration for variable-size blobs (J+ upgrade).
@@ -159,11 +159,11 @@ func ValidateVarBlob(vb *VarBlob) error {
 	}
 	// Verify data length is aligned to chunk size.
 	if len(vb.Data)%vb.ChunkSize != 0 {
-		return errors.New("das: blob data not aligned to chunk size")
+		return errors.New("das/varblob: blob data not aligned to chunk size")
 	}
 	expectedChunks := len(vb.Data) / vb.ChunkSize
 	if vb.NumChunks != expectedChunks {
-		return errors.New("das: chunk count mismatch")
+		return errors.New("das/varblob: chunk count mismatch")
 	}
 	return nil
 }
@@ -193,17 +193,17 @@ func ValidatePaddingProof(vb *VarBlob, dataLen int) error {
 	// to the end of the padded blob are zero.
 	if dataLen > 0 {
 		if dataLen > len(vb.Data) {
-			return fmt.Errorf("das: dataLen %d exceeds blob data length %d", dataLen, len(vb.Data))
+			return fmt.Errorf("das/varblob: dataLen %d exceeds blob data length %d", dataLen, len(vb.Data))
 		}
 		for i := dataLen; i < len(vb.Data); i++ {
 			if vb.Data[i] != 0 {
-				return fmt.Errorf("das: non-zero padding byte at index %d (value 0x%02x)", i, vb.Data[i])
+				return fmt.Errorf("das/varblob: non-zero padding byte at index %d (value 0x%02x)", i, vb.Data[i])
 			}
 		}
 		// Verify the hash matches the original data prefix.
 		expectedHash := crypto.Keccak256Hash(vb.Data[:dataLen])
 		if expectedHash != vb.BlobHash {
-			return fmt.Errorf("das: blob hash mismatch: computed %x, stored %x", expectedHash, vb.BlobHash)
+			return fmt.Errorf("das/varblob: blob hash mismatch: computed %x, stored %x", expectedHash, vb.BlobHash)
 		}
 		return nil
 	}
@@ -231,7 +231,7 @@ func ValidatePaddingProof(vb *VarBlob, dataLen int) error {
 			// All subsequent bytes must also be zero.
 			for j := end; j < len(vb.Data); j++ {
 				if vb.Data[j] != 0 {
-					return fmt.Errorf("das: non-zero byte at index %d after zero chunk at offset %d", j, i)
+					return fmt.Errorf("das/varblob: non-zero byte at index %d after zero chunk at offset %d", j, i)
 				}
 			}
 			break
@@ -242,18 +242,18 @@ func ValidatePaddingProof(vb *VarBlob, dataLen int) error {
 
 // Gas cost constants for variable blob transactions.
 const (
-	// varBlobBaseGas is the base gas for submitting a variable-size blob.
-	varBlobBaseGas = 21000
-	// varBlobPerChunkGas is the per-chunk gas cost.
-	varBlobPerChunkGas = 512
+	// VarBlobBaseGas is the base gas for submitting a variable-size blob.
+	VarBlobBaseGas = 21000
+	// VarBlobPerChunkGas is the per-chunk gas cost.
+	VarBlobPerChunkGas = 512
 )
 
 // EstimateVarBlobGas estimates the gas cost for a variable-size blob transaction.
 // The cost is baseGas + perChunkGas * numChunks.
 func EstimateVarBlobGas(blobSize, chunkSize int) uint64 {
 	if chunkSize <= 0 {
-		return varBlobBaseGas
+		return VarBlobBaseGas
 	}
 	numChunks := uint64((blobSize + chunkSize - 1) / chunkSize)
-	return varBlobBaseGas + varBlobPerChunkGas*numChunks
+	return VarBlobBaseGas + VarBlobPerChunkGas*numChunks
 }

@@ -1,4 +1,4 @@
-package das
+package varblob
 
 import (
 	"errors"

@@ -1,15 +1,17 @@
-package das
+package varblob
 
 import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/eth2030/eth2030/das/dastypes"
 )
 
 // Variable blob configuration constants.
 const (
 	// DefaultBlobSize is the standard blob size in bytes (128 KiB).
-	DefaultBlobSize = FieldElementsPerBlob * BytesPerFieldElement // 131072
+	DefaultBlobSize = dastypes.FieldElementsPerBlob * dastypes.BytesPerFieldElement // 131072
 
 	// MinBlobSizeBytes is the minimum allowed variable blob size (1 KiB).
 	MinBlobSizeBytes = 1024
@@ -19,11 +21,11 @@ const (
 )
 
 var (
-	ErrInvalidBlobConfig   = errors.New("das: invalid blob config")
-	ErrBlobCountOutOfRange = errors.New("das: blob count out of range")
-	ErrBlobSizeOutOfRange  = errors.New("das: blob size out of range")
-	ErrNoScheduleEntries   = errors.New("das: no blob schedule entries")
-	ErrScheduleNotSorted   = errors.New("das: blob schedule entries not sorted by timestamp")
+	ErrInvalidBlobConfig   = errors.New("das/varblob: invalid blob config")
+	ErrBlobCountOutOfRange = errors.New("das/varblob: blob count out of range")
+	ErrBlobSizeOutOfRange  = errors.New("das/varblob: blob size out of range")
+	ErrNoScheduleEntries   = errors.New("das/varblob: no blob schedule entries")
+	ErrScheduleNotSorted   = errors.New("das/varblob: blob schedule entries not sorted by timestamp")
 )
 
 // BlobConfig defines the blob parameters for a given fork.

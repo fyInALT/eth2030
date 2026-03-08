@@ -9,13 +9,13 @@ type FieldElement = field.FieldElement
 
 // Field element constructors.
 var (
-	NewFieldElement            = field.NewFieldElement
-	NewFieldElementFromUint64  = field.NewFieldElementFromUint64
-	FieldZero                  = field.FieldZero
-	FieldOne                   = field.FieldOne
-	FFT                        = field.FFT
-	InverseFFT                 = field.InverseFFT
-	ComputeRootsOfUnity        = field.ComputeRootsOfUnity
+	NewFieldElement           = field.NewFieldElement
+	NewFieldElementFromUint64 = field.NewFieldElementFromUint64
+	FieldZero                 = field.FieldZero
+	FieldOne                  = field.FieldOne
+	FFT                       = field.FFT
+	InverseFFT                = field.InverseFFT
+	ComputeRootsOfUnity       = field.ComputeRootsOfUnity
 )
 
 // blsModulus is the BLS12-381 scalar field order, kept for package-level tests.

@@ -1,4 +1,4 @@
-package das
+package varblob
 
 import (
 	"bytes"
@@ -376,7 +376,7 @@ func TestVarBlobCrossValidation(t *testing.T) {
 
 	// Gas estimation should be consistent with the chunk count.
 	gas := EstimateVarBlobGas(len(data), vb.ChunkSize)
-	expectedGas := uint64(varBlobBaseGas + varBlobPerChunkGas*uint64(vb.NumChunks))
+	expectedGas := uint64(VarBlobBaseGas + VarBlobPerChunkGas*uint64(vb.NumChunks))
 	if gas != expectedGas {
 		t.Errorf("gas mismatch: %d vs %d", gas, expectedGas)
 	}
