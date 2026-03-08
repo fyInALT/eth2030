@@ -338,60 +338,6 @@ func restoreCalldataGasFields(block *types.Block, parent *types.Block, payloadBl
 	return block
 }
 
-// blockToPayload converts a types.Block to an ExecutionPayloadV4.
-func blockToPayload(block *types.Block, prevRandao types.Hash, withdrawals []*Withdrawal) *ExecutionPayloadV4 {
-	header := block.Header()
-
-	// Encode transactions.
-	encodedTxs := make([][]byte, len(block.Transactions()))
-	for i, tx := range block.Transactions() {
-		enc, err := tx.EncodeRLP()
-		if err != nil {
-			continue
-		}
-		encodedTxs[i] = enc
-	}
-
-	// Blob gas fields.
-	var blobGasUsed, excessBlobGas uint64
-	if header.BlobGasUsed != nil {
-		blobGasUsed = *header.BlobGasUsed
-	}
-	if header.ExcessBlobGas != nil {
-		excessBlobGas = *header.ExcessBlobGas
-	}
-
-	if withdrawals == nil {
-		withdrawals = []*Withdrawal{}
-	}
-
-	return &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
-					ParentHash:    header.ParentHash,
-					FeeRecipient:  header.Coinbase,
-					StateRoot:     header.Root,
-					ReceiptsRoot:  header.ReceiptHash,
-					LogsBloom:     header.Bloom,
-					PrevRandao:    prevRandao,
-					BlockNumber:   header.Number.Uint64(),
-					GasLimit:      header.GasLimit,
-					GasUsed:       header.GasUsed,
-					Timestamp:     header.Time,
-					ExtraData:     header.Extra,
-					BaseFeePerGas: header.BaseFee,
-					BlockHash:     block.Hash(),
-					Transactions:  encodedTxs,
-				},
-				Withdrawals: withdrawals,
-			},
-			BlobGasUsed:   blobGasUsed,
-			ExcessBlobGas: excessBlobGas,
-		},
-	}
-}
-
 // ProcessBlockV5 validates and executes an Amsterdam payload with BAL validation.
 // NOTE: EIP-8141 FrameTx receipts are included in the standard receipt array.
 // The FrameTxReceipt type (core/types/frame_receipt.go) provides per-frame
