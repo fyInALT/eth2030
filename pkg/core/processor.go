@@ -7,6 +7,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	corconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -120,21 +121,21 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	if p.config != nil && p.config.IsCancun(header.Time) {
 		if balActive && header.ParentBeaconRoot != nil {
 			// Capture old values before the system call writes.
-			timestampIdx := header.Time % historyBufferLength
-			rootIdx := timestampIdx + historyBufferLength
-			tsSlot := uint64ToHash(timestampIdx)
-			rootSlot := uint64ToHash(rootIdx)
-			oldTsVal := statedb.GetState(BeaconRootAddress, tsSlot)
-			oldRootVal := statedb.GetState(BeaconRootAddress, rootSlot)
+			timestampIdx := header.Time % eips.BeaconHistoryBufferLength
+			rootIdx := timestampIdx + eips.BeaconHistoryBufferLength
+			tsSlot := eips.Uint64ToHash(timestampIdx)
+			rootSlot := eips.Uint64ToHash(rootIdx)
+			oldTsVal := statedb.GetState(eips.BeaconRootAddress, tsSlot)
+			oldRootVal := statedb.GetState(eips.BeaconRootAddress, rootSlot)
 
-			ProcessBeaconBlockRoot(statedb, header)
+			eips.ProcessBeaconBlockRoot(statedb, header)
 
 			// Record the storage changes.
-			newTsVal := uint64ToHash(header.Time)
-			preTracker.RecordStorageChange(BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
-			preTracker.RecordStorageChange(BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
+			newTsVal := eips.Uint64ToHash(header.Time)
+			preTracker.RecordStorageChange(eips.BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
+			preTracker.RecordStorageChange(eips.BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
 		} else {
-			ProcessBeaconBlockRoot(statedb, header)
+			eips.ProcessBeaconBlockRoot(statedb, header)
 		}
 	}
 
@@ -142,28 +143,28 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	if p.config != nil && p.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
 		if balActive {
 			parentNum := header.Number.Uint64() - 1
-			slotBig := new(big.Int).SetUint64(parentNum % HistoryServeWindow)
+			slotBig := new(big.Int).SetUint64(parentNum % eips.HistoryServeWindow)
 			var slotHash types.Hash
 			if slotBig.Sign() > 0 {
 				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
 			}
-			oldVal := statedb.GetState(HistoryStorageAddress, slotHash)
+			oldVal := statedb.GetState(eips.HistoryStorageAddress, slotHash)
 
-			ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
+			eips.ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
 
-			preTracker.RecordStorageChange(HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
+			preTracker.RecordStorageChange(eips.HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
 		} else {
-			ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+			eips.ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
 		}
 	}
 
 	// EIP-7997: deploy the deterministic CREATE2 factory at Glamsterdam activation.
 	if p.config != nil && p.config.IsGlamsterdan(header.Time) {
-		if balActive && statedb.GetCodeSize(FactoryAddress) == 0 {
+		if balActive && statedb.GetCodeSize(eips.FactoryAddress) == 0 {
 			// Factory is about to be deployed — record the code touch.
-			preTracker.RecordAddressTouch(FactoryAddress)
+			preTracker.RecordAddressTouch(eips.FactoryAddress)
 		}
-		ApplyEIP7997(statedb)
+		eips.ApplyEIP7997(statedb)
 	}
 
 	// Merge pre-execution system contract accesses into the block BAL.
@@ -1090,7 +1091,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		if config != nil && config.ChainID != nil {
 			chainID = config.ChainID
 		}
-		if err := ProcessAuthorizations(statedb, msg.AuthList, chainID); err != nil {
+		if err := eips.ProcessAuthorizations(statedb, msg.AuthList, chainID); err != nil {
 			return nil, fmt.Errorf("processing EIP-7702 authorizations: %w", err)
 		}
 	}
@@ -1103,7 +1104,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	)
 
 	// EIP-8141: frame transaction execution context (set when executing a FrameTx).
-	var frameCtx *FrameExecutionContext
+	var frameCtx *eips.FrameExecutionContext
 
 	if msg.TxType == types.FrameTxType && len(msg.Frames) > 0 {
 		// EIP-8141: execute as frame transaction.
@@ -1126,7 +1127,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 			TxType:         uint64(types.FrameTxType),
 			MaxPriorityFee: msg.GasTipCap,
 			MaxFee:         msg.GasFeeCap,
-			MaxCost:        MaxFrameTxCost(frameTx),
+			MaxCost:        eips.MaxFrameTxCost(frameTx),
 			BlobCount:      uint64(len(msg.BlobHashes)),
 			SigHash:        types.ComputeFrameSigHash(frameTx),
 		}
@@ -1211,7 +1212,7 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		}
 
 		var frameErr error
-		frameCtx, frameErr = ExecuteFrameTx(frameTx, stateNonceForFrame, callFn)
+		frameCtx, frameErr = eips.ExecuteFrameTx(frameTx, stateNonceForFrame, callFn)
 		if frameErr != nil {
 			execErr = frameErr
 			gasRemaining = 0

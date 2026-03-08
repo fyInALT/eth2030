@@ -8,6 +8,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -217,18 +218,18 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	// EIP-4788: store the parent beacon block root before any user transactions.
 	if b.config != nil && b.config.IsCancun(header.Time) {
 		if balActive && header.ParentBeaconRoot != nil {
-			timestampIdx := header.Time % historyBufferLength
-			rootIdx := timestampIdx + historyBufferLength
-			tsSlot := uint64ToHash(timestampIdx)
-			rootSlot := uint64ToHash(rootIdx)
-			oldTsVal := statedb.GetState(BeaconRootAddress, tsSlot)
-			oldRootVal := statedb.GetState(BeaconRootAddress, rootSlot)
-			ProcessBeaconBlockRoot(statedb, header)
-			newTsVal := uint64ToHash(header.Time)
-			preTracker.RecordStorageChange(BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
-			preTracker.RecordStorageChange(BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
+			timestampIdx := header.Time % eips.BeaconHistoryBufferLength
+			rootIdx := timestampIdx + eips.BeaconHistoryBufferLength
+			tsSlot := eips.Uint64ToHash(timestampIdx)
+			rootSlot := eips.Uint64ToHash(rootIdx)
+			oldTsVal := statedb.GetState(eips.BeaconRootAddress, tsSlot)
+			oldRootVal := statedb.GetState(eips.BeaconRootAddress, rootSlot)
+			eips.ProcessBeaconBlockRoot(statedb, header)
+			newTsVal := eips.Uint64ToHash(header.Time)
+			preTracker.RecordStorageChange(eips.BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
+			preTracker.RecordStorageChange(eips.BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
 		} else {
-			ProcessBeaconBlockRoot(statedb, header)
+			eips.ProcessBeaconBlockRoot(statedb, header)
 		}
 	}
 
@@ -237,25 +238,25 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	if pragueActive && header.Number.Uint64() > 0 {
 		if balActive {
 			parentNum := header.Number.Uint64() - 1
-			slotBig := new(big.Int).SetUint64(parentNum % HistoryServeWindow)
+			slotBig := new(big.Int).SetUint64(parentNum % eips.HistoryServeWindow)
 			var slotHash types.Hash
 			if slotBig.Sign() > 0 {
 				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
 			}
-			oldVal := statedb.GetState(HistoryStorageAddress, slotHash)
-			ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
-			preTracker.RecordStorageChange(HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
+			oldVal := statedb.GetState(eips.HistoryStorageAddress, slotHash)
+			eips.ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
+			preTracker.RecordStorageChange(eips.HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
 		} else {
-			ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+			eips.ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
 		}
 	}
 
 	// EIP-7997: deploy the deterministic CREATE2 factory at Glamsterdam activation.
 	if b.config != nil && b.config.IsGlamsterdan(header.Time) {
-		if balActive && statedb.GetCodeSize(FactoryAddress) == 0 {
-			preTracker.RecordAddressTouch(FactoryAddress)
+		if balActive && statedb.GetCodeSize(eips.FactoryAddress) == 0 {
+			preTracker.RecordAddressTouch(eips.FactoryAddress)
 		}
-		ApplyEIP7997(statedb)
+		eips.ApplyEIP7997(statedb)
 	}
 
 	// Merge pre-execution system contract accesses into the block BAL.
@@ -586,18 +587,18 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 	// EIP-4788: store the parent beacon block root before any user transactions.
 	if b.config != nil && b.config.IsCancun(header.Time) {
 		if balActive && header.ParentBeaconRoot != nil {
-			timestampIdx := header.Time % historyBufferLength
-			rootIdx := timestampIdx + historyBufferLength
-			tsSlot := uint64ToHash(timestampIdx)
-			rootSlot := uint64ToHash(rootIdx)
-			oldTsVal := statedb.GetState(BeaconRootAddress, tsSlot)
-			oldRootVal := statedb.GetState(BeaconRootAddress, rootSlot)
-			ProcessBeaconBlockRoot(statedb, header)
-			newTsVal := uint64ToHash(header.Time)
-			preTrackerLegacy.RecordStorageChange(BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
-			preTrackerLegacy.RecordStorageChange(BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
+			timestampIdx := header.Time % eips.BeaconHistoryBufferLength
+			rootIdx := timestampIdx + eips.BeaconHistoryBufferLength
+			tsSlot := eips.Uint64ToHash(timestampIdx)
+			rootSlot := eips.Uint64ToHash(rootIdx)
+			oldTsVal := statedb.GetState(eips.BeaconRootAddress, tsSlot)
+			oldRootVal := statedb.GetState(eips.BeaconRootAddress, rootSlot)
+			eips.ProcessBeaconBlockRoot(statedb, header)
+			newTsVal := eips.Uint64ToHash(header.Time)
+			preTrackerLegacy.RecordStorageChange(eips.BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
+			preTrackerLegacy.RecordStorageChange(eips.BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
 		} else {
-			ProcessBeaconBlockRoot(statedb, header)
+			eips.ProcessBeaconBlockRoot(statedb, header)
 		}
 	}
 
@@ -605,25 +606,25 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 	if b.config != nil && b.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
 		if balActive {
 			parentNum := header.Number.Uint64() - 1
-			slotBig := new(big.Int).SetUint64(parentNum % HistoryServeWindow)
+			slotBig := new(big.Int).SetUint64(parentNum % eips.HistoryServeWindow)
 			var slotHash types.Hash
 			if slotBig.Sign() > 0 {
 				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
 			}
-			oldVal := statedb.GetState(HistoryStorageAddress, slotHash)
-			ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
-			preTrackerLegacy.RecordStorageChange(HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
+			oldVal := statedb.GetState(eips.HistoryStorageAddress, slotHash)
+			eips.ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
+			preTrackerLegacy.RecordStorageChange(eips.HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
 		} else {
-			ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
+			eips.ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
 		}
 	}
 
 	// EIP-7997: deploy the deterministic CREATE2 factory at Glamsterdam activation.
 	if b.config != nil && b.config.IsGlamsterdan(header.Time) {
-		if balActive && statedb.GetCodeSize(FactoryAddress) == 0 {
-			preTrackerLegacy.RecordAddressTouch(FactoryAddress)
+		if balActive && statedb.GetCodeSize(eips.FactoryAddress) == 0 {
+			preTrackerLegacy.RecordAddressTouch(eips.FactoryAddress)
 		}
-		ApplyEIP7997(statedb)
+		eips.ApplyEIP7997(statedb)
 	}
 
 	// Merge pre-execution system contract accesses into the block BAL.
