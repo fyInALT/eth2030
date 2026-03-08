@@ -1,4 +1,4 @@
-package rollup
+package execute
 
 import (
 	"encoding/binary"
@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/rlp"
+	"github.com/eth2030/eth2030/rollup"
 )
 
 // Gas constants for the EXECUTE precompile.
@@ -94,14 +95,14 @@ func (c *ExecutePrecompile) Run(input []byte) ([]byte, error) {
 	if err != nil {
 		// Return a failure output rather than an error for STF failures,
 		// so the precompile call doesn't revert the outer transaction.
-		output = &ExecuteOutput{Success: false}
+		output = &rollup.ExecuteOutput{Success: false}
 	}
 
 	return encodeExecuteOutput(output), nil
 }
 
 // decodeExecuteInput parses the raw input bytes into an ExecuteInput.
-func decodeExecuteInput(input []byte) (*ExecuteInput, error) {
+func decodeExecuteInput(input []byte) (*rollup.ExecuteInput, error) {
 	if len(input) < minInputLen {
 		return nil, ErrInputTooShort
 	}
@@ -131,7 +132,7 @@ func decodeExecuteInput(input []byte) (*ExecuteInput, error) {
 	anchorData := make([]byte, anchorDataLen)
 	copy(anchorData, input[offset:offset+int(anchorDataLen)])
 
-	return &ExecuteInput{
+	return &rollup.ExecuteInput{
 		ChainID:      chainID,
 		PreStateRoot: preStateRoot,
 		BlockData:    blockData,
@@ -141,7 +142,7 @@ func decodeExecuteInput(input []byte) (*ExecuteInput, error) {
 }
 
 // encodeExecuteOutput serializes an ExecuteOutput into the precompile return format.
-func encodeExecuteOutput(output *ExecuteOutput) []byte {
+func encodeExecuteOutput(output *rollup.ExecuteOutput) []byte {
 	result := make([]byte, 81)
 	copy(result[0:32], output.PostStateRoot[:])
 	copy(result[32:64], output.ReceiptsRoot[:])
@@ -157,7 +158,7 @@ func encodeExecuteOutput(output *ExecuteOutput) []byte {
 // It decodes transactions from the block data, computes real gas costs and
 // Merkle roots, and derives the post-state root from the pre-state and
 // transaction content.
-func executeSTF(input *ExecuteInput) (*ExecuteOutput, error) {
+func executeSTF(input *rollup.ExecuteInput) (*rollup.ExecuteOutput, error) {
 	if input.ChainID == 0 {
 		return nil, ErrInvalidChainID
 	}
@@ -174,7 +175,7 @@ func executeSTF(input *ExecuteInput) (*ExecuteOutput, error) {
 	// root, transaction hash from the header, and gas used.
 	postState := computeSTFStateRoot(input.PreStateRoot, blockHeader.TxHash, blockHeader.GasUsed)
 
-	return &ExecuteOutput{
+	return &rollup.ExecuteOutput{
 		PostStateRoot: postState,
 		ReceiptsRoot:  blockHeader.ReceiptHash,
 		GasUsed:       blockHeader.GasUsed,
@@ -201,9 +202,9 @@ type blockHeaderRLP struct {
 // It parses the data as an RLP-encoded list of transactions, validates them,
 // computes real gas costs and a Merkle root of the transaction hashes, and
 // derives the post-state root from the pre-state and transaction content.
-func executeFromRawBlock(input *ExecuteInput) (*ExecuteOutput, error) {
+func executeFromRawBlock(input *rollup.ExecuteInput) (*rollup.ExecuteOutput, error) {
 	if len(input.BlockData) == 0 {
-		return nil, ErrInvalidBlockData
+		return nil, rollup.ErrInvalidBlockData
 	}
 
 	// Validate: scan for blob transaction type bytes.
@@ -221,7 +222,7 @@ func executeFromRawBlock(input *ExecuteInput) (*ExecuteOutput, error) {
 	// Compute receipts root from the decoded transactions.
 	receiptsRoot := computeReceiptsRootFromTxs(txs, gasUsed)
 
-	return &ExecuteOutput{
+	return &rollup.ExecuteOutput{
 		PostStateRoot: postState,
 		ReceiptsRoot:  receiptsRoot,
 		GasUsed:       gasUsed,
@@ -390,7 +391,7 @@ func computeReceiptsRootFromTxs(txs []*types.Transaction, totalGas uint64) types
 //   - ChainID must be non-zero
 //   - PreStateRoot must be non-zero
 //   - BlockData must be non-empty and within MaxBlockDataSize
-func ValidateRollupExecution(input *ExecuteInput) error {
+func ValidateRollupExecution(input *rollup.ExecuteInput) error {
 	if input == nil {
 		return ErrInputTooShort
 	}
@@ -401,7 +402,7 @@ func ValidateRollupExecution(input *ExecuteInput) error {
 		return errors.New("execute: zero pre-state root")
 	}
 	if len(input.BlockData) == 0 {
-		return ErrInvalidBlockData
+		return rollup.ErrInvalidBlockData
 	}
 	if len(input.BlockData) > MaxBlockDataSize {
 		return ErrBlockDataTooLarge
