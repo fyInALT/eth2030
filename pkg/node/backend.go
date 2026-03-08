@@ -9,7 +9,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -362,12 +362,12 @@ type engineBackend struct {
 
 	mu       sync.Mutex
 	payloads map[engine.PayloadID]*pendingPayload
-	builder  *core.BlockBuilder
+	builder  *block.BlockBuilder
 }
 
 func newEngineBackend(n *Node) engine.Backend {
 	pool := &txPoolAdapter{node: n}
-	builder := core.NewBlockBuilder(n.blockchain.Config(), n.blockchain, pool)
+	builder := block.NewBlockBuilder(n.blockchain.Config(), n.blockchain, pool)
 	return &engineBackend{
 		node:     n,
 		payloads: make(map[engine.PayloadID]*pendingPayload),
@@ -459,7 +459,7 @@ func (b *engineBackend) processBlockInternal(
 		Extra:         payload.ExtraData,
 		BaseFee:       payload.BaseFeePerGas,
 		MixDigest:     payload.PrevRandao,
-		TxHash:        core.DeriveTxsRoot(txs),
+		TxHash:        block.DeriveTxsRoot(txs),
 		BlobGasUsed:   &blobGasUsed,
 		ExcessBlobGas: &excessBlobGas,
 	}
@@ -475,7 +475,7 @@ func (b *engineBackend) processBlockInternal(
 		if ws == nil {
 			ws = []*types.Withdrawal{}
 		}
-		wHash := core.DeriveWithdrawalsRoot(ws)
+		wHash := block.DeriveWithdrawalsRoot(ws)
 		header.WithdrawalsHash = &wHash
 	}
 
@@ -599,7 +599,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 	}
 
 	beaconRoot := payloadAttributes.ParentBeaconBlockRoot
-	attrs := &core.BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    payloadAttributes.Timestamp,
 		FeeRecipient: payloadAttributes.SuggestedFeeRecipient,
 		Random:       payloadAttributes.PrevRandao,
@@ -827,7 +827,7 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 
 // generatePayloadID creates a deterministic PayloadID from the parent hash
 // and build attributes.
-func generatePayloadID(parentHash types.Hash, attrs *core.BuildBlockAttributes) engine.PayloadID {
+func generatePayloadID(parentHash types.Hash, attrs *block.BuildBlockAttributes) engine.PayloadID {
 	var id engine.PayloadID
 
 	// Mix parent hash, timestamp, and fee recipient into the ID.

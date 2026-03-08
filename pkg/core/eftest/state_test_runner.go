@@ -12,8 +12,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/eth2030/eth2030/core"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -211,7 +212,7 @@ func (st *StateTest) Run(subtest StateSubtest) *RunResult {
 	}
 
 	// Set up gas pool.
-	gasPool := new(core.GasPool).AddGas(header.GasLimit)
+	gasPool := new(gaspool.GasPool).AddGas(header.GasLimit)
 
 	// Set tx context.
 	statedb.SetTxContext(tx.Hash(), 0)
@@ -224,7 +225,7 @@ func (st *StateTest) Run(subtest StateSubtest) *RunResult {
 				applyErr = fmt.Errorf("EVM panic: %v", r)
 			}
 		}()
-		_, _, applyErr = core.ApplyTransaction(config, statedb, header, tx, gasPool)
+		_, _, applyErr = execution.ApplyTransaction(config, statedb, header, tx, gasPool)
 	}()
 
 	// If we expect an exception and got one, that's a pass.

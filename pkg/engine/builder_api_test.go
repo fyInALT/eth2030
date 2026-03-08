@@ -40,10 +40,10 @@ func (m *builderMockBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Respon
 func (m *builderMockBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, error) {
 	return nil, ErrUnknownPayload
 }
-func (m *builderMockBackend) GetHeadTimestamp() uint64   { return 1000 }
-func (m *builderMockBackend) IsCancun(ts uint64) bool    { return true }
-func (m *builderMockBackend) IsPrague(ts uint64) bool    { return true }
-func (m *builderMockBackend) IsAmsterdam(ts uint64) bool { return true }
+func (m *builderMockBackend) GetHeadTimestamp() uint64     { return 1000 }
+func (m *builderMockBackend) IsCancun(ts uint64) bool      { return true }
+func (m *builderMockBackend) IsPrague(ts uint64) bool      { return true }
+func (m *builderMockBackend) IsAmsterdam(ts uint64) bool   { return true }
 func (m *builderMockBackend) GetHeadHash() types.Hash      { return types.Hash{} }
 func (m *builderMockBackend) GetSafeHash() types.Hash      { return types.Hash{} }
 func (m *builderMockBackend) GetFinalizedHash() types.Hash { return types.Hash{} }

@@ -8,8 +8,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -133,7 +133,7 @@ func TestFullTransactionLifecycle(t *testing.T) {
 		Transactions: []*types.Transaction{tx},
 	})
 
-	processor := core.NewStateProcessor(coreconfig.TestConfig)
+	processor := execution.NewStateProcessor(coreconfig.TestConfig)
 	receipts, err := processor.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process: %v", err)
@@ -198,7 +198,7 @@ func TestMultipleTransactionsInBlock(t *testing.T) {
 	}
 	block := types.NewBlock(header, &types.Body{Transactions: txs})
 
-	processor := core.NewStateProcessor(coreconfig.TestConfig)
+	processor := execution.NewStateProcessor(coreconfig.TestConfig)
 	receipts, err := processor.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process: %v", err)
@@ -269,7 +269,7 @@ func TestTransactionTypeMatrix(t *testing.T) {
 		}
 		block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
-		processor := core.NewStateProcessor(coreconfig.TestConfig)
+		processor := execution.NewStateProcessor(coreconfig.TestConfig)
 		receipts, err := processor.Process(block, db)
 		if err != nil {
 			t.Fatalf("Process: %v", err)
@@ -308,7 +308,7 @@ func TestTransactionTypeMatrix(t *testing.T) {
 		}
 		block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
-		processor := core.NewStateProcessor(coreconfig.TestConfig)
+		processor := execution.NewStateProcessor(coreconfig.TestConfig)
 		receipts, err := processor.Process(block, db)
 		if err != nil {
 			t.Fatalf("Process: %v", err)
@@ -345,7 +345,7 @@ func TestTransactionTypeMatrix(t *testing.T) {
 		}
 		block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
-		processor := core.NewStateProcessor(coreconfig.TestConfig)
+		processor := execution.NewStateProcessor(coreconfig.TestConfig)
 		receipts, err := processor.Process(block, db)
 		if err != nil {
 			t.Fatalf("Process: %v", err)
@@ -472,7 +472,7 @@ func TestBlockBuildAndValidate(t *testing.T) {
 	}
 
 	// Process and verify receipts.
-	processor := core.NewStateProcessor(coreconfig.TestConfig)
+	processor := execution.NewStateProcessor(coreconfig.TestConfig)
 	receipts, err := processor.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process: %v", err)
@@ -538,7 +538,7 @@ func TestGlamsterdamForkTransition(t *testing.T) {
 		block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
 		// Pre-Glamsterdam config.
-		processor := core.NewStateProcessor(coreconfig.TestConfig)
+		processor := execution.NewStateProcessor(coreconfig.TestConfig)
 		receipts, err := processor.Process(block, statedb)
 		if err != nil {
 			t.Fatalf("Process (pre-Glamsterdam): %v", err)
@@ -578,7 +578,7 @@ func TestGlamsterdamForkTransition(t *testing.T) {
 		block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
 		// Glamsterdam config has reduced base gas (4500 vs 21000).
-		processor := core.NewStateProcessor(coreconfig.TestConfigGlamsterdan)
+		processor := execution.NewStateProcessor(coreconfig.TestConfigGlamsterdan)
 		receipts, err := processor.Process(block, statedb)
 		if err != nil {
 			t.Fatalf("Process (Glamsterdam): %v", err)
@@ -647,7 +647,7 @@ func TestMixedTypedTransactionsBlock(t *testing.T) {
 		Transactions: []*types.Transaction{legacyTx, dynamicTx},
 	})
 
-	processor := core.NewStateProcessor(coreconfig.TestConfig)
+	processor := execution.NewStateProcessor(coreconfig.TestConfig)
 	receipts, err := processor.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process: %v", err)

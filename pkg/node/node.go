@@ -19,7 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/chain"
 	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
@@ -38,7 +38,7 @@ type Node struct {
 
 	// Subsystems.
 	db            rawdb.Database
-	blockchain    *core.Blockchain
+	blockchain    *chain.Blockchain
 	txPool        *txpool.TxPool
 	rpcServer     *rpc.ExtServer
 	rpcHandler    *rpc.Server
@@ -129,7 +129,7 @@ func New(config *Config) (*Node, error) {
 		genesis = makeGenesisBlock()
 	}
 
-	bc, err := core.NewBlockchain(chainConfig, genesis, statedb, n.db)
+	bc, err := chain.NewBlockchain(chainConfig, genesis, statedb, n.db)
 	if err != nil {
 		return nil, fmt.Errorf("init blockchain: %w", err)
 	}
@@ -436,7 +436,7 @@ func (n *Node) Wait() {
 }
 
 // Blockchain returns the blockchain instance.
-func (n *Node) Blockchain() *core.Blockchain {
+func (n *Node) Blockchain() *chain.Blockchain {
 	return n.blockchain
 }
 

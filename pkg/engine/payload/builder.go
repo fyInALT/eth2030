@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/bal"
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/block"
 	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -34,14 +34,14 @@ type PayloadBuilder struct {
 	mu       sync.RWMutex
 	config   *coreconfig.ChainConfig
 	statedb  *state.MemoryStateDB
-	txPool   core.TxPoolReader
+	txPool   block.TxPoolReader
 	payloads map[PayloadID]*BuiltPayload
 	// prover is an optional STARK prover for VERIFY frame transactions (US-PQ-5b).
 	prover proofs.ValidationFrameProver
 }
 
 // NewPayloadBuilder creates a new PayloadBuilder.
-func NewPayloadBuilder(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, txPool core.TxPoolReader) *PayloadBuilder {
+func NewPayloadBuilder(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, txPool block.TxPoolReader) *PayloadBuilder {
 	return &PayloadBuilder{
 		config:   config,
 		statedb:  statedb,
@@ -68,7 +68,7 @@ func (pb *PayloadBuilder) StartBuild(
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	builder := core.NewBlockBuilder(pb.config, nil, pb.txPool)
+	builder := block.NewBlockBuilder(pb.config, nil, pb.txPool)
 	builder.SetState(pb.statedb.Copy())
 	parentHeader := parentBlock.Header()
 
@@ -78,7 +78,7 @@ func (pb *PayloadBuilder) StartBuild(
 		beaconRoot = &br
 	}
 
-	block, receipts, err := builder.BuildBlock(parentHeader, &core.BuildBlockAttributes{
+	blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
 		Timestamp:    attrs.Timestamp,
 		FeeRecipient: attrs.SuggestedFeeRecipient,
 		Random:       attrs.PrevRandao,
@@ -92,19 +92,19 @@ func (pb *PayloadBuilder) StartBuild(
 
 	// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
 	if pb.prover != nil {
-		sealed, _, err := corevm.ReplaceValidationFrames(block, pb.prover)
+		sealed, _, err := corevm.ReplaceValidationFrames(blk, pb.prover)
 		if err != nil {
 			slog.Warn("frame stark replacement failed", "err", err)
 		} else {
-			block = sealed
+			blk = sealed
 		}
 	}
 
 	// Calculate block value as the sum of effective tips paid by transactions.
-	blockValue := calcBlockValue(block, receipts, parentHeader.BaseFee)
+	blockValue := calcBlockValue(blk, receipts, parentHeader.BaseFee)
 
 	pb.payloads[id] = &BuiltPayload{
-		Block:             block,
+		Block:             blk,
 		Receipts:          receipts,
 		BlockValue:        blockValue,
 		BlobsBundle:       &BlobsBundleV1{},

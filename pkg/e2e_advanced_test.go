@@ -7,7 +7,8 @@ import (
 
 	e2e "github.com/eth2030/eth2030"
 	"github.com/eth2030/eth2030/consensus"
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/eips"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/pqc"
@@ -465,20 +466,20 @@ func TestE2EAdv_PayloadChunking(t *testing.T) {
 	}
 
 	// Chunk it.
-	chunks := core.ChunkPayload(payload, 0) // default 128KB chunks
+	chunks := eips.ChunkPayload(payload, 0) // default 128KB chunks
 	if len(chunks) < 4 {
 		t.Fatalf("chunks: got %d, want >= 4", len(chunks))
 	}
 
 	// Validate each chunk.
 	for i, c := range chunks {
-		if err := core.ValidateChunk(c); err != nil {
+		if err := eips.ValidateChunk(c); err != nil {
 			t.Fatalf("ValidateChunk(%d): %v", i, err)
 		}
 	}
 
 	// Reassemble.
-	reassembled, err := core.ReassemblePayload(chunks)
+	reassembled, err := eips.ReassemblePayload(chunks)
 	if err != nil {
 		t.Fatalf("ReassemblePayload: %v", err)
 	}
@@ -488,7 +489,7 @@ func TestE2EAdv_PayloadChunking(t *testing.T) {
 }
 
 func TestE2EAdv_BlockInBlobsEncoding(t *testing.T) {
-	encoder := &core.BlobEncoder{}
+	encoder := &eips.BlobEncoder{}
 
 	// Simulate block RLP data.
 	blockRLP := make([]byte, 1000)
@@ -547,7 +548,7 @@ func TestE2EAdv_NativeRollupAnchor(t *testing.T) {
 }
 
 func TestE2EAdv_GasFuturesMarket(t *testing.T) {
-	market := core.NewGasFuturesMarket()
+	market := gas.NewGasFuturesMarket()
 
 	// Create a futures contract: strike = 50 gwei, volume = 1000.
 	future := e2e.MakeGasFuture(market, 100, 50, 1000)
@@ -579,7 +580,7 @@ func TestE2EAdv_GasFuturesMarket(t *testing.T) {
 	// price = strikePrice * blocksToExpiry * volatility / 10_000_000
 	// With strikePrice=50000, blocks=90, volatility=5000:
 	// 50000 * 90 * 5000 / 10_000_000 = 2,250
-	price := core.PriceGasFuture(10, 100, big.NewInt(50000), 5000)
+	price := gas.PriceGasFuture(10, 100, big.NewInt(50000), 5000)
 	if price.Sign() <= 0 {
 		t.Errorf("expected positive price for active future, got %s", price)
 	}
@@ -622,7 +623,7 @@ func TestE2EAdv_FullConsensusEngineLoop(t *testing.T) {
 
 	// Engine layer: build payload chunks.
 	payload := make([]byte, 200_000)
-	chunks := core.ChunkPayload(payload, 0)
+	chunks := eips.ChunkPayload(payload, 0)
 	if len(chunks) < 2 {
 		t.Error("expected multiple chunks for 200KB payload")
 	}

@@ -9,8 +9,9 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/bal"
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/block"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -37,7 +38,7 @@ type EngineBackend struct {
 	mu            sync.RWMutex
 	config        *coreconfig.ChainConfig
 	statedb       *state.MemoryStateDB
-	processor     *core.StateProcessor
+	processor     *execution.StateProcessor
 	blocks        map[types.Hash]*types.Block
 	bals          map[types.Hash]*bal.BlockAccessList // stored BALs for getPayloadBodiesV2
 	ils           []*types.InclusionList              // received via engine_newInclusionListV1
@@ -53,7 +54,7 @@ func NewEngineBackend(config *coreconfig.ChainConfig, statedb *state.MemoryState
 	b := &EngineBackend{
 		config:    config,
 		statedb:   statedb,
-		processor: core.NewStateProcessor(config),
+		processor: execution.NewStateProcessor(config),
 		blocks:    make(map[types.Hash]*types.Block),
 		bals:      make(map[types.Hash]*bal.BlockAccessList),
 		payloads:  make(map[PayloadID]*pendingPayload),
@@ -213,11 +214,11 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
 		// Build an empty block (no pending transactions from txpool yet).
-		builder := core.NewBlockBuilder(b.config, nil, nil)
+		builder := block.NewBlockBuilder(b.config, nil, nil)
 		builder.SetState(b.statedb.Copy())
 		parentHeader := parentBlock.Header()
 
-		block, receipts, err := builder.BuildBlock(parentHeader, &core.BuildBlockAttributes{
+		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
 			Timestamp:    attrs.Timestamp,
 			FeeRecipient: attrs.SuggestedFeeRecipient,
 			Random:       attrs.PrevRandao,
@@ -229,7 +230,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		}
 
 		b.payloads[id] = &pendingPayload{
-			block:        block,
+			block:        blk,
 			receipts:     receipts,
 			blockValue:   new(big.Int),
 			parentHash:   fcState.HeadBlockHash,
@@ -490,11 +491,11 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
 
-		builder := core.NewBlockBuilder(b.config, nil, nil)
+		builder := block.NewBlockBuilder(b.config, nil, nil)
 		builder.SetState(b.statedb.Copy())
 		parentHeader := parentBlock.Header()
 
-		block, receipts, err := builder.BuildBlock(parentHeader, &core.BuildBlockAttributes{
+		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
 			Timestamp:        attrs.Timestamp,
 			FeeRecipient:     attrs.SuggestedFeeRecipient,
 			Random:           attrs.PrevRandao,
@@ -510,14 +511,14 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		var blockBAL *bal.BlockAccessList
 		if b.config.IsAmsterdam(attrs.Timestamp) {
 			stateCopy2 := b.statedb.Copy()
-			balResult, err := b.processor.ProcessWithBAL(block, stateCopy2)
+			balResult, err := b.processor.ProcessWithBAL(blk, stateCopy2)
 			if err == nil && balResult != nil {
 				blockBAL = balResult.BlockAccessList
 			}
 		}
 
 		b.payloads[id] = &pendingPayload{
-			block:        block,
+			block:        blk,
 			receipts:     receipts,
 			bal:          blockBAL,
 			blockValue:   new(big.Int),
