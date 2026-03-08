@@ -2,7 +2,7 @@
 // and withdrawal list validation, concurrent multi-peer downloads,
 // priority ordering (prefer older blocks), and retry logic with peer
 // rotation.
-package sync
+package downloader
 
 import (
 	"errors"

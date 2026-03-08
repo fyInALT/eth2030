@@ -5,7 +5,7 @@
 // receipts are fetched in parallel, and a pivot point is chosen for snap
 // sync. Download throttling limits the in-flight bytes and tasks to
 // protect memory and bandwidth.
-package sync
+package downloader
 
 import (
 	"errors"

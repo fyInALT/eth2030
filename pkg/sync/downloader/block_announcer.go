@@ -2,7 +2,7 @@
 // It processes NewBlockHashes messages from peers, deduplicates known blocks,
 // tracks per-peer announcements, schedules fetches with latency-based priority,
 // handles batch fetching, and provides metrics on the announcement pipeline.
-package sync
+package downloader
 
 import (
 	"errors"

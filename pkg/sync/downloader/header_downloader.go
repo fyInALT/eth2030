@@ -3,7 +3,7 @@
 // continuity and PoS rules, handles batch requests with timeout/retry,
 // selects peers for header downloads, detects chain reorgs during
 // download, and tracks progress throughout.
-package sync
+package downloader
 
 import (
 	"errors"

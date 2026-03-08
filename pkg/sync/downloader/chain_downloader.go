@@ -3,7 +3,7 @@
 // validation, and block announcement handling. It builds on the existing
 // sync primitives (Syncer, BlockDownloader) to offer a self-contained
 // download manager for full sync.
-package sync
+package downloader
 
 import (
 	"context"
