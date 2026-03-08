@@ -2,7 +2,7 @@
 // It provides a BeaconSyncer for syncing beacon chain data (blocks and blob
 // sidecars) and a BlobRecovery mechanism for recovering missing blobs from
 // partial availability using data availability sampling concepts.
-package sync
+package beacon
 
 import (
 	"errors"
@@ -13,6 +13,9 @@ import (
 
 	"github.com/eth2030/eth2030/crypto"
 )
+
+// ErrCancelled is returned when a sync operation is cancelled.
+var ErrCancelled = errors.New("beacon sync: cancelled")
 
 // Beacon sync errors.
 var (

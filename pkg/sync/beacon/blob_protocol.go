@@ -4,7 +4,7 @@
 // commitment matching, proof validity, index bounds, slot checks), tracks
 // peer quality scores, supports batch range requests, and enforces rate
 // limiting. Thread-safe.
-package sync
+package beacon
 
 import (
 	"errors"

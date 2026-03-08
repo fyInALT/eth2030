@@ -1,7 +1,7 @@
 // blob_sync.go implements a blob sync protocol handler that manages
 // downloading and verifying blobs during snap sync. It tracks pending
 // blob requests, verified blobs, and per-peer download statistics.
-package sync
+package beacon
 
 import (
 	"errors"
