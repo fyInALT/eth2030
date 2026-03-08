@@ -1,11 +1,11 @@
-package rpc
+package adminapi
 
 import (
 	"errors"
 	"testing"
 )
 
-// mockAdminBackend implements AdminBackend for testing.
+// mockAdminBackend implements Backend for testing.
 type mockAdminBackend struct {
 	nodeInfo      NodeInfoData
 	peers         []PeerInfoData
@@ -62,7 +62,7 @@ func (b *mockAdminBackend) DataDir() string             { return b.dataDir }
 
 func TestAdminNodeInfo(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	info, err := api.AdminNodeInfo()
 	if err != nil {
@@ -89,7 +89,7 @@ func TestAdminNodeInfo(t *testing.T) {
 }
 
 func TestAdminNodeInfo_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminNodeInfo()
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -100,7 +100,7 @@ func TestAdminNodeInfo_NilBackend(t *testing.T) {
 
 func TestAdminPeers(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	peers, err := api.AdminPeers()
 	if err != nil {
@@ -126,7 +126,7 @@ func TestAdminPeers(t *testing.T) {
 func TestAdminPeers_Empty(t *testing.T) {
 	mb := newMockAdminBackend()
 	mb.peers = nil
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	peers, err := api.AdminPeers()
 	if err != nil {
@@ -138,7 +138,7 @@ func TestAdminPeers_Empty(t *testing.T) {
 }
 
 func TestAdminPeers_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminPeers()
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -149,7 +149,7 @@ func TestAdminPeers_NilBackend(t *testing.T) {
 
 func TestAdminAddPeer(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminAddPeer("enode://abc@127.0.0.1:30303")
 	if err != nil {
@@ -163,7 +163,7 @@ func TestAdminAddPeer(t *testing.T) {
 func TestAdminAddPeer_Error(t *testing.T) {
 	mb := newMockAdminBackend()
 	mb.addPeerErr = errors.New("dial failed")
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminAddPeer("enode://abc@127.0.0.1:30303")
 	if err == nil {
@@ -179,7 +179,7 @@ func TestAdminAddPeer_Error(t *testing.T) {
 
 func TestAdminAddPeer_EmptyURL(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminAddPeer("")
 	if err == nil {
@@ -191,7 +191,7 @@ func TestAdminAddPeer_EmptyURL(t *testing.T) {
 }
 
 func TestAdminAddPeer_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminAddPeer("enode://abc@127.0.0.1:30303")
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -202,7 +202,7 @@ func TestAdminAddPeer_NilBackend(t *testing.T) {
 
 func TestAdminRemovePeer(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminRemovePeer("enode://abc@127.0.0.1:30303")
 	if err != nil {
@@ -216,7 +216,7 @@ func TestAdminRemovePeer(t *testing.T) {
 func TestAdminRemovePeer_Error(t *testing.T) {
 	mb := newMockAdminBackend()
 	mb.removePeerErr = errors.New("peer not found")
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminRemovePeer("enode://abc@127.0.0.1:30303")
 	if err == nil {
@@ -232,7 +232,7 @@ func TestAdminRemovePeer_Error(t *testing.T) {
 
 func TestAdminRemovePeer_EmptyURL(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminRemovePeer("")
 	if err == nil {
@@ -244,7 +244,7 @@ func TestAdminRemovePeer_EmptyURL(t *testing.T) {
 }
 
 func TestAdminRemovePeer_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminRemovePeer("enode://abc@127.0.0.1:30303")
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -255,7 +255,7 @@ func TestAdminRemovePeer_NilBackend(t *testing.T) {
 
 func TestAdminDataDir(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	dir, err := api.AdminDataDir()
 	if err != nil {
@@ -267,7 +267,7 @@ func TestAdminDataDir(t *testing.T) {
 }
 
 func TestAdminDataDir_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminDataDir()
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -278,7 +278,7 @@ func TestAdminDataDir_NilBackend(t *testing.T) {
 
 func TestAdminStartRPC(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminStartRPC("127.0.0.1", 8545)
 	if err != nil {
@@ -291,7 +291,7 @@ func TestAdminStartRPC(t *testing.T) {
 
 func TestAdminStartRPC_EmptyHost(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminStartRPC("", 8545)
 	if err == nil {
@@ -304,7 +304,7 @@ func TestAdminStartRPC_EmptyHost(t *testing.T) {
 
 func TestAdminStartRPC_InvalidPort(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminStartRPC("127.0.0.1", 0)
 	if err == nil {
@@ -324,7 +324,7 @@ func TestAdminStartRPC_InvalidPort(t *testing.T) {
 }
 
 func TestAdminStartRPC_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminStartRPC("127.0.0.1", 8545)
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -335,7 +335,7 @@ func TestAdminStartRPC_NilBackend(t *testing.T) {
 
 func TestAdminStopRPC(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	ok, err := api.AdminStopRPC()
 	if err != nil {
@@ -347,7 +347,7 @@ func TestAdminStopRPC(t *testing.T) {
 }
 
 func TestAdminStopRPC_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminStopRPC()
 	if err == nil {
 		t.Fatal("expected error for nil backend")
@@ -358,7 +358,7 @@ func TestAdminStopRPC_NilBackend(t *testing.T) {
 
 func TestAdminChainID(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	id, err := api.AdminChainID()
 	if err != nil {
@@ -372,7 +372,7 @@ func TestAdminChainID(t *testing.T) {
 func TestAdminChainID_Mainnet(t *testing.T) {
 	mb := newMockAdminBackend()
 	mb.chainID = 1
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 
 	id, err := api.AdminChainID()
 	if err != nil {
@@ -384,18 +384,18 @@ func TestAdminChainID_Mainnet(t *testing.T) {
 }
 
 func TestAdminChainID_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.AdminChainID()
 	if err == nil {
 		t.Fatal("expected error for nil backend")
 	}
 }
 
-// --- Comprehensive nil backend coverage ---
+// --- Constructor tests ---
 
 func TestNewAdminAPI(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminAPI(mb)
+	api := NewAPI(mb)
 	if api == nil {
 		t.Fatal("expected non-nil API")
 	}
@@ -405,7 +405,7 @@ func TestNewAdminAPI(t *testing.T) {
 }
 
 func TestNewAdminAPI_NilBackend(t *testing.T) {
-	api := NewAdminAPI(nil)
+	api := NewAPI(nil)
 	if api == nil {
 		t.Fatal("expected non-nil API even with nil backend")
 	}

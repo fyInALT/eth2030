@@ -1,12 +1,14 @@
-package rpc
+package netapi
 
 import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
-// mockNetBackend implements NetBackend for testing.
+// mockNetBackend implements Backend for testing.
 type mockNetBackend struct {
 	networkID uint64
 	listening bool
@@ -28,15 +30,15 @@ func (b *mockNetBackend) IsListening() bool { return b.listening }
 func (b *mockNetBackend) PeerCount() int    { return b.peerCount }
 func (b *mockNetBackend) MaxPeers() int     { return b.maxPeers }
 
-// callNet is a test helper for NetAPI dispatch.
-func callNet(t *testing.T, n *NetAPI, method string, params ...interface{}) *Response {
+// callNet is a test helper for API dispatch.
+func callNet(t *testing.T, n *API, method string, params ...interface{}) *rpctypes.Response {
 	t.Helper()
 	var rawParams []json.RawMessage
 	for _, p := range params {
 		b, _ := json.Marshal(p)
 		rawParams = append(rawParams, json.RawMessage(b))
 	}
-	req := &Request{
+	req := &rpctypes.Request{
 		JSONRPC: "2.0",
 		Method:  method,
 		Params:  rawParams,
@@ -48,7 +50,7 @@ func callNet(t *testing.T, n *NetAPI, method string, params ...interface{}) *Res
 // --- net_version tests ---
 
 func TestNetAPI_Version_Dispatch(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	resp := callNet(t, api, "net_version")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -65,7 +67,7 @@ func TestNetAPI_Version_Dispatch(t *testing.T) {
 func TestNetAPI_Version_Mainnet(t *testing.T) {
 	mb := newMockNetBackend()
 	mb.networkID = 1
-	api := NewNetAPI(mb)
+	api := NewAPI(mb)
 
 	resp := callNet(t, api, "net_version")
 	if resp.Error != nil {
@@ -77,7 +79,7 @@ func TestNetAPI_Version_Mainnet(t *testing.T) {
 }
 
 func TestNetAPI_Version_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	resp := callNet(t, api, "net_version")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -85,7 +87,7 @@ func TestNetAPI_Version_NilBackend(t *testing.T) {
 }
 
 func TestNetAPI_Version_Direct(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	v, err := api.Version()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -96,17 +98,17 @@ func TestNetAPI_Version_Direct(t *testing.T) {
 }
 
 func TestNetAPI_Version_Direct_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.Version()
-	if !errors.Is(err, ErrNetBackendNil) {
-		t.Fatalf("want ErrNetBackendNil, got %v", err)
+	if !errors.Is(err, ErrBackendNil) {
+		t.Fatalf("want ErrBackendNil, got %v", err)
 	}
 }
 
 // --- net_listening tests ---
 
 func TestNetAPI_Listening_Dispatch(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	resp := callNet(t, api, "net_listening")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -119,7 +121,7 @@ func TestNetAPI_Listening_Dispatch(t *testing.T) {
 func TestNetAPI_Listening_False(t *testing.T) {
 	mb := newMockNetBackend()
 	mb.listening = false
-	api := NewNetAPI(mb)
+	api := NewAPI(mb)
 
 	resp := callNet(t, api, "net_listening")
 	if resp.Error != nil {
@@ -131,7 +133,7 @@ func TestNetAPI_Listening_False(t *testing.T) {
 }
 
 func TestNetAPI_Listening_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	resp := callNet(t, api, "net_listening")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -139,7 +141,7 @@ func TestNetAPI_Listening_NilBackend(t *testing.T) {
 }
 
 func TestNetAPI_Listening_Direct(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	listening, err := api.Listening()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -150,17 +152,17 @@ func TestNetAPI_Listening_Direct(t *testing.T) {
 }
 
 func TestNetAPI_Listening_Direct_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.Listening()
-	if !errors.Is(err, ErrNetBackendNil) {
-		t.Fatalf("want ErrNetBackendNil, got %v", err)
+	if !errors.Is(err, ErrBackendNil) {
+		t.Fatalf("want ErrBackendNil, got %v", err)
 	}
 }
 
 // --- net_peerCount tests ---
 
 func TestNetAPI_PeerCount_Dispatch(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	resp := callNet(t, api, "net_peerCount")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -177,7 +179,7 @@ func TestNetAPI_PeerCount_Dispatch(t *testing.T) {
 func TestNetAPI_PeerCount_Zero(t *testing.T) {
 	mb := newMockNetBackend()
 	mb.peerCount = 0
-	api := NewNetAPI(mb)
+	api := NewAPI(mb)
 
 	resp := callNet(t, api, "net_peerCount")
 	if resp.Error != nil {
@@ -189,7 +191,7 @@ func TestNetAPI_PeerCount_Zero(t *testing.T) {
 }
 
 func TestNetAPI_PeerCount_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	resp := callNet(t, api, "net_peerCount")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -197,7 +199,7 @@ func TestNetAPI_PeerCount_NilBackend(t *testing.T) {
 }
 
 func TestNetAPI_PeerCount_Direct(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	count, err := api.PeerCount()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -208,17 +210,17 @@ func TestNetAPI_PeerCount_Direct(t *testing.T) {
 }
 
 func TestNetAPI_PeerCount_Direct_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	_, err := api.PeerCount()
-	if !errors.Is(err, ErrNetBackendNil) {
-		t.Fatalf("want ErrNetBackendNil, got %v", err)
+	if !errors.Is(err, ErrBackendNil) {
+		t.Fatalf("want ErrBackendNil, got %v", err)
 	}
 }
 
 // --- net_maxPeers tests ---
 
 func TestNetAPI_MaxPeers_Dispatch(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	resp := callNet(t, api, "net_maxPeers")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -233,7 +235,7 @@ func TestNetAPI_MaxPeers_Dispatch(t *testing.T) {
 }
 
 func TestNetAPI_MaxPeers_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	resp := callNet(t, api, "net_maxPeers")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -243,13 +245,13 @@ func TestNetAPI_MaxPeers_NilBackend(t *testing.T) {
 // --- Unknown method ---
 
 func TestNetAPI_UnknownMethod(t *testing.T) {
-	api := NewNetAPI(newMockNetBackend())
+	api := NewAPI(newMockNetBackend())
 	resp := callNet(t, api, "net_nonexistent")
 	if resp.Error == nil {
 		t.Fatal("expected error for unknown method")
 	}
-	if resp.Error.Code != ErrCodeMethodNotFound {
-		t.Fatalf("want error code %d, got %d", ErrCodeMethodNotFound, resp.Error.Code)
+	if resp.Error.Code != rpctypes.ErrCodeMethodNotFound {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeMethodNotFound, resp.Error.Code)
 	}
 }
 
@@ -257,7 +259,7 @@ func TestNetAPI_UnknownMethod(t *testing.T) {
 
 func TestNewNetAPI(t *testing.T) {
 	mb := newMockNetBackend()
-	api := NewNetAPI(mb)
+	api := NewAPI(mb)
 	if api == nil {
 		t.Fatal("expected non-nil API")
 	}
@@ -267,7 +269,7 @@ func TestNewNetAPI(t *testing.T) {
 }
 
 func TestNewNetAPI_NilBackend(t *testing.T) {
-	api := NewNetAPI(nil)
+	api := NewAPI(nil)
 	if api == nil {
 		t.Fatal("expected non-nil API even with nil backend")
 	}

@@ -1,20 +1,22 @@
-package rpc
+package adminapi
 
 import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
-// callAdminDispatch is a test helper for AdminDispatchAPI.
-func callAdminDispatch(t *testing.T, a *AdminDispatchAPI, method string, params ...interface{}) *Response {
+// callAdminDispatch is a test helper for DispatchAPI.
+func callAdminDispatch(t *testing.T, a *DispatchAPI, method string, params ...interface{}) *rpctypes.Response {
 	t.Helper()
 	var rawParams []json.RawMessage
 	for _, p := range params {
 		b, _ := json.Marshal(p)
 		rawParams = append(rawParams, json.RawMessage(b))
 	}
-	req := &Request{
+	req := &rpctypes.Request{
 		JSONRPC: "2.0",
 		Method:  method,
 		Params:  rawParams,
@@ -27,7 +29,7 @@ func callAdminDispatch(t *testing.T, a *AdminDispatchAPI, method string, params 
 
 func TestAdminDispatch_AddPeer(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminDispatchAPI(mb)
+	api := NewDispatchAPI(mb)
 
 	resp := callAdminDispatch(t, api, "admin_addPeer", "enode://abc@127.0.0.1:30303")
 	if resp.Error != nil {
@@ -41,7 +43,7 @@ func TestAdminDispatch_AddPeer(t *testing.T) {
 func TestAdminDispatch_AddPeer_Error(t *testing.T) {
 	mb := newMockAdminBackend()
 	mb.addPeerErr = errors.New("dial failed")
-	api := NewAdminDispatchAPI(mb)
+	api := NewDispatchAPI(mb)
 
 	resp := callAdminDispatch(t, api, "admin_addPeer", "enode://abc@127.0.0.1:30303")
 	if resp.Error == nil {
@@ -50,18 +52,18 @@ func TestAdminDispatch_AddPeer_Error(t *testing.T) {
 }
 
 func TestAdminDispatch_AddPeer_MissingParam(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_addPeer")
 	if resp.Error == nil {
 		t.Fatal("expected error for missing param")
 	}
-	if resp.Error.Code != ErrCodeInvalidParams {
-		t.Fatalf("want error code %d, got %d", ErrCodeInvalidParams, resp.Error.Code)
+	if resp.Error.Code != rpctypes.ErrCodeInvalidParams {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeInvalidParams, resp.Error.Code)
 	}
 }
 
 func TestAdminDispatch_AddPeer_EmptyURL(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_addPeer", "")
 	if resp.Error == nil {
 		t.Fatal("expected error for empty URL")
@@ -71,7 +73,7 @@ func TestAdminDispatch_AddPeer_EmptyURL(t *testing.T) {
 // --- admin_removePeer tests ---
 
 func TestAdminDispatch_RemovePeer(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_removePeer", "enode://abc@127.0.0.1:30303")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -84,7 +86,7 @@ func TestAdminDispatch_RemovePeer(t *testing.T) {
 func TestAdminDispatch_RemovePeer_Error(t *testing.T) {
 	mb := newMockAdminBackend()
 	mb.removePeerErr = errors.New("peer not found")
-	api := NewAdminDispatchAPI(mb)
+	api := NewDispatchAPI(mb)
 
 	resp := callAdminDispatch(t, api, "admin_removePeer", "enode://abc@127.0.0.1:30303")
 	if resp.Error == nil {
@@ -93,20 +95,20 @@ func TestAdminDispatch_RemovePeer_Error(t *testing.T) {
 }
 
 func TestAdminDispatch_RemovePeer_MissingParam(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_removePeer")
 	if resp.Error == nil {
 		t.Fatal("expected error for missing param")
 	}
-	if resp.Error.Code != ErrCodeInvalidParams {
-		t.Fatalf("want error code %d, got %d", ErrCodeInvalidParams, resp.Error.Code)
+	if resp.Error.Code != rpctypes.ErrCodeInvalidParams {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeInvalidParams, resp.Error.Code)
 	}
 }
 
 // --- admin_peers tests ---
 
 func TestAdminDispatch_Peers(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_peers")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -124,7 +126,7 @@ func TestAdminDispatch_Peers(t *testing.T) {
 }
 
 func TestAdminDispatch_Peers_NilBackend(t *testing.T) {
-	api := NewAdminDispatchAPI(nil)
+	api := NewDispatchAPI(nil)
 	resp := callAdminDispatch(t, api, "admin_peers")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -134,7 +136,7 @@ func TestAdminDispatch_Peers_NilBackend(t *testing.T) {
 // --- admin_nodeInfo tests ---
 
 func TestAdminDispatch_NodeInfo(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_nodeInfo")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -152,7 +154,7 @@ func TestAdminDispatch_NodeInfo(t *testing.T) {
 }
 
 func TestAdminDispatch_NodeInfo_NilBackend(t *testing.T) {
-	api := NewAdminDispatchAPI(nil)
+	api := NewDispatchAPI(nil)
 	resp := callAdminDispatch(t, api, "admin_nodeInfo")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -162,7 +164,7 @@ func TestAdminDispatch_NodeInfo_NilBackend(t *testing.T) {
 // --- admin_datadir tests ---
 
 func TestAdminDispatch_Datadir(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_datadir")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -177,7 +179,7 @@ func TestAdminDispatch_Datadir(t *testing.T) {
 }
 
 func TestAdminDispatch_Datadir_NilBackend(t *testing.T) {
-	api := NewAdminDispatchAPI(nil)
+	api := NewDispatchAPI(nil)
 	resp := callAdminDispatch(t, api, "admin_datadir")
 	if resp.Error == nil {
 		t.Fatal("expected error for nil backend")
@@ -187,7 +189,7 @@ func TestAdminDispatch_Datadir_NilBackend(t *testing.T) {
 // --- admin_startRPC tests ---
 
 func TestAdminDispatch_StartRPC(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_startRPC", "127.0.0.1", 8545)
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -198,18 +200,18 @@ func TestAdminDispatch_StartRPC(t *testing.T) {
 }
 
 func TestAdminDispatch_StartRPC_MissingParams(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_startRPC", "127.0.0.1")
 	if resp.Error == nil {
 		t.Fatal("expected error for missing port")
 	}
-	if resp.Error.Code != ErrCodeInvalidParams {
-		t.Fatalf("want error code %d, got %d", ErrCodeInvalidParams, resp.Error.Code)
+	if resp.Error.Code != rpctypes.ErrCodeInvalidParams {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeInvalidParams, resp.Error.Code)
 	}
 }
 
 func TestAdminDispatch_StartRPC_InvalidPort(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_startRPC", "127.0.0.1", 0)
 	if resp.Error == nil {
 		t.Fatal("expected error for invalid port")
@@ -219,7 +221,7 @@ func TestAdminDispatch_StartRPC_InvalidPort(t *testing.T) {
 // --- admin_stopRPC tests ---
 
 func TestAdminDispatch_StopRPC(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_stopRPC")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -232,7 +234,7 @@ func TestAdminDispatch_StopRPC(t *testing.T) {
 // --- admin_chainId tests ---
 
 func TestAdminDispatch_ChainId(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_chainId")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error.Message)
@@ -249,13 +251,13 @@ func TestAdminDispatch_ChainId(t *testing.T) {
 // --- Unknown method ---
 
 func TestAdminDispatch_UnknownMethod(t *testing.T) {
-	api := NewAdminDispatchAPI(newMockAdminBackend())
+	api := NewDispatchAPI(newMockAdminBackend())
 	resp := callAdminDispatch(t, api, "admin_nonexistent")
 	if resp.Error == nil {
 		t.Fatal("expected error for unknown method")
 	}
-	if resp.Error.Code != ErrCodeMethodNotFound {
-		t.Fatalf("want error code %d, got %d", ErrCodeMethodNotFound, resp.Error.Code)
+	if resp.Error.Code != rpctypes.ErrCodeMethodNotFound {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeMethodNotFound, resp.Error.Code)
 	}
 }
 
@@ -263,7 +265,7 @@ func TestAdminDispatch_UnknownMethod(t *testing.T) {
 
 func TestNewAdminDispatchAPI(t *testing.T) {
 	mb := newMockAdminBackend()
-	api := NewAdminDispatchAPI(mb)
+	api := NewDispatchAPI(mb)
 	if api == nil {
 		t.Fatal("expected non-nil API")
 	}
@@ -273,7 +275,7 @@ func TestNewAdminDispatchAPI(t *testing.T) {
 }
 
 func TestNewAdminDispatchAPI_NilBackend(t *testing.T) {
-	api := NewAdminDispatchAPI(nil)
+	api := NewDispatchAPI(nil)
 	if api == nil {
 		t.Fatal("expected non-nil API even with nil backend")
 	}

@@ -5,6 +5,8 @@ package netapi
 import (
 	"errors"
 	"fmt"
+
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // Backend provides access to network status information.
@@ -78,3 +80,36 @@ func (n *API) NetworkID() (uint64, error) {
 
 // GetBackend returns the underlying Backend for testing/inspection.
 func (n *API) GetBackend() Backend { return n.backend }
+
+// HandleNetRequest dispatches a net_ namespace JSON-RPC request.
+func (n *API) HandleNetRequest(req *rpctypes.Request) *rpctypes.Response {
+	switch req.Method {
+	case "net_version":
+		v, err := n.Version()
+		if err != nil {
+			return rpctypes.NewErrorResponse(req.ID, rpctypes.ErrCodeInternal, err.Error())
+		}
+		return rpctypes.NewSuccessResponse(req.ID, v)
+	case "net_listening":
+		l, err := n.Listening()
+		if err != nil {
+			return rpctypes.NewErrorResponse(req.ID, rpctypes.ErrCodeInternal, err.Error())
+		}
+		return rpctypes.NewSuccessResponse(req.ID, l)
+	case "net_peerCount":
+		count, err := n.PeerCount()
+		if err != nil {
+			return rpctypes.NewErrorResponse(req.ID, rpctypes.ErrCodeInternal, err.Error())
+		}
+		return rpctypes.NewSuccessResponse(req.ID, rpctypes.EncodeUint64(uint64(count)))
+	case "net_maxPeers":
+		max, err := n.MaxPeers()
+		if err != nil {
+			return rpctypes.NewErrorResponse(req.ID, rpctypes.ErrCodeInternal, err.Error())
+		}
+		return rpctypes.NewSuccessResponse(req.ID, rpctypes.EncodeUint64(uint64(max)))
+	default:
+		return rpctypes.NewErrorResponse(req.ID, rpctypes.ErrCodeMethodNotFound,
+			fmt.Sprintf("method %q not found in net namespace", req.Method))
+	}
+}
