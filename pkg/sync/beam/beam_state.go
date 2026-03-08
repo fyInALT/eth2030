@@ -3,7 +3,7 @@
 // from transaction access lists, an LRU cache for frequently accessed state,
 // fallback-to-full-sync detection, and a WitnessFetcher that retrieves
 // execution witnesses from peers.
-package sync
+package beam
 
 import (
 	"errors"
