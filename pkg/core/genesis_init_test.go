@@ -7,13 +7,17 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
+
+// maxReasonableTimestamp mirrors the config package constant for test use.
+const maxReasonableTimestamp uint64 = 4_102_444_800
 
 func TestSetupGenesis_Default(t *testing.T) {
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, nil)
+	result, err := config.SetupGenesis(db, nil)
 	if err != nil {
-		t.Fatalf("SetupGenesis error: %v", err)
+		t.Fatalf("config.SetupGenesis error: %v", err)
 	}
 	if result.Block == nil {
 		t.Fatal("result block is nil")
@@ -30,16 +34,16 @@ func TestSetupGenesis_CustomAlloc(t *testing.T) {
 	addr1 := types.HexToAddress("0xaaaa")
 	addr2 := types.HexToAddress("0xbbbb")
 
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
-		Alloc: GenesisAlloc{
-			addr1: GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			addr1: config.GenesisAccount{
 				Balance: big.NewInt(1e18),
 				Nonce:   10,
 			},
-			addr2: GenesisAccount{
+			addr2: config.GenesisAccount{
 				Balance: big.NewInt(2e18),
 				Code:    []byte{0x60, 0x00, 0xf3},
 				Storage: map[types.Hash]types.Hash{
@@ -51,9 +55,9 @@ func TestSetupGenesis_CustomAlloc(t *testing.T) {
 	}
 
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis error: %v", err)
+		t.Fatalf("config.SetupGenesis error: %v", err)
 	}
 
 	// Verify state was applied.
@@ -90,15 +94,15 @@ func TestSetupGenesis_CustomAlloc(t *testing.T) {
 }
 
 func TestSetupGenesis_WritesCanonical(t *testing.T) {
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis error: %v", err)
+		t.Fatalf("config.SetupGenesis error: %v", err)
 	}
 
 	cdb := result.ChainDB
@@ -141,84 +145,84 @@ func TestSetupGenesis_WritesCanonical(t *testing.T) {
 }
 
 func TestSetupGenesis_AlreadyInitialized(t *testing.T) {
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
 	db := rawdb.NewMemoryDB()
 
 	// First init should succeed.
-	_, err := SetupGenesis(db, genesis)
+	_, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("first SetupGenesis: %v", err)
+		t.Fatalf("first config.SetupGenesis: %v", err)
 	}
 
 	// Second init should fail.
-	_, err = SetupGenesis(db, genesis)
+	_, err = config.SetupGenesis(db, genesis)
 	if err == nil {
-		t.Fatal("expected error on second SetupGenesis")
+		t.Fatal("expected error on second config.SetupGenesis")
 	}
-	if err != ErrGenesisAlreadyWritten {
-		t.Errorf("expected ErrGenesisAlreadyWritten, got %v", err)
+	if err != config.ErrGenesisAlreadyWritten {
+		t.Errorf("expected config.ErrGenesisAlreadyWritten, got %v", err)
 	}
 }
 
 func TestSetupGenesis_ValidationErrors(t *testing.T) {
 	tests := []struct {
 		name    string
-		genesis *Genesis
+		genesis *config.Genesis
 	}{
 		{
 			name: "nil config",
-			genesis: &Genesis{
+			genesis: &config.Genesis{
 				Config:   nil,
 				GasLimit: 30_000_000,
 			},
 		},
 		{
 			name: "zero gas limit",
-			genesis: &Genesis{
-				Config:   TestConfig,
+			genesis: &config.Genesis{
+				Config:   config.TestConfig,
 				GasLimit: 0,
 			},
 		},
 		{
 			name: "zero chain ID",
-			genesis: &Genesis{
-				Config:   &ChainConfig{ChainID: big.NewInt(0)},
+			genesis: &config.Genesis{
+				Config:   &config.ChainConfig{ChainID: big.NewInt(0)},
 				GasLimit: 30_000_000,
 			},
 		},
 		{
 			name: "negative chain ID",
-			genesis: &Genesis{
-				Config:   &ChainConfig{ChainID: big.NewInt(-1)},
+			genesis: &config.Genesis{
+				Config:   &config.ChainConfig{ChainID: big.NewInt(-1)},
 				GasLimit: 30_000_000,
 			},
 		},
 		{
 			name: "nil chain ID",
-			genesis: &Genesis{
-				Config:   &ChainConfig{ChainID: nil},
+			genesis: &config.Genesis{
+				Config:   &config.ChainConfig{ChainID: nil},
 				GasLimit: 30_000_000,
 			},
 		},
 		{
 			name: "extra data too long",
-			genesis: &Genesis{
-				Config:    TestConfig,
+			genesis: &config.Genesis{
+				Config:    config.TestConfig,
 				GasLimit:  30_000_000,
 				ExtraData: make([]byte, 33),
 			},
 		},
 		{
 			name: "negative balance",
-			genesis: &Genesis{
-				Config:   TestConfig,
+			genesis: &config.Genesis{
+				Config:   config.TestConfig,
 				GasLimit: 30_000_000,
-				Alloc: GenesisAlloc{
-					types.HexToAddress("0x01"): GenesisAccount{
+				Alloc: config.GenesisAlloc{
+					types.HexToAddress("0x01"): config.GenesisAccount{
 						Balance: big.NewInt(-100),
 					},
 				},
@@ -226,8 +230,8 @@ func TestSetupGenesis_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "timestamp far future",
-			genesis: &Genesis{
-				Config:    TestConfig,
+			genesis: &config.Genesis{
+				Config:    config.TestConfig,
 				GasLimit:  30_000_000,
 				Timestamp: maxReasonableTimestamp + 1,
 			},
@@ -237,7 +241,7 @@ func TestSetupGenesis_ValidationErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			db := rawdb.NewMemoryDB()
-			_, err := SetupGenesis(db, tc.genesis)
+			_, err := config.SetupGenesis(db, tc.genesis)
 			if err == nil {
 				t.Error("expected validation error")
 			}
@@ -246,32 +250,32 @@ func TestSetupGenesis_ValidationErrors(t *testing.T) {
 }
 
 func TestValidateGenesis_Valid(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 		ExtraData:  []byte("valid"),
 		Timestamp:  1000,
 	}
-	if err := ValidateGenesis(g); err != nil {
+	if err := config.ValidateGenesis(g); err != nil {
 		t.Errorf("expected valid genesis: %v", err)
 	}
 }
 
 func TestApplyGenesisAlloc_Deterministic(t *testing.T) {
-	alloc := GenesisAlloc{
-		types.HexToAddress("0x03"): GenesisAccount{Balance: big.NewInt(300)},
-		types.HexToAddress("0x01"): GenesisAccount{Balance: big.NewInt(100)},
-		types.HexToAddress("0x02"): GenesisAccount{Balance: big.NewInt(200)},
+	alloc := config.GenesisAlloc{
+		types.HexToAddress("0x03"): config.GenesisAccount{Balance: big.NewInt(300)},
+		types.HexToAddress("0x01"): config.GenesisAccount{Balance: big.NewInt(100)},
+		types.HexToAddress("0x02"): config.GenesisAccount{Balance: big.NewInt(200)},
 	}
 
 	// Apply twice and verify the state root is the same.
 	sdb1 := state.NewMemoryStateDB()
-	ApplyGenesisAlloc(sdb1, alloc)
+	config.ApplyGenesisAlloc(sdb1, alloc)
 	root1 := sdb1.GetRoot()
 
 	sdb2 := state.NewMemoryStateDB()
-	ApplyGenesisAlloc(sdb2, alloc)
+	config.ApplyGenesisAlloc(sdb2, alloc)
 	root2 := sdb2.GetRoot()
 
 	if root1 != root2 {
@@ -281,7 +285,7 @@ func TestApplyGenesisAlloc_Deterministic(t *testing.T) {
 
 func TestApplyGenesisAlloc_Empty(t *testing.T) {
 	sdb := state.NewMemoryStateDB()
-	ApplyGenesisAlloc(sdb, GenesisAlloc{})
+	config.ApplyGenesisAlloc(sdb, config.GenesisAlloc{})
 	// Should not panic and root should be the empty root.
 	root := sdb.GetRoot()
 	if root == (types.Hash{}) {
@@ -292,21 +296,21 @@ func TestApplyGenesisAlloc_Empty(t *testing.T) {
 }
 
 func TestComputeGenesisStateRoot(t *testing.T) {
-	alloc := GenesisAlloc{
-		types.HexToAddress("0xaaaa"): GenesisAccount{
+	alloc := config.GenesisAlloc{
+		types.HexToAddress("0xaaaa"): config.GenesisAccount{
 			Balance: big.NewInt(1e18),
 		},
 	}
 
-	root := ComputeGenesisStateRoot(alloc)
+	root := config.ComputeGenesisStateRoot(alloc)
 	if root == (types.Hash{}) {
 		t.Error("state root should not be zero for non-empty alloc")
 	}
 
 	// Verify determinism.
-	root2 := ComputeGenesisStateRoot(alloc)
+	root2 := config.ComputeGenesisStateRoot(alloc)
 	if root != root2 {
-		t.Error("ComputeGenesisStateRoot not deterministic")
+		t.Error("config.ComputeGenesisStateRoot not deterministic")
 	}
 }
 
@@ -324,9 +328,9 @@ func TestGenesisBlockForNetwork(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.network, func(t *testing.T) {
-			g := GenesisBlockForNetwork(tc.network)
+			g := config.GenesisBlockForNetwork(tc.network)
 			if g == nil {
-				t.Fatalf("GenesisBlockForNetwork(%q) returned nil", tc.network)
+				t.Fatalf("config.GenesisBlockForNetwork(%q) returned nil", tc.network)
 			}
 			if g.Config.ChainID.Int64() != tc.chainID {
 				t.Errorf("chain ID = %d, want %d", g.Config.ChainID.Int64(), tc.chainID)
@@ -335,26 +339,26 @@ func TestGenesisBlockForNetwork(t *testing.T) {
 	}
 
 	// Unknown network.
-	if GenesisBlockForNetwork("unknown") != nil {
+	if config.GenesisBlockForNetwork("unknown") != nil {
 		t.Error("expected nil for unknown network")
 	}
 }
 
 func TestInitChainDB(t *testing.T) {
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0xaaaa"): GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0xaaaa"): config.GenesisAccount{
 				Balance: big.NewInt(5e18),
 			},
 		},
 	}
 
-	result, err := InitChainDB(genesis)
+	result, err := config.InitChainDB(genesis)
 	if err != nil {
-		t.Fatalf("InitChainDB error: %v", err)
+		t.Fatalf("config.InitChainDB error: %v", err)
 	}
 	if result.Block.NumberU64() != 0 {
 		t.Errorf("block number = %d, want 0", result.Block.NumberU64())
@@ -366,9 +370,9 @@ func TestInitChainDB(t *testing.T) {
 
 func TestSetupGenesisOrDefault(t *testing.T) {
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesisOrDefault(db, nil)
+	result, err := config.SetupGenesisOrDefault(db, nil)
 	if err != nil {
-		t.Fatalf("SetupGenesisOrDefault error: %v", err)
+		t.Fatalf("config.SetupGenesisOrDefault error: %v", err)
 	}
 	if result.Config.ChainID.Int64() != 1 {
 		t.Errorf("expected mainnet chain ID, got %d", result.Config.ChainID.Int64())
@@ -376,11 +380,11 @@ func TestSetupGenesisOrDefault(t *testing.T) {
 }
 
 func TestSetupGenesis_SepoliaNetwork(t *testing.T) {
-	genesis := DefaultSepoliaGenesisBlock()
+	genesis := config.DefaultSepoliaGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis Sepolia error: %v", err)
+		t.Fatalf("config.SetupGenesis Sepolia error: %v", err)
 	}
 	if result.Block.Time() != 1633267481 {
 		t.Errorf("timestamp = %d, want 1633267481", result.Block.Time())
@@ -391,11 +395,11 @@ func TestSetupGenesis_SepoliaNetwork(t *testing.T) {
 }
 
 func TestSetupGenesis_HoleskyNetwork(t *testing.T) {
-	genesis := DefaultHoleskyGenesisBlock()
+	genesis := config.DefaultHoleskyGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis Holesky error: %v", err)
+		t.Fatalf("config.SetupGenesis Holesky error: %v", err)
 	}
 	if result.Block.Time() != 1695902400 {
 		t.Errorf("timestamp = %d, want 1695902400", result.Block.Time())
@@ -406,11 +410,11 @@ func TestSetupGenesis_HoleskyNetwork(t *testing.T) {
 }
 
 func TestSetupGenesis_DevNetwork(t *testing.T) {
-	genesis := DevGenesis()
+	genesis := config.DevGenesis()
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis Dev error: %v", err)
+		t.Fatalf("config.SetupGenesis Dev error: %v", err)
 	}
 	// Dev genesis has 5 prefunded accounts.
 	addr := types.HexToAddress("0x0000000000000000000000000000000000000001")
@@ -422,18 +426,18 @@ func TestSetupGenesis_DevNetwork(t *testing.T) {
 }
 
 func TestSetupGenesis_StateRootNonZero(t *testing.T) {
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0x01"): GenesisAccount{Balance: big.NewInt(100)},
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0x01"): config.GenesisAccount{Balance: big.NewInt(100)},
 		},
 	}
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis error: %v", err)
+		t.Fatalf("config.SetupGenesis error: %v", err)
 	}
 	header := result.Block.Header()
 	if header.Root == (types.Hash{}) {
@@ -442,15 +446,15 @@ func TestSetupGenesis_StateRootNonZero(t *testing.T) {
 }
 
 func TestSetupGenesis_BlockReadableByNumber(t *testing.T) {
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
 	db := rawdb.NewMemoryDB()
-	result, err := SetupGenesis(db, genesis)
+	result, err := config.SetupGenesis(db, genesis)
 	if err != nil {
-		t.Fatalf("SetupGenesis error: %v", err)
+		t.Fatalf("config.SetupGenesis error: %v", err)
 	}
 	block := result.ChainDB.ReadBlockByNumber(0)
 	if block == nil {
@@ -465,15 +469,15 @@ func TestCommitGenesisBlock_WritesAllData(t *testing.T) {
 	db := rawdb.NewMemoryDB()
 	cdb := rawdb.NewChainDB(db)
 
-	genesis := &Genesis{
-		Config:     TestConfig,
+	genesis := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(42),
 	}
 	block := genesis.ToBlock()
 
-	if err := CommitGenesisBlock(cdb, block, genesis); err != nil {
-		t.Fatalf("CommitGenesisBlock error: %v", err)
+	if err := config.CommitGenesisBlock(cdb, block, genesis); err != nil {
+		t.Fatalf("config.CommitGenesisBlock error: %v", err)
 	}
 
 	// Verify all written data.

@@ -7,6 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // makeCreationCode wraps runtime code in creation bytecode that copies
@@ -51,13 +52,13 @@ func setupSender(statedb *state.MemoryStateDB) types.Address {
 // sender, and calls applyMessage, returning the result and receipt status.
 func applyTx(t *testing.T, statedb *state.MemoryStateDB, sender types.Address, tx *types.Transaction) (*ExecutionResult, *types.Receipt) {
 	t.Helper()
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		// Pre-execution validation error (intrinsic gas, nonce, balance).
 		// Return a failed result. State is not modified by applyMessage on error.

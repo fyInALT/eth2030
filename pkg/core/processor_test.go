@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // helper to create a simple transfer transaction
@@ -31,7 +32,7 @@ func newTestHeader() *types.Header {
 }
 
 func TestProcessEmptyBlock(t *testing.T) {
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	statedb := state.NewMemoryStateDB()
 	header := newTestHeader()
 
@@ -60,7 +61,7 @@ func TestSimpleTransfer(t *testing.T) {
 	gasLimit := uint64(21000)
 
 	tx := newTransferTx(0, recipient, oneETH, gasLimit, gasPrice)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
@@ -68,7 +69,7 @@ func TestSimpleTransfer(t *testing.T) {
 
 	// Manually apply using applyMessage to set From
 	snapshot := statedb.Snapshot()
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		statedb.RevertToSnapshot(snapshot)
 		t.Fatalf("unexpected error: %v", err)
@@ -116,13 +117,13 @@ func TestInsufficientBalance(t *testing.T) {
 	gasLimit := uint64(21000)
 
 	tx := newTransferTx(0, recipient, oneETH, gasLimit, gasPrice)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	_, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected insufficient balance error")
 	}
@@ -146,7 +147,7 @@ func TestGasPoolExhaustion(t *testing.T) {
 	gasLimit := uint64(21000)
 
 	tx := newTransferTx(0, recipient, big.NewInt(100), gasLimit, gasPrice)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
@@ -154,7 +155,7 @@ func TestGasPoolExhaustion(t *testing.T) {
 	// Gas pool with only 10000 gas (less than 21000 required)
 	gp := new(GasPool).AddGas(10000)
 
-	_, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected gas pool exhaustion error")
 	}
@@ -178,35 +179,35 @@ func TestNonceValidation(t *testing.T) {
 
 	// Test nonce too low
 	tx := newTransferTx(3, recipient, big.NewInt(100), gasLimit, gasPrice)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	_, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected nonce too low error")
 	}
 
 	// Test nonce too high
 	tx = newTransferTx(10, recipient, big.NewInt(100), gasLimit, gasPrice)
-	msg = TransactionToMessage(tx)
+	msg = config.TransactionToMessage(tx)
 	msg.From = sender
 
 	gp = new(GasPool).AddGas(header.GasLimit)
-	_, err = applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	_, err = applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected nonce too high error")
 	}
 
 	// Test correct nonce succeeds
 	tx = newTransferTx(5, recipient, big.NewInt(100), gasLimit, gasPrice)
-	msg = TransactionToMessage(tx)
+	msg = config.TransactionToMessage(tx)
 	msg.From = sender
 
 	gp = new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("expected correct nonce to succeed, got: %v", err)
 	}
@@ -219,43 +220,43 @@ func TestNonceValidation(t *testing.T) {
 }
 
 func TestChainConfig(t *testing.T) {
-	// TestConfig has all forks at time 0
-	if !TestConfig.IsShanghai(0) {
-		t.Fatal("TestConfig should have Shanghai at time 0")
+	// config.TestConfig has all forks at time 0
+	if !config.TestConfig.IsShanghai(0) {
+		t.Fatal("config.TestConfig should have Shanghai at time 0")
 	}
-	if !TestConfig.IsCancun(0) {
-		t.Fatal("TestConfig should have Cancun at time 0")
+	if !config.TestConfig.IsCancun(0) {
+		t.Fatal("config.TestConfig should have Cancun at time 0")
 	}
-	if !TestConfig.IsPrague(0) {
-		t.Fatal("TestConfig should have Prague at time 0")
+	if !config.TestConfig.IsPrague(0) {
+		t.Fatal("config.TestConfig should have Prague at time 0")
 	}
-	if !TestConfig.IsAmsterdam(0) {
-		t.Fatal("TestConfig should have Amsterdam at time 0")
-	}
-
-	// MainnetConfig: Shanghai and Cancun are active at a high time
-	if !MainnetConfig.IsShanghai(2_000_000_000) {
-		t.Fatal("MainnetConfig should have Shanghai active at time 2B")
-	}
-	if !MainnetConfig.IsCancun(2_000_000_000) {
-		t.Fatal("MainnetConfig should have Cancun active at time 2B")
+	if !config.TestConfig.IsAmsterdam(0) {
+		t.Fatal("config.TestConfig should have Amsterdam at time 0")
 	}
 
-	// MainnetConfig: Prague and Amsterdam not yet scheduled
-	if MainnetConfig.IsPrague(2_000_000_000) {
-		t.Fatal("MainnetConfig should NOT have Prague active")
+	// config.MainnetConfig: Shanghai and Cancun are active at a high time
+	if !config.MainnetConfig.IsShanghai(2_000_000_000) {
+		t.Fatal("config.MainnetConfig should have Shanghai active at time 2B")
 	}
-	if MainnetConfig.IsAmsterdam(2_000_000_000) {
-		t.Fatal("MainnetConfig should NOT have Amsterdam active")
+	if !config.MainnetConfig.IsCancun(2_000_000_000) {
+		t.Fatal("config.MainnetConfig should have Cancun active at time 2B")
+	}
+
+	// config.MainnetConfig: Prague and Amsterdam not yet scheduled
+	if config.MainnetConfig.IsPrague(2_000_000_000) {
+		t.Fatal("config.MainnetConfig should NOT have Prague active")
+	}
+	if config.MainnetConfig.IsAmsterdam(2_000_000_000) {
+		t.Fatal("config.MainnetConfig should NOT have Amsterdam active")
 	}
 
 	// Fork boundary test
 	ts := uint64(1681338455) // exact Shanghai time
-	if !MainnetConfig.IsShanghai(ts) {
-		t.Fatal("MainnetConfig should have Shanghai active at exact fork time")
+	if !config.MainnetConfig.IsShanghai(ts) {
+		t.Fatal("config.MainnetConfig should have Shanghai active at exact fork time")
 	}
-	if MainnetConfig.IsShanghai(ts - 1) {
-		t.Fatal("MainnetConfig should NOT have Shanghai active before fork time")
+	if config.MainnetConfig.IsShanghai(ts - 1) {
+		t.Fatal("config.MainnetConfig should NOT have Shanghai active before fork time")
 	}
 }
 
@@ -329,7 +330,7 @@ func TestTransactionToMessage(t *testing.T) {
 		Data:     []byte{0xab, 0xcd},
 	}
 	tx := types.NewTransaction(inner)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 
 	if msg.Nonce != 5 {
 		t.Fatalf("nonce mismatch: %d", msg.Nonce)
@@ -356,7 +357,7 @@ func TestTransactionToMessage(t *testing.T) {
 		Value:    big.NewInt(0),
 	}
 	tx2 := types.NewTransaction(inner2)
-	msg2 := TransactionToMessage(tx2)
+	msg2 := config.TransactionToMessage(tx2)
 	if msg2.To != nil {
 		t.Fatal("contract creation should have nil To")
 	}
@@ -393,13 +394,13 @@ func TestContractCreation(t *testing.T) {
 		Value:    big.NewInt(0),
 		Data:     initCode,
 	})
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage should not return protocol error for contract creation, got: %v", err)
 	}
@@ -453,13 +454,13 @@ func TestContractCall(t *testing.T) {
 		Value:    big.NewInt(0),
 		Data:     []byte{}, // no calldata needed
 	})
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -492,17 +493,17 @@ func TestProcessBlockWithTransfer(t *testing.T) {
 
 	tx := newTransferTx(0, recipient, oneETH, gasLimit, gasPrice)
 
-	// We need to set From on the message. Since Process uses TransactionToMessage
+	// We need to set From on the message. Since Process uses config.TransactionToMessage
 	// internally without setting From, we test via ApplyTransaction directly.
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
 	// Set the from on the message manually by calling the lower-level function
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	snapshot := statedb.Snapshot()
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		statedb.RevertToSnapshot(snapshot)
 		t.Fatalf("unexpected error: %v", err)

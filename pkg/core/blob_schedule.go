@@ -1,6 +1,9 @@
 package core
 
-import "math/big"
+import (
+	"github.com/eth2030/eth2030/core/config"
+	"math/big"
+)
 
 // EIP-7691: Blob Throughput Increase
 //
@@ -39,7 +42,7 @@ var (
 // GetBlobScheduleEntry returns the active BlobScheduleEntry for the given
 // config and timestamp. This mirrors GetBlobSchedule from blob_gas.go but
 // returns the EIP-7691-style entry type.
-func GetBlobScheduleEntry(config *ChainConfig, time uint64) BlobScheduleEntry {
+func GetBlobScheduleEntry(config *config.ChainConfig, time uint64) BlobScheduleEntry {
 	if config.IsPrague(time) {
 		return PragueElectraBlobSchedule
 	}

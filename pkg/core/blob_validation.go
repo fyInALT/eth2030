@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -123,7 +124,7 @@ func ValidateBlockBlobGas(header *types.Header, parentHeader *types.Header) erro
 
 // ValidateBlockBlobGasWithConfig validates blob gas fields using fork-aware
 // blob schedules. For post-Prague blocks, uses the appropriate BPO schedule.
-func ValidateBlockBlobGasWithConfig(config *ChainConfig, header *types.Header, parentHeader *types.Header) error {
+func ValidateBlockBlobGasWithConfig(config *config.ChainConfig, header *types.Header, parentHeader *types.Header) error {
 	if header.BlobGasUsed == nil {
 		return ErrBlobGasUsedNil
 	}

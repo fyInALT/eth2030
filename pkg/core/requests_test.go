@@ -6,16 +6,17 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // praguePragueConfig returns a config where Prague is active at time 0.
-func pragueConfig() *ChainConfig {
-	return TestConfig
+func pragueConfig() *config.ChainConfig {
+	return config.TestConfig
 }
 
 // prePragueConfig returns a config where Prague is NOT active.
-func prePragueConfig() *ChainConfig {
-	return &ChainConfig{
+func prePragueConfig() *config.ChainConfig {
+	return &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),

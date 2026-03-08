@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -32,7 +33,7 @@ type TxLookupEntry struct {
 // transitions and persisting data to the underlying database.
 type Blockchain struct {
 	mu        sync.RWMutex
-	config    *ChainConfig
+	config    *config.ChainConfig
 	db        rawdb.Database
 	hc        *HeaderChain
 	processor *StateProcessor
@@ -53,7 +54,7 @@ type Blockchain struct {
 	// State snapshot cache to avoid re-execution from genesis.
 	sc *stateCache
 
-	// Genesis state (used as base for re-execution).
+	// config.Genesis state (used as base for re-execution).
 	genesisState *state.MemoryStateDB
 
 	// Current state after processing the head block.
@@ -68,7 +69,7 @@ type Blockchain struct {
 
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
 // The statedb should contain the genesis state (pre-funded accounts, etc.).
-func NewBlockchain(config *ChainConfig, genesis *types.Block, statedb *state.MemoryStateDB, db rawdb.Database) (*Blockchain, error) {
+func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *state.MemoryStateDB, db rawdb.Database) (*Blockchain, error) {
 	if genesis == nil {
 		return nil, ErrNoGenesis
 	}
@@ -403,7 +404,7 @@ func (bc *Blockchain) Genesis() *types.Block {
 }
 
 // Config returns the chain configuration.
-func (bc *Blockchain) Config() *ChainConfig {
+func (bc *Blockchain) Config() *config.ChainConfig {
 	return bc.config
 }
 

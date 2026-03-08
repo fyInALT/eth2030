@@ -7,11 +7,12 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestGenesisToBlock(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		Nonce:      42,
 		Timestamp:  1000,
 		GasLimit:   5_000_000,
@@ -35,7 +36,7 @@ func TestGenesisToBlock(t *testing.T) {
 	if string(block.Extra()) != "test genesis" {
 		t.Errorf("extra = %q, want %q", string(block.Extra()), "test genesis")
 	}
-	// TestConfig has London active, so base fee should be set.
+	// config.TestConfig has London active, so base fee should be set.
 	if block.BaseFee() == nil {
 		t.Fatal("expected base fee to be set for London-active config")
 	}
@@ -45,8 +46,8 @@ func TestGenesisToBlock(t *testing.T) {
 }
 
 func TestGenesisToBlockWithExplicitBaseFee(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   5_000_000,
 		Difficulty: big.NewInt(1),
 		BaseFee:    big.NewInt(42),
@@ -58,8 +59,8 @@ func TestGenesisToBlockWithExplicitBaseFee(t *testing.T) {
 }
 
 func TestGenesisToBlockShanghaiFields(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
@@ -71,8 +72,8 @@ func TestGenesisToBlockShanghaiFields(t *testing.T) {
 }
 
 func TestGenesisToBlockCancunFields(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
@@ -93,8 +94,8 @@ func TestGenesisToBlockCancunFields(t *testing.T) {
 }
 
 func TestGenesisToBlockPragueFields(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
@@ -109,12 +110,12 @@ func TestGenesisWithAlloc(t *testing.T) {
 	addr1 := types.HexToAddress("0x1000000000000000000000000000000000000001")
 	addr2 := types.HexToAddress("0x2000000000000000000000000000000000000002")
 
-	alloc := GenesisAlloc{
-		addr1: GenesisAccount{
+	alloc := config.GenesisAlloc{
+		addr1: config.GenesisAccount{
 			Balance: big.NewInt(1_000_000_000),
 			Nonce:   5,
 		},
-		addr2: GenesisAccount{
+		addr2: config.GenesisAccount{
 			Balance: big.NewInt(2_000_000_000),
 			Code:    []byte{0x60, 0x00, 0x60, 0x00, 0xFD}, // PUSH1 0 PUSH1 0 REVERT
 			Storage: map[types.Hash]types.Hash{
@@ -123,8 +124,8 @@ func TestGenesisWithAlloc(t *testing.T) {
 		},
 	}
 
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 		Alloc:      alloc,
@@ -162,7 +163,7 @@ func TestGenesisWithAlloc(t *testing.T) {
 }
 
 func TestMainnetGenesis(t *testing.T) {
-	g := DefaultGenesisBlock()
+	g := config.DefaultGenesisBlock()
 
 	if g.Config.ChainID.Int64() != 1 {
 		t.Errorf("mainnet chain id = %d, want 1", g.Config.ChainID.Int64())
@@ -184,7 +185,7 @@ func TestMainnetGenesis(t *testing.T) {
 }
 
 func TestSepoliaGenesis(t *testing.T) {
-	g := DefaultSepoliaGenesisBlock()
+	g := config.DefaultSepoliaGenesisBlock()
 
 	if g.Config.ChainID.Int64() != 11155111 {
 		t.Errorf("sepolia chain id = %d, want 11155111", g.Config.ChainID.Int64())
@@ -201,7 +202,7 @@ func TestSepoliaGenesis(t *testing.T) {
 }
 
 func TestHoleskyGenesis(t *testing.T) {
-	g := DefaultHoleskyGenesisBlock()
+	g := config.DefaultHoleskyGenesisBlock()
 
 	if g.Config.ChainID.Int64() != 17000 {
 		t.Errorf("holesky chain id = %d, want 17000", g.Config.ChainID.Int64())
@@ -216,7 +217,7 @@ func TestHoleskyGenesis(t *testing.T) {
 
 func TestChainConfigForkChecks(t *testing.T) {
 	// Mainnet block-number forks
-	cfg := MainnetConfig
+	cfg := config.MainnetConfig
 
 	// Before Homestead
 	if cfg.IsHomestead(big.NewInt(1_000_000)) {
@@ -314,10 +315,10 @@ func TestChainConfigForkChecksTestnet(t *testing.T) {
 	// Testnet configs have all block forks at 0.
 	for _, tc := range []struct {
 		name string
-		cfg  *ChainConfig
+		cfg  *config.ChainConfig
 	}{
-		{"Sepolia", SepoliaConfig},
-		{"Holesky", HoleskyConfig},
+		{"Sepolia", config.SepoliaConfig},
+		{"Holesky", config.HoleskyConfig},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if !tc.cfg.IsHomestead(big.NewInt(0)) {
@@ -335,7 +336,7 @@ func TestChainConfigForkChecksTestnet(t *testing.T) {
 
 func TestRules(t *testing.T) {
 	// All forks active.
-	rules := TestConfig.Rules(big.NewInt(0), true, 0)
+	rules := config.TestConfig.Rules(big.NewInt(0), true, 0)
 
 	if rules.ChainID.Int64() != 1337 {
 		t.Errorf("rules chain id = %d, want 1337", rules.ChainID.Int64())
@@ -398,7 +399,7 @@ func TestRules(t *testing.T) {
 
 func TestRulesPreMerge(t *testing.T) {
 	// Passing isMerge=false: timestamp forks should not be active.
-	rules := TestConfig.Rules(big.NewInt(0), false, 0)
+	rules := config.TestConfig.Rules(big.NewInt(0), false, 0)
 
 	if !rules.IsLondon {
 		t.Error("expected IsLondon even without merge")
@@ -419,7 +420,7 @@ func TestRulesPreMerge(t *testing.T) {
 
 func TestRulesMergeRequiresLondon(t *testing.T) {
 	// A config where London is not active: merge should be disallowed.
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		LondonBlock:             big.NewInt(100),
 		TerminalTotalDifficulty: big.NewInt(0),
@@ -436,7 +437,7 @@ func TestRulesMergeRequiresLondon(t *testing.T) {
 
 func TestPetersburgNilFallback(t *testing.T) {
 	// Petersburg nil -> falls back to Constantinople block.
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:             big.NewInt(1),
 		ConstantinopleBlock: big.NewInt(100),
 		PetersburgBlock:     nil,
@@ -453,16 +454,16 @@ func TestSetupGenesisBlock(t *testing.T) {
 	addr1 := types.HexToAddress("0xaaaa")
 	addr2 := types.HexToAddress("0xbbbb")
 
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
-		Alloc: GenesisAlloc{
-			addr1: GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			addr1: config.GenesisAccount{
 				Balance: big.NewInt(1e18),
 				Nonce:   5,
 			},
-			addr2: GenesisAccount{
+			addr2: config.GenesisAccount{
 				Balance: big.NewInt(2e18),
 				Code:    []byte{0x60, 0x00, 0xf3}, // PUSH1 0 RETURN
 				Storage: map[types.Hash]types.Hash{
@@ -505,19 +506,19 @@ func TestSetupGenesisBlock(t *testing.T) {
 }
 
 func TestCommitGenesis(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0xaaaa"): GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0xaaaa"): config.GenesisAccount{
 				Balance: big.NewInt(1e18),
 			},
 		},
 	}
 
 	db := rawdb.NewMemoryDB()
-	bc, err := g.CommitGenesis(db)
+	bc, err := CommitGenesis(g, db)
 	if err != nil {
 		t.Fatalf("CommitGenesis error: %v", err)
 	}
@@ -540,7 +541,7 @@ func TestCommitGenesis(t *testing.T) {
 
 func TestNoForkConfig(t *testing.T) {
 	// Config with no forks set: everything should be false.
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
 	if cfg.IsHomestead(big.NewInt(1_000_000)) {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -24,13 +25,13 @@ func TestE2E_3DGasVectors_PersistThroughChain(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfigGlamsterdan, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfigGlamsterdan, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
 	parent := bc.CurrentBlock()
-	builder := NewBlockBuilder(TestConfigGlamsterdan, bc, nil)
+	builder := NewBlockBuilder(config.TestConfigGlamsterdan, bc, nil)
 	attrs := &BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
 		FeeRecipient: types.Address{0x01},
@@ -83,14 +84,14 @@ func TestE2E_3DGasVectors_MultiBlockChain(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1_000_000_000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfigGlamsterdan, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfigGlamsterdan, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
 	for blockNum := 1; blockNum <= 3; blockNum++ {
 		parent := bc.CurrentBlock()
-		builder := NewBlockBuilder(TestConfigGlamsterdan, bc, nil)
+		builder := NewBlockBuilder(config.TestConfigGlamsterdan, bc, nil)
 		block, _, err := builder.BuildBlock(parent.Header(), &BuildBlockAttributes{
 			Timestamp:    parent.Time() + 12,
 			FeeRecipient: types.Address{0x02},
@@ -247,7 +248,7 @@ func TestE2E_BALFeasibility_PassesForNormalBlocks(t *testing.T) {
 		var txs []*types.Transaction
 		// 4 transfers per block (well under the every-8-tx check threshold).
 		for i := 0; i < 4; i++ {
-			tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+			tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 				Nonce:    nonce,
 				GasPrice: big.NewInt(10),
 				Gas:      21000,
@@ -337,7 +338,7 @@ func newGlamsterdanChain(t *testing.T, gasLimit uint64, baseFee *big.Int) *Block
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(gasLimit, baseFee)
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfigGlamsterdan, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfigGlamsterdan, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain(Glamsterdan): %v", err)
 	}
@@ -357,14 +358,14 @@ func TestE2E_3DGasVectors_CalldataGasUsed_Nonzero(t *testing.T) {
 	// and rely on the builder to include txs with pre-funded sender.
 	// Use a simpler approach: build an empty block first, then verify vectors.
 	parent := bc.CurrentBlock()
-	builder := NewBlockBuilder(TestConfigGlamsterdan, bc, &simpleTxPool{
+	builder := NewBlockBuilder(config.TestConfigGlamsterdan, bc, &simpleTxPool{
 		txs: func() []*types.Transaction {
 			// Calldata-heavy transaction.
 			data := make([]byte, 512) // 512 non-zero bytes
 			for i := range data {
 				data[i] = 0xFF
 			}
-			tx := signLegacyTx(t, key, TestConfigGlamsterdan.ChainID, &types.LegacyTx{
+			tx := signLegacyTx(t, key, config.TestConfigGlamsterdan.ChainID, &types.LegacyTx{
 				Nonce:    0,
 				GasPrice: big.NewInt(1_000_000_000),
 				Gas:      200_000,
@@ -414,12 +415,12 @@ func TestE2E_BALOrdering_PersistsAcrossBlockBuilding(t *testing.T) {
 	statedb.AddBalance(sender, ether(50))
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 
 	// Build a block with 3 transactions.
 	var txs []*types.Transaction
 	for nonce := uint64(0); nonce < 3; nonce++ {
-		txs = append(txs, signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		txs = append(txs, signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    nonce,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,

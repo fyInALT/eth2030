@@ -1,6 +1,9 @@
 package core
 
-import "errors"
+import (
+	"errors"
+	"github.com/eth2030/eth2030/core/config"
+)
 
 // EIP-7825: Transaction Gas Limit Cap
 //
@@ -29,6 +32,6 @@ func ValidateTransactionGasLimit(gasLimit uint64) error {
 // IsGasLimitCapped returns true if the EIP-7825 transaction gas cap is
 // active for the given chain config and block timestamp. The gas cap
 // activates with the Prague fork.
-func IsGasLimitCapped(config *ChainConfig, time uint64) bool {
+func IsGasLimitCapped(config *config.ChainConfig, time uint64) bool {
 	return config.IsPrague(time)
 }

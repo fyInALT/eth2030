@@ -5,44 +5,45 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestHogotaForkConfig(t *testing.T) {
-	// TestConfigHogota should have Hogota active at genesis.
-	if !TestConfigHogota.IsHogota(0) {
-		t.Fatal("TestConfigHogota.IsHogota(0) should be true")
+	// config.TestConfigHogota should have Hogota active at genesis.
+	if !config.TestConfigHogota.IsHogota(0) {
+		t.Fatal("config.TestConfigHogota.IsHogota(0) should be true")
 	}
-	if !TestConfigHogota.IsHogota(100) {
-		t.Fatal("TestConfigHogota.IsHogota(100) should be true")
+	if !config.TestConfigHogota.IsHogota(100) {
+		t.Fatal("config.TestConfigHogota.IsHogota(100) should be true")
 	}
 
 	// Hogota implies Glamsterdan is also active.
-	if !TestConfigHogota.IsGlamsterdan(0) {
-		t.Fatal("TestConfigHogota should also have Glamsterdan active")
+	if !config.TestConfigHogota.IsGlamsterdan(0) {
+		t.Fatal("config.TestConfigHogota should also have Glamsterdan active")
 	}
 
 	// EIP-7999 should be active when Hogota is active.
-	if !TestConfigHogota.IsEIP7999(0) {
+	if !config.TestConfigHogota.IsEIP7999(0) {
 		t.Fatal("EIP-7999 should be active with Hogota")
 	}
 
-	// TestConfig (pre-Glamsterdan) should NOT have Hogota.
-	if TestConfig.IsHogota(0) {
-		t.Fatal("TestConfig should not have Hogota active")
+	// config.TestConfig (pre-Glamsterdan) should NOT have Hogota.
+	if config.TestConfig.IsHogota(0) {
+		t.Fatal("config.TestConfig should not have Hogota active")
 	}
 
-	// TestConfigGlamsterdan should NOT have Hogota.
-	if TestConfigGlamsterdan.IsHogota(0) {
-		t.Fatal("TestConfigGlamsterdan should not have Hogota active")
+	// config.TestConfigGlamsterdan should NOT have Hogota.
+	if config.TestConfigGlamsterdan.IsHogota(0) {
+		t.Fatal("config.TestConfigGlamsterdan should not have Hogota active")
 	}
 
-	// MainnetConfig should NOT have Hogota (nil).
-	if MainnetConfig.IsHogota(0) {
-		t.Fatal("MainnetConfig should not have Hogota active")
+	// config.MainnetConfig should NOT have Hogota (nil).
+	if config.MainnetConfig.IsHogota(0) {
+		t.Fatal("config.MainnetConfig should not have Hogota active")
 	}
 
 	// Config with a future HogotaTime should not be active before it.
-	futureConfig := &ChainConfig{
+	futureConfig := &config.ChainConfig{
 		ChainID:    big.NewInt(1),
 		HogotaTime: newUint64(1000),
 	}
@@ -56,19 +57,19 @@ func TestHogotaForkConfig(t *testing.T) {
 		t.Fatal("IsHogota should be true after activation time")
 	}
 
-	// Rules should include IsHogota and IsEIP7999.
-	rules := TestConfigHogota.Rules(big.NewInt(1), true, 0)
+	// config.Rules should include IsHogota and IsEIP7999.
+	rules := config.TestConfigHogota.Rules(big.NewInt(1), true, 0)
 	if !rules.IsHogota {
-		t.Fatal("Rules.IsHogota should be true for TestConfigHogota")
+		t.Fatal("config.Rules.IsHogota should be true for config.TestConfigHogota")
 	}
 	if !rules.IsEIP7999 {
-		t.Fatal("Rules.IsEIP7999 should be true for TestConfigHogota")
+		t.Fatal("config.Rules.IsEIP7999 should be true for config.TestConfigHogota")
 	}
 
-	// Rules for pre-Hogota config should have false.
-	rules2 := TestConfigGlamsterdan.Rules(big.NewInt(1), true, 0)
+	// config.Rules for pre-Hogota config should have false.
+	rules2 := config.TestConfigGlamsterdan.Rules(big.NewInt(1), true, 0)
 	if rules2.IsHogota {
-		t.Fatal("Rules.IsHogota should be false for TestConfigGlamsterdan")
+		t.Fatal("config.Rules.IsHogota should be false for config.TestConfigGlamsterdan")
 	}
 }
 

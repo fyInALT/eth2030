@@ -5,62 +5,63 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestDefaultGenesis(t *testing.T) {
-	g := DefaultGenesis()
+	g := config.DefaultGenesis()
 	if g == nil {
-		t.Fatal("DefaultGenesis returned nil")
+		t.Fatal("config.DefaultGenesis returned nil")
 	}
 	if g.Config == nil {
-		t.Fatal("DefaultGenesis config is nil")
+		t.Fatal("config.DefaultGenesis config is nil")
 	}
 	if g.Config.ChainID.Int64() != 1 {
-		t.Errorf("DefaultGenesis chain ID = %d, want 1", g.Config.ChainID.Int64())
+		t.Errorf("config.DefaultGenesis chain ID = %d, want 1", g.Config.ChainID.Int64())
 	}
 	if g.GasLimit != 30_000_000 {
-		t.Errorf("DefaultGenesis gas limit = %d, want 30000000", g.GasLimit)
+		t.Errorf("config.DefaultGenesis gas limit = %d, want 30000000", g.GasLimit)
 	}
 	if g.Difficulty.Cmp(big.NewInt(17_179_869_184)) != 0 {
-		t.Errorf("DefaultGenesis difficulty = %v, want 17179869184", g.Difficulty)
+		t.Errorf("config.DefaultGenesis difficulty = %v, want 17179869184", g.Difficulty)
 	}
 }
 
 func TestDevGenesis(t *testing.T) {
-	g := DevGenesis()
+	g := config.DevGenesis()
 	if g == nil {
-		t.Fatal("DevGenesis returned nil")
+		t.Fatal("config.DevGenesis returned nil")
 	}
 	if g.Config == nil {
-		t.Fatal("DevGenesis config is nil")
+		t.Fatal("config.DevGenesis config is nil")
 	}
 	if g.Config.ChainID.Int64() != 1337 {
-		t.Errorf("DevGenesis chain ID = %d, want 1337", g.Config.ChainID.Int64())
+		t.Errorf("config.DevGenesis chain ID = %d, want 1337", g.Config.ChainID.Int64())
 	}
 	if g.GasLimit != 30_000_000 {
-		t.Errorf("DevGenesis gas limit = %d, want 30000000", g.GasLimit)
+		t.Errorf("config.DevGenesis gas limit = %d, want 30000000", g.GasLimit)
 	}
 	if len(g.Alloc) == 0 {
-		t.Fatal("DevGenesis should have prefunded accounts")
+		t.Fatal("config.DevGenesis should have prefunded accounts")
 	}
 	if len(g.Alloc) != 5 {
-		t.Errorf("DevGenesis alloc count = %d, want 5", len(g.Alloc))
+		t.Errorf("config.DevGenesis alloc count = %d, want 5", len(g.Alloc))
 	}
 
 	// Verify a known dev address is prefunded.
 	addr := types.HexToAddress("0x0000000000000000000000000000000000000001")
 	acct, ok := g.Alloc[addr]
 	if !ok {
-		t.Fatal("DevGenesis missing account 0x01")
+		t.Fatal("config.DevGenesis missing account 0x01")
 	}
 	oneThousandETH := new(big.Int).Mul(big.NewInt(1000), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 	if acct.Balance.Cmp(oneThousandETH) != 0 {
-		t.Errorf("DevGenesis 0x01 balance = %v, want %v", acct.Balance, oneThousandETH)
+		t.Errorf("config.DevGenesis 0x01 balance = %v, want %v", acct.Balance, oneThousandETH)
 	}
 }
 
 func TestDevGenesisToBlock(t *testing.T) {
-	g := DevGenesis()
+	g := config.DevGenesis()
 	block := g.ToBlock()
 	if block.NumberU64() != 0 {
 		t.Errorf("dev genesis block number = %d, want 0", block.NumberU64())
@@ -74,8 +75,8 @@ func TestDevGenesisToBlock(t *testing.T) {
 }
 
 func TestGenesisHashDeterministic(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
@@ -94,13 +95,13 @@ func TestGenesisHashDeterministic(t *testing.T) {
 }
 
 func TestGenesisHashDifferent(t *testing.T) {
-	g1 := &Genesis{
-		Config:     TestConfig,
+	g1 := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
-	g2 := &Genesis{
-		Config:     TestConfig,
+	g2 := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   31_000_000,
 		Difficulty: big.NewInt(1),
 	}
@@ -114,8 +115,8 @@ func TestGenesisHashDifferent(t *testing.T) {
 }
 
 func TestGenesisValidateValid(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 		ExtraData:  []byte("short extra"),
@@ -126,30 +127,30 @@ func TestGenesisValidateValid(t *testing.T) {
 }
 
 func TestGenesisValidateNilConfig(t *testing.T) {
-	g := &Genesis{
+	g := &config.Genesis{
 		Config:   nil,
 		GasLimit: 30_000_000,
 	}
 	err := g.Validate()
-	if err != ErrGenesisNilConfig {
-		t.Errorf("expected ErrGenesisNilConfig, got %v", err)
+	if err != config.ErrGenesisNilConfig {
+		t.Errorf("expected config.ErrGenesisNilConfig, got %v", err)
 	}
 }
 
 func TestGenesisValidateZeroGasLimit(t *testing.T) {
-	g := &Genesis{
-		Config:   TestConfig,
+	g := &config.Genesis{
+		Config:   config.TestConfig,
 		GasLimit: 0,
 	}
 	err := g.Validate()
-	if err != ErrGenesisZeroGasLimit {
-		t.Errorf("expected ErrGenesisZeroGasLimit, got %v", err)
+	if err != config.ErrGenesisZeroGasLimit {
+		t.Errorf("expected config.ErrGenesisZeroGasLimit, got %v", err)
 	}
 }
 
 func TestGenesisValidateExtraDataTooLong(t *testing.T) {
-	g := &Genesis{
-		Config:    TestConfig,
+	g := &config.Genesis{
+		Config:    config.TestConfig,
 		GasLimit:  30_000_000,
 		ExtraData: make([]byte, 33),
 	}
@@ -160,8 +161,8 @@ func TestGenesisValidateExtraDataTooLong(t *testing.T) {
 }
 
 func TestGenesisValidateExtraDataExact32(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 		ExtraData:  make([]byte, 32),
@@ -172,11 +173,11 @@ func TestGenesisValidateExtraDataExact32(t *testing.T) {
 }
 
 func TestGenesisValidateNegativeBalance(t *testing.T) {
-	g := &Genesis{
-		Config:   TestConfig,
+	g := &config.Genesis{
+		Config:   config.TestConfig,
 		GasLimit: 30_000_000,
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0x01"): GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0x01"): config.GenesisAccount{
 				Balance: big.NewInt(-1),
 			},
 		},
@@ -188,17 +189,17 @@ func TestGenesisValidateNegativeBalance(t *testing.T) {
 }
 
 func TestAllocTotal(t *testing.T) {
-	g := &Genesis{
-		Config:   TestConfig,
+	g := &config.Genesis{
+		Config:   config.TestConfig,
 		GasLimit: 30_000_000,
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0x01"): GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0x01"): config.GenesisAccount{
 				Balance: big.NewInt(1_000_000),
 			},
-			types.HexToAddress("0x02"): GenesisAccount{
+			types.HexToAddress("0x02"): config.GenesisAccount{
 				Balance: big.NewInt(2_000_000),
 			},
-			types.HexToAddress("0x03"): GenesisAccount{
+			types.HexToAddress("0x03"): config.GenesisAccount{
 				Balance: big.NewInt(3_000_000),
 			},
 		},
@@ -212,10 +213,10 @@ func TestAllocTotal(t *testing.T) {
 }
 
 func TestAllocTotalEmpty(t *testing.T) {
-	g := &Genesis{
-		Config:   TestConfig,
+	g := &config.Genesis{
+		Config:   config.TestConfig,
 		GasLimit: 30_000_000,
-		Alloc:    GenesisAlloc{},
+		Alloc:    config.GenesisAlloc{},
 	}
 
 	total := g.AllocTotal()
@@ -225,14 +226,14 @@ func TestAllocTotalEmpty(t *testing.T) {
 }
 
 func TestAllocTotalNilBalance(t *testing.T) {
-	g := &Genesis{
-		Config:   TestConfig,
+	g := &config.Genesis{
+		Config:   config.TestConfig,
 		GasLimit: 30_000_000,
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0x01"): GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0x01"): config.GenesisAccount{
 				Balance: big.NewInt(100),
 			},
-			types.HexToAddress("0x02"): GenesisAccount{
+			types.HexToAddress("0x02"): config.GenesisAccount{
 				Balance: nil,
 			},
 		},
@@ -245,24 +246,24 @@ func TestAllocTotalNilBalance(t *testing.T) {
 }
 
 func TestAllocTotalDevGenesis(t *testing.T) {
-	g := DevGenesis()
+	g := config.DevGenesis()
 	total := g.AllocTotal()
 
 	// 5 accounts each with 1000 ETH = 5000 ETH.
 	oneThousandETH := new(big.Int).Mul(big.NewInt(1000), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 	expected := new(big.Int).Mul(big.NewInt(5), oneThousandETH)
 	if total.Cmp(expected) != 0 {
-		t.Errorf("DevGenesis AllocTotal = %v, want %v", total, expected)
+		t.Errorf("config.DevGenesis AllocTotal = %v, want %v", total, expected)
 	}
 }
 
 func TestMustCommitNilStateDB(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
-		Alloc: GenesisAlloc{
-			types.HexToAddress("0xaaaa"): GenesisAccount{
+		Alloc: config.GenesisAlloc{
+			types.HexToAddress("0xaaaa"): config.GenesisAccount{
 				Balance: big.NewInt(1e18),
 			},
 		},
@@ -281,8 +282,8 @@ func TestMustCommitNilStateDB(t *testing.T) {
 }
 
 func TestMustCommitPanic(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
@@ -298,43 +299,43 @@ func TestMustCommitPanic(t *testing.T) {
 }
 
 func TestVerifyGenesisHashMatch(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
 
 	expected := g.GenesisHash()
-	if err := VerifyGenesisHash(g, expected); err != nil {
-		t.Errorf("VerifyGenesisHash failed for matching hash: %v", err)
+	if err := config.VerifyGenesisHash(g, expected); err != nil {
+		t.Errorf("config.VerifyGenesisHash failed for matching hash: %v", err)
 	}
 }
 
 func TestVerifyGenesisHashMismatch(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
 
 	wrongHash := types.Hash{0xff}
-	err := VerifyGenesisHash(g, wrongHash)
+	err := config.VerifyGenesisHash(g, wrongHash)
 	if err == nil {
 		t.Fatal("expected error for hash mismatch")
 	}
 }
 
 func TestGenesisBlockHashFunction(t *testing.T) {
-	g := &Genesis{
-		Config:     TestConfig,
+	g := &config.Genesis{
+		Config:     config.TestConfig,
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 	}
 
-	h1 := GenesisBlockHash(g)
+	h1 := config.GenesisBlockHash(g)
 	h2 := g.GenesisHash()
 
 	if h1 != h2 {
-		t.Errorf("GenesisBlockHash and GenesisHash disagree: %s != %s", h1.Hex(), h2.Hex())
+		t.Errorf("config.GenesisBlockHash and GenesisHash disagree: %s != %s", h1.Hex(), h2.Hex())
 	}
 }

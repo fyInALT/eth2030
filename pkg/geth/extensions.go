@@ -15,7 +15,7 @@ import (
 	gethvm "github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
-	"github.com/eth2030/eth2030/core"
+	corconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
 )
@@ -207,7 +207,7 @@ func InjectCustomPrecompiles(rules params.Rules, forkLevel Eth2028ForkLevel) get
 
 // Eth2028ForkLevelFromConfig determines the active eth2030 fork level based
 // on the eth2030 chain config and block time.
-func Eth2028ForkLevelFromConfig(config *core.ChainConfig, time uint64) Eth2028ForkLevel {
+func Eth2028ForkLevelFromConfig(config *corconfig.ChainConfig, time uint64) Eth2028ForkLevel {
 	if config == nil {
 		return ForkLevelPrague
 	}
@@ -226,7 +226,7 @@ func Eth2028ForkLevelFromConfig(config *core.ChainConfig, time uint64) Eth2028Fo
 // ToGethChainConfigWithEth2028Forks converts an eth2030 ChainConfig to a
 // go-ethereum ChainConfig, mapping eth2030's custom fork timestamps.
 // Glamsterdam and Hogota are mapped to Prague since they extend Prague.
-func ToGethChainConfigWithEth2028Forks(c *core.ChainConfig) *params.ChainConfig {
+func ToGethChainConfigWithEth2028Forks(c *corconfig.ChainConfig) *params.ChainConfig {
 	gc := ToGethChainConfig(c)
 	if gc == nil {
 		return nil

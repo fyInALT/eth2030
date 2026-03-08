@@ -3,7 +3,7 @@
 // ChainConfig with methods for querying fork activation blocks/timestamps,
 // enumerating active forks, and computing configuration differences between
 // two chain configs (e.g., for detecting incompatible fork changes).
-package core
+package config
 
 import (
 	"fmt"

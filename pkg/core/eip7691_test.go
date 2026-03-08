@@ -3,6 +3,7 @@ package core
 import (
 	"math/big"
 	"testing"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestBlobScheduleEntryParameters(t *testing.T) {
@@ -31,30 +32,30 @@ func TestBlobScheduleEntryParameters(t *testing.T) {
 
 func TestGetBlobScheduleEntry(t *testing.T) {
 	praguetime := uint64(1000)
-	config := &ChainConfig{
+	cfg := &config.ChainConfig{
 		PragueTime: &praguetime,
 	}
 
 	// Before Prague: Dencun schedule.
-	sched := GetBlobScheduleEntry(config, 999)
+	sched := GetBlobScheduleEntry(cfg, 999)
 	if sched != DencunBlobSchedule {
 		t.Errorf("before Prague: got %+v, want Dencun", sched)
 	}
 
 	// At Prague: Prague/Electra schedule.
-	sched = GetBlobScheduleEntry(config, 1000)
+	sched = GetBlobScheduleEntry(cfg, 1000)
 	if sched != PragueElectraBlobSchedule {
 		t.Errorf("at Prague: got %+v, want PragueElectra", sched)
 	}
 
 	// After Prague.
-	sched = GetBlobScheduleEntry(config, 2000)
+	sched = GetBlobScheduleEntry(cfg, 2000)
 	if sched != PragueElectraBlobSchedule {
 		t.Errorf("after Prague: got %+v, want PragueElectra", sched)
 	}
 
 	// No Prague configured: always Dencun.
-	noPrague := &ChainConfig{}
+	noPrague := &config.ChainConfig{}
 	sched = GetBlobScheduleEntry(noPrague, 5000)
 	if sched != DencunBlobSchedule {
 		t.Errorf("no Prague: got %+v, want Dencun", sched)

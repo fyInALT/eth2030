@@ -8,6 +8,7 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // testForkChoice creates a blockchain and ForkChoice for testing.
@@ -16,7 +17,7 @@ func testForkChoice(t *testing.T) (*Blockchain, *ForkChoice) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -699,7 +700,7 @@ func TestForkChoice_StateRollbackOnReorg(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, genesisState, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}

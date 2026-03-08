@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // TestCumulativeGasUsed verifies that receipts correctly accumulate gas used
@@ -49,7 +50,7 @@ func TestCumulativeGasUsed(t *testing.T) {
 		Transactions: []*types.Transaction{tx1, tx2, tx3},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -122,7 +123,7 @@ func TestReceiptStatusField(t *testing.T) {
 		Transactions: []*types.Transaction{tx1, tx2},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -218,7 +219,7 @@ func TestReceiptLogsFromEVM(t *testing.T) {
 		Transactions: []*types.Transaction{tx1, tx2},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -317,7 +318,7 @@ func TestReceiptBloomFilter(t *testing.T) {
 		Transactions: []*types.Transaction{tx},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -374,7 +375,7 @@ func TestReceiptTransactionIndex(t *testing.T) {
 	}
 	block := types.NewBlock(header, &types.Body{Transactions: txs})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -418,7 +419,7 @@ func TestReceiptBlockContextFields(t *testing.T) {
 		Transactions: []*types.Transaction{tx},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -488,7 +489,7 @@ func TestCumulativeGasWithMixedTxTypes(t *testing.T) {
 		Transactions: []*types.Transaction{tx1, tx2, tx3},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -584,7 +585,7 @@ func TestGlobalLogIndex(t *testing.T) {
 		Transactions: []*types.Transaction{tx1, tx2},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
@@ -779,7 +780,7 @@ func TestReceiptNoLogsSimpleTransfer(t *testing.T) {
 		Transactions: []*types.Transaction{tx},
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)

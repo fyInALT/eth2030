@@ -1,7 +1,7 @@
 // genesis_alloc.go provides extended genesis allocation functionality including
 // pre-funded testnet accounts, system contract initialization for post-merge
 // chains, and genesis state encoding/serialization utilities.
-package core
+package config
 
 import (
 	"encoding/json"

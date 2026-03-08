@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -279,7 +280,7 @@ func (st *StateTest) Run(subtest StateSubtest) *RunResult {
 }
 
 // buildHeader creates a types.Header from the test environment.
-func (st *StateTest) buildHeader(config *core.ChainConfig) *types.Header {
+func (st *StateTest) buildHeader(config *coreconfig.ChainConfig) *types.Header {
 	env := st.json.Env
 	header := &types.Header{
 		Coinbase:   hexToAddress(env.CurrentCoinbase),
@@ -391,14 +392,14 @@ var forkLevel = map[string]int{
 }
 
 // ForkConfig returns the ChainConfig for a named fork.
-func ForkConfig(fork string) *core.ChainConfig {
+func ForkConfig(fork string) *coreconfig.ChainConfig {
 	level, ok := forkLevel[fork]
 	if !ok {
 		return nil
 	}
 	zero := big.NewInt(0)
 	ts := uint64(0)
-	c := &core.ChainConfig{ChainID: big.NewInt(1)}
+	c := &coreconfig.ChainConfig{ChainID: big.NewInt(1)}
 	if level >= 1 {
 		c.HomesteadBlock = zero
 	}

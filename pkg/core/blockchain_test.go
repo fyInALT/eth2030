@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -15,7 +16,7 @@ func testChain(t *testing.T) (*Blockchain, *state.MemoryStateDB) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -102,7 +103,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 	// Execute transactions directly on the provided state to compute gas used,
 	// bloom, BAL hash, state root, transaction root, and receipt root.
 	// The state is advanced in place so that callers can chain multiple blocks.
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	result, err := proc.ProcessWithBAL(block, statedb)
 	if err == nil {
 		// Compute gas used from receipts.
@@ -144,7 +145,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 func TestBlockchain_Genesis(t *testing.T) {
 	bc, _ := testChain(t)
 
-	// Genesis should be stored.
+	// config.Genesis should be stored.
 	gen := bc.Genesis()
 	if gen == nil {
 		t.Fatal("genesis block is nil")
@@ -217,7 +218,7 @@ func TestBlockchain_InsertBlockWithTx(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -519,7 +520,7 @@ func TestBlockchain_InsertDuplicate(t *testing.T) {
 
 func TestBlockchain_NilGenesis(t *testing.T) {
 	db := rawdb.NewMemoryDB()
-	_, err := NewBlockchain(TestConfig, nil, state.NewMemoryStateDB(), db)
+	_, err := NewBlockchain(config.TestConfig, nil, state.NewMemoryStateDB(), db)
 	if err != ErrNoGenesis {
 		t.Errorf("expected ErrNoGenesis, got %v", err)
 	}
@@ -573,7 +574,7 @@ func TestBlockchain_WriteReadBlock_WithTransactions(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -718,7 +719,7 @@ func TestBlockchain_StateAtUsesCachedState(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}

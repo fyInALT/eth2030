@@ -7,6 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // testChainWithFunds creates a blockchain with a funded sender account.
@@ -22,7 +23,7 @@ func testChainWithFunds(t *testing.T) (*Blockchain, types.Address, types.Address
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -202,7 +203,7 @@ func TestGetLogsWithContract(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -220,7 +221,7 @@ func TestGetLogsWithContract(t *testing.T) {
 	// Use BlockBuilder to construct the block so the bloom filter is computed
 	// correctly from the receipts' logs.
 	pool := &mockTxPool{txs: []*types.Transaction{tx}}
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := NewBlockBuilder(config.TestConfig, bc, pool)
 	attrs := &BuildBlockAttributes{
 		Timestamp:    genesis.Time() + 12,
 		FeeRecipient: types.HexToAddress("0xfee"),

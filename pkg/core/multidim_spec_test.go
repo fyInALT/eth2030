@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // --- SPEC-6.2: GetCalldataGas ---
@@ -100,7 +101,7 @@ func TestCalcCalldataBaseFee_HigherExcessMeansHigherFee(t *testing.T) {
 
 func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := NewBlockBuilder(TestConfigGlamsterdan, nil, nil)
+	builder := NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -150,7 +151,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	// Use a config without Glamsterdam.
-	builder := NewBlockBuilder(TestConfig, nil, nil)
+	builder := NewBlockBuilder(config.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -161,17 +162,17 @@ func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
 		Time:     1700000000,
 	}
 
-	// Pick a timestamp that is before the Glamsterdam activation in TestConfig.
-	// TestConfig has Glamsterdam at time 0, so we need a config with no Glamsterdam.
-	// Just verify: if Glamsterdam is active in TestConfig, the vectors are set.
+	// Pick a timestamp that is before the Glamsterdam activation in config.TestConfig.
+	// config.TestConfig has Glamsterdam at time 0, so we need a config with no Glamsterdam.
+	// Just verify: if Glamsterdam is active in config.TestConfig, the vectors are set.
 	// This test asserts the inverse: pre-Glamsterdam blocks have nil vectors.
 	//
-	// Since TestConfig activates Glamsterdam at timestamp 0, we use a fork config
+	// Since config.TestConfig activates Glamsterdam at timestamp 0, we use a fork config
 	// that has GlamsterdamTime = nil (pre-Glamsterdam).
-	cfgPreGlam := &ChainConfig{
-		ChainID:        TestConfig.ChainID,
-		HomesteadBlock: TestConfig.HomesteadBlock,
-		EIP155Block:    TestConfig.EIP155Block,
+	cfgPreGlam := &config.ChainConfig{
+		ChainID:        config.TestConfig.ChainID,
+		HomesteadBlock: config.TestConfig.HomesteadBlock,
+		EIP155Block:    config.TestConfig.EIP155Block,
 		// No Glamsterdan — leave GlamsterdanTime nil.
 	}
 	builder2 := NewBlockBuilder(cfgPreGlam, nil, nil)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // State transition errors.
@@ -38,11 +39,11 @@ const stMaxBlobGasPerBlock = 6 * stBlobGasPerBlob
 // thread-safe.
 type StateTransition struct {
 	mu     sync.Mutex
-	config *ChainConfig
+	config *config.ChainConfig
 }
 
 // NewStateTransition creates a new StateTransition with the given chain config.
-func NewStateTransition(config *ChainConfig) *StateTransition {
+func NewStateTransition(config *config.ChainConfig) *StateTransition {
 	return &StateTransition{config: config}
 }
 
@@ -161,7 +162,7 @@ func (st *StateTransition) ApplyBlock(block *types.Block, statedb state.StateDB)
 // ValidateTransaction performs full validation of a transaction against the
 // current state and block header. It checks nonce, balance, gas limits,
 // intrinsic gas, EIP-1559 fee caps, and EIP-4844 blob constraints.
-func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *types.Header, config *ChainConfig) error {
+func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *types.Header, config *config.ChainConfig) error {
 	sender := tx.Sender()
 	if sender == nil {
 		return ErrSTInvalidSender
@@ -354,7 +355,7 @@ func NextExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed uint64) uint64 {
 // BlockReward computes the static block reward for the given block number.
 // Post-merge (PoS) blocks have zero block reward; the validator is
 // compensated through the consensus layer.
-func BlockReward(config *ChainConfig, header *types.Header) *big.Int {
+func BlockReward(config *config.ChainConfig, header *types.Header) *big.Int {
 	if config != nil && config.IsMerge() {
 		return new(big.Int) // no block reward post-merge
 	}

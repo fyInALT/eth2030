@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func newTestTx(gas uint64, data []byte) *types.Transaction {
@@ -176,7 +177,7 @@ func TestDynamicGasLimitAdjustmentBounded(t *testing.T) {
 
 func TestGasCapConfigForFork(t *testing.T) {
 	// Pre-Prague: default config but no fork-specific blob schedule.
-	prePrague := &ChainConfig{
+	prePrague := &config.ChainConfig{
 		ChainID: big.NewInt(1),
 	}
 	cfg := GasCapConfigForFork(prePrague, 1000)
@@ -185,7 +186,7 @@ func TestGasCapConfigForFork(t *testing.T) {
 	}
 
 	// With Prague and BPO1 active: max blobs should be BPO1.
-	withBPO1 := &ChainConfig{
+	withBPO1 := &config.ChainConfig{
 		ChainID:    big.NewInt(1),
 		PragueTime: newUint64(0),
 		BPO1Time:   newUint64(0),
@@ -198,14 +199,14 @@ func TestGasCapConfigForFork(t *testing.T) {
 
 func TestValidateTransactionGasWithFork(t *testing.T) {
 	// Pre-Prague: only zero gas check.
-	prePrague := &ChainConfig{ChainID: big.NewInt(1)}
+	prePrague := &config.ChainConfig{ChainID: big.NewInt(1)}
 	tx := newTestTx(MaxTransactionGas+1, nil)
 	if err := ValidateTransactionGasWithFork(tx, prePrague, 1000); err != nil {
 		t.Fatalf("pre-Prague should not enforce EIP-7825: %v", err)
 	}
 
 	// Post-Prague: EIP-7825 enforced.
-	postPrague := &ChainConfig{
+	postPrague := &config.ChainConfig{
 		ChainID:    big.NewInt(1),
 		PragueTime: newUint64(0),
 	}

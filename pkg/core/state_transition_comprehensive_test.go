@@ -7,6 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // --- Full-cycle ETH transfer tests ---
@@ -30,7 +31,7 @@ func TestETHTransferFullCycle(t *testing.T) {
 	gasPrice := big.NewInt(1)
 	gasLimit := uint64(21000)
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
 		GasLimit: gasLimit,
@@ -48,7 +49,7 @@ func TestETHTransferFullCycle(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestETHTransferInsufficientBalance(t *testing.T) {
 	statedb.CreateAccount(sender)
 	statedb.AddBalance(sender, big.NewInt(1_000_000_000_000_000)) // 0.001 ETH
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
 		GasLimit: 21000,
@@ -116,7 +117,7 @@ func TestETHTransferInsufficientBalance(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	_, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	_, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err == nil {
 		t.Fatal("expected insufficient balance error")
 	}
@@ -139,7 +140,7 @@ func TestETHTransferInsufficientGas(t *testing.T) {
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(1e18)))
 	statedb.CreateAccount(recipient)
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
 		GasLimit: 5000, // below TxGas (21000)
@@ -156,7 +157,7 @@ func TestETHTransferInsufficientGas(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	_, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	_, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	// Intrinsic gas too low is now returned as a protocol error (matching go-ethereum).
 	if err == nil {
 		t.Fatal("expected error for intrinsic gas too low")
@@ -199,7 +200,7 @@ func TestNonceValidationComprehensive(t *testing.T) {
 			// will advance it).
 			statedb.SetNonce(sender, 10)
 
-			msg := &Message{
+			msg := &config.Message{
 				From:     sender,
 				To:       &recipient,
 				GasLimit: 21000,
@@ -209,7 +210,7 @@ func TestNonceValidationComprehensive(t *testing.T) {
 			}
 
 			gp := new(GasPool).AddGas(header.GasLimit)
-			_, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+			_, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 			if tt.wantErr && err == nil {
 				t.Error("expected nonce error, got nil")
 			}
@@ -233,7 +234,7 @@ func TestGasRefundMechanics(t *testing.T) {
 
 	// Simple transfer to verify refund cap. A plain transfer has no refund
 	// (refund counter stays zero), so we verify that UsedGas == TxGas.
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
 		GasLimit: 100000, // much more than needed
@@ -253,7 +254,7 @@ func TestGasRefundMechanics(t *testing.T) {
 	senderBalBefore := new(big.Int).Set(statedb.GetBalance(sender))
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -297,7 +298,7 @@ func TestValueTransferToNewAccount(t *testing.T) {
 		t.Fatal("newAddr should not exist before transfer")
 	}
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &newAddr,
 		GasLimit: 100000,
@@ -314,7 +315,7 @@ func TestValueTransferToNewAccount(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -344,7 +345,7 @@ func TestZeroValueTransfer(t *testing.T) {
 	statedb.AddBalance(sender, initialBal)
 	statedb.CreateAccount(recipient)
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
 		GasLimit: 21000,
@@ -361,7 +362,7 @@ func TestZeroValueTransfer(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -399,7 +400,7 @@ func TestContractCreationGas(t *testing.T) {
 		0xf3, // RETURN
 	}
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       nil, // contract creation
 		GasLimit: 200000,
@@ -417,7 +418,7 @@ func TestContractCreationGas(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -442,7 +443,7 @@ func TestGlamsterdamReducedIntrinsicGas(t *testing.T) {
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(100), new(big.Int).SetUint64(1e18)))
 	statedb.CreateAccount(recipient)
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
 		GasLimit: 100000,
@@ -459,7 +460,7 @@ func TestGlamsterdamReducedIntrinsicGas(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -486,7 +487,7 @@ func TestGlamsterdamReducedIntrinsicGas(t *testing.T) {
 // activates at the correct timestamp.
 func TestForkActivationIsGlamsterdan(t *testing.T) {
 	glamstTime := uint64(5000)
-	config := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -507,22 +508,22 @@ func TestForkActivationIsGlamsterdan(t *testing.T) {
 	}
 
 	// Before fork time.
-	if config.IsGlamsterdan(4999) {
+	if cfg.IsGlamsterdan(4999) {
 		t.Error("IsGlamsterdan(4999) should be false")
 	}
 
 	// At fork time.
-	if !config.IsGlamsterdan(5000) {
+	if !cfg.IsGlamsterdan(5000) {
 		t.Error("IsGlamsterdan(5000) should be true")
 	}
 
 	// After fork time.
-	if !config.IsGlamsterdan(6000) {
+	if !cfg.IsGlamsterdan(6000) {
 		t.Error("IsGlamsterdan(6000) should be true")
 	}
 
 	// Nil GlamsterdanTime means not scheduled.
-	configNil := &ChainConfig{
+	configNil := &config.ChainConfig{
 		ChainID:         big.NewInt(1),
 		GlamsterdanTime: nil,
 	}
@@ -534,7 +535,7 @@ func TestForkActivationIsGlamsterdan(t *testing.T) {
 // TestForkActivationTimestampOrder verifies that fork timestamps activate
 // in the correct order.
 func TestForkActivationTimestampOrder(t *testing.T) {
-	config := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -555,39 +556,39 @@ func TestForkActivationTimestampOrder(t *testing.T) {
 	}
 
 	// At time 2500: Shanghai and Cancun active, but not Prague.
-	if !config.IsShanghai(2500) {
+	if !cfg.IsShanghai(2500) {
 		t.Error("Shanghai should be active at 2500")
 	}
-	if !config.IsCancun(2500) {
+	if !cfg.IsCancun(2500) {
 		t.Error("Cancun should be active at 2500")
 	}
-	if config.IsPrague(2500) {
+	if cfg.IsPrague(2500) {
 		t.Error("Prague should NOT be active at 2500")
 	}
-	if config.IsAmsterdam(2500) {
+	if cfg.IsAmsterdam(2500) {
 		t.Error("Amsterdam should NOT be active at 2500")
 	}
-	if config.IsGlamsterdan(2500) {
+	if cfg.IsGlamsterdan(2500) {
 		t.Error("Glamsterdan should NOT be active at 2500")
 	}
 
 	// At time 5000: all forks active.
-	if !config.IsPrague(5000) {
+	if !cfg.IsPrague(5000) {
 		t.Error("Prague should be active at 5000")
 	}
-	if !config.IsAmsterdam(5000) {
+	if !cfg.IsAmsterdam(5000) {
 		t.Error("Amsterdam should be active at 5000")
 	}
-	if !config.IsGlamsterdan(5000) {
+	if !cfg.IsGlamsterdan(5000) {
 		t.Error("Glamsterdan should be active at 5000")
 	}
 }
 
-// TestRulesReflectForkActivation verifies that the Rules struct correctly
+// TestRulesReflectForkActivation verifies that the cfg.Rules struct correctly
 // reflects fork activation based on block number and timestamp.
 func TestRulesReflectForkActivation(t *testing.T) {
-	// TestConfig: all forks except Glamsterdam at time 0.
-	rules := TestConfig.Rules(big.NewInt(100), TestConfig.IsMerge(), 100)
+	// config.TestConfig: all forks except Glamsterdam at time 0.
+	rules := config.TestConfig.Rules(big.NewInt(100), config.TestConfig.IsMerge(), 100)
 	if !rules.IsMerge {
 		t.Error("IsMerge should be true")
 	}
@@ -604,25 +605,25 @@ func TestRulesReflectForkActivation(t *testing.T) {
 		t.Error("IsAmsterdam should be true")
 	}
 	if rules.IsGlamsterdan {
-		t.Error("IsGlamsterdan should be false for TestConfig")
+		t.Error("IsGlamsterdan should be false for config.TestConfig")
 	}
 
-	// TestConfigGlamsterdan: all forks including Glamsterdam at time 0.
-	rules2 := TestConfigGlamsterdan.Rules(big.NewInt(100), TestConfigGlamsterdan.IsMerge(), 100)
+	// config.TestConfigGlamsterdan: all forks including Glamsterdam at time 0.
+	rules2 := config.TestConfigGlamsterdan.Rules(big.NewInt(100), config.TestConfigGlamsterdan.IsMerge(), 100)
 	if !rules2.IsGlamsterdan {
-		t.Error("IsGlamsterdan should be true for TestConfigGlamsterdan")
+		t.Error("IsGlamsterdan should be true for config.TestConfigGlamsterdan")
 	}
 	if !rules2.IsEIP7904 {
-		t.Error("IsEIP7904 should be true for TestConfigGlamsterdan")
+		t.Error("IsEIP7904 should be true for config.TestConfigGlamsterdan")
 	}
 	if !rules2.IsEIP7706 {
-		t.Error("IsEIP7706 should be true for TestConfigGlamsterdan")
+		t.Error("IsEIP7706 should be true for config.TestConfigGlamsterdan")
 	}
 	if !rules2.IsEIP7778 {
-		t.Error("IsEIP7778 should be true for TestConfigGlamsterdan")
+		t.Error("IsEIP7778 should be true for config.TestConfigGlamsterdan")
 	}
 	if !rules2.IsEIP2780 {
-		t.Error("IsEIP2780 should be true for TestConfigGlamsterdan")
+		t.Error("IsEIP2780 should be true for config.TestConfigGlamsterdan")
 	}
 }
 
@@ -703,7 +704,7 @@ func TestBlockGasLimitBounds(t *testing.T) {
 // TestBlockHeaderValidation verifies that ValidateHeader checks block number,
 // timestamp, parent hash, and gas limit.
 func TestBlockHeaderValidation(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 
 	parent := makeValidParent()
 	validChild := makeValidChild(parent)
@@ -773,7 +774,7 @@ func TestSequentialTransactions(t *testing.T) {
 
 	// Apply 5 sequential transfers.
 	for i := uint64(0); i < 5; i++ {
-		msg := &Message{
+		msg := &config.Message{
 			From:     sender,
 			To:       &recipient,
 			GasLimit: 21000,
@@ -782,7 +783,7 @@ func TestSequentialTransactions(t *testing.T) {
 			Nonce:    i,
 		}
 		gp := new(GasPool).AddGas(header.GasLimit)
-		result, err := applyMessage(TestConfig, nil, statedb, header, msg, gp)
+		result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 		if err != nil {
 			t.Fatalf("tx %d: applyMessage failed: %v", i, err)
 		}
@@ -847,7 +848,7 @@ func TestGlamsterdamNewAccountSurchargeComprehensive(t *testing.T) {
 				statedb.CreateAccount(recipient)
 			}
 
-			msg := &Message{
+			msg := &config.Message{
 				From:     sender,
 				To:       &recipient,
 				GasLimit: 200000,
@@ -864,7 +865,7 @@ func TestGlamsterdamNewAccountSurchargeComprehensive(t *testing.T) {
 			}
 
 			gp := new(GasPool).AddGas(header.GasLimit)
-			result, err := applyMessage(TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+			result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 			if err != nil {
 				t.Fatalf("applyMessage failed: %v", err)
 			}

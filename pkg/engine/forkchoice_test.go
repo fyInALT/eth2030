@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/backendapi"
@@ -34,7 +34,7 @@ func makeGenesisAt(timestamp uint64) *types.Block {
 func newBackendWithGenesis(ts uint64) (backendapi.Backend, *types.Block) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesisAt(ts)
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	return b, genesis
 }
 

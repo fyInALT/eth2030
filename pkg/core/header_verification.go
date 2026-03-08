@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // Header chain verification errors.
@@ -31,11 +32,11 @@ var (
 // relationships, PoS transition correctness, EIP-1559 base fee continuity,
 // gas limit bounds, and EIP-4844 blob gas accounting.
 type HeaderVerifier struct {
-	config *ChainConfig
+	config *config.ChainConfig
 }
 
 // NewHeaderVerifier creates a new header chain verifier with the given config.
-func NewHeaderVerifier(config *ChainConfig) *HeaderVerifier {
+func NewHeaderVerifier(config *config.ChainConfig) *HeaderVerifier {
 	return &HeaderVerifier{config: config}
 }
 

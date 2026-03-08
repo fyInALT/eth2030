@@ -7,6 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // TestEIP2780Constants verifies the EIP-2780 gas constants.
@@ -102,7 +103,7 @@ func TestEIP2780ReducedIntrinsicGasViaApplyMessage(t *testing.T) {
 	to := types.HexToAddress("0x2222222222222222222222222222222222222222")
 	statedb.CreateAccount(to)
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &to,
 		GasLimit: 100000,
@@ -119,7 +120,7 @@ func TestEIP2780ReducedIntrinsicGasViaApplyMessage(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestEIP2780NewAccountSurcharge(t *testing.T) {
 	// to does NOT exist
 	to := types.HexToAddress("0x3333333333333333333333333333333333333333")
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &to,
 		GasLimit: 200000,
@@ -162,7 +163,7 @@ func TestEIP2780NewAccountSurcharge(t *testing.T) {
 	}
 
 	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}

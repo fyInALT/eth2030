@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -104,7 +105,7 @@ func New(config *Config) (*Node, error) {
 	statedb := state.NewMemoryStateDB()
 
 	// Resolve chain config and genesis block.
-	var chainConfig *core.ChainConfig
+	var chainConfig *coreconfig.ChainConfig
 	var genesis *types.Block
 	if config.GenesisPath != "" {
 		genSpec, err := loadGenesisFile(config)
@@ -457,16 +458,16 @@ func (n *Node) Running() bool {
 }
 
 // chainConfigForNetwork returns the chain config for the given network name.
-func chainConfigForNetwork(network string) *core.ChainConfig {
+func chainConfigForNetwork(network string) *coreconfig.ChainConfig {
 	switch network {
 	case "mainnet":
-		return core.MainnetConfig
+		return coreconfig.MainnetConfig
 	case "sepolia":
-		return core.SepoliaConfig
+		return coreconfig.SepoliaConfig
 	case "holesky":
-		return core.HoleskyConfig
+		return coreconfig.HoleskyConfig
 	default:
-		return core.MainnetConfig
+		return coreconfig.MainnetConfig
 	}
 }
 
@@ -490,16 +491,16 @@ func resolveEngineAuthToken(cfg *Config) (string, error) {
 }
 
 // genesisForNetwork returns the genesis specification for the given network.
-func genesisForNetwork(network string) *core.Genesis {
+func genesisForNetwork(network string) *coreconfig.Genesis {
 	switch network {
 	case "mainnet":
-		return core.DefaultGenesisBlock()
+		return coreconfig.DefaultGenesisBlock()
 	case "sepolia":
-		return core.DefaultSepoliaGenesisBlock()
+		return coreconfig.DefaultSepoliaGenesisBlock()
 	case "holesky":
-		return core.DefaultHoleskyGenesisBlock()
+		return coreconfig.DefaultHoleskyGenesisBlock()
 	default:
-		return core.DefaultGenesisBlock()
+		return coreconfig.DefaultGenesisBlock()
 	}
 }
 

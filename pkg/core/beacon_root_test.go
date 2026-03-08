@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -124,7 +125,7 @@ func TestBeaconBlockRootNotCalledPreCancun(t *testing.T) {
 	beaconRoot := types.HexToHash("0xdeadbeef00000000000000000000000000000000000000000000000000000000")
 
 	// Use a chain config where Cancun is NOT active.
-	preCancunConfig := &ChainConfig{
+	preCancunConfig := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		HomesteadBlock:          big.NewInt(0),
 		ByzantiumBlock:          big.NewInt(0),
@@ -182,7 +183,7 @@ func TestBeaconBlockRootCalledPostCancun(t *testing.T) {
 	}
 
 	block := types.NewBlock(header, &types.Body{})
-	proc := NewStateProcessor(TestConfig) // TestConfig has all forks active
+	proc := NewStateProcessor(config.TestConfig) // config.TestConfig has all forks active
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

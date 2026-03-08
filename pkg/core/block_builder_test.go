@@ -4,13 +4,14 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
 
 // newLegacyBuilder creates a block builder for testing using the legacy interface.
-func newLegacyBuilder(config *ChainConfig, statedb state.StateDB) *BlockBuilder {
+func newLegacyBuilder(config *config.ChainConfig, statedb state.StateDB) *BlockBuilder {
 	b := NewBlockBuilder(config, nil, nil)
 	b.SetState(statedb)
 	return b
@@ -25,7 +26,7 @@ func TestBlockBuilderSimple(t *testing.T) {
 
 	statedb.AddBalance(sender, big.NewInt(10_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -76,7 +77,7 @@ func TestBlockBuilderGasLimit(t *testing.T) {
 
 	statedb.AddBalance(sender, big.NewInt(100_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -123,7 +124,7 @@ func TestBlockBuilderGasPriceOrdering(t *testing.T) {
 	statedb.AddBalance(sender1, big.NewInt(100_000_000))
 	statedb.AddBalance(sender2, big.NewInt(100_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -169,7 +170,7 @@ func TestBlockBuilderGasPriceOrdering(t *testing.T) {
 
 func TestBlockBuilderEmptyBlock(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -294,13 +295,13 @@ func TestBuildBlock_Empty(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
 	// No txpool (nil) means no transactions available.
-	builder := NewBlockBuilder(TestConfig, bc, nil)
+	builder := NewBlockBuilder(config.TestConfig, bc, nil)
 
 	attrs := &BuildBlockAttributes{
 		Timestamp:    12,
@@ -348,7 +349,7 @@ func TestBuildBlock_WithTransactions(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -368,7 +369,7 @@ func TestBuildBlock_WithTransactions(t *testing.T) {
 	}
 	pool := &mockTxPool{txs: txs}
 
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := NewBlockBuilder(config.TestConfig, bc, pool)
 
 	attrs := &BuildBlockAttributes{
 		Timestamp:    12,
@@ -406,7 +407,7 @@ func TestBuildBlock_GasLimitEnforcement(t *testing.T) {
 
 	genesis := makeGenesis(50000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -426,7 +427,7 @@ func TestBuildBlock_GasLimitEnforcement(t *testing.T) {
 	}
 	pool := &mockTxPool{txs: txs}
 
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := NewBlockBuilder(config.TestConfig, bc, pool)
 
 	attrs := &BuildBlockAttributes{
 		Timestamp:    12,
@@ -519,7 +520,7 @@ func TestReorg_Simple(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -589,7 +590,7 @@ func TestReorg_Simple(t *testing.T) {
 	b1Block := types.NewBlock(b1Header, b1Body)
 
 	// Execute against bState to get correct fields.
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	result, procErr := proc.ProcessWithBAL(b1Block, bState)
 	if procErr == nil {
 		b1Header.GasUsed = 0
@@ -664,7 +665,7 @@ func TestBuildBlock_MixedTransactionTypes(t *testing.T) {
 	statedb.AddBalance(sender2, big.NewInt(100_000_000_000))
 	statedb.AddBalance(sender3, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -776,7 +777,7 @@ func TestBuildBlock_BlobGasLimitEnforcement(t *testing.T) {
 		senderTxs = append(senderTxs, senderTx{sender, tx})
 	}
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -825,7 +826,7 @@ func TestBuildBlock_BlobHashValidation(t *testing.T) {
 	receiver := types.BytesToAddress([]byte{0xab})
 	statedb.AddBalance(sender, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -866,7 +867,7 @@ func TestBuildBlock_BlobHashValidation(t *testing.T) {
 // computes excess blob gas from the parent header.
 func TestBuildBlock_ExcessBlobGasCalculation(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	// Parent with 6 blobs used (786432 blob gas) and 0 excess.
 	parentBlobGasUsed := uint64(786432)
@@ -955,7 +956,7 @@ func TestBuildBlock_WithdrawalProcessing(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -978,7 +979,7 @@ func TestBuildBlock_WithdrawalProcessing(t *testing.T) {
 		},
 	}
 
-	builder := NewBlockBuilder(TestConfig, bc, nil)
+	builder := NewBlockBuilder(config.TestConfig, bc, nil)
 
 	attrs := &BuildBlockAttributes{
 		Timestamp:    12,
@@ -1052,7 +1053,7 @@ func TestBuildBlock_WithdrawalBalanceCredits(t *testing.T) {
 		},
 	}
 
-	bb := NewBlockBuilder(TestConfig, nil, nil)
+	bb := NewBlockBuilder(config.TestConfig, nil, nil)
 	bb.SetState(statedb)
 
 	_, _, err := bb.BuildBlock(parent, attrs)
@@ -1084,7 +1085,7 @@ func TestBuildBlock_TransactionOrdering_EffectiveGasPrice(t *testing.T) {
 	statedb.AddBalance(sender2, big.NewInt(100_000_000_000))
 	statedb.AddBalance(sender3, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	baseFee := big.NewInt(10)
 	parent := &types.Header{
@@ -1153,7 +1154,7 @@ func TestBuildBlock_BlobTxsSeparateFromRegular(t *testing.T) {
 	statedb.AddBalance(sender1, big.NewInt(100_000_000_000))
 	statedb.AddBalance(sender2, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -1213,12 +1214,12 @@ func TestBuildBlock_RequestsHash(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
-	builder := NewBlockBuilder(TestConfig, bc, nil)
+	builder := NewBlockBuilder(config.TestConfig, bc, nil)
 
 	attrs := &BuildBlockAttributes{
 		Timestamp:    12,
@@ -1233,7 +1234,7 @@ func TestBuildBlock_RequestsHash(t *testing.T) {
 
 	h := block.Header()
 
-	// Prague is active in TestConfig, so requests hash should be set.
+	// Prague is active in config.TestConfig, so requests hash should be set.
 	if h.RequestsHash == nil {
 		t.Fatal("RequestsHash should be set for Prague block")
 	}
@@ -1250,7 +1251,7 @@ func TestBuildBlock_BlobGasHeaderFields(t *testing.T) {
 	receiver := types.BytesToAddress([]byte{0xab})
 	statedb.AddBalance(sender, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -1313,7 +1314,7 @@ func TestBuildBlock_SkipTxExceedingGasLimit(t *testing.T) {
 	statedb.AddBalance(sender1, big.NewInt(100_000_000_000))
 	statedb.AddBalance(sender2, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -1508,7 +1509,7 @@ func TestSortedTxLists(t *testing.T) {
 // set on blocks when Cancun is not active.
 func TestBuildBlock_NoBlobGasFieldsPreCancun(t *testing.T) {
 	// Create a config where Cancun is not active.
-	preCancunConfig := &ChainConfig{
+	preCancunConfig := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -1561,7 +1562,7 @@ func TestBuildBlock_NoBlobGasFieldsPreCancun(t *testing.T) {
 // has BlobGasUsed = 0.
 func TestBuildBlock_EmptyBlockBlobGasZero(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -1577,7 +1578,7 @@ func TestBuildBlock_EmptyBlockBlobGasZero(t *testing.T) {
 
 	h := block.Header()
 	if h.BlobGasUsed == nil {
-		t.Fatal("BlobGasUsed should be set on Cancun block (TestConfig has Cancun active)")
+		t.Fatal("BlobGasUsed should be set on Cancun block (config.TestConfig has Cancun active)")
 	}
 	if *h.BlobGasUsed != 0 {
 		t.Errorf("BlobGasUsed = %d, want 0 for empty block", *h.BlobGasUsed)
@@ -1592,7 +1593,7 @@ func TestBuildBlock_BaseFeeFiltersTxs(t *testing.T) {
 	receiver := types.BytesToAddress([]byte{0xab})
 	statedb.AddBalance(sender, big.NewInt(100_000_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	// Use a parent that will produce a very high base fee.
 	parent := &types.Header{

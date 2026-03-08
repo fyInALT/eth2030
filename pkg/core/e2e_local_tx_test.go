@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -20,7 +21,7 @@ import (
 func newLocalTxForE2E(sender types.Address, nonce uint64, to *types.Address,
 	value *big.Int, gas uint64, scopeHint []byte) *types.Transaction {
 	tx := types.NewLocalTx(
-		TestConfig.ChainID,
+		config.TestConfig.ChainID,
 		nonce,
 		to,
 		value,
@@ -179,7 +180,7 @@ func TestE2E_LocalTx_MixedWithLegacyTx(t *testing.T) {
 
 	// senderA uses LocalTx, senderB uses legacy tx.
 	localTx := newLocalTxForE2E(senderA, 0, &recipient, big.NewInt(111), 42000, []byte{0x33})
-	legacyTx := signLegacyTx(t, keyB, TestConfig.ChainID, &types.LegacyTx{
+	legacyTx := signLegacyTx(t, keyB, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      21000,
@@ -285,14 +286,14 @@ func TestE2E_LocalTx_GasDiscountHalvesCharge(t *testing.T) {
 	}
 }
 
-// TestE2E_LocalTx_MessageGasLimitIsDiscounted verifies TransactionToMessage
+// TestE2E_LocalTx_MessageGasLimitIsDiscounted verifies config.TransactionToMessage
 // applies the discount so msg.GasLimit == ApplyLocalTxDiscount(tx).
 func TestE2E_LocalTx_MessageGasLimitIsDiscounted(t *testing.T) {
 	sender := types.HexToAddress("0x9999999999999999999999999999999999999999")
 	recipient := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	declared := uint64(42000)
 	tx := types.NewLocalTx(
-		TestConfig.ChainID,
+		config.TestConfig.ChainID,
 		0, &recipient,
 		big.NewInt(0), declared,
 		big.NewInt(1), big.NewInt(2),
@@ -300,14 +301,14 @@ func TestE2E_LocalTx_MessageGasLimitIsDiscounted(t *testing.T) {
 	)
 	tx.SetSender(sender)
 
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	want := types.ApplyLocalTxDiscount(tx)
 	if msg.GasLimit != want {
 		t.Errorf("msg.GasLimit = %d, want %d (50%% discount of %d)", msg.GasLimit, want, declared)
 	}
 }
 
-// TestE2E_LocalTx_LegacyGasLimitUnchanged verifies TransactionToMessage does NOT
+// TestE2E_LocalTx_LegacyGasLimitUnchanged verifies config.TransactionToMessage does NOT
 // apply any discount to non-LocalTx transactions.
 func TestE2E_LocalTx_LegacyGasLimitUnchanged(t *testing.T) {
 	sender := types.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
@@ -322,7 +323,7 @@ func TestE2E_LocalTx_LegacyGasLimitUnchanged(t *testing.T) {
 	})
 	tx.SetSender(sender)
 
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	if msg.GasLimit != gas {
 		t.Errorf("legacy tx: msg.GasLimit = %d, want %d (no discount)", msg.GasLimit, gas)
 	}
@@ -344,7 +345,7 @@ func TestE2E_LocalTx_TransportMgrProducesNoSideEffects(t *testing.T) {
 
 	// Build an empty block — no txs, transport manager not involved.
 	pool := &simpleTxPool{txs: nil}
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := NewBlockBuilder(config.TestConfig, bc, pool)
 	parent := bc.CurrentBlock()
 	attrs := &BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
@@ -369,7 +370,7 @@ func TestE2E_LocalTx_TransportMgrProducesNoSideEffects(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Unit: message.go — TransactionToMessage gas discount
+// Unit: message.go — config.TransactionToMessage gas discount
 // ---------------------------------------------------------------------------
 
 // TestTransactionToMessage_LocalTxDiscount is a pure unit test confirming the
@@ -382,7 +383,7 @@ func TestTransactionToMessage_LocalTxDiscount(t *testing.T) {
 	declared := uint64(100_000)
 
 	tx := types.NewLocalTx(
-		TestConfig.ChainID,
+		config.TestConfig.ChainID,
 		0, &to,
 		big.NewInt(0), declared,
 		big.NewInt(10), big.NewInt(100),
@@ -390,7 +391,7 @@ func TestTransactionToMessage_LocalTxDiscount(t *testing.T) {
 	)
 	tx.SetSender(types.HexToAddress("0x2000000000000000000000000000000000000002"))
 
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	want := declared * (10000 - types.LocalTxDiscountBPS) / 10000
 	if msg.GasLimit != want {
 		t.Errorf("GasLimit = %d, want %d", msg.GasLimit, want)
@@ -400,7 +401,7 @@ func TestTransactionToMessage_LocalTxDiscount(t *testing.T) {
 		t.Errorf("TxType = 0x%02x, want 0x%02x", msg.TxType, types.LocalTxType)
 	}
 	// Calling again must yield the same result (idempotent).
-	msg2 := TransactionToMessage(tx)
+	msg2 := config.TransactionToMessage(tx)
 	if msg2.GasLimit != msg.GasLimit {
 		t.Errorf("non-idempotent: first %d, second %d", msg.GasLimit, msg2.GasLimit)
 	}

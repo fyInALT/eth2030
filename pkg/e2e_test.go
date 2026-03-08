@@ -9,6 +9,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -78,7 +79,7 @@ func TestEndToEndBlockProcessing(t *testing.T) {
 	})
 
 	// Process the block.
-	processor := core.NewStateProcessor(core.TestConfig)
+	processor := core.NewStateProcessor(coreconfig.TestConfig)
 	receipts, err := processor.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process: %v", err)
@@ -436,7 +437,7 @@ func TestEndToEndBlockBuilder(t *testing.T) {
 	}
 
 	// Process the block.
-	processor := core.NewStateProcessor(core.TestConfig)
+	processor := core.NewStateProcessor(coreconfig.TestConfig)
 	receipts, err := processor.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("Process: %v", err)

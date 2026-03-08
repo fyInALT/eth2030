@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestValidateTransactionGasLimit(t *testing.T) {
@@ -43,27 +44,27 @@ func TestMaxTransactionGasValue(t *testing.T) {
 
 func TestIsGasLimitCapped(t *testing.T) {
 	praguetime := uint64(1000)
-	config := &ChainConfig{
+	cfg := &config.ChainConfig{
 		PragueTime: &praguetime,
 	}
 
 	// Before Prague: not capped.
-	if IsGasLimitCapped(config, 999) {
+	if IsGasLimitCapped(cfg, 999) {
 		t.Error("expected gas limit not capped before Prague")
 	}
 
 	// At Prague: capped.
-	if !IsGasLimitCapped(config, 1000) {
+	if !IsGasLimitCapped(cfg, 1000) {
 		t.Error("expected gas limit capped at Prague activation")
 	}
 
 	// After Prague: capped.
-	if !IsGasLimitCapped(config, 2000) {
+	if !IsGasLimitCapped(cfg, 2000) {
 		t.Error("expected gas limit capped after Prague activation")
 	}
 
 	// No Prague: not capped.
-	noPrague := &ChainConfig{}
+	noPrague := &config.ChainConfig{}
 	if IsGasLimitCapped(noPrague, 5000) {
 		t.Error("expected gas limit not capped without Prague config")
 	}

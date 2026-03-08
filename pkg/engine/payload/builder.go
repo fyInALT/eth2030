@@ -7,6 +7,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	corevm "github.com/eth2030/eth2030/core/vm"
@@ -31,7 +32,7 @@ type BuiltPayload struct {
 // PayloadBuilder manages async payload construction.
 type PayloadBuilder struct {
 	mu       sync.RWMutex
-	config   *core.ChainConfig
+	config   *coreconfig.ChainConfig
 	statedb  *state.MemoryStateDB
 	txPool   core.TxPoolReader
 	payloads map[PayloadID]*BuiltPayload
@@ -40,7 +41,7 @@ type PayloadBuilder struct {
 }
 
 // NewPayloadBuilder creates a new PayloadBuilder.
-func NewPayloadBuilder(config *core.ChainConfig, statedb *state.MemoryStateDB, txPool core.TxPoolReader) *PayloadBuilder {
+func NewPayloadBuilder(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, txPool core.TxPoolReader) *PayloadBuilder {
 	return &PayloadBuilder{
 		config:   config,
 		statedb:  statedb,

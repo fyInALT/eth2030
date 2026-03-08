@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -74,7 +75,7 @@ func makeValidChild(parent *types.Header) *types.Header {
 }
 
 func TestValidateHeader_Valid(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 
@@ -84,7 +85,7 @@ func TestValidateHeader_Valid(t *testing.T) {
 }
 
 func TestValidateHeader_InvalidNumber(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.Number = big.NewInt(999) // wrong number
@@ -96,7 +97,7 @@ func TestValidateHeader_InvalidNumber(t *testing.T) {
 }
 
 func TestValidateHeader_TimestampNotIncreasing(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.Time = parent.Time // same timestamp
@@ -108,7 +109,7 @@ func TestValidateHeader_TimestampNotIncreasing(t *testing.T) {
 }
 
 func TestValidateHeader_TimestampBefore(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.Time = parent.Time - 1 // before parent
@@ -120,7 +121,7 @@ func TestValidateHeader_TimestampBefore(t *testing.T) {
 }
 
 func TestValidateHeader_GasUsedExceedsLimit(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.GasUsed = child.GasLimit + 1
@@ -132,7 +133,7 @@ func TestValidateHeader_GasUsedExceedsLimit(t *testing.T) {
 }
 
 func TestValidateHeader_ExtraDataTooLong(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.Extra = make([]byte, MaxExtraDataSize+1)
@@ -144,7 +145,7 @@ func TestValidateHeader_ExtraDataTooLong(t *testing.T) {
 }
 
 func TestValidateHeader_GasLimitTooMuchChange(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.GasLimit = parent.GasLimit * 2 // way too much change
@@ -156,7 +157,7 @@ func TestValidateHeader_GasLimitTooMuchChange(t *testing.T) {
 }
 
 func TestValidateHeader_InvalidDifficulty(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.Difficulty = big.NewInt(1) // must be 0 post-merge
@@ -168,7 +169,7 @@ func TestValidateHeader_InvalidDifficulty(t *testing.T) {
 }
 
 func TestValidateHeader_InvalidNonce(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.Nonce = types.BlockNonce{0x01} // must be zero post-merge
@@ -180,7 +181,7 @@ func TestValidateHeader_InvalidNonce(t *testing.T) {
 }
 
 func TestValidateHeader_InvalidBaseFee(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.BaseFee = big.NewInt(1) // wrong base fee
@@ -240,7 +241,7 @@ func TestCalcBaseFee_NilParent(t *testing.T) {
 }
 
 func TestValidateBody_NoUncles(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	header := makeValidParent()
 	header.TxHash = types.EmptyRootHash // correct root for empty tx list
 	block := types.NewBlock(header, &types.Body{

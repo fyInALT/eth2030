@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // EIP-7825 extended gas cap validation with block gas limit checks,
@@ -69,7 +70,7 @@ func DefaultGasCapConfig() GasCapConfig {
 
 // GasCapConfigForFork returns the appropriate gas cap configuration for
 // the given chain config and block timestamp.
-func GasCapConfigForFork(config *ChainConfig, time uint64) GasCapConfig {
+func GasCapConfigForFork(config *config.ChainConfig, time uint64) GasCapConfig {
 	cfg := DefaultGasCapConfig()
 	if config == nil {
 		return cfg
@@ -242,7 +243,7 @@ func moveTowardTarget(current, target uint64) uint64 {
 // ValidateTransactionGasWithFork is a convenience function that validates a
 // transaction's gas caps based on the active fork rules. It combines the
 // EIP-7825 tx gas cap check with calldata and blob cap checks.
-func ValidateTransactionGasWithFork(tx *types.Transaction, config *ChainConfig, time uint64) error {
+func ValidateTransactionGasWithFork(tx *types.Transaction, config *config.ChainConfig, time uint64) error {
 	// Pre-Prague: only check that gas limit is positive.
 	if config == nil || !config.IsPrague(time) {
 		if tx.Gas() == 0 {

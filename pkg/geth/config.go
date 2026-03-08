@@ -6,13 +6,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/params"
 
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // ToGethChainConfig converts an ETH2030 ChainConfig to a go-ethereum ChainConfig.
 // ETH2030-specific forks (Glamsterdan, Hogota, etc.) are ignored since
 // go-ethereum doesn't know about them.
-func ToGethChainConfig(c *core.ChainConfig) *params.ChainConfig {
+func ToGethChainConfig(c *config.ChainConfig) *params.ChainConfig {
 	if c == nil {
 		return nil
 	}

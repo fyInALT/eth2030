@@ -10,6 +10,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // --- IsDelegated tests ---
@@ -678,12 +679,12 @@ func TestSetCodeTx_AuthorizationProcessedInApplyMessage(t *testing.T) {
 	targetContract := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
 	// Create a properly signed authorization.
-	chainID := TestConfig.ChainID
+	chainID := config.TestConfig.ChainID
 	auth := signAuthorization(privKey, chainID, targetContract, 0)
 
 	// Build a SetCode transaction message directly (bypass Transaction struct).
 	to := types.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
-	msg := Message{
+	msg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
@@ -699,7 +700,7 @@ func TestSetCodeTx_AuthorizationProcessedInApplyMessage(t *testing.T) {
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -738,7 +739,7 @@ func TestSetCodeTx_IntrinsicGasIncludesAuthCosts(t *testing.T) {
 	to := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	emptyTarget := types.HexToAddress("0x1111111111111111111111111111111111111111")
 
-	msg := Message{
+	msg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
@@ -770,7 +771,7 @@ func TestSetCodeTx_IntrinsicGasIncludesAuthCosts(t *testing.T) {
 	}
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -794,7 +795,7 @@ func TestSetCodeTx_IntrinsicGasTooLow(t *testing.T) {
 
 	// Set gas limit to just the base TxGas, which is insufficient for a
 	// SetCode tx with authorizations.
-	msg := Message{
+	msg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
@@ -826,7 +827,7 @@ func TestSetCodeTx_IntrinsicGasTooLow(t *testing.T) {
 	}
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	_, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	// Intrinsic gas too low is now returned as a protocol error (matching go-ethereum).
 	if err == nil {
 		t.Fatal("SetCode tx with insufficient gas should return error")
@@ -850,7 +851,7 @@ func TestSetCodeTx_NonExistentAccountAuthGas(t *testing.T) {
 	nonExistentAddr := types.HexToAddress("0x3333333333333333333333333333333333333333")
 
 	to := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	msg := Message{
+	msg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
@@ -890,7 +891,7 @@ func TestSetCodeTx_NonExistentAccountAuthGas(t *testing.T) {
 	}
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -913,7 +914,7 @@ func TestSetCodeTx_LegacyTxUnaffected(t *testing.T) {
 	statedb.AddBalance(sender, tenETH)
 
 	to := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	msg := Message{
+	msg := config.Message{
 		From:     sender,
 		To:       &to,
 		Nonce:    0,
@@ -933,7 +934,7 @@ func TestSetCodeTx_LegacyTxUnaffected(t *testing.T) {
 	}
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -966,7 +967,7 @@ func TestTransactionToMessage_SetCodeTx(t *testing.T) {
 		},
 	}
 	tx := types.NewTransaction(inner)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 
 	if msg.TxType != types.SetCodeTxType {
 		t.Errorf("TxType: got %d, want %d", msg.TxType, types.SetCodeTxType)
@@ -992,7 +993,7 @@ func TestTransactionToMessage_LegacyTxHasNoAuthList(t *testing.T) {
 		Value:    big.NewInt(0),
 	}
 	tx := types.NewTransaction(inner)
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 
 	if msg.TxType != types.LegacyTxType {
 		t.Errorf("TxType: got %d, want %d", msg.TxType, types.LegacyTxType)
@@ -1030,12 +1031,12 @@ func TestSetCodeTx_MultipleAuthsWithSignatures(t *testing.T) {
 	target1 := types.HexToAddress("0x1111111111111111111111111111111111111111")
 	target2 := types.HexToAddress("0x2222222222222222222222222222222222222222")
 
-	chainID := TestConfig.ChainID
+	chainID := config.TestConfig.ChainID
 	auth1 := signAuthorization(privKey1, chainID, target1, 0)
 	auth2 := signAuthorization(privKey2, chainID, target2, 0)
 
 	to := types.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
-	msg := Message{
+	msg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
@@ -1051,7 +1052,7 @@ func TestSetCodeTx_MultipleAuthsWithSignatures(t *testing.T) {
 	header := newTestHeader()
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	_, err = applyMessage(TestConfig, nil, statedb, header, &msg, gp)
+	_, err = applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}

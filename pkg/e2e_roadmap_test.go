@@ -11,6 +11,7 @@ import (
 	e2e "github.com/eth2030/eth2030"
 	"github.com/eth2030/eth2030/consensus"
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -37,7 +38,7 @@ func TestE2E_Roadmap_GlamsterdamRepricing(t *testing.T) {
 	parent := e2e.MakeParentHeader()
 	tx := e2e.MakeDynamicFeeTx(sender, receiver, 0, 1000, 100, 2000)
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, receipts, err := builder.BuildBlockLegacy(parent, []*types.Transaction{tx}, 12, coinbase, nil)
@@ -130,7 +131,7 @@ func TestE2E_Roadmap_NativeAAExecution(t *testing.T) {
 	parent := e2e.MakeParentHeader()
 	aaTx := e2e.MakeDynamicFeeTx(sender, receiver, 0, 10000, 200, 5000)
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, receipts, err := builder.BuildBlockLegacy(parent, []*types.Transaction{aaTx}, 12, coinbase, nil)
@@ -169,7 +170,7 @@ func TestE2E_Roadmap_BALParallelExecution(t *testing.T) {
 	})
 	tx2.SetSender(sender)
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, _, err := builder.BuildBlockLegacy(parent, []*types.Transaction{tx1, tx2}, 12, coinbase, nil)
@@ -579,7 +580,7 @@ func TestE2E_Roadmap_MultidimGasPricing(t *testing.T) {
 	})
 	tx.SetSender(sender)
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, receipts, err := builder.BuildBlockLegacy(parent, []*types.Transaction{tx}, 12, coinbase, nil)
@@ -622,7 +623,7 @@ func TestE2E_Roadmap_GigagasParallelProcessing(t *testing.T) {
 		txs = append(txs, tx)
 	}
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, receipts, err := builder.BuildBlockLegacy(parent, txs, 12, coinbase, nil)
@@ -678,7 +679,7 @@ func TestE2E_Roadmap_FullBlockLifecycleWithConsensus(t *testing.T) {
 	for _, txs := range pendingMap {
 		pendingTxs = append(pendingTxs, txs...)
 	}
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, receipts, err := builder.BuildBlockLegacy(parent, pendingTxs, 12, coinbase, nil)
@@ -721,7 +722,7 @@ func TestE2E_Roadmap_StatelessExecution(t *testing.T) {
 	tx.SetSender(sender)
 
 	// Execute and capture state root.
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	coinbase := types.BytesToAddress([]byte{0xff})
 	block, _, err := builder.BuildBlockLegacy(parent, []*types.Transaction{tx}, 12, coinbase, nil)

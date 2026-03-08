@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -32,12 +32,12 @@ func makeGenesis() *types.Block {
 func TestNewEngineBackend(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	if b == nil {
 		t.Fatal("NewEngineBackend returned nil")
 	}
-	if b.config != core.TestConfig {
+	if b.config != coreconfig.TestConfig {
 		t.Error("config not set correctly")
 	}
 	if len(b.blocks) != 1 {
@@ -58,7 +58,7 @@ func TestNewEngineBackend(t *testing.T) {
 func TestProcessValidBlock(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	genesisHash := genesis.Hash()
 
@@ -112,7 +112,7 @@ func TestProcessValidBlock(t *testing.T) {
 func TestForkchoiceUpdated(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	result, err := b.ForkchoiceUpdated(
@@ -146,7 +146,7 @@ func TestForkchoiceUpdated(t *testing.T) {
 func TestForkchoiceUpdated_UnknownHead(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	unknownHash := types.HexToHash("0xdeadbeef")
 	result, err := b.ForkchoiceUpdated(
@@ -168,7 +168,7 @@ func TestForkchoiceUpdated_UnknownHead(t *testing.T) {
 func TestForkchoiceWithPayloadAttributes(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	attrs := &PayloadAttributesV3{
@@ -213,7 +213,7 @@ func TestForkchoiceWithPayloadAttributes(t *testing.T) {
 func TestGetPayload(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Build a payload via forkchoice.
@@ -269,7 +269,7 @@ func TestGetPayload(t *testing.T) {
 func TestGetPayload_Unknown(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	unknownID := PayloadID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	_, err := b.GetPayloadByID(unknownID)
@@ -281,7 +281,7 @@ func TestGetPayload_Unknown(t *testing.T) {
 func TestProcessInvalidBlock(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	// Create a payload with unknown parent.
 	unknownParent := types.HexToHash("0xdeadbeef")
@@ -314,7 +314,7 @@ func TestProcessInvalidBlock(t *testing.T) {
 func TestProcessBlock_InvalidTransaction(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Create a payload with garbage transaction data.

@@ -1,10 +1,8 @@
-package core
+package config
 
 import (
-	"encoding/json"
 	"math/big"
 
-	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -61,9 +59,10 @@ func (g *Genesis) ToBlock() *types.Block {
 
 	// Encode nonce into BlockNonce (big-endian).
 	if g.Nonce != 0 {
+		n := g.Nonce
 		for i := 7; i >= 0; i-- {
-			head.Nonce[i] = byte(g.Nonce)
-			g.Nonce >>= 8
+			head.Nonce[i] = byte(n)
+			n >>= 8
 		}
 	}
 
@@ -157,31 +156,6 @@ func (g *Genesis) SetupGenesisBlock(statedb *state.MemoryStateDB) *types.Block {
 	header := block.Header()
 	header.Root = stateRoot
 	return types.NewBlock(header, block.Body())
-}
-
-// CommitGenesis initializes the database with the genesis block and state.
-// Returns the initialized blockchain.
-func (g *Genesis) CommitGenesis(db rawdb.Database) (*Blockchain, error) {
-	statedb := state.NewMemoryStateDB()
-	block := g.SetupGenesisBlock(statedb)
-
-	config := g.Config
-	if config == nil {
-		config = TestConfig
-	}
-
-	bc, err := NewBlockchain(config, block, statedb, db)
-	if err != nil {
-		return nil, err
-	}
-
-	// Store genesis config as JSON in rawdb.
-	configData, err := json.Marshal(config)
-	if err == nil {
-		db.Put([]byte("ETH2030-chain-config"), configData)
-	}
-
-	return bc, nil
 }
 
 // DefaultGenesisBlock returns the mainnet genesis specification.

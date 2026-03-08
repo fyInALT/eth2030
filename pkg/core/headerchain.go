@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 var (
@@ -18,7 +19,7 @@ var (
 // but can also run entirely in memory for testing.
 type HeaderChain struct {
 	mu        sync.RWMutex
-	config    *ChainConfig
+	config    *config.ChainConfig
 	validator *BlockValidator
 
 	// In-memory canonical chain (number -> header).
@@ -32,7 +33,7 @@ type HeaderChain struct {
 }
 
 // NewHeaderChain creates a new header chain with a genesis header.
-func NewHeaderChain(config *ChainConfig, genesis *types.Header) *HeaderChain {
+func NewHeaderChain(config *config.ChainConfig, genesis *types.Header) *HeaderChain {
 	hc := &HeaderChain{
 		config:        config,
 		validator:     NewBlockValidator(config),

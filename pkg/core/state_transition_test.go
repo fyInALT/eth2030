@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestNewStateTransition(t *testing.T) {
-	cfg := TestConfig
+	cfg := config.TestConfig
 	st := NewStateTransition(cfg)
 	if st == nil {
 		t.Fatal("NewStateTransition returned nil")
@@ -135,7 +136,7 @@ func TestEffectiveGasPriceFeeCapLimits(t *testing.T) {
 }
 
 func TestBlockRewardPostMerge(t *testing.T) {
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		TerminalTotalDifficulty: big.NewInt(0),
 	}
@@ -147,7 +148,7 @@ func TestBlockRewardPostMerge(t *testing.T) {
 }
 
 func TestBlockRewardPreMerge(t *testing.T) {
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID: big.NewInt(1),
 		// No TTD set -> pre-merge.
 	}

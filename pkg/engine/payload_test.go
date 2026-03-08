@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -623,7 +623,7 @@ func TestPayloadBuilder_BlockValue(t *testing.T) {
 	// Test block value calculation with the real EngineBackend.
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Build a payload via forkchoice (empty block).
@@ -678,7 +678,7 @@ func TestPayloadBuilder_GetPayloadV6(t *testing.T) {
 	// Test GetPayloadV6ByID with the real EngineBackend (Amsterdam config).
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	attrs := &PayloadAttributesV3{
@@ -731,7 +731,7 @@ func TestPayloadBuilder_GetPayloadV6(t *testing.T) {
 func TestForkchoiceUpdatedV4_RealBackend(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	attrs := &PayloadAttributesV4{
@@ -782,7 +782,7 @@ func TestForkchoiceUpdatedV4_RealBackend(t *testing.T) {
 func TestBackend_IsPrague(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	// TestConfig has Prague at timestamp 0, so any timestamp should be Prague.
 	if !b.IsPrague(1700000000) {
@@ -793,7 +793,7 @@ func TestBackend_IsPrague(t *testing.T) {
 func TestBackend_IsAmsterdam(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	// TestConfig has Amsterdam at timestamp 0, so any timestamp should be Amsterdam.
 	if !b.IsAmsterdam(1700000000) {
@@ -813,4 +813,4 @@ func TestBackend_IsNotAmsterdam(t *testing.T) {
 }
 
 // SepoliaConfig mirrors the Sepolia test net config (no Amsterdam).
-var SepoliaConfig = core.SepoliaConfig
+var SepoliaConfig = coreconfig.SepoliaConfig

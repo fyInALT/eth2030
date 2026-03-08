@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -512,7 +512,7 @@ func TestProcessBlock_InvalidBlockHash(t *testing.T) {
 	// Verify INVALID_BLOCK_HASH is returned when blockHash doesn't match.
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Create a payload with a fake block hash that won't match the computed hash.
@@ -550,7 +550,7 @@ func TestProcessBlock_TimestampValidation(t *testing.T) {
 	// Verify that a block with timestamp <= parent timestamp is rejected.
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Create a payload with the same timestamp as genesis (1700000000).
@@ -637,7 +637,7 @@ func TestErrorMapping_AllCases(t *testing.T) {
 func TestBackend_GetHeadTimestamp(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	ts := b.GetHeadTimestamp()
 	if ts != genesis.Header().Time {
@@ -648,7 +648,7 @@ func TestBackend_GetHeadTimestamp(t *testing.T) {
 func TestBackend_IsCancun(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	// TestConfig has Cancun at timestamp 0, so any timestamp should be Cancun.
 	if !b.IsCancun(1700000000) {
@@ -659,7 +659,7 @@ func TestBackend_IsCancun(t *testing.T) {
 func TestBackend_ProcessBlockV4(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	payload := &ExecutionPayloadV3{
@@ -697,7 +697,7 @@ func TestBackend_ProcessBlockV4(t *testing.T) {
 func TestForkchoiceUpdated_TimestampValidation_RealBackend(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Try to build a payload with timestamp equal to genesis (should fail).
@@ -731,7 +731,7 @@ func TestForkchoiceUpdated_TimestampValidation_RealBackend(t *testing.T) {
 func TestFullRoundtrip_ForkchoiceToGetPayload(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	genesisHash := genesis.Hash()
 
 	// Step 1: forkchoiceUpdated with attributes to trigger payload build.

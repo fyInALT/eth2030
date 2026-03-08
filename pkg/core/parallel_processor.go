@@ -8,6 +8,7 @@ import (
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 var (
@@ -19,11 +20,11 @@ var (
 // ParallelProcessor processes blocks by executing independent transaction
 // groups in parallel, as identified by Block Access Lists (EIP-7928).
 type ParallelProcessor struct {
-	config *ChainConfig
+	config *config.ChainConfig
 }
 
 // NewParallelProcessor creates a new parallel processor.
-func NewParallelProcessor(config *ChainConfig) *ParallelProcessor {
+func NewParallelProcessor(config *config.ChainConfig) *ParallelProcessor {
 	return &ParallelProcessor{config: config}
 }
 
@@ -146,7 +147,7 @@ func (p *ParallelProcessor) processSequential(statedb state.StateDB, block *type
 }
 
 // applyTransactionAt applies a transaction and sets the TransactionIndex on the receipt.
-func applyTransactionAt(config *ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, txIndex int) (*types.Receipt, uint64, error) {
+func applyTransactionAt(config *config.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, txIndex int) (*types.Receipt, uint64, error) {
 	statedb.SetTxContext(tx.Hash(), txIndex)
 	receipt, gasUsed, err := ApplyTransaction(config, statedb, header, tx, gp)
 	if err != nil {

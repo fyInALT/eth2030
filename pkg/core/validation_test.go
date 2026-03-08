@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // --- Header Validation Tests ---
 
 func TestValidateHeader_ParentHashMismatch(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.ParentHash = types.Hash{0xde, 0xad} // wrong parent hash
@@ -22,7 +23,7 @@ func TestValidateHeader_ParentHashMismatch(t *testing.T) {
 }
 
 func TestValidateHeader_GasLimitBoundary(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 
 	tests := []struct {
 		name      string
@@ -87,7 +88,7 @@ func TestValidateHeader_GasLimitBoundary(t *testing.T) {
 }
 
 func TestValidateHeader_ExtraDataBoundary(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 
 	// Exactly 32 bytes: should pass.
@@ -113,7 +114,7 @@ func TestValidateHeader_ExtraDataBoundary(t *testing.T) {
 }
 
 func TestValidateHeader_PostMergeFields(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 
 	// Difficulty must be 0 post-merge.
@@ -139,7 +140,7 @@ func TestValidateHeader_PostMergeFields(t *testing.T) {
 }
 
 func TestValidateHeader_GasUsedExactlyAtLimit(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 
 	// Gas used == gas limit: should pass.

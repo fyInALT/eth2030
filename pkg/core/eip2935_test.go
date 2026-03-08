@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 func TestProcessParentBlockHash(t *testing.T) {
@@ -106,13 +107,13 @@ func TestEIP2935_IntegratedWithProcessor(t *testing.T) {
 	body := &types.Body{}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Since TestConfig has Prague active, the parent hash should be stored.
+	// Since config.TestConfig has Prague active, the parent hash should be stored.
 	// Parent number = 100 - 1 = 99.
 	got := GetHistoricalBlockHash(statedb, 99)
 	if got != parentHash {
@@ -124,7 +125,7 @@ func TestEIP2935_NotActivePrePrague(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 
 	// Use a config where Prague is not active.
-	prePragueConfig := &ChainConfig{
+	prePragueConfig := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),

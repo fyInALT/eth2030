@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/backendapi"
@@ -17,7 +17,7 @@ func makePayloadBodiesAPI(t *testing.T) (*EngineAPI, backendapi.Backend) {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	api := NewEngineAPI(backend)
 	return api, backend
 }

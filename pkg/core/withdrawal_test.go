@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // TestWithdrawalProcessing verifies that EIP-4895 beacon chain withdrawals
@@ -58,7 +59,7 @@ func TestWithdrawalProcessing(t *testing.T) {
 	}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error processing block with withdrawals: %v", err)
@@ -135,7 +136,7 @@ func TestWithdrawalProcessingWithTransactions(t *testing.T) {
 	}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error processing block: %v", err)
@@ -304,7 +305,7 @@ func TestWithdrawalsNotAppliedPreShanghai(t *testing.T) {
 	}
 
 	// Use a config where Shanghai is not active (ShanghaiTime=nil).
-	preShanghaiConfig := &ChainConfig{
+	preShanghaiConfig := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),

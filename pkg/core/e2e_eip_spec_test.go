@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -36,7 +37,7 @@ func TestE2E_BALOrdering_InProcessedBlock(t *testing.T) {
 	// Build 3 transactions from the same sender (nonce 0, 1, 2).
 	var txs []*types.Transaction
 	for nonce := uint64(0); nonce < 3; nonce++ {
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    nonce,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,
@@ -49,7 +50,7 @@ func TestE2E_BALOrdering_InProcessedBlock(t *testing.T) {
 	buildState := statedb.Copy()
 	block := makeBlockWithState(genesis, txs, buildState)
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 	result, err := proc.ProcessWithBAL(block, statedb)
 	if err != nil {
 		t.Fatalf("ProcessWithBAL: %v", err)
@@ -122,7 +123,7 @@ func TestE2E_CalldataGasHeader_UpdatesAcrossBlocks(t *testing.T) {
 	statedb.AddBalance(sender, ether(100))
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfigGlamsterdan, genesis, statedb, db)
+	bc, err := NewBlockchain(config.TestConfigGlamsterdan, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestE2E_CalldataGasHeader_UpdatesAcrossBlocks(t *testing.T) {
 	buildInsertGlamsterdan := func(pool TxPoolReader) *types.Block {
 		t.Helper()
 		parent := bc.CurrentBlock()
-		builder := NewBlockBuilder(TestConfigGlamsterdan, bc, pool)
+		builder := NewBlockBuilder(config.TestConfigGlamsterdan, bc, pool)
 		attrs := &BuildBlockAttributes{
 			Timestamp:    parent.Time() + 12,
 			FeeRecipient: coinbase,
@@ -148,7 +149,7 @@ func TestE2E_CalldataGasHeader_UpdatesAcrossBlocks(t *testing.T) {
 
 	// Block 1: send a tx with significant calldata.
 	calldataPayload := bytes.Repeat([]byte{0xFF}, 200) // 200 non-zero bytes
-	tx1 := signLegacyTx(t, key, TestConfigGlamsterdan.ChainID, &types.LegacyTx{
+	tx1 := signLegacyTx(t, key, config.TestConfigGlamsterdan.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      100_000,
@@ -283,14 +284,14 @@ func TestE2E_ILSatisfaction_AgainstBuiltBlock(t *testing.T) {
 	})
 
 	// Create 2 transactions: tx1 will be included, tx2 will be absent from the IL check.
-	tx1 := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	tx1 := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      21000,
 		To:       &recipient,
 		Value:    big.NewInt(100),
 	})
-	tx2 := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	tx2 := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(10),
 		Gas:      21000,
@@ -358,7 +359,7 @@ func TestE2E_ILSatisfaction_GasExemptionInFullBlock(t *testing.T) {
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 
 	// Create a tx that won't be in the block.
-	absentTx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	absentTx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      50000,
@@ -408,11 +409,11 @@ func TestE2E_MultiBlock_BALAccessIndex(t *testing.T) {
 		sender: ether(100),
 	})
 
-	proc := NewStateProcessor(TestConfig)
+	proc := NewStateProcessor(config.TestConfig)
 
 	for blockNum := uint64(1); blockNum <= 3; blockNum++ {
 		nonce := blockNum - 1
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    nonce,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,
@@ -422,7 +423,7 @@ func TestE2E_MultiBlock_BALAccessIndex(t *testing.T) {
 
 		pool := &simpleTxPool{txs: []*types.Transaction{tx}}
 		parent := bc.CurrentBlock()
-		builder := NewBlockBuilder(TestConfig, bc, pool)
+		builder := NewBlockBuilder(config.TestConfig, bc, pool)
 		attrs := &BuildBlockAttributes{
 			Timestamp:    parent.Time() + 12,
 			FeeRecipient: coinbase,

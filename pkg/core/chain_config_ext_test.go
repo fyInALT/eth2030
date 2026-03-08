@@ -1,13 +1,14 @@
 package core
 
 import (
+	"github.com/eth2030/eth2030/core/config"
 	"math/big"
 	"testing"
 )
 
 func TestForkOrder(t *testing.T) {
-	if len(ForkOrder) == 0 {
-		t.Fatal("ForkOrder is empty")
+	if len(config.ForkOrder) == 0 {
+		t.Fatal("config.ForkOrder is empty")
 	}
 	// Verify known forks are present.
 	expected := []string{
@@ -16,25 +17,25 @@ func TestForkOrder(t *testing.T) {
 		"Glamsterdan", "Hogota", "IPlus",
 	}
 	forkSet := make(map[string]bool)
-	for _, f := range ForkOrder {
+	for _, f := range config.ForkOrder {
 		forkSet[f] = true
 	}
 	for _, name := range expected {
 		if !forkSet[name] {
-			t.Errorf("ForkOrder missing %s", name)
+			t.Errorf("config.ForkOrder missing %s", name)
 		}
 	}
 }
 
 func TestValidate_ValidConfig(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("DevConfig should be valid: %v", err)
+		t.Fatalf("config.DevConfig should be valid: %v", err)
 	}
 }
 
 func TestValidate_NilChainID(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	cfg.ChainID = nil
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for nil ChainID")
@@ -42,7 +43,7 @@ func TestValidate_NilChainID(t *testing.T) {
 }
 
 func TestValidate_ZeroChainID(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	cfg.ChainID = big.NewInt(0)
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for zero ChainID")
@@ -50,7 +51,7 @@ func TestValidate_ZeroChainID(t *testing.T) {
 }
 
 func TestValidate_NegativeChainID(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	cfg.ChainID = big.NewInt(-1)
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for negative ChainID")
@@ -58,7 +59,7 @@ func TestValidate_NegativeChainID(t *testing.T) {
 }
 
 func TestValidate_BlockForkOrdering(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	// Berlin must not come before Istanbul.
 	cfg.IstanbulBlock = big.NewInt(100)
 	cfg.BerlinBlock = big.NewInt(50) // Before Istanbul
@@ -68,7 +69,7 @@ func TestValidate_BlockForkOrdering(t *testing.T) {
 }
 
 func TestValidate_TimestampForkOrdering(t *testing.T) {
-	cfg := TestnetConfig()
+	cfg := config.TestnetConfig()
 	// Hogota before Glamsterdan is invalid.
 	glamsterdan := uint64(5000)
 	hogota := uint64(3000)
@@ -81,7 +82,7 @@ func TestValidate_TimestampForkOrdering(t *testing.T) {
 
 func TestValidate_ShanghaiWithoutTTD(t *testing.T) {
 	shanghaiTime := uint64(100)
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		TerminalTotalDifficulty: nil,
 		ShanghaiTime:            &shanghaiTime,
@@ -92,28 +93,28 @@ func TestValidate_ShanghaiWithoutTTD(t *testing.T) {
 }
 
 func TestValidate_MainnetConfig(t *testing.T) {
-	cfg := MainnetConfig
+	cfg := config.MainnetConfig
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("MainnetConfig should be valid: %v", err)
+		t.Fatalf("config.MainnetConfig should be valid: %v", err)
 	}
 }
 
 func TestValidate_SepoliaConfig(t *testing.T) {
-	cfg := SepoliaConfig
+	cfg := config.SepoliaConfig
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("SepoliaConfig should be valid: %v", err)
+		t.Fatalf("config.SepoliaConfig should be valid: %v", err)
 	}
 }
 
 func TestValidate_HoleskyConfig(t *testing.T) {
-	cfg := HoleskyConfig
+	cfg := config.HoleskyConfig
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("HoleskyConfig should be valid: %v", err)
+		t.Fatalf("config.HoleskyConfig should be valid: %v", err)
 	}
 }
 
 func TestActiveFork_DevConfig(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	fork := cfg.ActiveFork(0)
 	if fork != "IPlus" {
 		t.Fatalf("expected IPlus at time 0, got %s", fork)
@@ -121,7 +122,7 @@ func TestActiveFork_DevConfig(t *testing.T) {
 }
 
 func TestActiveFork_Progression(t *testing.T) {
-	cfg := TestnetConfig()
+	cfg := config.TestnetConfig()
 	tests := []struct {
 		time     uint64
 		expected string
@@ -140,13 +141,13 @@ func TestActiveFork_Progression(t *testing.T) {
 	for _, tt := range tests {
 		got := cfg.ActiveFork(tt.time)
 		if got != tt.expected {
-			t.Errorf("ActiveFork(%d) = %s, want %s", tt.time, got, tt.expected)
+			t.Errorf("config.ActiveFork(%d) = %s, want %s", tt.time, got, tt.expected)
 		}
 	}
 }
 
 func TestActiveFork_PreMerge(t *testing.T) {
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:     big.NewInt(1),
 		LondonBlock: big.NewInt(0),
 		// No TTD set = pre-merge.
@@ -158,7 +159,7 @@ func TestActiveFork_PreMerge(t *testing.T) {
 }
 
 func TestActiveFork_MergeOnly(t *testing.T) {
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		LondonBlock:             big.NewInt(0),
 		TerminalTotalDifficulty: big.NewInt(0),
@@ -171,10 +172,10 @@ func TestActiveFork_MergeOnly(t *testing.T) {
 }
 
 func TestGetRules(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	rules := cfg.GetRules(0, 0)
 	if rules == nil {
-		t.Fatal("GetRules returned nil")
+		t.Fatal("config.GetRules returned nil")
 	}
 	if !rules.IsMerge {
 		t.Fatal("expected IsMerge to be true")
@@ -200,7 +201,7 @@ func TestGetRules(t *testing.T) {
 }
 
 func TestGetRules_BeforeFork(t *testing.T) {
-	cfg := TestnetConfig()
+	cfg := config.TestnetConfig()
 	// Time 500: Prague is at 1000, so it should be inactive.
 	rules := cfg.GetRules(0, 500)
 	if rules.IsPrague {
@@ -215,24 +216,24 @@ func TestGetRules_BeforeFork(t *testing.T) {
 }
 
 func TestMainnetConfigFunc(t *testing.T) {
-	cfg := MainnetConfigFunc()
+	cfg := config.MainnetConfigFunc()
 	if cfg == nil {
-		t.Fatal("MainnetConfigFunc returned nil")
+		t.Fatal("config.MainnetConfigFunc returned nil")
 	}
 	if cfg.ChainID.Cmp(big.NewInt(1)) != 0 {
 		t.Fatalf("expected chainID 1, got %s", cfg.ChainID)
 	}
 	// Verify it's a copy.
 	cfg.ChainID = big.NewInt(999)
-	if MainnetConfig.ChainID.Cmp(big.NewInt(1)) != 0 {
-		t.Fatal("MainnetConfig was mutated through copy")
+	if config.MainnetConfig.ChainID.Cmp(big.NewInt(1)) != 0 {
+		t.Fatal("config.MainnetConfig was mutated through copy")
 	}
 }
 
 func TestTestnetConfig(t *testing.T) {
-	cfg := TestnetConfig()
+	cfg := config.TestnetConfig()
 	if cfg == nil {
-		t.Fatal("TestnetConfig returned nil")
+		t.Fatal("config.TestnetConfig returned nil")
 	}
 	if cfg.ChainID.Cmp(big.NewInt(11155111)) != 0 {
 		t.Fatalf("expected chainID 11155111, got %s", cfg.ChainID)
@@ -247,14 +248,14 @@ func TestTestnetConfig(t *testing.T) {
 		t.Fatal("HogotaTime should be set")
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("TestnetConfig should be valid: %v", err)
+		t.Fatalf("config.TestnetConfig should be valid: %v", err)
 	}
 }
 
 func TestDevConfig(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	if cfg == nil {
-		t.Fatal("DevConfig returned nil")
+		t.Fatal("config.DevConfig returned nil")
 	}
 	if cfg.ChainID.Cmp(big.NewInt(1337)) != 0 {
 		t.Fatalf("expected chainID 1337, got %s", cfg.ChainID)
@@ -290,12 +291,12 @@ func TestDevConfig(t *testing.T) {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("DevConfig should be valid: %v", err)
+		t.Fatalf("config.DevConfig should be valid: %v", err)
 	}
 }
 
 func TestValidate_NegativeBlockFork(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	cfg.HomesteadBlock = big.NewInt(-1)
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for negative fork block")
@@ -306,7 +307,7 @@ func TestValidate_SkippedTimestampForks(t *testing.T) {
 	// It's valid to skip forks (leave them nil).
 	shanghaiTime := uint64(100)
 	glamsterdanTime := uint64(200)
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		TerminalTotalDifficulty: big.NewInt(0),
 		ShanghaiTime:            &shanghaiTime,
@@ -320,7 +321,7 @@ func TestValidate_SkippedTimestampForks(t *testing.T) {
 
 func TestActiveFork_ShanghaiOnly(t *testing.T) {
 	shanghaiTime := uint64(100)
-	cfg := &ChainConfig{
+	cfg := &config.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		TerminalTotalDifficulty: big.NewInt(0),
 		ShanghaiTime:            &shanghaiTime,
@@ -334,7 +335,7 @@ func TestActiveFork_ShanghaiOnly(t *testing.T) {
 }
 
 func TestGetRules_AllEIPs(t *testing.T) {
-	cfg := DevConfig()
+	cfg := config.DevConfig()
 	rules := cfg.GetRules(0, 0)
 
 	// Verify all EIP-specific flags.
@@ -370,34 +371,34 @@ func TestGetRules_AllEIPs(t *testing.T) {
 
 	for _, check := range checks {
 		if !check.active {
-			t.Errorf("expected %s to be true in DevConfig at time 0", check.name)
+			t.Errorf("expected %s to be true in config.DevConfig at time 0", check.name)
 		}
 	}
 }
 
 func TestValidate_TestConfigVariants(t *testing.T) {
-	configs := []*ChainConfig{
-		TestConfig,
-		TestConfigGlamsterdan,
-		TestConfigHogota,
-		TestConfigBPO2,
+	configs := []*config.ChainConfig{
+		config.TestConfig,
+		config.TestConfigGlamsterdan,
+		config.TestConfigHogota,
+		config.TestConfigBPO2,
 	}
 	for i, cfg := range configs {
 		if err := cfg.Validate(); err != nil {
-			t.Errorf("TestConfig variant %d should be valid: %v", i, err)
+			t.Errorf("config.TestConfig variant %d should be valid: %v", i, err)
 		}
 	}
 }
 
 func TestMainnetConfigFunc_TTDCopy(t *testing.T) {
-	cfg := MainnetConfigFunc()
+	cfg := config.MainnetConfigFunc()
 	if cfg.TerminalTotalDifficulty == nil {
 		t.Fatal("TTD should be set")
 	}
 	// Mutate the copy.
 	cfg.TerminalTotalDifficulty = big.NewInt(0)
 	// Original must be unchanged.
-	if MainnetConfig.TerminalTotalDifficulty.Cmp(MainnetTerminalTotalDifficulty) != 0 {
-		t.Fatal("MainnetConfig TTD was mutated through copy")
+	if config.MainnetConfig.TerminalTotalDifficulty.Cmp(config.MainnetTerminalTotalDifficulty) != 0 {
+		t.Fatal("config.MainnetConfig TTD was mutated through copy")
 	}
 }

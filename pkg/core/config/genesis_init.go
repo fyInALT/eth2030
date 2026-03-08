@@ -2,7 +2,7 @@
 // initializing a chain database from a genesis configuration. It validates
 // the genesis, applies allocations, computes the state root, and writes
 // the genesis block plus canonical mappings to a ChainDB.
-package core
+package config
 
 import (
 	"errors"
@@ -77,15 +77,15 @@ func SetupGenesis(db rawdb.Database, genesis *Genesis) (*SetupGenesisResult, err
 		return nil, fmt.Errorf("commit genesis block: %w", err)
 	}
 
-	config := genesis.Config
-	if config == nil {
-		config = TestConfig
+	cfg := genesis.Config
+	if cfg == nil {
+		cfg = TestConfig
 	}
 
 	return &SetupGenesisResult{
 		Block:   genesisBlock,
 		ChainDB: cdb,
-		Config:  config,
+		Config:  cfg,
 		StateDB: statedb,
 	}, nil
 }
@@ -106,7 +106,7 @@ func ValidateGenesis(g *Genesis) error {
 	if g.Timestamp > maxReasonableTimestamp {
 		return fmt.Errorf("%w: %d", ErrGenesisTimestampFuture, g.Timestamp)
 	}
-	if len(g.ExtraData) > MaxExtraDataSize {
+	if len(g.ExtraData) > maxExtraDataSize {
 		return fmt.Errorf("%w: length %d", ErrGenesisExtraDataLong, len(g.ExtraData))
 	}
 

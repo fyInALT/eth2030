@@ -3,6 +3,7 @@ package core
 import (
 	"math/big"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -64,7 +65,7 @@ var (
 )
 
 // GetBlobSchedule returns the active blob schedule for the given config and time.
-func GetBlobSchedule(config *ChainConfig, time uint64) BlobSchedule {
+func GetBlobSchedule(config *config.ChainConfig, time uint64) BlobSchedule {
 	switch {
 	case config.IsBPO2(time):
 		return BPO2BlobSchedule
@@ -79,13 +80,13 @@ func GetBlobSchedule(config *ChainConfig, time uint64) BlobSchedule {
 
 // MaxBlobsForBlock returns the maximum number of blobs allowed in a block
 // at the given timestamp, based on the active fork schedule.
-func MaxBlobsForBlock(config *ChainConfig, time uint64) uint64 {
+func MaxBlobsForBlock(config *config.ChainConfig, time uint64) uint64 {
 	return GetBlobSchedule(config, time).Max
 }
 
 // TargetBlobsForBlock returns the target number of blobs per block
 // at the given timestamp, based on the active fork schedule.
-func TargetBlobsForBlock(config *ChainConfig, time uint64) uint64 {
+func TargetBlobsForBlock(config *config.ChainConfig, time uint64) uint64 {
 	return GetBlobSchedule(config, time).Target
 }
 
@@ -170,7 +171,7 @@ func CalcExcessBlobGasV2WithSchedule(parentExcessBlobGas, parentBlobGasUsed uint
 // CalcExcessBlobGasV2ForHeader calculates excess blob gas for a new block,
 // using the header's TargetBlobsPerBlock (EIP-7742) if present, otherwise
 // falling back to the fork schedule.
-func CalcExcessBlobGasV2ForHeader(parent *types.Header, config *ChainConfig, headerTime uint64) uint64 {
+func CalcExcessBlobGasV2ForHeader(parent *types.Header, config *config.ChainConfig, headerTime uint64) uint64 {
 	var parentExcess, parentUsed uint64
 	if parent.ExcessBlobGas != nil {
 		parentExcess = *parent.ExcessBlobGas

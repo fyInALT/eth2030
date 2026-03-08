@@ -10,6 +10,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
@@ -33,7 +34,7 @@ type pendingPayload struct {
 // to the block builder and state processor.
 type EngineBackend struct {
 	mu            sync.RWMutex
-	config        *core.ChainConfig
+	config        *coreconfig.ChainConfig
 	statedb       *state.MemoryStateDB
 	processor     *core.StateProcessor
 	blocks        map[types.Hash]*types.Block
@@ -47,7 +48,7 @@ type EngineBackend struct {
 }
 
 // NewEngineBackend creates a new Engine API backend.
-func NewEngineBackend(config *core.ChainConfig, statedb *state.MemoryStateDB, genesis *types.Block) *EngineBackend {
+func NewEngineBackend(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, genesis *types.Block) *EngineBackend {
 	b := &EngineBackend{
 		config:    config,
 		statedb:   statedb,

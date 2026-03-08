@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -102,7 +103,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 
 	// Execute block through the state processor to compute all consensus-
 	// critical fields: state root, receipt root, bloom, gas used, BAL hash.
-	proc := core.NewStateProcessor(core.TestConfig)
+	proc := core.NewStateProcessor(coreconfig.TestConfig)
 	result, err := proc.ProcessWithBAL(block, statedb)
 	if err == nil {
 		var gasUsed uint64
@@ -136,7 +137,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 func TestBlockchainE2E_FullLifecycle(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestBlockchainE2E_FullLifecycle(t *testing.T) {
 func TestBlockchainE2E_WithTransactions(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestBlockchainE2E_WithTransactions(t *testing.T) {
 func TestBlockchainE2E_GetHashFn(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -237,7 +238,7 @@ func TestBlockchainE2E_GetHashFn(t *testing.T) {
 func TestBlockchainE2E_SetHead(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -272,7 +273,7 @@ func TestBlockchainE2E_SetHead(t *testing.T) {
 func TestBlockchainE2E_InvalidBlock(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -376,7 +377,7 @@ func (b *blockchainBackend) HistoryOldestBlock() uint64 {
 func TestRPCE2E_BlockchainQueries(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -431,7 +432,7 @@ func TestRPCE2E_BlockchainQueries(t *testing.T) {
 func TestRPCE2E_ClientVersion(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, _ := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, _ := core.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 
 	backend := &blockchainBackend{bc: bc, chainID: big.NewInt(1337)}
 	srv := rpc.NewServer(backend)
@@ -1302,7 +1303,7 @@ func TestE2E_BlockBuilder_BlobTransactions(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1382,7 +1383,7 @@ func TestE2E_BlockBuilder_BlobGasLimitEnforcement(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1449,7 +1450,7 @@ func TestE2E_BlockBuilder_BlobTxInvalidHashRejected(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1503,7 +1504,7 @@ func TestE2E_BlockBuilder_MixedRegularAndBlobTxs(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := core.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)

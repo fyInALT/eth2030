@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -14,7 +14,7 @@ import (
 func TestEngineBackend_ProcessInclusionList(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	il := &types.InclusionList{
 		Slot:           1,
@@ -36,7 +36,7 @@ func TestEngineBackend_ProcessInclusionList(t *testing.T) {
 func TestEngineBackend_ProcessInclusionList_Multiple(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	for i := 0; i < 3; i++ {
 		il := &types.InclusionList{
@@ -59,7 +59,7 @@ func TestEngineBackend_ProcessInclusionList_Multiple(t *testing.T) {
 func TestEngineBackend_GetInclusionList_ReturnsEmpty(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	il := backend.GetInclusionList()
 	if il == nil {
@@ -77,7 +77,7 @@ func TestEngineBackend_GetInclusionList_ReturnsEmpty(t *testing.T) {
 func TestEngineBackend_IlsAsFocil(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	tx1 := []byte{0x01, 0x02}
 	tx2 := []byte{0x03, 0x04}
@@ -122,7 +122,7 @@ func TestStatusInclusionListUnsatisfied_Value(t *testing.T) {
 func TestEngineBackend_ImplementsInclusionListBackend(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 
 	// This is a compile-time check via interface assertion.
 	var _ InclusionListBackend = backend

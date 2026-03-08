@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/eth2030/eth2030/bal"
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -42,7 +43,7 @@ type BuildBlockAttributes struct {
 
 // BlockBuilder constructs new blocks from pending transactions.
 type BlockBuilder struct {
-	config *ChainConfig
+	config *config.ChainConfig
 	chain  *Blockchain
 	txPool TxPoolReader
 	state  state.StateDB
@@ -50,7 +51,7 @@ type BlockBuilder struct {
 
 // NewBlockBuilder creates a new block builder.
 // If chain is nil, a standalone builder is created (for backward compatibility).
-func NewBlockBuilder(config *ChainConfig, chain *Blockchain, pool TxPoolReader) *BlockBuilder {
+func NewBlockBuilder(config *config.ChainConfig, chain *Blockchain, pool TxPoolReader) *BlockBuilder {
 	return &BlockBuilder{
 		config: config,
 		chain:  chain,

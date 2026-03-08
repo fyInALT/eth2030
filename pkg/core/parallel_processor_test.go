@@ -8,6 +8,7 @@ import (
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // makeTransferTx creates a legacy transfer transaction.
@@ -129,7 +130,7 @@ func TestParallelProcessIndependentTransactions(t *testing.T) {
 
 	accessList := buildBALForIndependentTransfers(senders, recipients)
 
-	proc := NewParallelProcessor(TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -178,7 +179,7 @@ func TestParallelProcessFallbackSequential(t *testing.T) {
 	header := newTestHeader()
 	block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
-	proc := NewParallelProcessor(TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -202,7 +203,7 @@ func TestParallelProcessEmptyBlock(t *testing.T) {
 	header := newTestHeader()
 	block := types.NewBlock(header, &types.Body{})
 
-	proc := NewParallelProcessor(TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -304,7 +305,7 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 
 	accessList := buildBALForIndependentTransfers(senders, recipients)
 
-	proc := NewParallelProcessor(TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -370,7 +371,7 @@ func TestParallelProcessConflictingTransactions(t *testing.T) {
 
 	accessList := buildBALForConflictingTransfers(senders, sharedRecipient, n)
 
-	proc := NewParallelProcessor(TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -416,7 +417,7 @@ func TestParallelProcessWithEmptyBAL(t *testing.T) {
 
 	emptyBAL := bal.NewBlockAccessList()
 
-	proc := NewParallelProcessor(TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, emptyBAL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

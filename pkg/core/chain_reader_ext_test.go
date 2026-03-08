@@ -153,7 +153,7 @@ func TestMemoryFullChainGetTotalDifficulty(t *testing.T) {
 	block2 := makeTestBlockForFullChain(2, block1.Hash(), nil)
 	mfc.AddBlock(block2)
 
-	// Genesis TD should be its difficulty (1).
+	// config.Genesis TD should be its difficulty (1).
 	td := mfc.GetTotalDifficulty(genesis.Hash(), 0)
 	if td == nil {
 		t.Fatal("expected TD for genesis, got nil")

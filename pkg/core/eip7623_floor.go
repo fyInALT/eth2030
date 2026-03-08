@@ -5,6 +5,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // EIP-7623 calldata cost floor.
@@ -125,7 +126,7 @@ func ApplyCalldataFloorGlamst(executionGas uint64, data []byte, accessList types
 //  6. Refund (gas_limit - effective_gas) to the sender
 //
 // This function implements step 5.
-func CalcEffectiveGas(config *ChainConfig, headerTime uint64, executionGas uint64, data []byte, accessList types.AccessList, isCreate bool) (effectiveGas uint64, floorApplied bool) {
+func CalcEffectiveGas(config *config.ChainConfig, headerTime uint64, executionGas uint64, data []byte, accessList types.AccessList, isCreate bool) (effectiveGas uint64, floorApplied bool) {
 	if config == nil {
 		return executionGas, false
 	}
@@ -143,7 +144,7 @@ func CalcEffectiveGas(config *ChainConfig, headerTime uint64, executionGas uint6
 
 // CalcFloorGasForTx computes the calldata floor gas for a transaction,
 // automatically selecting the correct calculation based on the active fork.
-func CalcFloorGasForTx(config *ChainConfig, headerTime uint64, tx *types.Transaction) FloorGasResult {
+func CalcFloorGasForTx(config *config.ChainConfig, headerTime uint64, tx *types.Transaction) FloorGasResult {
 	data := tx.Data()
 	isCreate := tx.To() == nil
 
@@ -160,7 +161,7 @@ func CalcFloorGasForTx(config *ChainConfig, headerTime uint64, tx *types.Transac
 // This is useful for transaction pool validation: a transaction whose
 // gas limit is sufficient for standard execution but insufficient for
 // the floor should be rejected early.
-func FloorGasExcess(config *ChainConfig, headerTime uint64, tx *types.Transaction, standardIntrinsicGas uint64) uint64 {
+func FloorGasExcess(config *config.ChainConfig, headerTime uint64, tx *types.Transaction, standardIntrinsicGas uint64) uint64 {
 	result := CalcFloorGasForTx(config, headerTime, tx)
 	if result.FloorGas > standardIntrinsicGas {
 		return result.FloorGas - standardIntrinsicGas
@@ -172,7 +173,7 @@ func FloorGasExcess(config *ChainConfig, headerTime uint64, tx *types.Transactio
 // sufficient to cover both the standard intrinsic gas and the calldata floor.
 // This should be called during transaction validation (e.g., in the txpool)
 // to reject transactions that would inevitably fail the floor check.
-func ValidateGasLimitCoversFloor(config *ChainConfig, headerTime uint64, tx *types.Transaction) error {
+func ValidateGasLimitCoversFloor(config *config.ChainConfig, headerTime uint64, tx *types.Transaction) error {
 	if config == nil || !config.IsPrague(headerTime) {
 		return nil
 	}
@@ -208,7 +209,7 @@ func RefundWithFloor(
 	data []byte,
 	accessList types.AccessList,
 	isCreate bool,
-	config *ChainConfig,
+	config *config.ChainConfig,
 	headerTime uint64,
 ) (finalGas uint64, refundApplied uint64, floorApplied bool) {
 	// Step 1: Apply EIP-3529 refund cap (max refund = gasUsed / 5).

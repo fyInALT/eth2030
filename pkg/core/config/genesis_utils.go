@@ -1,4 +1,4 @@
-package core
+package config
 
 import (
 	"errors"
@@ -17,7 +17,9 @@ var (
 	ErrGenesisNilConfig     = errors.New("genesis: chain config is nil")
 )
 
-// Note: MaxExtraDataSize is defined in block_validator.go (= 32 bytes).
+// maxExtraDataSize is the maximum allowed extra data length in a genesis block.
+// Mirrors block_validator.go MaxExtraDataSize = 32.
+const maxExtraDataSize = 32
 
 // DefaultGenesis returns a default mainnet genesis configuration.
 // This is an alias for DefaultGenesisBlock for interface consistency.
@@ -33,19 +35,19 @@ func DevGenesis() *Genesis {
 	oneThousandETH := new(big.Int).Mul(big.NewInt(1000), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 
 	alloc := GenesisAlloc{
-		types.HexToAddress("0x0000000000000000000000000000000000000001"): GenesisAccount{
+		types.HexToAddress("0x0000000000000000000000000000000000000001"): {
 			Balance: new(big.Int).Set(oneThousandETH),
 		},
-		types.HexToAddress("0x0000000000000000000000000000000000000002"): GenesisAccount{
+		types.HexToAddress("0x0000000000000000000000000000000000000002"): {
 			Balance: new(big.Int).Set(oneThousandETH),
 		},
-		types.HexToAddress("0x0000000000000000000000000000000000000003"): GenesisAccount{
+		types.HexToAddress("0x0000000000000000000000000000000000000003"): {
 			Balance: new(big.Int).Set(oneThousandETH),
 		},
-		types.HexToAddress("0x71562b71999567a775ef2404c3434aedf7e1b7f1"): GenesisAccount{
+		types.HexToAddress("0x71562b71999567a775ef2404c3434aedf7e1b7f1"): {
 			Balance: new(big.Int).Set(oneThousandETH),
 		},
-		types.HexToAddress("0xdead000000000000000000000000000000000000"): GenesisAccount{
+		types.HexToAddress("0xdead000000000000000000000000000000000000"): {
 			Balance: new(big.Int).Set(oneThousandETH),
 			Nonce:   1,
 		},
@@ -79,7 +81,7 @@ func (g *Genesis) Validate() error {
 	if g.GasLimit == 0 {
 		return ErrGenesisZeroGasLimit
 	}
-	if len(g.ExtraData) > MaxExtraDataSize {
+	if len(g.ExtraData) > maxExtraDataSize {
 		return fmt.Errorf("%w: length %d", ErrGenesisExtraDataLong, len(g.ExtraData))
 	}
 

@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -29,7 +30,7 @@ func TestE2E_BlockCreation(t *testing.T) {
 	// Create 3 transactions of increasing value.
 	var txs []*types.Transaction
 	for i := uint64(0); i < 3; i++ {
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    i,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,

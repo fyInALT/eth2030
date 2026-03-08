@@ -7,6 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/core/config"
 )
 
 // TestEIP7778BlockGasAccountingNoRefunds verifies that under Glamsterdam,
@@ -24,7 +25,7 @@ func TestEIP7778BlockGasAccountingNoRefunds(t *testing.T) {
 	statedb.CreateAccount(to)
 
 	// Simple value transfer under Glamsterdam.
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &to,
 		GasLimit: 100000,
@@ -42,7 +43,7 @@ func TestEIP7778BlockGasAccountingNoRefunds(t *testing.T) {
 
 	gp := new(GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestEIP7778BlockGasPoolCorrectness(t *testing.T) {
 	to := types.HexToAddress("0xbbbb")
 	statedb.CreateAccount(to)
 
-	msg := &Message{
+	msg := &config.Message{
 		From:     sender,
 		To:       &to,
 		GasLimit: 100000,
@@ -92,7 +93,7 @@ func TestEIP7778BlockGasPoolCorrectness(t *testing.T) {
 	initialPoolGas := header.GasLimit
 	gp := new(GasPool).AddGas(initialPoolGas)
 
-	result, err := applyMessage(TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}

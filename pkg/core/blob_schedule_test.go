@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -34,7 +35,7 @@ func TestBlobScheduleConstants(t *testing.T) {
 }
 
 func TestGetBlobSchedule_ForkTransitions(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -81,7 +82,7 @@ func TestGetBlobSchedule_ForkTransitions(t *testing.T) {
 }
 
 func TestMaxBlobsForBlock(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -116,7 +117,7 @@ func TestMaxBlobsForBlock(t *testing.T) {
 }
 
 func TestTargetBlobsForBlock(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -231,7 +232,7 @@ func TestCalcExcessBlobGasV2ForHeader_WithTargetOverride(t *testing.T) {
 		TargetBlobsPerBlock: &target,
 	}
 
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -272,7 +273,7 @@ func TestCalcExcessBlobGasV2ForHeader_WithoutTarget(t *testing.T) {
 		BlobGasUsed:   &used,
 	}
 
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -306,7 +307,7 @@ func TestCalcExcessBlobGasV2ForHeader_NilParentFields(t *testing.T) {
 		BaseFee: big.NewInt(1),
 	}
 
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -331,7 +332,7 @@ func TestCalcExcessBlobGasV2ForHeader_NilParentFields(t *testing.T) {
 }
 
 func TestValidateBlockBlobGasWithConfig(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -387,7 +388,7 @@ func TestValidateBlockBlobGasWithConfig(t *testing.T) {
 }
 
 func TestGetBlobSchedule_NoBPOForks(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		EIP150Block:             big.NewInt(0),
@@ -413,7 +414,7 @@ func TestGetBlobSchedule_NoBPOForks(t *testing.T) {
 }
 
 func TestIsBPO1_IsBPO2(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		BPO1Time: newUint64(100),
 		BPO2Time: newUint64(200),
 	}

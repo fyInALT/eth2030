@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/rlp"
 	"github.com/eth2030/eth2030/trie"
@@ -66,11 +67,11 @@ var EmptyUncleHash = func() types.Hash {
 
 // BlockValidator validates block headers against consensus rules.
 type BlockValidator struct {
-	config *ChainConfig
+	config *config.ChainConfig
 }
 
 // NewBlockValidator creates a new block validator.
-func NewBlockValidator(config *ChainConfig) *BlockValidator {
+func NewBlockValidator(config *config.ChainConfig) *BlockValidator {
 	return &BlockValidator{config: config}
 }
 

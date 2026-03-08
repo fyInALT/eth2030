@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	corconfig "github.com/eth2030/eth2030/core/config"
 )
 
 // balTrackerOrNil converts a typed *bal.AccessTracker to the vm.BALTracker
@@ -57,13 +58,13 @@ var (
 
 // StateProcessor processes blocks by applying transactions sequentially.
 type StateProcessor struct {
-	config  *ChainConfig
+	config  *corconfig.ChainConfig
 	getHash vm.GetHashFunc
-	slasher PaymasterSlasher // optional: slashes paymasters on bad settlement (AA-1.3)
+	slasher corconfig.PaymasterSlasher // optional: slashes paymasters on bad settlement (AA-1.3)
 }
 
 // NewStateProcessor creates a new state processor.
-func NewStateProcessor(config *ChainConfig) *StateProcessor {
+func NewStateProcessor(config *corconfig.ChainConfig) *StateProcessor {
 	return &StateProcessor{config: config}
 }
 
@@ -72,10 +73,10 @@ func (p *StateProcessor) SetGetHash(fn vm.GetHashFunc) {
 	p.getHash = fn
 }
 
-// SetSlasher wires a PaymasterSlasher into the processor. When set, the
+// SetSlasher wires a corconfig.PaymasterSlasher into the processor. When set, the
 // processor will call SlashOnBadSettlement whenever a frame tx paymaster
 // fails to cover gas after execution (AA-1.3).
-func (p *StateProcessor) SetSlasher(s PaymasterSlasher) {
+func (p *StateProcessor) SetSlasher(s corconfig.PaymasterSlasher) {
 	p.slasher = s
 }
 
@@ -409,7 +410,7 @@ func (p *StateProcessor) ProcessWithRequests(block *types.Block, statedb state.S
 // System calls use a special system address as the caller, with a large gas
 // allowance. The calls are not user-initiated transactions and do not
 // consume block gas.
-func ProcessRequests(config *ChainConfig, statedb state.StateDB, header *types.Header) (types.Requests, error) {
+func ProcessRequests(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header) (types.Requests, error) {
 	if config == nil || !config.IsPrague(header.Time) {
 		return nil, nil
 	}
@@ -554,38 +555,38 @@ func trimTrailingZeros(b []byte) []byte {
 
 // ApplyTransaction applies a single transaction to the state and returns a receipt.
 // It is a convenience wrapper that calls applyTransaction with no GetHash function.
-func ApplyTransaction(config *ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
+func ApplyTransaction(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
 	return applyTransaction(config, nil, statedb, header, tx, gp)
 }
 
 // ApplyTransactionWithBAL applies a single transaction to the state with
 // EIP-7928 BAL tracking enabled. The provided tracker is injected into the
 // EVM so opcodes record state accesses during execution.
-func ApplyTransactionWithBAL(config *ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+func ApplyTransactionWithBAL(config *corconfig.ChainConfig, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
 	return applyTransactionWithBAL(config, nil, statedb, header, tx, gp, tracker)
 }
 
 // applyTransaction is the internal implementation that accepts an optional GetHash function.
-func applyTransaction(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
+func applyTransaction(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil, nil)
 }
 
 // applyTransactionWithBAL is like applyTransaction but injects the BAL tracker
 // into the EVM so that opcodes record state accesses for EIP-7928.
-func applyTransactionWithBAL(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+func applyTransactionWithBAL(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker, nil)
 }
 
 // applyTransactionFull is like applyTransactionWithBAL but also accepts a
-// PaymasterSlasher for EIP-8141 paymaster slashing (AA-1.3).
-func applyTransactionFull(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher PaymasterSlasher) (*types.Receipt, uint64, error) {
+// corconfig.PaymasterSlasher for EIP-8141 paymaster slashing (AA-1.3).
+func applyTransactionFull(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, tracker, slasher)
 }
 
 // applyTransactionInternal is the shared implementation for all applyTransaction
 // variants. tracker enables EIP-7928 BAL recording; slasher enables EIP-8141
 // paymaster slashing on bad gas settlement.
-func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher PaymasterSlasher) (*types.Receipt, uint64, error) {
+func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
 	// Enforce I+ fork guard for PQ transactions.
 	rules := config.Rules(header.Number, config.IsMerge(), header.Time)
 	if tx.Type() == types.PQTransactionType && !rules.IsIPlus {
@@ -605,7 +606,7 @@ func applyTransactionInternal(config *ChainConfig, getHash vm.GetHashFunc, state
 			}
 		}
 	}
-	msg := TransactionToMessage(tx)
+	msg := corconfig.TransactionToMessage(tx)
 	// AA-1.3: wire slasher so applyMessage can slash paymasters on bad settlement.
 	msg.Slasher = slasher
 
@@ -858,7 +859,7 @@ func intrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool
 // An optional BALTracker can be provided for EIP-7928 state access tracking;
 // when non-nil, the tracker is injected into the EVM so opcodes record
 // storage reads, storage changes, and address touches during execution.
-func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *Message, gp *GasPool, balTracker ...vm.BALTracker) (*ExecutionResult, error) {
+func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, msg *corconfig.Message, gp *GasPool, balTracker ...vm.BALTracker) (*ExecutionResult, error) {
 	// Validate and consume gas from the pool
 	if err := gp.SubGas(msg.GasLimit); err != nil {
 		return nil, err
@@ -1352,7 +1353,7 @@ func applyMessage(config *ChainConfig, getHash vm.GetHashFunc, statedb state.Sta
 // msgEffectiveGasPrice computes the actual gas price paid per EIP-1559.
 // For legacy txs, it returns GasPrice directly.
 // For EIP-1559 txs, it returns min(GasFeeCap, BaseFee + GasTipCap).
-func msgEffectiveGasPrice(msg *Message, baseFee *big.Int) *big.Int {
+func msgEffectiveGasPrice(msg *corconfig.Message, baseFee *big.Int) *big.Int {
 	if msg.GasFeeCap != nil && baseFee != nil && baseFee.Sign() > 0 {
 		// EIP-1559 transaction
 		tip := msg.GasTipCap
