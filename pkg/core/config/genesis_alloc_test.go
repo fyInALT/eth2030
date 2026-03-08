@@ -1,11 +1,10 @@
-package core
+package config
 
 import (
 	"encoding/json"
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -16,7 +15,7 @@ var (
 )
 
 func TestTestnetGenesisAlloc(t *testing.T) {
-	alloc := config.TestnetGenesisAlloc()
+	alloc := TestnetGenesisAlloc()
 
 	// Should have exactly 10 prefunded accounts.
 	if len(alloc) != 10 {
@@ -24,19 +23,19 @@ func TestTestnetGenesisAlloc(t *testing.T) {
 	}
 
 	// Each account should have 10000 ETH.
-	for _, addr := range config.TestnetPrefundedAccounts {
+	for _, addr := range TestnetPrefundedAccounts {
 		acct, ok := alloc[addr]
 		if !ok {
 			t.Fatalf("missing prefunded account %s", addr.Hex())
 		}
-		if acct.Balance.Cmp(config.TestnetPrefundAmount) != 0 {
+		if acct.Balance.Cmp(TestnetPrefundAmount) != 0 {
 			t.Fatalf("account %s has wrong balance: %s", addr.Hex(), acct.Balance.String())
 		}
 	}
 }
 
 func TestTestnetGenesisBlock(t *testing.T) {
-	genesis := config.TestnetGenesisBlock()
+	genesis := TestnetGenesisBlock()
 
 	if genesis.Config == nil {
 		t.Fatal("testnet genesis has nil config")
@@ -59,7 +58,7 @@ func TestTestnetGenesisBlock(t *testing.T) {
 }
 
 func TestSystemContractAlloc(t *testing.T) {
-	alloc := config.SystemContractAlloc()
+	alloc := SystemContractAlloc()
 
 	// Should have 5 system contracts.
 	if len(alloc) != 5 {
@@ -89,7 +88,7 @@ func TestSystemContractAlloc(t *testing.T) {
 }
 
 func TestMergeGenesisAlloc(t *testing.T) {
-	alloc := config.MergeGenesisAlloc()
+	alloc := MergeGenesisAlloc()
 
 	// Should have 10 testnet + 5 system = 15 accounts.
 	if len(alloc) != 15 {
@@ -97,35 +96,35 @@ func TestMergeGenesisAlloc(t *testing.T) {
 	}
 
 	// Verify testnet accounts are present.
-	for _, addr := range config.TestnetPrefundedAccounts {
-		if !config.AllocHasAccount(alloc, addr) {
+	for _, addr := range TestnetPrefundedAccounts {
+		if !AllocHasAccount(alloc, addr) {
 			t.Fatalf("merge alloc missing testnet account %s", addr.Hex())
 		}
 	}
 
 	// Verify system contracts are present.
-	if !config.AllocHasAccount(alloc, testBeaconRootsAddress) {
+	if !AllocHasAccount(alloc, testBeaconRootsAddress) {
 		t.Fatal("merge alloc missing beacon roots contract")
 	}
 }
 
 func TestMarshalGenesisAlloc(t *testing.T) {
-	alloc := config.GenesisAlloc{
-		types.HexToAddress("0x0000000000000000000000000000000000000001"): config.GenesisAccount{
+	alloc := GenesisAlloc{
+		types.HexToAddress("0x0000000000000000000000000000000000000001"): GenesisAccount{
 			Balance: big.NewInt(1_000_000),
 		},
-		types.HexToAddress("0x0000000000000000000000000000000000000002"): config.GenesisAccount{
+		types.HexToAddress("0x0000000000000000000000000000000000000002"): GenesisAccount{
 			Balance: big.NewInt(2_000_000),
 			Nonce:   5,
 		},
 	}
 
-	data, err := config.MarshalGenesisAlloc(alloc)
+	data, err := MarshalGenesisAlloc(alloc)
 	if err != nil {
 		t.Fatalf("marshal error: %v", err)
 	}
 
-	var entries []config.GenesisAllocJSON
+	var entries []GenesisAllocJSON
 	if err := json.Unmarshal(data, &entries); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
 	}
@@ -141,59 +140,59 @@ func TestMarshalGenesisAlloc(t *testing.T) {
 }
 
 func TestMarshalGenesisAllocDeterministic(t *testing.T) {
-	alloc := config.TestnetGenesisAlloc()
+	alloc := TestnetGenesisAlloc()
 
-	data1, err := config.MarshalGenesisAlloc(alloc)
+	data1, err := MarshalGenesisAlloc(alloc)
 	if err != nil {
 		t.Fatalf("first marshal error: %v", err)
 	}
 
-	data2, err := config.MarshalGenesisAlloc(alloc)
+	data2, err := MarshalGenesisAlloc(alloc)
 	if err != nil {
 		t.Fatalf("second marshal error: %v", err)
 	}
 
 	if string(data1) != string(data2) {
-		t.Fatal("config.MarshalGenesisAlloc is not deterministic")
+		t.Fatal("MarshalGenesisAlloc is not deterministic")
 	}
 }
 
 func TestAllocAccountCount(t *testing.T) {
-	alloc := config.TestnetGenesisAlloc()
-	if config.AllocAccountCount(alloc) != 10 {
-		t.Fatalf("expected 10, got %d", config.AllocAccountCount(alloc))
+	alloc := TestnetGenesisAlloc()
+	if AllocAccountCount(alloc) != 10 {
+		t.Fatalf("expected 10, got %d", AllocAccountCount(alloc))
 	}
 
-	if config.AllocAccountCount(config.GenesisAlloc{}) != 0 {
+	if AllocAccountCount(GenesisAlloc{}) != 0 {
 		t.Fatal("expected 0 for empty alloc")
 	}
 }
 
 func TestAllocHasAccount(t *testing.T) {
-	alloc := config.TestnetGenesisAlloc()
+	alloc := TestnetGenesisAlloc()
 
-	if !config.AllocHasAccount(alloc, config.TestnetPrefundedAccounts[0]) {
+	if !AllocHasAccount(alloc, TestnetPrefundedAccounts[0]) {
 		t.Fatal("expected account to be present")
 	}
 
 	missing := types.HexToAddress("0xdead000000000000000000000000000000000000")
-	if config.AllocHasAccount(alloc, missing) {
+	if AllocHasAccount(alloc, missing) {
 		t.Fatal("expected account to be absent")
 	}
 }
 
 func TestSnapshotGenesisState(t *testing.T) {
-	alloc := config.GenesisAlloc{
-		types.HexToAddress("0x0000000000000000000000000000000000000001"): config.GenesisAccount{
+	alloc := GenesisAlloc{
+		types.HexToAddress("0x0000000000000000000000000000000000000001"): GenesisAccount{
 			Balance: big.NewInt(100),
 		},
-		types.HexToAddress("0x0000000000000000000000000000000000000002"): config.GenesisAccount{
+		types.HexToAddress("0x0000000000000000000000000000000000000002"): GenesisAccount{
 			Balance: big.NewInt(200),
 			Code:    []byte{0x60, 0x00},
 		},
 	}
 
-	snap := config.SnapshotGenesisState(alloc)
+	snap := SnapshotGenesisState(alloc)
 
 	if snap.AccountCount != 2 {
 		t.Fatalf("expected 2 accounts, got %d", snap.AccountCount)
@@ -210,10 +209,10 @@ func TestSnapshotGenesisState(t *testing.T) {
 }
 
 func TestSnapshotGenesisStateDeterministic(t *testing.T) {
-	alloc := config.TestnetGenesisAlloc()
+	alloc := TestnetGenesisAlloc()
 
-	snap1 := config.SnapshotGenesisState(alloc)
-	snap2 := config.SnapshotGenesisState(alloc)
+	snap1 := SnapshotGenesisState(alloc)
+	snap2 := SnapshotGenesisState(alloc)
 
 	if snap1.Root != snap2.Root {
 		t.Fatal("genesis state snapshot is not deterministic")
@@ -224,7 +223,7 @@ func TestSnapshotGenesisStateDeterministic(t *testing.T) {
 }
 
 func TestSnapshotGenesisStateEmpty(t *testing.T) {
-	snap := config.SnapshotGenesisState(config.GenesisAlloc{})
+	snap := SnapshotGenesisState(GenesisAlloc{})
 
 	if snap.AccountCount != 0 {
 		t.Fatalf("expected 0 accounts, got %d", snap.AccountCount)

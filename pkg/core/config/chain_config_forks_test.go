@@ -1,14 +1,13 @@
-package core
+package config
 
 import (
-	"github.com/eth2030/eth2030/core/config"
 	"math/big"
 	"testing"
 )
 
 func TestForkScheduleLength(t *testing.T) {
-	config := config.MainnetConfig
-	schedule := config.ForkSchedule()
+	cfg := MainnetConfig
+	schedule := cfg.ForkSchedule()
 
 	// Mainnet should have 16 forks (Homestead through Hogota).
 	if len(schedule) != 16 {
@@ -29,42 +28,42 @@ func TestForkScheduleLength(t *testing.T) {
 func TestForkIDIsActive(t *testing.T) {
 	tests := []struct {
 		name     string
-		fork     config.ForkID
+		fork     ForkID
 		num      *big.Int
 		time     uint64
 		expected bool
 	}{
 		{
 			name:     "block fork active",
-			fork:     config.ForkID{Name: "London", Block: big.NewInt(100)},
+			fork:     ForkID{Name: "London", Block: big.NewInt(100)},
 			num:      big.NewInt(100),
 			time:     0,
 			expected: true,
 		},
 		{
 			name:     "block fork not yet active",
-			fork:     config.ForkID{Name: "London", Block: big.NewInt(100)},
+			fork:     ForkID{Name: "London", Block: big.NewInt(100)},
 			num:      big.NewInt(99),
 			time:     0,
 			expected: false,
 		},
 		{
 			name:     "timestamp fork active",
-			fork:     config.ForkID{Name: "Shanghai", Timestamp: newUint64(1000)},
+			fork:     ForkID{Name: "Shanghai", Timestamp: newUint64(1000)},
 			num:      big.NewInt(0),
 			time:     1000,
 			expected: true,
 		},
 		{
 			name:     "timestamp fork not yet active",
-			fork:     config.ForkID{Name: "Shanghai", Timestamp: newUint64(1000)},
+			fork:     ForkID{Name: "Shanghai", Timestamp: newUint64(1000)},
 			num:      big.NewInt(0),
 			time:     999,
 			expected: false,
 		},
 		{
 			name:     "unscheduled fork",
-			fork:     config.ForkID{Name: "Future"},
+			fork:     ForkID{Name: "Future"},
 			num:      big.NewInt(1000000),
 			time:     9999999,
 			expected: false,
@@ -83,19 +82,19 @@ func TestForkIDIsActive(t *testing.T) {
 
 func TestForkIDString(t *testing.T) {
 	tests := []struct {
-		fork config.ForkID
+		fork ForkID
 		want string
 	}{
 		{
-			fork: config.ForkID{Name: "London", Block: big.NewInt(12965000)},
+			fork: ForkID{Name: "London", Block: big.NewInt(12965000)},
 			want: "London@block:12965000",
 		},
 		{
-			fork: config.ForkID{Name: "Shanghai", Timestamp: newUint64(1681338455)},
+			fork: ForkID{Name: "Shanghai", Timestamp: newUint64(1681338455)},
 			want: "Shanghai@time:1681338455",
 		},
 		{
-			fork: config.ForkID{Name: "Hogota"},
+			fork: ForkID{Name: "Hogota"},
 			want: "Hogota@pending",
 		},
 	}
@@ -109,14 +108,14 @@ func TestForkIDString(t *testing.T) {
 }
 
 func TestActiveForks(t *testing.T) {
-	config := config.TestConfig // all pre-merge forks at block 0, timestamp forks at 0
+	cfg := TestConfig // all pre-merge forks at block 0, timestamp forks at 0
 
 	// At block 0, timestamp 0, all scheduled forks should be active.
-	active := config.ActiveForks(big.NewInt(0), 0)
+	active := cfg.ActiveForks(big.NewInt(0), 0)
 
-	// Count forks that have activation points in config.TestConfig.
+	// Count forks that have activation points in TestConfig.
 	expected := 0
-	for _, f := range config.ForkSchedule() {
+	for _, f := range cfg.ForkSchedule() {
 		if f.Block != nil || f.Timestamp != nil {
 			expected++
 		}
@@ -128,10 +127,10 @@ func TestActiveForks(t *testing.T) {
 }
 
 func TestPendingForks(t *testing.T) {
-	config := config.MainnetConfig
+	cfg := MainnetConfig
 
 	// At a high block number but timestamp 0, timestamp forks should be pending.
-	pending := config.PendingForks(big.NewInt(20_000_000), 0)
+	pending := cfg.PendingForks(big.NewInt(20_000_000), 0)
 
 	hasShanghaiPending := false
 	for _, f := range pending {
@@ -145,9 +144,9 @@ func TestPendingForks(t *testing.T) {
 }
 
 func TestUnscheduledForks(t *testing.T) {
-	config := config.MainnetConfig
+	cfg := MainnetConfig
 
-	unscheduled := config.UnscheduledForks()
+	unscheduled := cfg.UnscheduledForks()
 
 	// Mainnet has some forks not yet scheduled (Prague, Amsterdam, Glamsterdan, Hogota).
 	hasHogota := false
@@ -162,18 +161,18 @@ func TestUnscheduledForks(t *testing.T) {
 }
 
 func TestConfigDiff(t *testing.T) {
-	local := &config.ChainConfig{
+	local := &ChainConfig{
 		ChainID:        big.NewInt(1),
 		HomesteadBlock: big.NewInt(100),
 		LondonBlock:    big.NewInt(200),
 	}
-	remote := &config.ChainConfig{
+	remote := &ChainConfig{
 		ChainID:        big.NewInt(1),
 		HomesteadBlock: big.NewInt(100),
 		LondonBlock:    big.NewInt(300), // different
 	}
 
-	diffs := config.ConfigDiff(local, remote)
+	diffs := ConfigDiff(local, remote)
 
 	if len(diffs) != 1 {
 		t.Fatalf("expected 1 diff, got %d", len(diffs))
@@ -190,44 +189,44 @@ func TestConfigDiff(t *testing.T) {
 }
 
 func TestConfigDiffNilConfigs(t *testing.T) {
-	diffs := config.ConfigDiff(nil, config.MainnetConfig)
+	diffs := ConfigDiff(nil, MainnetConfig)
 	if diffs != nil {
 		t.Fatal("expected nil diffs for nil local config")
 	}
 
-	diffs = config.ConfigDiff(config.MainnetConfig, nil)
+	diffs = ConfigDiff(MainnetConfig, nil)
 	if diffs != nil {
 		t.Fatal("expected nil diffs for nil remote config")
 	}
 }
 
 func TestConfigDiffIdentical(t *testing.T) {
-	diffs := config.ConfigDiff(config.MainnetConfig, config.MainnetConfig)
+	diffs := ConfigDiff(MainnetConfig, MainnetConfig)
 	if len(diffs) != 0 {
 		t.Fatalf("expected 0 diffs for identical configs, got %d", len(diffs))
 	}
 }
 
 func TestCheckConfigCompatible(t *testing.T) {
-	local := &config.ChainConfig{
+	local := &ChainConfig{
 		ChainID:        big.NewInt(1),
 		HomesteadBlock: big.NewInt(100),
 		LondonBlock:    big.NewInt(200),
 	}
-	remote := &config.ChainConfig{
+	remote := &ChainConfig{
 		ChainID:        big.NewInt(1),
 		HomesteadBlock: big.NewInt(100),
 		LondonBlock:    big.NewInt(300), // different
 	}
 
 	// At head block 199, London is not active; should be compatible.
-	err := config.CheckConfigCompatible(local, remote, 199, 0)
+	err := CheckConfigCompatible(local, remote, 199, 0)
 	if err != nil {
 		t.Fatalf("expected compatible at block 199, got: %v", err)
 	}
 
 	// At head block 200, London is active; should be incompatible.
-	err = config.CheckConfigCompatible(local, remote, 200, 0)
+	err = CheckConfigCompatible(local, remote, 200, 0)
 	if err == nil {
 		t.Fatal("expected incompatible at block 200")
 	}
@@ -239,32 +238,32 @@ func TestCheckConfigCompatible(t *testing.T) {
 func TestCheckConfigCompatibleTimestampFork(t *testing.T) {
 	shanghaiTime1 := uint64(1000)
 	shanghaiTime2 := uint64(2000)
-	local := &config.ChainConfig{
+	local := &ChainConfig{
 		ChainID:      big.NewInt(1),
 		LondonBlock:  big.NewInt(0),
 		ShanghaiTime: &shanghaiTime1,
 	}
-	remote := &config.ChainConfig{
+	remote := &ChainConfig{
 		ChainID:      big.NewInt(1),
 		LondonBlock:  big.NewInt(0),
 		ShanghaiTime: &shanghaiTime2,
 	}
 
 	// Before Shanghai activation, should be compatible.
-	err := config.CheckConfigCompatible(local, remote, 500, 999)
+	err := CheckConfigCompatible(local, remote, 500, 999)
 	if err != nil {
 		t.Fatalf("expected compatible before Shanghai, got: %v", err)
 	}
 
 	// After Shanghai activation (local), should be incompatible.
-	err = config.CheckConfigCompatible(local, remote, 500, 1000)
+	err = CheckConfigCompatible(local, remote, 500, 1000)
 	if err == nil {
 		t.Fatal("expected incompatible after Shanghai activation")
 	}
 }
 
 func TestConfigCompatErrorString(t *testing.T) {
-	err := &config.ConfigCompatError{
+	err := &ConfigCompatError{
 		ForkName:  "London",
 		LocalVal:  "block:200",
 		RemoteVal: "block:300",
@@ -281,7 +280,7 @@ func TestConfigCompatErrorString(t *testing.T) {
 func TestNextForkAfter(t *testing.T) {
 	shanghaiTime := uint64(1000)
 	cancunTime := uint64(2000)
-	config := &config.ChainConfig{
+	cfg := &ChainConfig{
 		ChainID:        big.NewInt(1),
 		HomesteadBlock: big.NewInt(0),
 		LondonBlock:    big.NewInt(0),
@@ -290,19 +289,19 @@ func TestNextForkAfter(t *testing.T) {
 	}
 
 	// Before Shanghai, next fork should be Shanghai.
-	next := config.NextForkAfter(big.NewInt(0), 500)
+	next := cfg.NextForkAfter(big.NewInt(0), 500)
 	if next.Name != "Shanghai" {
 		t.Fatalf("expected Shanghai as next fork, got %s", next.Name)
 	}
 
 	// After Shanghai but before Cancun, next fork should be Cancun.
-	next = config.NextForkAfter(big.NewInt(0), 1500)
+	next = cfg.NextForkAfter(big.NewInt(0), 1500)
 	if next.Name != "Cancun" {
 		t.Fatalf("expected Cancun as next fork, got %s", next.Name)
 	}
 
 	// After all forks, next fork should be empty.
-	next = config.NextForkAfter(big.NewInt(0), 5000)
+	next = cfg.NextForkAfter(big.NewInt(0), 5000)
 	if next.Name != "" {
 		t.Fatalf("expected empty fork after all forks, got %s", next.Name)
 	}
