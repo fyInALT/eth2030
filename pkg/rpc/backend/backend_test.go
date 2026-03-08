@@ -90,8 +90,8 @@ func (m *localMock) BlockByHash(h types.Hash) *types.Block {
 	}
 	return nil
 }
-func (m *localMock) CurrentHeader() *types.Header        { return m.headers[42] }
-func (m *localMock) ChainID() *big.Int                   { return m.chainID }
+func (m *localMock) CurrentHeader() *types.Header { return m.headers[42] }
+func (m *localMock) ChainID() *big.Int            { return m.chainID }
 func (m *localMock) StateAt(_ types.Hash) (state.StateDB, error) {
 	return m.statedb, nil
 }

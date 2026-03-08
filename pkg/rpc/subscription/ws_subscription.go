@@ -1,6 +1,6 @@
 // ws_subscription.go implements WSSubscriptionManager for WebSocket-based
 // real-time event streaming.
-package rpc
+package rpcsub
 
 import (
 	"encoding/hex"

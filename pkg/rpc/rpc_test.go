@@ -18,6 +18,16 @@ import (
 
 var errCallFailed = errors.New("execution reverted")
 
+// isNullResult returns true if v is a JSON null response result,
+// either a Go nil or json.RawMessage("null").
+func isNullResult(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	raw, ok := v.(json.RawMessage)
+	return ok && string(raw) == "null"
+}
+
 // minTestRawTxHex returns a minimal valid RLP-encoded legacy transaction as a
 // 0x-prefixed hex string suitable for use in eth_sendRawTransaction tests.
 func minTestRawTxHex(t *testing.T) string {
