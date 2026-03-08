@@ -1,10 +1,9 @@
-package core
+package chain
 
 import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -23,8 +22,8 @@ func makeTestBlock(number uint64, parentHash types.Hash, difficulty uint64) *typ
 
 // buildTestChain creates a MemoryChain with n blocks (0 to n-1), each linking
 // to the previous via ParentHash.
-func buildTestChain(n int) (*chain.MemoryChain, []*types.Block) {
-	mc := chain.NewMemoryChain()
+func buildTestChain(n int) (*MemoryChain, []*types.Block) {
+	mc := NewMemoryChain()
 	blocks := make([]*types.Block, n)
 
 	for i := 0; i < n; i++ {
@@ -42,7 +41,7 @@ func buildTestChain(n int) (*chain.MemoryChain, []*types.Block) {
 // --- MemoryChain tests ---
 
 func TestNewMemoryChain(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	if mc == nil {
 		t.Fatal("expected non-nil MemoryChain")
 	}
@@ -55,7 +54,7 @@ func TestNewMemoryChain(t *testing.T) {
 }
 
 func TestMemoryChain_AddBlock(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	block := makeTestBlock(0, types.Hash{}, 1000)
 	mc.AddBlock(block)
 
@@ -69,7 +68,7 @@ func TestMemoryChain_AddBlock(t *testing.T) {
 }
 
 func TestMemoryChain_AddBlock_Nil(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	mc.AddBlock(nil) // should not panic
 	if mc.CurrentBlock() != nil {
 		t.Fatal("expected nil current block after adding nil")
@@ -77,7 +76,7 @@ func TestMemoryChain_AddBlock_Nil(t *testing.T) {
 }
 
 func TestMemoryChain_AutoAdvanceHead(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	b0 := makeTestBlock(0, types.Hash{}, 1000)
 	b1 := makeTestBlock(1, b0.Hash(), 1000)
 
@@ -131,7 +130,7 @@ func TestMemoryChain_GetHeader_WrongHash(t *testing.T) {
 }
 
 func TestMemoryChain_GetHeader_NotFound(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	h := mc.GetHeader(types.Hash{}, 99)
 	if h != nil {
 		t.Fatal("expected nil header for missing block")
@@ -154,7 +153,7 @@ func TestMemoryChain_GetHeaderByNumber(t *testing.T) {
 }
 
 func TestMemoryChain_GetHeaderByNumber_NotFound(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	h := mc.GetHeaderByNumber(99)
 	if h != nil {
 		t.Fatal("expected nil for missing block number")
@@ -183,7 +182,7 @@ func TestMemoryChain_GetBlock_WrongHash(t *testing.T) {
 }
 
 func TestMemoryChain_GetBlock_NotFound(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	b := mc.GetBlock(types.Hash{}, 99)
 	if b != nil {
 		t.Fatal("expected nil for missing block")
@@ -203,7 +202,7 @@ func TestMemoryChain_GetBlockByNumber(t *testing.T) {
 }
 
 func TestMemoryChain_GetBlockByNumber_NotFound(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	b := mc.GetBlockByNumber(99)
 	if b != nil {
 		t.Fatal("expected nil for missing block number")
@@ -261,7 +260,7 @@ func TestMemoryChain_HasBlock_False(t *testing.T) {
 }
 
 func TestMemoryChain_HasBlock_Empty(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	if mc.HasBlock(types.Hash{}, 0) {
 		t.Fatal("expected false for empty chain")
 	}
@@ -272,7 +271,7 @@ func TestMemoryChain_HasBlock_Empty(t *testing.T) {
 func TestChainIterator(t *testing.T) {
 	mc, blocks := buildTestChain(5)
 
-	it := chain.NewChainIterator(mc, 1, 3)
+	it := NewChainIterator(mc, 1, 3)
 	if it.BlockCount() != 3 {
 		t.Fatalf("want block count 3, got %d", it.BlockCount())
 	}
@@ -317,7 +316,7 @@ func TestChainIterator(t *testing.T) {
 func TestChainIterator_SingleBlock(t *testing.T) {
 	mc, _ := buildTestChain(3)
 
-	it := chain.NewChainIterator(mc, 1, 1)
+	it := NewChainIterator(mc, 1, 1)
 	if it.BlockCount() != 1 {
 		t.Fatalf("want block count 1, got %d", it.BlockCount())
 	}
@@ -336,7 +335,7 @@ func TestChainIterator_SingleBlock(t *testing.T) {
 func TestChainIterator_Reset(t *testing.T) {
 	mc, _ := buildTestChain(3)
 
-	it := chain.NewChainIterator(mc, 0, 2)
+	it := NewChainIterator(mc, 0, 2)
 
 	// Exhaust the iterator.
 	for i := 0; i < 3; i++ {
@@ -359,12 +358,12 @@ func TestChainIterator_Reset(t *testing.T) {
 }
 
 func TestChainIterator_GapInChain(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 	mc.AddBlock(makeTestBlock(0, types.Hash{}, 1000))
 	// Skip block 1.
 	mc.AddBlock(makeTestBlock(2, types.Hash{}, 1000))
 
-	it := chain.NewChainIterator(mc, 0, 2)
+	it := NewChainIterator(mc, 0, 2)
 
 	b, ok := it.Next()
 	if !ok || b == nil {
@@ -379,8 +378,8 @@ func TestChainIterator_GapInChain(t *testing.T) {
 }
 
 func TestChainIterator_EmptyRange(t *testing.T) {
-	mc := chain.NewMemoryChain()
-	it := chain.NewChainIterator(mc, 5, 3)
+	mc := NewMemoryChain()
+	it := NewChainIterator(mc, 5, 3)
 	if it.BlockCount() != 0 {
 		t.Fatalf("want block count 0 for inverted range, got %d", it.BlockCount())
 	}
@@ -396,7 +395,7 @@ func TestGetAncestor(t *testing.T) {
 	mc, blocks := buildTestChain(5)
 
 	// Ancestor of block 4 at distance 2 should be block 2.
-	hash, num := chain.GetAncestor(mc, blocks[4].Hash(), 4, 2)
+	hash, num := GetAncestor(mc, blocks[4].Hash(), 4, 2)
 	if num != 2 {
 		t.Fatalf("want ancestor at number 2, got %d", num)
 	}
@@ -408,7 +407,7 @@ func TestGetAncestor(t *testing.T) {
 func TestGetAncestor_ZeroDistance(t *testing.T) {
 	mc, blocks := buildTestChain(3)
 
-	hash, num := chain.GetAncestor(mc, blocks[2].Hash(), 2, 0)
+	hash, num := GetAncestor(mc, blocks[2].Hash(), 2, 0)
 	if num != 2 {
 		t.Fatalf("want number 2, got %d", num)
 	}
@@ -420,7 +419,7 @@ func TestGetAncestor_ZeroDistance(t *testing.T) {
 func TestGetAncestor_ToGenesis(t *testing.T) {
 	mc, blocks := buildTestChain(5)
 
-	hash, num := chain.GetAncestor(mc, blocks[4].Hash(), 4, 4)
+	hash, num := GetAncestor(mc, blocks[4].Hash(), 4, 4)
 	if num != 0 {
 		t.Fatalf("want ancestor at 0, got %d", num)
 	}
@@ -432,7 +431,7 @@ func TestGetAncestor_ToGenesis(t *testing.T) {
 func TestGetAncestor_TooFar(t *testing.T) {
 	mc, blocks := buildTestChain(3)
 
-	hash, num := chain.GetAncestor(mc, blocks[2].Hash(), 2, 5)
+	hash, num := GetAncestor(mc, blocks[2].Hash(), 2, 5)
 	if num != 0 {
 		t.Fatalf("want 0 for too-far ancestor, got %d", num)
 	}
@@ -442,9 +441,9 @@ func TestGetAncestor_TooFar(t *testing.T) {
 }
 
 func TestGetAncestor_NotFound(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 
-	hash, num := chain.GetAncestor(mc, types.Hash{0x01}, 5, 1)
+	hash, num := GetAncestor(mc, types.Hash{0x01}, 5, 1)
 	if num != 0 {
 		t.Fatalf("want 0 for missing block, got %d", num)
 	}
@@ -458,7 +457,7 @@ func TestGetAncestor_NotFound(t *testing.T) {
 func TestGetTD(t *testing.T) {
 	mc, blocks := buildTestChain(5)
 
-	td := chain.GetTD(mc, blocks[4].Hash(), 4)
+	td := GetTD(mc, blocks[4].Hash(), 4)
 	if td == nil {
 		t.Fatal("expected non-nil TD")
 	}
@@ -472,7 +471,7 @@ func TestGetTD(t *testing.T) {
 func TestGetTD_Genesis(t *testing.T) {
 	mc, blocks := buildTestChain(1)
 
-	td := chain.GetTD(mc, blocks[0].Hash(), 0)
+	td := GetTD(mc, blocks[0].Hash(), 0)
 	if td == nil {
 		t.Fatal("expected non-nil TD")
 	}
@@ -483,9 +482,9 @@ func TestGetTD_Genesis(t *testing.T) {
 }
 
 func TestGetTD_NotFound(t *testing.T) {
-	mc := chain.NewMemoryChain()
+	mc := NewMemoryChain()
 
-	td := chain.GetTD(mc, types.Hash{0x01}, 5)
+	td := GetTD(mc, types.Hash{0x01}, 5)
 	if td != nil {
 		t.Fatal("expected nil TD for missing block")
 	}
@@ -494,5 +493,5 @@ func TestGetTD_NotFound(t *testing.T) {
 // --- Interface compliance ---
 
 func TestMemoryChainImplementsChainReader(t *testing.T) {
-	var _ chain.ChainReader = (*chain.MemoryChain)(nil)
+	var _ ChainReader = (*MemoryChain)(nil)
 }
