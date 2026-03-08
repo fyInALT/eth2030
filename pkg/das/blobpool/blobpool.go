@@ -1,12 +1,9 @@
-// Package das implements PeerDAS (Peer Data Availability Sampling) data
-// structures and verification logic per EIP-7594 and the Fulu DAS core spec.
-//
-// sparse_blobpool.go implements a sparse blob pool for the Glamsterdam era.
+// Package blobpool implements the sparse blob pool for PeerDAS (EIP-8070 / Glamsterdam).
 // Instead of storing all blobs locally, the pool keeps only a configurable
 // fraction of blobs, relying on DAS for availability of the rest. This
 // reduces disk and memory usage for nodes that participate in the PeerDAS
 // network but do not need to serve the full blob dataset.
-package das
+package blobpool
 
 import (
 	"encoding/binary"
@@ -56,7 +53,7 @@ type PoolStats struct {
 // approximately 1/N of all blobs. Panics if sparsity is 0.
 func NewSparseBlobPool(sparsity uint64) *SparseBlobPool {
 	if sparsity == 0 {
-		panic("das: sparsity must be >= 1")
+		panic("blobpool: sparsity must be >= 1")
 	}
 	return &SparseBlobPool{
 		sparsity: sparsity,

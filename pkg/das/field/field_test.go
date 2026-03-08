@@ -1,4 +1,4 @@
-package das
+package field
 
 import (
 	"math/big"
@@ -90,7 +90,7 @@ func TestFieldElementModularReduction(t *testing.T) {
 	a := NewFieldElementFromUint64(3)
 	b := NewFieldElementFromUint64(5)
 	result := a.Sub(b) // 3 - 5 = -2 mod p = p - 2
-	expected := NewFieldElement(new(big.Int).Sub(blsModulus, big.NewInt(2)))
+	expected := NewFieldElement(new(big.Int).Sub(BLSModulus, big.NewInt(2)))
 	if !result.Equal(expected) {
 		t.Errorf("3 - 5 mod p = %v, want p-2", result.v)
 	}
@@ -104,7 +104,7 @@ func TestFieldElementModularReduction(t *testing.T) {
 
 func TestNewFieldElement(t *testing.T) {
 	// Value larger than modulus gets reduced.
-	large := new(big.Int).Add(blsModulus, big.NewInt(42))
+	large := new(big.Int).Add(BLSModulus, big.NewInt(42))
 	fe := NewFieldElement(large)
 	if !fe.Equal(NewFieldElementFromUint64(42)) {
 		t.Errorf("(p + 42) mod p = %v, want 42", fe.v)
@@ -113,7 +113,7 @@ func TestNewFieldElement(t *testing.T) {
 	// Negative big.Int gets properly reduced.
 	neg := big.NewInt(-1)
 	fe = NewFieldElement(neg)
-	expected := NewFieldElement(new(big.Int).Sub(blsModulus, big.NewInt(1)))
+	expected := NewFieldElement(new(big.Int).Sub(BLSModulus, big.NewInt(1)))
 	if !fe.Equal(expected) {
 		t.Errorf("-1 mod p = %v, want p-1", fe.v)
 	}
@@ -139,7 +139,7 @@ func TestRootOfUnity(t *testing.T) {
 
 func TestComputeRootsOfUnity(t *testing.T) {
 	n := uint64(8)
-	roots := computeRootsOfUnity(n)
+	roots := ComputeRootsOfUnity(n)
 	if len(roots) != int(n) {
 		t.Fatalf("len(roots) = %d, want %d", len(roots), n)
 	}
@@ -212,13 +212,13 @@ func TestFFTEvaluationProperty(t *testing.T) {
 	}
 
 	evals := FFT(coeffs)
-	roots := computeRootsOfUnity(4)
+	roots := ComputeRootsOfUnity(4)
 
 	// Verify each evaluation: p(roots[i]) == evals[i].
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		expected := FieldZero()
 		xPow := FieldOne()
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			expected = expected.Add(coeffs[j].Mul(xPow))
 			xPow = xPow.Mul(roots[i])
 		}

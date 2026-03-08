@@ -1,4 +1,6 @@
-package das
+// Package field provides BLS12-381 scalar field arithmetic and FFT operations
+// for PeerDAS (EIP-7594) polynomial computations.
+package field
 
 import (
 	"math/big"
@@ -6,8 +8,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 )
 
-// blsModulus is the BLS12-381 scalar field order, used in tests.
-var blsModulus = fr.Modulus()
+// BLSModulus is the BLS12-381 scalar field order.
+var BLSModulus = fr.Modulus()
 
 // FieldElement represents an element of the BLS12-381 scalar field.
 // Internally backed by gnark-crypto fr.Element (Montgomery form, 4×uint64),
@@ -110,21 +112,21 @@ func (a FieldElement) Div(b FieldElement) FieldElement {
 // n must be a power of 2 and must divide (p-1).
 func rootOfUnity(n uint64) FieldElement {
 	if n == 0 || n&(n-1) != 0 {
-		panic("das: rootOfUnity: n must be a power of 2")
+		panic("field: rootOfUnity: n must be a power of 2")
 	}
 	// Use gnark-crypto's built-in Generator which returns the 2^s-th root of unity.
 	// BLS12-381 Fr has 2-adicity of 32 (p-1 = 2^32 * q).
 	// Generator(m) returns a primitive m-th root of unity for m dividing 2^32.
 	g, err := fr.Generator(n)
 	if err != nil {
-		panic("das: rootOfUnity: " + err.Error())
+		panic("field: rootOfUnity: " + err.Error())
 	}
 	return FieldElement{v: g}
 }
 
-// computeRootsOfUnity returns the n-th roots of unity [w^0, w^1, ..., w^{n-1}]
+// ComputeRootsOfUnity returns the n-th roots of unity [w^0, w^1, ..., w^{n-1}]
 // where w is a primitive n-th root of unity.
-func computeRootsOfUnity(n uint64) []FieldElement {
+func ComputeRootsOfUnity(n uint64) []FieldElement {
 	w := rootOfUnity(n)
 	roots := make([]FieldElement, n)
 	roots[0] = FieldOne()
@@ -144,9 +146,9 @@ func FFT(vals []FieldElement) []FieldElement {
 		return out
 	}
 	if n&(n-1) != 0 {
-		panic("das: FFT: length must be a power of 2")
+		panic("field: FFT: length must be a power of 2")
 	}
-	roots := computeRootsOfUnity(uint64(n))
+	roots := ComputeRootsOfUnity(uint64(n))
 	return fftInner(vals, roots)
 }
 
@@ -159,9 +161,9 @@ func InverseFFT(vals []FieldElement) []FieldElement {
 		return out
 	}
 	if n&(n-1) != 0 {
-		panic("das: InverseFFT: length must be a power of 2")
+		panic("field: InverseFFT: length must be a power of 2")
 	}
-	roots := computeRootsOfUnity(uint64(n))
+	roots := ComputeRootsOfUnity(uint64(n))
 
 	// Inverse roots: reverse the root array (except index 0).
 	invRoots := make([]FieldElement, n)
