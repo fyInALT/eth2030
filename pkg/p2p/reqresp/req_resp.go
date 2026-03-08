@@ -3,7 +3,7 @@
 // provides typed request builders for beacon blocks by range/root, blob
 // sidecars, data columns (PeerDAS), chunked response streaming with SSZ
 // encoding markers, and configurable timeout/retry with exponential backoff.
-package p2p
+package reqresp
 
 import (
 	"encoding/binary"

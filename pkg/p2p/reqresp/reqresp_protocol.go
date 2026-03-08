@@ -2,7 +2,7 @@
 // communication per the Ethereum consensus P2P specification.
 // ReqRespProtocol manages request-response exchanges with method-based
 // routing, rate limiting, response streaming, and timeout handling.
-package p2p
+package reqresp
 
 import (
 	"errors"

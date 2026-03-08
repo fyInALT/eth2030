@@ -1,6 +1,6 @@
 // request_manager.go implements request/response lifecycle management for P2P
 // protocols with timeout tracking, retry logic, and exponential backoff.
-package p2p
+package reqresp
 
 import (
 	"errors"

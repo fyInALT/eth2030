@@ -1,4 +1,4 @@
-package p2p
+package reqresp
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ func TestRequestManager_SendAndDeliverResponse(t *testing.T) {
 	rm := NewRequestManager(cfg)
 	defer rm.Close()
 
-	id, respCh, err := rm.SendRequest("peer1", GetBlockHeadersMsg, []byte("test"))
+	id, respCh, err := rm.SendRequest("peer1", 0x03, []byte("test"))
 	if err != nil {
 		t.Fatalf("SendRequest failed: %v", err)
 	}
