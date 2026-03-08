@@ -30,11 +30,11 @@ func TestPeerManager_AddRemove(t *testing.T) {
 	}
 
 	// Lookup.
-	if got := pm.Peer("peer1"); got != p {
-		t.Error("Peer(peer1) did not return expected peer")
+	if got := pm.GetPeer("peer1"); got != p {
+		t.Error("GetPeer(peer1) did not return expected peer")
 	}
-	if got := pm.Peer("unknown"); got != nil {
-		t.Error("Peer(unknown) should return nil")
+	if got := pm.GetPeer("unknown"); got != nil {
+		t.Error("GetPeer(unknown) should return nil")
 	}
 
 	// Remove.

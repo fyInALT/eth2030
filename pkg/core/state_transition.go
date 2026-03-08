@@ -10,6 +10,11 @@ import (
 	"math/big"
 	"sync"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -38,11 +43,11 @@ const stMaxBlobGasPerBlock = 6 * stBlobGasPerBlob
 // thread-safe.
 type StateTransition struct {
 	mu     sync.Mutex
-	config *ChainConfig
+	config *config.ChainConfig
 }
 
 // NewStateTransition creates a new StateTransition with the given chain config.
-func NewStateTransition(config *ChainConfig) *StateTransition {
+func NewStateTransition(config *config.ChainConfig) *StateTransition {
 	return &StateTransition{config: config}
 }
 
@@ -68,10 +73,10 @@ func (st *StateTransition) ApplyBlock(block *types.Block, statedb state.StateDB)
 
 	// Validate base fee is present for post-London blocks.
 	if st.config != nil && st.config.IsLondon(header.Number) && header.BaseFee == nil {
-		return nil, ErrInvalidBaseFee
+		return nil, coreblock.ErrInvalidBaseFee
 	}
 
-	gasPool := new(GasPool).AddGas(header.GasLimit)
+	gasPool := new(gaspool.GasPool).AddGas(header.GasLimit)
 
 	var (
 		receipts          []*types.Receipt
@@ -88,7 +93,7 @@ func (st *StateTransition) ApplyBlock(block *types.Block, statedb state.StateDB)
 
 		statedb.SetTxContext(tx.Hash(), i)
 
-		receipt, usedGas, err := applyTransaction(st.config, nil, statedb, header, tx, gasPool)
+		receipt, usedGas, err := execution.ApplyTransactionInternal(st.config, nil, statedb, header, tx, gasPool)
 		if err != nil {
 			return nil, fmt.Errorf("tx %d [%s] execution failed: %w", i, tx.Hash().Hex(), err)
 		}
@@ -129,7 +134,7 @@ func (st *StateTransition) ApplyBlock(block *types.Block, statedb state.StateDB)
 
 	// EIP-4895: process beacon chain withdrawals.
 	if st.config != nil && st.config.IsShanghai(header.Time) {
-		ProcessWithdrawals(statedb, block.Withdrawals())
+		execution.ProcessWithdrawals(statedb, block.Withdrawals())
 	}
 
 	// EIP-4844: validate blob gas used matches header.
@@ -161,7 +166,7 @@ func (st *StateTransition) ApplyBlock(block *types.Block, statedb state.StateDB)
 // ValidateTransaction performs full validation of a transaction against the
 // current state and block header. It checks nonce, balance, gas limits,
 // intrinsic gas, EIP-1559 fee caps, and EIP-4844 blob constraints.
-func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *types.Header, config *ChainConfig) error {
+func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *types.Header, config *config.ChainConfig) error {
 	sender := tx.Sender()
 	if sender == nil {
 		return ErrSTInvalidSender
@@ -171,23 +176,23 @@ func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *t
 	// Nonce validation.
 	stateNonce := statedb.GetNonce(from)
 	if tx.Nonce() < stateNonce {
-		return fmt.Errorf("%w: tx %d, state %d", ErrNonceTooLow, tx.Nonce(), stateNonce)
+		return fmt.Errorf("%w: tx %d, state %d", execution.ErrNonceTooLow, tx.Nonce(), stateNonce)
 	}
 	if tx.Nonce() > stateNonce {
-		return fmt.Errorf("%w: tx %d, state %d", ErrNonceTooHigh, tx.Nonce(), stateNonce)
+		return fmt.Errorf("%w: tx %d, state %d", execution.ErrNonceTooHigh, tx.Nonce(), stateNonce)
 	}
 
 	// Gas limit validation: tx gas must not exceed block gas limit.
 	if tx.Gas() > header.GasLimit {
 		return fmt.Errorf("%w: tx gas %d > block limit %d",
-			ErrGasLimitExceeded, tx.Gas(), header.GasLimit)
+			execution.ErrGasLimitExceeded, tx.Gas(), header.GasLimit)
 	}
 
 	// Intrinsic gas validation using txIntrinsicGas.
 	igas := txIntrinsicGas(tx)
 	if tx.Gas() < igas {
 		return fmt.Errorf("%w: have %d, want %d",
-			ErrIntrinsicGasTooLow, tx.Gas(), igas)
+			execution.ErrIntrinsicGasTooLow, tx.Gas(), igas)
 	}
 
 	// EIP-1559 fee cap validation: fee cap must cover base fee.
@@ -204,7 +209,7 @@ func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *t
 	balance := statedb.GetBalance(from)
 	if balance.Cmp(cost) < 0 {
 		return fmt.Errorf("%w: have %s, want %s",
-			ErrInsufficientBalance, balance.String(), cost.String())
+			execution.ErrInsufficientBalance, balance.String(), cost.String())
 	}
 
 	// EIP-4844: validate blob constraints.
@@ -218,7 +223,7 @@ func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *t
 		}
 		// Blob fee cap must cover the blob base fee.
 		if header.ExcessBlobGas != nil {
-			blobBaseFee := calcBlobBaseFee(*header.ExcessBlobGas)
+			blobBaseFee := execution.CalcBlobBaseFee(*header.ExcessBlobGas)
 			blobFeeCap := tx.BlobGasFeeCap()
 			if blobFeeCap != nil && blobFeeCap.Cmp(blobBaseFee) < 0 {
 				return fmt.Errorf("blob fee cap (%s) < blob base fee (%s)",
@@ -239,15 +244,15 @@ func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *t
 // and contract creation overhead.
 func txIntrinsicGas(tx *types.Transaction) uint64 {
 	isCreate := tx.To() == nil
-	gas := TxGas
+	gas := execution.TxGas
 	if isCreate {
-		gas += TxCreateGas
+		gas += execution.TxCreateGas
 	}
 	for _, b := range tx.Data() {
 		if b == 0 {
-			gas += TxDataZeroGas
+			gas += execution.TxDataZeroGas
 		} else {
-			gas += TxDataNonZeroGas
+			gas += execution.TxDataNonZeroGas
 		}
 	}
 	// EIP-2930 access list costs.
@@ -257,7 +262,7 @@ func txIntrinsicGas(tx *types.Transaction) uint64 {
 	}
 	// EIP-7702 authorization list costs.
 	if auths := tx.AuthorizationList(); len(auths) > 0 {
-		gas += uint64(len(auths)) * PerAuthBaseCost
+		gas += uint64(len(auths)) * execution.PerAuthBaseCost
 	}
 	return gas
 }
@@ -342,19 +347,19 @@ func ValidatePostBlock(header *types.Header, result *TransitionResult) error {
 // NextBlockBaseFee computes the EIP-1559 base fee for the next block given
 // the parent header. This is a convenience wrapper around CalcBaseFee.
 func NextBlockBaseFee(parent *types.Header) *big.Int {
-	return CalcBaseFee(parent)
+	return gas.CalcBaseFee(parent)
 }
 
 // NextExcessBlobGas computes the excess blob gas for the next block based
 // on the parent's fields, per EIP-4844.
 func NextExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed uint64) uint64 {
-	return CalcExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed)
+	return gas.CalcExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed)
 }
 
 // BlockReward computes the static block reward for the given block number.
 // Post-merge (PoS) blocks have zero block reward; the validator is
 // compensated through the consensus layer.
-func BlockReward(config *ChainConfig, header *types.Header) *big.Int {
+func BlockReward(config *config.ChainConfig, header *types.Header) *big.Int {
 	if config != nil && config.IsMerge() {
 		return new(big.Int) // no block reward post-merge
 	}

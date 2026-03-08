@@ -9,7 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
+	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -36,7 +40,7 @@ func makeGenesisBlock() (*types.Block, *state.MemoryStateDB) {
 		Time:              0,
 		Difficulty:        new(big.Int),
 		BaseFee:           big.NewInt(1000000000),
-		UncleHash:         core.EmptyUncleHash,
+		UncleHash:         coreblock.EmptyUncleHash,
 		WithdrawalsHash:   &emptyWHash,
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
@@ -63,7 +67,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 	if parentHeader.BlobGasUsed != nil {
 		parentUsed = *parentHeader.BlobGasUsed
 	}
-	excessBlobGas := core.CalcExcessBlobGas(parentExcess, parentUsed)
+	excessBlobGas := gas.CalcExcessBlobGas(parentExcess, parentUsed)
 	// EIP-7706: compute calldata excess gas from parent.
 	var parentCalldataExcess, parentCalldataUsed uint64
 	if parentHeader.CalldataExcessGas != nil {
@@ -72,7 +76,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 	if parentHeader.CalldataGasUsed != nil {
 		parentCalldataUsed = *parentHeader.CalldataGasUsed
 	}
-	calldataExcessGas := core.CalcCalldataExcessGas(parentCalldataExcess, parentCalldataUsed, parentHeader.GasLimit)
+	calldataExcessGas := gas.CalcCalldataExcessGas(parentCalldataExcess, parentCalldataUsed, parentHeader.GasLimit)
 	calldataGasUsed := uint64(0)
 	emptyWHash := types.EmptyRootHash
 	emptyBeaconRoot2 := types.EmptyRootHash
@@ -83,8 +87,8 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 		GasLimit:          parentHeader.GasLimit,
 		Time:              parentHeader.Time + 12,
 		Difficulty:        new(big.Int),
-		BaseFee:           core.CalcBaseFee(parentHeader),
-		UncleHash:         core.EmptyUncleHash,
+		BaseFee:           gas.CalcBaseFee(parentHeader),
+		UncleHash:         coreblock.EmptyUncleHash,
 		WithdrawalsHash:   &emptyWHash,
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
@@ -102,7 +106,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 
 	// Execute block through the state processor to compute all consensus-
 	// critical fields: state root, receipt root, bloom, gas used, BAL hash.
-	proc := core.NewStateProcessor(core.TestConfig)
+	proc := execution.NewStateProcessor(coreconfig.TestConfig)
 	result, err := proc.ProcessWithBAL(block, statedb)
 	if err == nil {
 		var gasUsed uint64
@@ -117,7 +121,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 		}
 		*header.CalldataGasUsed = cdGasUsed
 		header.Bloom = types.CreateBloom(result.Receipts)
-		header.ReceiptHash = core.DeriveReceiptsRoot(result.Receipts)
+		header.ReceiptHash = coreblock.DeriveReceiptsRoot(result.Receipts)
 		header.Root = statedb.GetRoot()
 		if result.BlockAccessList != nil {
 			h := result.BlockAccessList.Hash()
@@ -128,7 +132,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 	}
 
 	// Set transaction trie root.
-	header.TxHash = core.DeriveTxsRoot(txs)
+	header.TxHash = coreblock.DeriveTxsRoot(txs)
 
 	return types.NewBlock(header, body)
 }
@@ -136,7 +140,7 @@ func buildBlock(t *testing.T, parent *types.Block, statedb *state.MemoryStateDB,
 func TestBlockchainE2E_FullLifecycle(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -170,7 +174,7 @@ func TestBlockchainE2E_FullLifecycle(t *testing.T) {
 func TestBlockchainE2E_WithTransactions(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -196,7 +200,7 @@ func TestBlockchainE2E_WithTransactions(t *testing.T) {
 func TestBlockchainE2E_GetHashFn(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -237,7 +241,7 @@ func TestBlockchainE2E_GetHashFn(t *testing.T) {
 func TestBlockchainE2E_SetHead(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -272,7 +276,7 @@ func TestBlockchainE2E_SetHead(t *testing.T) {
 func TestBlockchainE2E_InvalidBlock(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -302,7 +306,7 @@ func TestBlockchainE2E_InvalidBlock(t *testing.T) {
 // --- JSON-RPC Integration Tests ---
 
 type blockchainBackend struct {
-	bc      *core.Blockchain
+	bc      *chain.Blockchain
 	chainID *big.Int
 }
 
@@ -376,7 +380,7 @@ func (b *blockchainBackend) HistoryOldestBlock() uint64 {
 func TestRPCE2E_BlockchainQueries(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, err := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -431,7 +435,7 @@ func TestRPCE2E_BlockchainQueries(t *testing.T) {
 func TestRPCE2E_ClientVersion(t *testing.T) {
 	genesis, genesisState := makeGenesisBlock()
 	db := rawdb.NewMemoryDB()
-	bc, _ := core.NewBlockchain(core.TestConfig, genesis, genesisState, db)
+	bc, _ := chain.NewBlockchain(coreconfig.TestConfig, genesis, genesisState, db)
 
 	backend := &blockchainBackend{bc: bc, chainID: big.NewInt(1337)}
 	srv := rpc.NewServer(backend)
@@ -1302,7 +1306,7 @@ func TestE2E_BlockBuilder_BlobTransactions(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := coreblock.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1360,7 +1364,7 @@ func TestE2E_BlockBuilder_BlobTransactions(t *testing.T) {
 	if block.Header().BlobGasUsed == nil {
 		t.Fatal("BlobGasUsed is nil")
 	}
-	expectedBlobGas := uint64(2 * core.GasPerBlob)
+	expectedBlobGas := uint64(2 * gas.GasPerBlob)
 	if *block.Header().BlobGasUsed != expectedBlobGas {
 		t.Errorf("BlobGasUsed = %d, want %d", *block.Header().BlobGasUsed, expectedBlobGas)
 	}
@@ -1382,7 +1386,7 @@ func TestE2E_BlockBuilder_BlobGasLimitEnforcement(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := coreblock.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1432,8 +1436,8 @@ func TestE2E_BlockBuilder_BlobGasLimitEnforcement(t *testing.T) {
 	}
 
 	if block.Header().BlobGasUsed != nil {
-		if *block.Header().BlobGasUsed > core.MaxBlobGasPerBlock {
-			t.Errorf("BlobGasUsed %d exceeds max %d", *block.Header().BlobGasUsed, core.MaxBlobGasPerBlock)
+		if *block.Header().BlobGasUsed > gas.MaxBlobGasPerBlock {
+			t.Errorf("BlobGasUsed %d exceeds max %d", *block.Header().BlobGasUsed, gas.MaxBlobGasPerBlock)
 		}
 	}
 }
@@ -1449,7 +1453,7 @@ func TestE2E_BlockBuilder_BlobTxInvalidHashRejected(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := coreblock.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1503,7 +1507,7 @@ func TestE2E_BlockBuilder_MixedRegularAndBlobTxs(t *testing.T) {
 
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(1e18)))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := coreblock.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	blobGasUsed := uint64(0)
@@ -1573,7 +1577,7 @@ func TestE2E_BlockBuilder_MixedRegularAndBlobTxs(t *testing.T) {
 
 	// Blob gas should account for 2 blobs.
 	if block.Header().BlobGasUsed != nil {
-		expectedBlob := uint64(2 * core.GasPerBlob)
+		expectedBlob := uint64(2 * gas.GasPerBlob)
 		if *block.Header().BlobGasUsed != expectedBlob {
 			t.Errorf("BlobGasUsed = %d, want %d", *block.Header().BlobGasUsed, expectedBlob)
 		}

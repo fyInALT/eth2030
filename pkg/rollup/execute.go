@@ -35,8 +35,6 @@ var (
 	ErrInputTooShort     = errors.New("execute: input too short")
 	ErrBlockDataTooLarge = errors.New("execute: block data too large")
 	ErrBlobTxNotAllowed  = errors.New("execute: blob transactions not supported")
-	ErrInvalidBlockData  = errors.New("execute: invalid block data")
-	ErrSTFailed          = errors.New("execute: state transition failed")
 	ErrInvalidChainID    = errors.New("execute: invalid chain ID")
 	ErrAnchorFailed      = errors.New("execute: anchor processing failed")
 )

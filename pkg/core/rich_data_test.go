@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -23,31 +24,31 @@ func dataKey(s string) types.Hash {
 
 func TestDataTypeString(t *testing.T) {
 	tests := []struct {
-		dt   DataType
+		dt   execution.DataType
 		want string
 	}{
-		{TypeUint256, "uint256"},
-		{TypeAddress, "address"},
-		{TypeBytes32, "bytes32"},
-		{TypeString, "string"},
-		{TypeBool, "bool"},
-		{TypeArray, "array"},
-		{DataType(255), "unknown"},
+		{execution.TypeUint256, "uint256"},
+		{execution.TypeAddress, "address"},
+		{execution.TypeBytes32, "bytes32"},
+		{execution.TypeString, "string"},
+		{execution.TypeBool, "bool"},
+		{execution.TypeArray, "array"},
+		{execution.DataType(255), "unknown"},
 	}
 	for _, tc := range tests {
 		if got := tc.dt.String(); got != tc.want {
-			t.Errorf("DataType(%d).String() = %q, want %q", tc.dt, got, tc.want)
+			t.Errorf("execution.DataType(%d).String() = %q, want %q", tc.dt, got, tc.want)
 		}
 	}
 }
 
 func TestRegisterSchema(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("test-schema")
 
-	fields := []SchemaField{
-		{Name: "name", FieldType: TypeString, Required: true, MaxSize: 100},
-		{Name: "balance", FieldType: TypeUint256, Required: false, MaxSize: 32},
+	fields := []execution.SchemaField{
+		{Name: "name", FieldType: execution.TypeString, Required: true, MaxSize: 100},
+		{Name: "balance", FieldType: execution.TypeUint256, Required: false, MaxSize: 32},
 	}
 
 	if err := store.RegisterSchema(sid, fields); err != nil {
@@ -55,40 +56,40 @@ func TestRegisterSchema(t *testing.T) {
 	}
 
 	// Duplicate registration should fail.
-	if err := store.RegisterSchema(sid, fields); err != ErrSchemaExists {
-		t.Fatalf("expected ErrSchemaExists, got %v", err)
+	if err := store.RegisterSchema(sid, fields); err != execution.ErrSchemaExists {
+		t.Fatalf("expected execution.ErrSchemaExists, got %v", err)
 	}
 }
 
 func TestRegisterSchemaEmpty(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	err := store.RegisterSchema(schemaID("empty"), nil)
-	if err != ErrEmptySchema {
-		t.Fatalf("expected ErrEmptySchema, got %v", err)
+	if err != execution.ErrEmptySchema {
+		t.Fatalf("expected execution.ErrEmptySchema, got %v", err)
 	}
-	err = store.RegisterSchema(schemaID("empty2"), []SchemaField{})
-	if err != ErrEmptySchema {
-		t.Fatalf("expected ErrEmptySchema for empty slice, got %v", err)
+	err = store.RegisterSchema(schemaID("empty2"), []execution.SchemaField{})
+	if err != execution.ErrEmptySchema {
+		t.Fatalf("expected execution.ErrEmptySchema for empty slice, got %v", err)
 	}
 }
 
 func TestRegisterSchemaDuplicateField(t *testing.T) {
-	store := NewRichDataStore()
-	fields := []SchemaField{
-		{Name: "x", FieldType: TypeBool},
-		{Name: "x", FieldType: TypeString},
+	store := execution.NewRichDataStore()
+	fields := []execution.SchemaField{
+		{Name: "x", FieldType: execution.TypeBool},
+		{Name: "x", FieldType: execution.TypeString},
 	}
 	err := store.RegisterSchema(schemaID("dup"), fields)
-	if err != ErrDuplicateFieldName {
-		t.Fatalf("expected ErrDuplicateFieldName, got %v", err)
+	if err != execution.ErrDuplicateFieldName {
+		t.Fatalf("expected execution.ErrDuplicateFieldName, got %v", err)
 	}
 }
 
 func TestGetSchema(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("s1")
-	fields := []SchemaField{
-		{Name: "owner", FieldType: TypeAddress, Required: true, MaxSize: 20},
+	fields := []execution.SchemaField{
+		{Name: "owner", FieldType: execution.TypeAddress, Required: true, MaxSize: 20},
 	}
 	store.RegisterSchema(sid, fields)
 
@@ -109,15 +110,15 @@ func TestGetSchema(t *testing.T) {
 }
 
 func TestGetSchemaNotFound(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	_, err := store.GetSchema(schemaID("nope"))
-	if err != ErrSchemaNotFound {
-		t.Fatalf("expected ErrSchemaNotFound, got %v", err)
+	if err != execution.ErrSchemaNotFound {
+		t.Fatalf("expected execution.ErrSchemaNotFound, got %v", err)
 	}
 }
 
 func TestListSchemas(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 
 	// Empty store.
 	if list := store.ListSchemas(); list != nil {
@@ -126,8 +127,8 @@ func TestListSchemas(t *testing.T) {
 
 	s1 := schemaID("s1")
 	s2 := schemaID("s2")
-	store.RegisterSchema(s1, []SchemaField{{Name: "a", FieldType: TypeBool}})
-	store.RegisterSchema(s2, []SchemaField{{Name: "b", FieldType: TypeBool}})
+	store.RegisterSchema(s1, []execution.SchemaField{{Name: "a", FieldType: execution.TypeBool}})
+	store.RegisterSchema(s2, []execution.SchemaField{{Name: "b", FieldType: execution.TypeBool}})
 
 	list := store.ListSchemas()
 	if len(list) != 2 || list[0] != s1 || list[1] != s2 {
@@ -136,11 +137,11 @@ func TestListSchemas(t *testing.T) {
 }
 
 func TestValidateData(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("v")
-	fields := []SchemaField{
-		{Name: "name", FieldType: TypeString, Required: true, MaxSize: 10},
-		{Name: "opt", FieldType: TypeBool, Required: false},
+	fields := []execution.SchemaField{
+		{Name: "name", FieldType: execution.TypeString, Required: true, MaxSize: 10},
+		{Name: "opt", FieldType: execution.TypeBool, Required: false},
 	}
 	store.RegisterSchema(sid, fields)
 
@@ -151,34 +152,34 @@ func TestValidateData(t *testing.T) {
 	}
 
 	// Missing required field.
-	if err := store.ValidateData(sid, map[string][]byte{"opt": {1}}); err != ErrMissingRequired {
-		t.Fatalf("expected ErrMissingRequired, got %v", err)
+	if err := store.ValidateData(sid, map[string][]byte{"opt": {1}}); err != execution.ErrMissingRequired {
+		t.Fatalf("expected execution.ErrMissingRequired, got %v", err)
 	}
 
 	// Unknown field.
 	bad := map[string][]byte{"name": []byte("x"), "unknown": {1}}
-	if err := store.ValidateData(sid, bad); err != ErrFieldNotInSchema {
-		t.Fatalf("expected ErrFieldNotInSchema, got %v", err)
+	if err := store.ValidateData(sid, bad); err != execution.ErrFieldNotInSchema {
+		t.Fatalf("expected execution.ErrFieldNotInSchema, got %v", err)
 	}
 
 	// Field too large.
 	big := map[string][]byte{"name": make([]byte, 11)}
-	if err := store.ValidateData(sid, big); err != ErrFieldTooLarge {
-		t.Fatalf("expected ErrFieldTooLarge, got %v", err)
+	if err := store.ValidateData(sid, big); err != execution.ErrFieldTooLarge {
+		t.Fatalf("expected execution.ErrFieldTooLarge, got %v", err)
 	}
 
 	// Non-existent schema.
-	if err := store.ValidateData(schemaID("nope"), data); err != ErrSchemaNotFound {
-		t.Fatalf("expected ErrSchemaNotFound, got %v", err)
+	if err := store.ValidateData(schemaID("nope"), data); err != execution.ErrSchemaNotFound {
+		t.Fatalf("expected execution.ErrSchemaNotFound, got %v", err)
 	}
 }
 
 func TestStoreAndGetData(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("sg")
-	fields := []SchemaField{
-		{Name: "owner", FieldType: TypeAddress, Required: true, MaxSize: 20},
-		{Name: "label", FieldType: TypeString, Required: false, MaxSize: 64},
+	fields := []execution.SchemaField{
+		{Name: "owner", FieldType: execution.TypeAddress, Required: true, MaxSize: 20},
+		{Name: "label", FieldType: execution.TypeString, Required: false, MaxSize: 64},
 	}
 	store.RegisterSchema(sid, fields)
 
@@ -212,57 +213,57 @@ func TestStoreAndGetData(t *testing.T) {
 }
 
 func TestStoreDataDuplicate(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("dup")
-	store.RegisterSchema(sid, []SchemaField{{Name: "x", FieldType: TypeBool, Required: true}})
+	store.RegisterSchema(sid, []execution.SchemaField{{Name: "x", FieldType: execution.TypeBool, Required: true}})
 
 	key := dataKey("k")
 	data := map[string][]byte{"x": {1}}
 	store.StoreData(sid, key, data)
 
 	err := store.StoreData(sid, key, data)
-	if err != ErrDataExists {
-		t.Fatalf("expected ErrDataExists, got %v", err)
+	if err != execution.ErrDataExists {
+		t.Fatalf("expected execution.ErrDataExists, got %v", err)
 	}
 }
 
 func TestStoreDataValidation(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("val")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "req", FieldType: TypeBool, Required: true},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "req", FieldType: execution.TypeBool, Required: true},
 	})
 
 	// Missing required.
 	err := store.StoreData(sid, dataKey("k"), map[string][]byte{})
-	if err != ErrMissingRequired {
+	if err != execution.ErrMissingRequired {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }
 
 func TestGetDataNotFound(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("gd")
-	store.RegisterSchema(sid, []SchemaField{{Name: "a", FieldType: TypeBool}})
+	store.RegisterSchema(sid, []execution.SchemaField{{Name: "a", FieldType: execution.TypeBool}})
 
 	_, err := store.GetData(sid, dataKey("nope"))
-	if err != ErrDataNotFound {
-		t.Fatalf("expected ErrDataNotFound, got %v", err)
+	if err != execution.ErrDataNotFound {
+		t.Fatalf("expected execution.ErrDataNotFound, got %v", err)
 	}
 
 	// Unknown schema.
 	_, err = store.GetData(schemaID("unknown"), dataKey("k"))
-	if err != ErrSchemaNotFound {
-		t.Fatalf("expected ErrSchemaNotFound, got %v", err)
+	if err != execution.ErrSchemaNotFound {
+		t.Fatalf("expected execution.ErrSchemaNotFound, got %v", err)
 	}
 }
 
 func TestQueryByField(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("q")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "status", FieldType: TypeString, Required: true, MaxSize: 32},
-		{Name: "owner", FieldType: TypeAddress, Required: false, MaxSize: 20},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "status", FieldType: execution.TypeString, Required: true, MaxSize: 32},
+		{Name: "owner", FieldType: execution.TypeAddress, Required: false, MaxSize: 20},
 	})
 
 	k1 := dataKey("k1")
@@ -311,28 +312,28 @@ func TestQueryByField(t *testing.T) {
 }
 
 func TestQueryByFieldErrors(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("qe")
-	store.RegisterSchema(sid, []SchemaField{{Name: "a", FieldType: TypeBool}})
+	store.RegisterSchema(sid, []execution.SchemaField{{Name: "a", FieldType: execution.TypeBool}})
 
 	// Unknown schema.
 	_, err := store.QueryByField(schemaID("nope"), "a", nil)
-	if err != ErrSchemaNotFound {
-		t.Fatalf("expected ErrSchemaNotFound, got %v", err)
+	if err != execution.ErrSchemaNotFound {
+		t.Fatalf("expected execution.ErrSchemaNotFound, got %v", err)
 	}
 
 	// Unknown field.
 	_, err = store.QueryByField(sid, "bad_field", nil)
-	if err != ErrFieldNotInSchema {
-		t.Fatalf("expected ErrFieldNotInSchema, got %v", err)
+	if err != execution.ErrFieldNotInSchema {
+		t.Fatalf("expected execution.ErrFieldNotInSchema, got %v", err)
 	}
 }
 
 func TestDeleteData(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("del")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "tag", FieldType: TypeString, Required: true, MaxSize: 32},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "tag", FieldType: execution.TypeString, Required: true, MaxSize: 32},
 	})
 
 	key := dataKey("k1")
@@ -350,8 +351,8 @@ func TestDeleteData(t *testing.T) {
 
 	// Verify gone.
 	_, err := store.GetData(sid, key)
-	if err != ErrDataNotFound {
-		t.Fatalf("expected ErrDataNotFound after delete, got %v", err)
+	if err != execution.ErrDataNotFound {
+		t.Fatalf("expected execution.ErrDataNotFound after delete, got %v", err)
 	}
 
 	// Index should also be cleaned up.
@@ -362,28 +363,28 @@ func TestDeleteData(t *testing.T) {
 }
 
 func TestDeleteDataErrors(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("de")
-	store.RegisterSchema(sid, []SchemaField{{Name: "a", FieldType: TypeBool}})
+	store.RegisterSchema(sid, []execution.SchemaField{{Name: "a", FieldType: execution.TypeBool}})
 
 	// Unknown key.
 	err := store.DeleteData(sid, dataKey("nope"))
-	if err != ErrDataNotFound {
-		t.Fatalf("expected ErrDataNotFound, got %v", err)
+	if err != execution.ErrDataNotFound {
+		t.Fatalf("expected execution.ErrDataNotFound, got %v", err)
 	}
 
 	// Unknown schema.
 	err = store.DeleteData(schemaID("nope"), dataKey("k"))
-	if err != ErrSchemaNotFound {
-		t.Fatalf("expected ErrSchemaNotFound, got %v", err)
+	if err != execution.ErrSchemaNotFound {
+		t.Fatalf("expected execution.ErrSchemaNotFound, got %v", err)
 	}
 }
 
 func TestStoreDataDeepCopy(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("cp")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "val", FieldType: TypeBytes32, Required: true, MaxSize: 32},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "val", FieldType: execution.TypeBytes32, Required: true, MaxSize: 32},
 	})
 
 	original := []byte{1, 2, 3}
@@ -400,10 +401,10 @@ func TestStoreDataDeepCopy(t *testing.T) {
 }
 
 func TestConcurrentRichData(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("conc")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "idx", FieldType: TypeString, Required: true, MaxSize: 32},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "idx", FieldType: execution.TypeString, Required: true, MaxSize: 32},
 	})
 
 	const goroutines = 50
@@ -426,10 +427,10 @@ func TestConcurrentRichData(t *testing.T) {
 }
 
 func TestMaxSizeZeroMeansUnlimited(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("unlim")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "data", FieldType: TypeString, Required: true, MaxSize: 0},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "data", FieldType: execution.TypeString, Required: true, MaxSize: 0},
 	})
 
 	// A large value should be accepted when MaxSize is 0 (unlimited).
@@ -441,10 +442,10 @@ func TestMaxSizeZeroMeansUnlimited(t *testing.T) {
 }
 
 func TestQueryAfterDeleteAndRestore(t *testing.T) {
-	store := NewRichDataStore()
+	store := execution.NewRichDataStore()
 	sid := schemaID("qdr")
-	store.RegisterSchema(sid, []SchemaField{
-		{Name: "color", FieldType: TypeString, Required: true, MaxSize: 10},
+	store.RegisterSchema(sid, []execution.SchemaField{
+		{Name: "color", FieldType: execution.TypeString, Required: true, MaxSize: 10},
 	})
 
 	key := dataKey("k1")

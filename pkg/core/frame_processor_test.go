@@ -4,6 +4,9 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -31,7 +34,7 @@ func TestTransactionToMessage_FrameTx(t *testing.T) {
 	}
 	tx := newTestFrameTx(sender, 0, frames)
 
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 
 	// Frames should be populated.
 	if msg.Frames == nil {
@@ -71,7 +74,7 @@ func TestTransactionToMessage_NonFrameTx(t *testing.T) {
 		Value:    big.NewInt(1000),
 	})
 
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 
 	// Frames should be nil for non-FrameTx.
 	if msg.Frames != nil {
@@ -173,7 +176,7 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 	tx := types.NewTransaction(ftx)
 	tx.SetSender(sender)
 
-	msg := TransactionToMessage(tx)
+	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := &types.Header{
@@ -184,13 +187,13 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 		Coinbase: types.HexToAddress("0xfee"),
 	}
 
-	gp := GasPool(30_000_000)
+	gp := gaspool.GasPool(30_000_000)
 
-	// Run applyMessage. The call will likely fail during EVM execution
+	// Run ApplyMessage. The call will likely fail during EVM execution
 	// since we have no real EVM setup, but the nonce guard happens before
 	// EVM execution. We just need to confirm the nonce was NOT incremented
 	// immediately after the nonce-increment guard line.
-	_, _ = applyMessage(TestConfig, func(n uint64) types.Hash { return types.Hash{} }, statedb, header, &msg, &gp)
+	_, _ = execution.ApplyMessage(config.TestConfig, func(n uint64) types.Hash { return types.Hash{} }, statedb, header, &msg, &gp)
 
 	// For FrameTx, the nonce should NOT have been eagerly incremented to 1.
 	// (The actual nonce management for FrameTx happens post-execution.)
@@ -205,7 +208,7 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 	statedb2.SetNonce(sender, 0)
 
 	to := types.HexToAddress("0x2222")
-	legacyMsg := Message{
+	legacyMsg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
@@ -216,8 +219,8 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 		GasTipCap: big.NewInt(1),
 		TxType:    types.LegacyTxType,
 	}
-	gp2 := GasPool(30_000_000)
-	_, _ = applyMessage(TestConfig, func(n uint64) types.Hash { return types.Hash{} }, statedb2, header, &legacyMsg, &gp2)
+	gp2 := gaspool.GasPool(30_000_000)
+	_, _ = execution.ApplyMessage(config.TestConfig, func(n uint64) types.Hash { return types.Hash{} }, statedb2, header, &legacyMsg, &gp2)
 
 	legacyNonce := statedb2.GetNonce(sender)
 	if legacyNonce != 1 {

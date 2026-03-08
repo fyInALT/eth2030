@@ -95,16 +95,6 @@ var (
 	ErrNoStateWriter   = errors.New("no state writer configured for snap sync")
 )
 
-// HeaderSource retrieves headers from a remote peer or local chain.
-type HeaderSource interface {
-	FetchHeaders(from uint64, count int) ([]*types.Header, error)
-}
-
-// BodySource retrieves block bodies from a remote peer or local chain.
-type BodySource interface {
-	FetchBodies(hashes []types.Hash) ([]*types.Body, error)
-}
-
 // BlockInserter inserts validated blocks into the local chain.
 type BlockInserter interface {
 	InsertChain(blocks []*types.Block) (int, error)
@@ -160,23 +150,6 @@ type Syncer struct {
 
 	// Cancel channel.
 	cancel chan struct{}
-}
-
-// HeaderData represents a downloaded header for sync (legacy format).
-type HeaderData struct {
-	Number     uint64
-	Hash       [32]byte
-	ParentHash [32]byte
-	Timestamp  uint64
-	RLP        []byte // RLP-encoded header
-}
-
-// BlockData represents a downloaded block for sync (legacy format).
-type BlockData struct {
-	Number    uint64
-	Hash      [32]byte
-	HeaderRLP []byte
-	BodyRLP   []byte
 }
 
 // Config holds syncer configuration.

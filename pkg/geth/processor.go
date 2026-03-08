@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
-	eth2030core "github.com/eth2030/eth2030/core"
+	eth2030cfg "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -24,7 +24,7 @@ import (
 // precompile injection for Glamsterdam+ forks.
 type GethBlockProcessor struct {
 	config     *params.ChainConfig
-	eth2030Cfg *eth2030core.ChainConfig // optional, for custom precompile injection
+	eth2030Cfg *eth2030cfg.ChainConfig // optional, for custom precompile injection
 }
 
 // NewGethBlockProcessor creates a processor for the given chain config.
@@ -35,7 +35,7 @@ func NewGethBlockProcessor(config *params.ChainConfig) *GethBlockProcessor {
 // NewGethBlockProcessorWithEth2028 creates a processor that injects eth2030
 // custom precompiles (NTT, NII, field precompiles, Glamsterdam repricing)
 // based on the eth2030 fork schedule.
-func NewGethBlockProcessorWithEth2028(config *params.ChainConfig, eth2030Cfg *eth2030core.ChainConfig) *GethBlockProcessor {
+func NewGethBlockProcessorWithEth2028(config *params.ChainConfig, eth2030Cfg *eth2030cfg.ChainConfig) *GethBlockProcessor {
 	return &GethBlockProcessor{config: config, eth2030Cfg: eth2030Cfg}
 }
 

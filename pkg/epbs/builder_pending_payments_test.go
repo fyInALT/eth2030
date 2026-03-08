@@ -43,3 +43,36 @@ func TestProcessBuilderPendingPaymentsEmpty(t *testing.T) {
 	// No payments — should not panic.
 	ProcessBuilderPendingPayments(state)
 }
+
+func TestBuilderPendingPayments_SameBuilderTwice(t *testing.T) {
+	state := NewBuilderEpochState()
+	state.SetBuilderBalance(BuilderIndex(1), 5000)
+	state.AddPendingPayment(BuilderIndex(1), 1000)
+	state.AddPendingPayment(BuilderIndex(1), 2000)
+
+	ProcessBuilderPendingPayments(state)
+	// 5000 - 1000 - 2000 = 2000
+	if bal := state.GetBuilderBalance(BuilderIndex(1)); bal != 2000 {
+		t.Errorf("balance after two payments: got %d, want 2000", bal)
+	}
+}
+
+func TestBuilderPendingPayments_ZeroPayment(t *testing.T) {
+	state := NewBuilderEpochState()
+	state.SetBuilderBalance(BuilderIndex(1), 5000)
+	state.AddPendingPayment(BuilderIndex(1), 0)
+	ProcessBuilderPendingPayments(state)
+	if bal := state.GetBuilderBalance(BuilderIndex(1)); bal != 5000 {
+		t.Errorf("zero payment changed balance: got %d", bal)
+	}
+}
+
+func TestBuilderPendingPayments_ExactBalance(t *testing.T) {
+	state := NewBuilderEpochState()
+	state.SetBuilderBalance(BuilderIndex(1), 1000)
+	state.AddPendingPayment(BuilderIndex(1), 1000)
+	ProcessBuilderPendingPayments(state)
+	if bal := state.GetBuilderBalance(BuilderIndex(1)); bal != 0 {
+		t.Errorf("exact payment: expected 0, got %d", bal)
+	}
+}

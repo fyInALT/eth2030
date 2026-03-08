@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -460,10 +461,10 @@ func TestEFGasAccounting(t *testing.T) {
 	})
 	tx.SetSender(sender)
 
-	gp := new(core.GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 	statedb.SetTxContext(tx.Hash(), 0)
 
-	receipt, gasUsed, err := core.ApplyTransaction(config, statedb, header, tx, gp)
+	receipt, gasUsed, err := execution.ApplyTransaction(config, statedb, header, tx, gp)
 	if err != nil {
 		t.Fatalf("ApplyTransaction: %v", err)
 	}

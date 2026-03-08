@@ -1,9 +1,13 @@
+//go:build integration
+
 package core
 
 import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -29,7 +33,7 @@ func TestE2E_BlockCreation(t *testing.T) {
 	// Create 3 transactions of increasing value.
 	var txs []*types.Transaction
 	for i := uint64(0); i < 3; i++ {
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    i,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,
@@ -72,23 +76,23 @@ func TestE2E_BlockCreation(t *testing.T) {
 		if r.Status != types.ReceiptStatusSuccessful {
 			t.Errorf("receipt[%d] status = %d, want success", i, r.Status)
 		}
-		if r.GasUsed != TxGas {
-			t.Errorf("receipt[%d] gas used = %d, want %d", i, r.GasUsed, TxGas)
+		if r.GasUsed != execution.TxGas {
+			t.Errorf("receipt[%d] gas used = %d, want %d", i, r.GasUsed, execution.TxGas)
 		}
 	}
 
 	// Verify cumulative gas is correct: 21000, 42000, 63000.
 	expectedCumGas := uint64(0)
 	for i, r := range receipts {
-		expectedCumGas += TxGas
+		expectedCumGas += execution.TxGas
 		if r.CumulativeGasUsed != expectedCumGas {
 			t.Errorf("receipt[%d] cumulative gas = %d, want %d", i, r.CumulativeGasUsed, expectedCumGas)
 		}
 	}
 
 	// Verify block gas used matches total.
-	if block.GasUsed() != 3*TxGas {
-		t.Errorf("block gas used = %d, want %d", block.GasUsed(), 3*TxGas)
+	if block.GasUsed() != 3*execution.TxGas {
+		t.Errorf("block gas used = %d, want %d", block.GasUsed(), 3*execution.TxGas)
 	}
 
 	// Verify recipient balance.

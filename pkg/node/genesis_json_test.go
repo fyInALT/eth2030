@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 )
 
 // --- bigIntJSON ---
@@ -233,7 +233,7 @@ func TestApplyForkOverrides_All(t *testing.T) {
 	cfg.HogotaOverride = &ts2
 	cfg.IPlusOverride = &ts3
 
-	cc := &core.ChainConfig{}
+	cc := &coreconfig.ChainConfig{}
 	applyForkOverrides(cc, &cfg)
 
 	if cc.GlamsterdanTime == nil || *cc.GlamsterdanTime != ts1 {
@@ -250,7 +250,7 @@ func TestApplyForkOverrides_All(t *testing.T) {
 func TestApplyForkOverrides_None(t *testing.T) {
 	cfg := DefaultConfig()
 	// No overrides set.
-	cc := &core.ChainConfig{}
+	cc := &coreconfig.ChainConfig{}
 	cc.HogotaTime = nil
 	applyForkOverrides(cc, &cfg)
 	// Nothing should be set since cfg has no overrides.

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // ---------- BlockNumber: safe and finalized tags ----------
@@ -31,7 +33,7 @@ func TestBlockNumber_UnmarshalFinalized(t *testing.T) {
 }
 
 func TestGetBalance_SafeBlock(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBalance",
 		"0x000000000000000000000000000000000000aaaa", "safe")
 
@@ -48,7 +50,7 @@ func TestGetBalance_SafeBlock(t *testing.T) {
 }
 
 func TestGetBalance_FinalizedBlock(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBalance",
 		"0x000000000000000000000000000000000000aaaa", "finalized")
 
@@ -65,7 +67,7 @@ func TestGetBalance_FinalizedBlock(t *testing.T) {
 }
 
 func TestGetBlockByNumber_Safe(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBlockByNumber", "safe", false)
 
 	if resp.Error != nil {
@@ -84,7 +86,7 @@ func TestGetBlockByNumber_Safe(t *testing.T) {
 }
 
 func TestGetBlockByNumber_Finalized(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBlockByNumber", "finalized", false)
 
 	if resp.Error != nil {
@@ -103,12 +105,12 @@ func TestGetBlockByNumber_Finalized(t *testing.T) {
 }
 
 func TestGetStorageAt_Safe(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	// Set a storage value.
 	addr := types.HexToAddress("0xaaaa")
 	slot := types.HexToHash("0x01")
 	val := types.HexToHash("0x42")
-	mb.statedb.SetState(addr, slot, val)
+	mb.Statedb.SetState(addr, slot, val)
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getStorageAt",
@@ -123,14 +125,14 @@ func TestGetStorageAt_Safe(t *testing.T) {
 	if !ok {
 		t.Fatalf("result not string: %T", resp.Result)
 	}
-	expected := encodeHash(val)
+	expected := rpctypes.EncodeHash(val)
 	if got != expected {
 		t.Fatalf("want %v, got %v", expected, got)
 	}
 }
 
 func TestGetCode_Finalized(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getCode",
 		"0x000000000000000000000000000000000000aaaa", "finalized")
 
@@ -143,7 +145,7 @@ func TestGetCode_Finalized(t *testing.T) {
 }
 
 func TestGetTransactionCount_Safe(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getTransactionCount",
 		"0x000000000000000000000000000000000000aaaa", "safe")
 
@@ -158,9 +160,9 @@ func TestGetTransactionCount_Safe(t *testing.T) {
 // ---------- debug_traceCall ----------
 
 func TestDebugTraceCall(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = []byte{0xab, 0xcd}
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0xab, 0xcd}
+	mb.CallGasUsed = 21000
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "debug_traceCall", map[string]interface{}{
@@ -191,9 +193,9 @@ func TestDebugTraceCall(t *testing.T) {
 }
 
 func TestDebugTraceCall_DefaultBlockNumber(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = []byte{0x01}
-	mb.callGasUsed = 100
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0x01}
+	mb.CallGasUsed = 100
 	api := NewEthAPI(mb)
 
 	// Call without specifying block number (should default to latest).
@@ -211,8 +213,8 @@ func TestDebugTraceCall_DefaultBlockNumber(t *testing.T) {
 }
 
 func TestDebugTraceCall_Error(t *testing.T) {
-	mb := newMockBackend()
-	mb.callErr = errCallFailed
+	mb := testutil.NewMockBackend()
+	mb.CallErr = errCallFailed
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "debug_traceCall", map[string]interface{}{
@@ -226,7 +228,7 @@ func TestDebugTraceCall_Error(t *testing.T) {
 }
 
 func TestDebugTraceCall_MissingParams(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "debug_traceCall")
 
 	if resp.Error == nil {
@@ -238,8 +240,8 @@ func TestDebugTraceCall_MissingParams(t *testing.T) {
 }
 
 func TestDebugTraceCall_WithValue(t *testing.T) {
-	mb := newMockBackend()
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallGasUsed = 21000
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "debug_traceCall", map[string]interface{}{
@@ -261,7 +263,7 @@ func TestDebugTraceCall_WithValue(t *testing.T) {
 // ---------- eth_getUncleByBlockHashAndIndex ----------
 
 func TestGetUncleByBlockHashAndIndex(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getUncleByBlockHashAndIndex",
 		"0x0000000000000000000000000000000000000000000000000000000000001234",
 		"0x0")
@@ -278,7 +280,7 @@ func TestGetUncleByBlockHashAndIndex(t *testing.T) {
 // ---------- eth_getUncleByBlockNumberAndIndex ----------
 
 func TestGetUncleByBlockNumberAndIndex(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getUncleByBlockNumberAndIndex",
 		"0x2a", "0x0")
 
@@ -294,7 +296,7 @@ func TestGetUncleByBlockNumberAndIndex(t *testing.T) {
 // ---------- eth_feeHistory with safe/finalized ----------
 
 func TestFeeHistory_SafeBlock(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_feeHistory", "0x1", "safe")
@@ -312,7 +314,7 @@ func TestFeeHistory_SafeBlock(t *testing.T) {
 }
 
 func TestFeeHistory_FinalizedBlock(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_feeHistory", "0x1", "finalized")
@@ -332,7 +334,7 @@ func TestFeeHistory_FinalizedBlock(t *testing.T) {
 // ---------- eth_getProof with safe/finalized ----------
 
 func TestGetProof_SafeBlock(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getProof",
 		"0x000000000000000000000000000000000000aaaa",
 		[]string{},
@@ -357,8 +359,8 @@ func TestGetProof_SafeBlock(t *testing.T) {
 // ---------- eth_createAccessList with safe/finalized ----------
 
 func TestCreateAccessList_SafeBlock(t *testing.T) {
-	mb := newMockBackend()
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallGasUsed = 21000
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_createAccessList", map[string]interface{}{
@@ -381,8 +383,8 @@ func TestCreateAccessList_SafeBlock(t *testing.T) {
 // ---------- debug_traceCall with safe/finalized ----------
 
 func TestDebugTraceCall_SafeBlock(t *testing.T) {
-	mb := newMockBackend()
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallGasUsed = 21000
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "debug_traceCall", map[string]interface{}{
@@ -401,7 +403,7 @@ func TestDebugTraceCall_SafeBlock(t *testing.T) {
 // ---------- dispatch routing for new methods ----------
 
 func TestDispatcher_DebugTraceCall(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "debug_traceCall", map[string]interface{}{
 		"to": "0x000000000000000000000000000000000000bbbb",
@@ -412,7 +414,7 @@ func TestDispatcher_DebugTraceCall(t *testing.T) {
 }
 
 func TestDispatcher_GetUncleByBlockHashAndIndex(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getUncleByBlockHashAndIndex",
 		"0x0000000000000000000000000000000000000000000000000000000000000000",
 		"0x0")
@@ -422,7 +424,7 @@ func TestDispatcher_GetUncleByBlockHashAndIndex(t *testing.T) {
 }
 
 func TestDispatcher_GetUncleByBlockNumberAndIndex(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getUncleByBlockNumberAndIndex",
 		"latest", "0x0")
 	if resp.Error != nil {
@@ -483,7 +485,7 @@ func TestBlockNumber_UnmarshalInvalid(t *testing.T) {
 // ---------- Combined receipt test: getTransactionReceipt with logs ----------
 
 func TestGetTransactionReceipt_WithLogs(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	to := types.HexToAddress("0xbbbb")
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    1,
@@ -496,9 +498,9 @@ func TestGetTransactionReceipt_WithLogs(t *testing.T) {
 	tx.SetSender(sender)
 
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 	contractAddr := types.HexToAddress("0xcccc")
 	topic := types.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 
@@ -533,10 +535,10 @@ func TestGetTransactionReceipt_WithLogs(t *testing.T) {
 			},
 		},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getTransactionReceipt", encodeHash(txHash))
+	resp := callRPC(t, api, "eth_getTransactionReceipt", rpctypes.EncodeHash(txHash))
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -557,10 +559,10 @@ func TestGetTransactionReceipt_WithLogs(t *testing.T) {
 	if rpcReceipt.Logs[1].LogIndex != "0x1" {
 		t.Fatalf("want logIndex 0x1, got %v", rpcReceipt.Logs[1].LogIndex)
 	}
-	if rpcReceipt.From != encodeAddress(sender) {
-		t.Fatalf("want from %v, got %v", encodeAddress(sender), rpcReceipt.From)
+	if rpcReceipt.From != rpctypes.EncodeAddress(sender) {
+		t.Fatalf("want from %v, got %v", rpctypes.EncodeAddress(sender), rpcReceipt.From)
 	}
-	toStr := encodeAddress(to)
+	toStr := rpctypes.EncodeAddress(to)
 	if rpcReceipt.To == nil || *rpcReceipt.To != toStr {
 		t.Fatalf("want to %v, got %v", toStr, rpcReceipt.To)
 	}
@@ -569,9 +571,9 @@ func TestGetTransactionReceipt_WithLogs(t *testing.T) {
 // ---------- debug_traceCall JSON serialization ----------
 
 func TestDebugTraceCall_JSONRoundTrip(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = []byte{0x01, 0x02, 0x03}
-	mb.callGasUsed = 50000
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0x01, 0x02, 0x03}
+	mb.CallGasUsed = 50000
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "debug_traceCall", map[string]interface{}{

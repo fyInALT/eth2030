@@ -1,3 +1,5 @@
+//go:build integration
+
 package core
 
 import (
@@ -5,6 +7,10 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -18,7 +24,7 @@ import (
 // (parent block hash) system contracts write to state and are tracked.
 func TestProcessWithBAL_EmptyBlock(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	proc := NewStateProcessor(TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	block := makeBlock(genesis, nil)
@@ -51,7 +57,7 @@ func TestProcessWithBAL_WithTransactions(t *testing.T) {
 	receiver := types.BytesToAddress([]byte{0xab})
 	statedb.AddBalance(sender, big.NewInt(10_000_000))
 
-	proc := NewStateProcessor(TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 
@@ -99,7 +105,7 @@ func TestProcessWithBAL_WithTransactions(t *testing.T) {
 // is not active.
 func TestProcessWithBAL_PreAmsterdam(t *testing.T) {
 	// Config without Amsterdam fork.
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		ByzantiumBlock:          big.NewInt(0),
@@ -115,7 +121,7 @@ func TestProcessWithBAL_PreAmsterdam(t *testing.T) {
 	}
 
 	statedb := state.NewMemoryStateDB()
-	proc := NewStateProcessor(config)
+	proc := execution.NewStateProcessor(config)
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	block := makeBlock(genesis, nil)
@@ -140,7 +146,7 @@ func TestBALHash_Computed(t *testing.T) {
 	receiver := types.BytesToAddress([]byte{0xab})
 	statedb.AddBalance(sender, big.NewInt(10_000_000))
 
-	proc := NewStateProcessor(TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 
@@ -191,7 +197,7 @@ func TestBlockBuilder_SetsBALHash(t *testing.T) {
 	receiver := types.BytesToAddress([]byte{0xab})
 	statedb.AddBalance(sender, big.NewInt(10_000_000))
 
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -224,7 +230,7 @@ func TestBlockBuilder_SetsBALHash(t *testing.T) {
 // contract entries (EIP-4788, EIP-2935) depending on fork activation.
 func TestBlockBuilder_EmptyBlock_SetsBALHash(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := newLegacyBuilder(TestConfig, statedb)
+	builder := newLegacyBuilder(config.TestConfig, statedb)
 
 	parent := &types.Header{
 		Number:   big.NewInt(0),
@@ -260,7 +266,7 @@ func TestBlockBuilder_BuildBlock_SetsBALHash(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -275,9 +281,9 @@ func TestBlockBuilder_BuildBlock_SetsBALHash(t *testing.T) {
 	tx.SetSender(sender)
 
 	pool := &mockTxPool{txs: []*types.Transaction{tx}}
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := coreblock.NewBlockBuilder(config.TestConfig, bc, pool)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &coreblock.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -296,7 +302,7 @@ func TestBlockBuilder_BuildBlock_SetsBALHash(t *testing.T) {
 // TestValidator_RejectsBALMismatch verifies that ValidateBlockAccessList
 // rejects a block with a mismatched BAL hash.
 func TestValidator_RejectsBALMismatch(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	wrongHash := types.HexToHash("0xdeadbeef")
 	computedHash := types.HexToHash("0xcafebabe")
@@ -315,7 +321,7 @@ func TestValidator_RejectsBALMismatch(t *testing.T) {
 // TestValidator_RejectsMissingBALHash verifies that post-Amsterdam blocks
 // must include a BlockAccessListHash.
 func TestValidator_RejectsMissingBALHash(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	header := &types.Header{
 		Time:                12,
@@ -332,11 +338,11 @@ func TestValidator_RejectsMissingBALHash(t *testing.T) {
 // TestValidator_AcceptsNilBALPreAmsterdam verifies that pre-Amsterdam blocks
 // must NOT have a BlockAccessListHash.
 func TestValidator_AcceptsNilBALPreAmsterdam(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:       big.NewInt(1337),
 		AmsterdamTime: nil, // Amsterdam NOT active
 	}
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	header := &types.Header{
 		Time:                12,
@@ -352,11 +358,11 @@ func TestValidator_AcceptsNilBALPreAmsterdam(t *testing.T) {
 // TestValidator_RejectsBALInPreAmsterdam verifies that a pre-Amsterdam block
 // with a BlockAccessListHash is rejected.
 func TestValidator_RejectsBALInPreAmsterdam(t *testing.T) {
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:       big.NewInt(1337),
 		AmsterdamTime: nil, // Amsterdam NOT active
 	}
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	someHash := types.HexToHash("0xdeadbeef")
 	header := &types.Header{
@@ -372,7 +378,7 @@ func TestValidator_RejectsBALInPreAmsterdam(t *testing.T) {
 
 // TestValidator_AcceptsCorrectBAL verifies that a matching BAL hash passes validation.
 func TestValidator_AcceptsCorrectBAL(t *testing.T) {
-	v := NewBlockValidator(TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	h := bal.NewBlockAccessList().Hash()
 	header := &types.Header{
@@ -396,7 +402,7 @@ func TestBlockchain_BALValidation_EndToEnd(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -411,9 +417,9 @@ func TestBlockchain_BALValidation_EndToEnd(t *testing.T) {
 	tx.SetSender(sender)
 
 	pool := &mockTxPool{txs: []*types.Transaction{tx}}
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := coreblock.NewBlockBuilder(config.TestConfig, bc, pool)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &coreblock.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -451,7 +457,7 @@ func TestBlockchain_RejectsWrongBALHash(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -466,9 +472,9 @@ func TestBlockchain_RejectsWrongBALHash(t *testing.T) {
 	tx.SetSender(sender)
 
 	pool := &mockTxPool{txs: []*types.Transaction{tx}}
-	builder := NewBlockBuilder(TestConfig, bc, pool)
+	builder := coreblock.NewBlockBuilder(config.TestConfig, bc, pool)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &coreblock.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -498,7 +504,7 @@ func TestBlockchain_RejectsWrongBALHash(t *testing.T) {
 func TestBAL_OnlyRequiredWhenForkActive(t *testing.T) {
 	// Create two configs: one with Amsterdam, one without.
 	amsterdamTime := uint64(100)
-	config := &ChainConfig{
+	config := &config.ChainConfig{
 		ChainID:                 big.NewInt(1337),
 		HomesteadBlock:          big.NewInt(0),
 		ByzantiumBlock:          big.NewInt(0),
@@ -513,7 +519,7 @@ func TestBAL_OnlyRequiredWhenForkActive(t *testing.T) {
 		AmsterdamTime:           &amsterdamTime,
 	}
 
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	// Pre-Amsterdam block (time 50): should NOT require BAL hash.
 	preHeader := &types.Header{Time: 50}
@@ -539,21 +545,21 @@ func TestBAL_OnlyRequiredWhenForkActive(t *testing.T) {
 
 // TestErrBALFeasibilityViolated_SentinelExported verifies the sentinel error is exported.
 func TestErrBALFeasibilityViolated_SentinelExported(t *testing.T) {
-	if ErrBALFeasibilityViolated == nil {
-		t.Fatal("ErrBALFeasibilityViolated should be a non-nil sentinel error")
+	if execution.ErrBALFeasibilityViolated == nil {
+		t.Fatal("execution.ErrBALFeasibilityViolated should be a non-nil sentinel error")
 	}
-	msg := ErrBALFeasibilityViolated.Error()
+	msg := execution.ErrBALFeasibilityViolated.Error()
 	if msg == "" {
-		t.Error("ErrBALFeasibilityViolated message should not be empty")
+		t.Error("execution.ErrBALFeasibilityViolated message should not be empty")
 	}
 }
 
 // TestErrBALFeasibilityViolated_Message verifies the error contains key spec info.
 func TestErrBALFeasibilityViolated_Message(t *testing.T) {
-	msg := ErrBALFeasibilityViolated.Error()
+	msg := execution.ErrBALFeasibilityViolated.Error()
 	// The message must mention both items and gas cost relationship.
 	if len(msg) < 10 {
-		t.Errorf("ErrBALFeasibilityViolated message too short: %q", msg)
+		t.Errorf("execution.ErrBALFeasibilityViolated message too short: %q", msg)
 	}
 }
 

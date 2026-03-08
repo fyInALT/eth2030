@@ -8,6 +8,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/sync/snap"
 )
 
 // --- Snap sync integration tests ---
@@ -63,7 +64,7 @@ func TestRunSync_SnapMode_FullPipeline(t *testing.T) {
 		t.Fatalf("snap accounts done: want 5, got %d", prog.SnapProgress.AccountsDone)
 	}
 	if prog.SnapProgress.Phase != PhaseComplete {
-		t.Fatalf("snap phase: want complete, got %s", PhaseName(prog.SnapProgress.Phase))
+		t.Fatalf("snap phase: want complete, got %s", snap.PhaseName(prog.SnapProgress.Phase))
 	}
 
 	// Accounts should have been written to the state writer.
@@ -89,7 +90,7 @@ func TestRunSync_SnapMode_WithStorageAndBytecodes(t *testing.T) {
 	codeHash := types.BytesToHash(crypto.Keccak256(code))
 	storageRoot := types.Hash{0xbb, 0xcc}
 
-	accounts := []AccountData{
+	accounts := []snap.AccountData{
 		{
 			Hash:     types.Hash{0x10},
 			Nonce:    1,
@@ -109,7 +110,7 @@ func TestRunSync_SnapMode_WithStorageAndBytecodes(t *testing.T) {
 	peer := newMockSnapPeer("snap-peer1")
 	peer.accounts = accounts
 	peer.codes[codeHash] = code
-	peer.storage[types.Hash{0x20}] = []StorageData{
+	peer.storage[types.Hash{0x20}] = []snap.StorageData{
 		{AccountHash: types.Hash{0x20}, SlotHash: types.Hash{0x01}, Value: []byte{0x42}},
 	}
 

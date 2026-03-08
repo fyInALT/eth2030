@@ -5,18 +5,19 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/backendapi"
 )
 
 // --- SPEC-5.5: engine_getPayloadBodiesByHashV2 / ByRangeV2 ---
 
-func makePayloadBodiesAPI(t *testing.T) (*EngineAPI, *EngineBackend) {
+func makePayloadBodiesAPI(t *testing.T) (*EngineAPI, backendapi.Backend) {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
-	backend := NewEngineBackend(core.TestConfig, statedb, genesis)
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	api := NewEngineAPI(backend)
 	return api, backend
 }
@@ -182,21 +183,23 @@ func TestExecutionPayloadBodyV2_Structure(t *testing.T) {
 	}
 }
 
-// TestGetPayloadBodiesByHashV2_NonBackend verifies non-EngineBackend returns error.
+// TestGetPayloadBodiesByHashV2_NonBackend verifies that a backend not implementing
+// PayloadBodiesBackend returns an unsupported error.
 func TestGetPayloadBodiesByHashV2_NonBackend(t *testing.T) {
 	api := NewEngineAPI(&handlerMockBackend{})
 	_, err := api.GetPayloadBodiesByHashV2(nil)
 	if err == nil {
-		t.Fatal("expected error when backend is not EngineBackend")
+		t.Fatal("expected error when backend does not implement PayloadBodiesBackend")
 	}
 }
 
-// TestGetPayloadBodiesByRangeV2_NonBackend verifies non-EngineBackend returns error.
+// TestGetPayloadBodiesByRangeV2_NonBackend verifies that a backend not implementing
+// PayloadBodiesBackend returns an unsupported error.
 func TestGetPayloadBodiesByRangeV2_NonBackend(t *testing.T) {
 	api := NewEngineAPI(&handlerMockBackend{})
 	_, err := api.GetPayloadBodiesByRangeV2(0, 1)
 	if err == nil {
-		t.Fatal("expected error when backend is not EngineBackend")
+		t.Fatal("expected error when backend does not implement PayloadBodiesBackend")
 	}
 }
 

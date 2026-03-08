@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 )
 
 // --- EFTestForkSupported tests ---
@@ -326,7 +326,7 @@ func TestToGethChainConfig_Nil(t *testing.T) {
 
 func TestToGethChainConfig_Basic(t *testing.T) {
 	ts := uint64(1000)
-	c := &core.ChainConfig{
+	c := &coreconfig.ChainConfig{
 		ChainID:        big.NewInt(5),
 		HomesteadBlock: big.NewInt(0),
 		LondonBlock:    big.NewInt(10),
@@ -356,7 +356,7 @@ func TestToGethChainConfig_Basic(t *testing.T) {
 }
 
 func TestToGethChainConfig_AllBlockForks(t *testing.T) {
-	c := &core.ChainConfig{
+	c := &coreconfig.ChainConfig{
 		ChainID:                 big.NewInt(1),
 		HomesteadBlock:          big.NewInt(1),
 		EIP150Block:             big.NewInt(2),
@@ -400,7 +400,7 @@ func TestToGethChainConfig_AllBlockForks(t *testing.T) {
 
 func TestToGethChainConfig_PragueTime(t *testing.T) {
 	ts := uint64(9999)
-	c := &core.ChainConfig{
+	c := &coreconfig.ChainConfig{
 		ChainID:    big.NewInt(1),
 		PragueTime: &ts,
 	}

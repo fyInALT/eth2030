@@ -9,9 +9,13 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/bal"
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/block"
+	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
 )
 
@@ -32,9 +36,9 @@ type pendingPayload struct {
 // to the block builder and state processor.
 type EngineBackend struct {
 	mu            sync.RWMutex
-	config        *core.ChainConfig
+	config        *coreconfig.ChainConfig
 	statedb       *state.MemoryStateDB
-	processor     *core.StateProcessor
+	processor     *execution.StateProcessor
 	blocks        map[types.Hash]*types.Block
 	bals          map[types.Hash]*bal.BlockAccessList // stored BALs for getPayloadBodiesV2
 	ils           []*types.InclusionList              // received via engine_newInclusionListV1
@@ -46,11 +50,11 @@ type EngineBackend struct {
 }
 
 // NewEngineBackend creates a new Engine API backend.
-func NewEngineBackend(config *core.ChainConfig, statedb *state.MemoryStateDB, genesis *types.Block) *EngineBackend {
+func NewEngineBackend(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, genesis *types.Block) *EngineBackend {
 	b := &EngineBackend{
 		config:    config,
 		statedb:   statedb,
-		processor: core.NewStateProcessor(config),
+		processor: execution.NewStateProcessor(config),
 		blocks:    make(map[types.Hash]*types.Block),
 		bals:      make(map[types.Hash]*bal.BlockAccessList),
 		payloads:  make(map[PayloadID]*pendingPayload),
@@ -210,11 +214,11 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
 		// Build an empty block (no pending transactions from txpool yet).
-		builder := core.NewBlockBuilder(b.config, nil, nil)
+		builder := block.NewBlockBuilder(b.config, nil, nil)
 		builder.SetState(b.statedb.Copy())
 		parentHeader := parentBlock.Header()
 
-		block, receipts, err := builder.BuildBlock(parentHeader, &core.BuildBlockAttributes{
+		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
 			Timestamp:    attrs.Timestamp,
 			FeeRecipient: attrs.SuggestedFeeRecipient,
 			Random:       attrs.PrevRandao,
@@ -226,7 +230,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		}
 
 		b.payloads[id] = &pendingPayload{
-			block:        block,
+			block:        blk,
 			receipts:     receipts,
 			blockValue:   new(big.Int),
 			parentHash:   fcState.HeadBlockHash,
@@ -252,7 +256,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 		return nil, ErrUnknownPayload
 	}
 
-	ep := blockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+	ep := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
 
 	return &GetPayloadResponse{
 		ExecutionPayload: ep,
@@ -321,7 +325,7 @@ func restoreCalldataGasFields(block *types.Block, parent *types.Block, payloadBl
 			parentUsed = *parent.Header().CalldataGasUsed
 		}
 	}
-	calldataExcessGas := core.CalcCalldataExcessGas(parentExcess, parentUsed, block.Header().GasLimit)
+	calldataExcessGas := gas.CalcCalldataExcessGas(parentExcess, parentUsed, block.Header().GasLimit)
 
 	// Rebuild the block with the calldata gas fields injected into the header.
 	hdr := block.Header()
@@ -335,60 +339,6 @@ func restoreCalldataGasFields(block *types.Block, parent *types.Block, payloadBl
 		return augmented
 	}
 	return block
-}
-
-// blockToPayload converts a types.Block to an ExecutionPayloadV4.
-func blockToPayload(block *types.Block, prevRandao types.Hash, withdrawals []*Withdrawal) *ExecutionPayloadV4 {
-	header := block.Header()
-
-	// Encode transactions.
-	encodedTxs := make([][]byte, len(block.Transactions()))
-	for i, tx := range block.Transactions() {
-		enc, err := tx.EncodeRLP()
-		if err != nil {
-			continue
-		}
-		encodedTxs[i] = enc
-	}
-
-	// Blob gas fields.
-	var blobGasUsed, excessBlobGas uint64
-	if header.BlobGasUsed != nil {
-		blobGasUsed = *header.BlobGasUsed
-	}
-	if header.ExcessBlobGas != nil {
-		excessBlobGas = *header.ExcessBlobGas
-	}
-
-	if withdrawals == nil {
-		withdrawals = []*Withdrawal{}
-	}
-
-	return &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
-					ParentHash:    header.ParentHash,
-					FeeRecipient:  header.Coinbase,
-					StateRoot:     header.Root,
-					ReceiptsRoot:  header.ReceiptHash,
-					LogsBloom:     header.Bloom,
-					PrevRandao:    prevRandao,
-					BlockNumber:   header.Number.Uint64(),
-					GasLimit:      header.GasLimit,
-					GasUsed:       header.GasUsed,
-					Timestamp:     header.Time,
-					ExtraData:     header.Extra,
-					BaseFeePerGas: header.BaseFee,
-					BlockHash:     block.Hash(),
-					Transactions:  encodedTxs,
-				},
-				Withdrawals: withdrawals,
-			},
-			BlobGasUsed:   blobGasUsed,
-			ExcessBlobGas: excessBlobGas,
-		},
-	}
 }
 
 // ProcessBlockV5 validates and executes an Amsterdam payload with BAL validation.
@@ -541,11 +491,11 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
 
-		builder := core.NewBlockBuilder(b.config, nil, nil)
+		builder := block.NewBlockBuilder(b.config, nil, nil)
 		builder.SetState(b.statedb.Copy())
 		parentHeader := parentBlock.Header()
 
-		block, receipts, err := builder.BuildBlock(parentHeader, &core.BuildBlockAttributes{
+		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
 			Timestamp:        attrs.Timestamp,
 			FeeRecipient:     attrs.SuggestedFeeRecipient,
 			Random:           attrs.PrevRandao,
@@ -561,14 +511,14 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		var blockBAL *bal.BlockAccessList
 		if b.config.IsAmsterdam(attrs.Timestamp) {
 			stateCopy2 := b.statedb.Copy()
-			balResult, err := b.processor.ProcessWithBAL(block, stateCopy2)
+			balResult, err := b.processor.ProcessWithBAL(blk, stateCopy2)
 			if err == nil && balResult != nil {
 				blockBAL = balResult.BlockAccessList
 			}
 		}
 
 		b.payloads[id] = &pendingPayload{
-			block:        block,
+			block:        blk,
 			receipts:     receipts,
 			bal:          blockBAL,
 			blockValue:   new(big.Int),
@@ -595,7 +545,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 		return nil, ErrUnknownPayload
 	}
 
-	ep4 := blockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
 
 	return &GetPayloadV4Response{
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
@@ -618,7 +568,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 		return nil, ErrUnknownPayload
 	}
 
-	ep5 := blockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
+	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
 
 	return &GetPayloadV6Response{
 		ExecutionPayload:  ep5,

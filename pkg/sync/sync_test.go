@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/sync/downloader"
 )
 
 // --- Legacy API tests (preserved from original) ---
@@ -147,9 +148,9 @@ func TestSyncer_CancelledProcess(t *testing.T) {
 }
 
 func TestHeaderFetcher_RequestDeliver(t *testing.T) {
-	f := NewHeaderFetcher(192)
+	f := downloader.NewHeaderFetcher(192)
 
-	peer := PeerID("peer1")
+	peer := downloader.PeerID("peer1")
 	if err := f.Request(peer, 1, 10); err != nil {
 		t.Fatalf("Request: %v", err)
 	}
@@ -191,18 +192,18 @@ func TestHeaderFetcher_RequestDeliver(t *testing.T) {
 }
 
 func TestHeaderFetcher_DeliverUnknown(t *testing.T) {
-	f := NewHeaderFetcher(192)
-	err := f.Deliver(PeerID("unknown"), nil)
+	f := downloader.NewHeaderFetcher(192)
+	err := f.Deliver(downloader.PeerID("unknown"), nil)
 	if err == nil {
 		t.Fatal("deliver to unknown peer should fail")
 	}
 }
 
 func TestHeaderFetcher_MaxBatch(t *testing.T) {
-	f := NewHeaderFetcher(10)
+	f := downloader.NewHeaderFetcher(10)
 
 	// Request more than max batch.
-	peer := PeerID("peer1")
+	peer := downloader.PeerID("peer1")
 	if err := f.Request(peer, 1, 100); err != nil {
 		t.Fatalf("Request: %v", err)
 	}
@@ -214,9 +215,9 @@ func TestHeaderFetcher_MaxBatch(t *testing.T) {
 }
 
 func TestBodyFetcher_RequestDeliver(t *testing.T) {
-	f := NewBodyFetcher(128)
+	f := downloader.NewBodyFetcher(128)
 
-	peer := PeerID("peer1")
+	peer := downloader.PeerID("peer1")
 	f.Request(peer, 1, 5)
 
 	bodies := []BlockData{

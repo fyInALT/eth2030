@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -25,7 +25,7 @@ type genesisJSON struct {
 	BaseFee    *bigIntJSON                 `json:"baseFeePerGas"`
 }
 
-// chainConfigJSON is the JSON-decodable form of core.ChainConfig.
+// chainConfigJSON is the JSON-decodable form of coreconfig.ChainConfig.
 type chainConfigJSON struct {
 	ChainID *bigIntJSON `json:"chainId"`
 
@@ -180,9 +180,9 @@ func (h *hexBytes) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// loadGenesisFile reads a genesis.json file and converts it to a core.Genesis.
+// loadGenesisFile reads a genesis.json file and converts it to a coreconfig.Genesis.
 // Fork override timestamps from config are applied on top of the file values.
-func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
+func loadGenesisFile(cfg *Config) (*coreconfig.Genesis, error) {
 	data, err := os.ReadFile(cfg.GenesisPath)
 	if err != nil {
 		return nil, fmt.Errorf("read genesis file %s: %w", cfg.GenesisPath, err)
@@ -193,7 +193,7 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 		return nil, fmt.Errorf("decode genesis file: %w", err)
 	}
 
-	chainCfg := &core.ChainConfig{}
+	chainCfg := &coreconfig.ChainConfig{}
 	if gj.Config.ChainID != nil {
 		chainCfg.ChainID = gj.Config.ChainID.Int
 	}
@@ -248,7 +248,7 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 	_ = networkID // passed to node later; stored in Config
 
 	// Parse genesis alloc.
-	alloc := make(core.GenesisAlloc, len(gj.Alloc))
+	alloc := make(coreconfig.GenesisAlloc, len(gj.Alloc))
 	for addrStr, acc := range gj.Alloc {
 		var addr types.Address
 		if len(addrStr) >= 2 && addrStr[:2] == "0x" {
@@ -271,7 +271,7 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 			}
 		}
 
-		alloc[addr] = core.GenesisAccount{
+		alloc[addr] = coreconfig.GenesisAccount{
 			Balance: bal,
 			Code:    acc.Code,
 			Nonce:   uint64(acc.Nonce),
@@ -289,7 +289,7 @@ func loadGenesisFile(cfg *Config) (*core.Genesis, error) {
 		baseFee = gj.BaseFee.Int
 	}
 
-	genesis := &core.Genesis{
+	genesis := &coreconfig.Genesis{
 		Config:     chainCfg,
 		Nonce:      uint64(gj.Nonce),
 		Timestamp:  uint64(gj.Timestamp),
@@ -321,7 +321,7 @@ func parseBalance(s string) *big.Int {
 
 // applyForkOverrides overwrites ChainConfig fork timestamps with CLI override
 // values when set.
-func applyForkOverrides(c *core.ChainConfig, cfg *Config) {
+func applyForkOverrides(c *coreconfig.ChainConfig, cfg *Config) {
 	if cfg.GlamsterdamOverride != nil {
 		c.GlamsterdanTime = cfg.GlamsterdamOverride
 	}

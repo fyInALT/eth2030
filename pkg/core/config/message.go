@@ -1,0 +1,75 @@
+package config
+
+import (
+	"math/big"
+
+	"github.com/eth2030/eth2030/core/types"
+)
+
+// PaymasterSlasher is called after a frame tx payer fails to cover gas (AA-1.3).
+// Implemented by core.PaymasterRegistry. Defined here alongside Message to keep
+// the interface in the same package as its consumer.
+type PaymasterSlasher interface {
+	SlashOnBadSettlement(addr types.Address) error
+}
+
+// Message represents a transaction message prepared for EVM execution.
+type Message struct {
+	From        types.Address
+	To          *types.Address // nil for contract creation
+	Nonce       uint64
+	Value       *big.Int
+	GasLimit    uint64
+	GasPrice    *big.Int
+	GasFeeCap   *big.Int
+	GasTipCap   *big.Int
+	Data        []byte
+	AccessList  types.AccessList
+	BlobHashes  []types.Hash
+	AuthList    []types.Authorization // EIP-7702 authorization list for SetCode transactions
+	Frames      []types.Frame         // EIP-8141 frame transaction frames
+	FrameSender types.Address         // EIP-8141 frame tx sender (from FrameTx.Sender)
+	TxType      uint8                 // transaction type (for fork-specific processing)
+	TxHash      types.Hash            // transaction hash for log attribution
+	// Slasher is optional; when set it is called if a frame tx paymaster fails
+	// to cover gas (balance goes negative after deduction). See AA-1.3.
+	Slasher PaymasterSlasher
+}
+
+// TransactionToMessage converts a transaction into a Message for execution.
+// If the transaction has a cached sender (via SetSender), it is used.
+// Otherwise the From field must be set by the caller after signature recovery.
+// For type-0x08 LocalTx, the gas limit is reduced by the BAL discount (BB-2.2).
+func TransactionToMessage(tx *types.Transaction) Message {
+	msg := Message{
+		Nonce:      tx.Nonce(),
+		GasLimit:   types.ApplyLocalTxDiscount(tx),
+		GasPrice:   tx.GasPrice(),
+		GasFeeCap:  tx.GasFeeCap(),
+		GasTipCap:  tx.GasTipCap(),
+		Data:       tx.Data(),
+		AccessList: tx.AccessList(),
+		BlobHashes: tx.BlobHashes(),
+		AuthList:   tx.AuthorizationList(),
+		TxType:     tx.Type(),
+		TxHash:     tx.Hash(),
+	}
+	if sender := tx.Sender(); sender != nil {
+		msg.From = *sender
+	}
+	if tx.To() != nil {
+		to := *tx.To()
+		msg.To = &to
+	}
+	// EIP-8141: populate frame transaction fields.
+	if tx.Type() == types.FrameTxType {
+		msg.Frames = tx.Frames()
+		msg.FrameSender = tx.FrameSender()
+	}
+	if tx.Value() != nil {
+		msg.Value = new(big.Int).Set(tx.Value())
+	} else {
+		msg.Value = new(big.Int)
+	}
+	return msg
+}

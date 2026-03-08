@@ -113,6 +113,9 @@ func (m *mockBackend) IsAmsterdam(timestamp uint64) bool {
 	}
 	return true
 }
+func (m *mockBackend) GetHeadHash() types.Hash      { return types.Hash{} }
+func (m *mockBackend) GetSafeHash() types.Hash      { return types.Hash{} }
+func (m *mockBackend) GetFinalizedHash() types.Hash { return types.Hash{} }
 
 // --- Test NewPayloadV3 ---
 

@@ -4,9 +4,10 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/backendapi"
 )
 
 // makeGenesisAt creates a genesis block with a specified timestamp.
@@ -30,10 +31,10 @@ func makeGenesisAt(timestamp uint64) *types.Block {
 }
 
 // newBackendWithGenesis creates a backend with a genesis block at timestamp ts.
-func newBackendWithGenesis(ts uint64) (*EngineBackend, *types.Block) {
+func newBackendWithGenesis(ts uint64) (backendapi.Backend, *types.Block) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesisAt(ts)
-	b := NewEngineBackend(core.TestConfig, statedb, genesis)
+	b := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
 	return b, genesis
 }
 
@@ -86,11 +87,9 @@ func TestForkchoiceUpdated_HeadSelection(t *testing.T) {
 	}
 
 	// Verify head is updated.
-	b.mu.RLock()
-	if b.headHash != block1Hash {
-		t.Errorf("headHash = %s, want %s", b.headHash.Hex(), block1Hash.Hex())
+	if b.GetHeadHash() != block1Hash {
+		t.Errorf("headHash = %s, want %s", b.GetHeadHash().Hex(), block1Hash.Hex())
 	}
-	b.mu.RUnlock()
 }
 
 // --- Safe and finalized block tracking ---
@@ -118,14 +117,12 @@ func TestForkchoiceUpdated_SafeFinalizedTracking(t *testing.T) {
 		t.Errorf("expected VALID for zero head, got %s", result.PayloadStatus.Status)
 	}
 
-	b.mu.RLock()
-	if b.safeHash != safeHash {
-		t.Errorf("safeHash = %s, want %s", b.safeHash.Hex(), safeHash.Hex())
+	if b.GetSafeHash() != safeHash {
+		t.Errorf("safeHash = %s, want %s", b.GetSafeHash().Hex(), safeHash.Hex())
 	}
-	if b.finalHash != finalizedHash {
-		t.Errorf("finalHash = %s, want %s", b.finalHash.Hex(), finalizedHash.Hex())
+	if b.GetFinalizedHash() != finalizedHash {
+		t.Errorf("finalHash = %s, want %s", b.GetFinalizedHash().Hex(), finalizedHash.Hex())
 	}
-	b.mu.RUnlock()
 
 	// Now update all three to genesis hash.
 	_, err = b.ForkchoiceUpdated(
@@ -140,17 +137,15 @@ func TestForkchoiceUpdated_SafeFinalizedTracking(t *testing.T) {
 		t.Fatalf("ForkchoiceUpdated: %v", err)
 	}
 
-	b.mu.RLock()
-	if b.headHash != genesisHash {
+	if b.GetHeadHash() != genesisHash {
 		t.Errorf("headHash not updated to genesis")
 	}
-	if b.safeHash != genesisHash {
+	if b.GetSafeHash() != genesisHash {
 		t.Errorf("safeHash not updated to genesis")
 	}
-	if b.finalHash != genesisHash {
+	if b.GetFinalizedHash() != genesisHash {
 		t.Errorf("finalHash not updated to genesis")
 	}
-	b.mu.RUnlock()
 }
 
 // --- Reorg handling: switch head to a different branch ---
@@ -204,11 +199,9 @@ func TestForkchoiceUpdated_ReorgToNewHead(t *testing.T) {
 		FinalizedBlockHash: genesisHash,
 	}, nil)
 
-	b.mu.RLock()
-	if b.headHash != blockAHash {
+	if b.GetHeadHash() != blockAHash {
 		t.Errorf("head should be block A")
 	}
-	b.mu.RUnlock()
 
 	// Reorg: switch head to block B.
 	result, err := b.ForkchoiceUpdated(ForkchoiceStateV1{
@@ -223,11 +216,9 @@ func TestForkchoiceUpdated_ReorgToNewHead(t *testing.T) {
 		t.Errorf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 
-	b.mu.RLock()
-	if b.headHash != blockBHash {
+	if b.GetHeadHash() != blockBHash {
 		t.Errorf("head should have reorged to block B")
 	}
-	b.mu.RUnlock()
 }
 
 // --- Invalid payload detection: bad timestamp ---

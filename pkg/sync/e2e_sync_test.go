@@ -7,12 +7,16 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/sync/beacon"
+	"github.com/eth2030/eth2030/sync/rangeproof"
+	"github.com/eth2030/eth2030/sync/snap"
+	"github.com/eth2030/eth2030/sync/support"
 )
 
 // TestE2E_SnapSyncPipeline creates range proofs, splits ranges, merges them,
 // and verifies the merged proof against the original root.
 func TestE2E_SnapSyncPipeline(t *testing.T) {
-	prover := NewRangeProver()
+	prover := rangeproof.NewRangeProver()
 
 	// Create a mock state root.
 	root := types.BytesToHash(crypto.Keccak256([]byte("state-root-snap-sync")))
@@ -86,7 +90,7 @@ func TestE2E_SnapSyncPipeline(t *testing.T) {
 	}
 
 	// Create individual proofs for each sub-range and merge them.
-	var subproofs []*RangeProof
+	var subproofs []*rangeproof.RangeProof
 	subproofs = append(subproofs,
 		prover.CreateRangeProof(keys[:2], values[:2], root),
 		prover.CreateRangeProof(keys[2:4], values[2:4], root),
@@ -118,8 +122,8 @@ func TestE2E_SnapSyncPipeline(t *testing.T) {
 	}
 
 	// Verify ComputeRangeHash consistency.
-	hash1 := ComputeRangeHash(keys, values)
-	hash2 := ComputeRangeHash(merged.Keys, merged.Values)
+	hash1 := rangeproof.ComputeRangeHash(keys, values)
+	hash2 := rangeproof.ComputeRangeHash(merged.Keys, merged.Values)
 	if hash1 != hash2 {
 		t.Errorf("range hash mismatch after merge: %s != %s", hash1.Hex(), hash2.Hex())
 	}
@@ -128,19 +132,19 @@ func TestE2E_SnapSyncPipeline(t *testing.T) {
 // TestE2E_BlobSyncWorkflow tests requesting, receiving, and verifying blobs
 // through the BeaconSyncer and BlobRecovery mechanism.
 func TestE2E_BlobSyncWorkflow(t *testing.T) {
-	config := DefaultBeaconSyncConfig()
+	config := beacon.DefaultBeaconSyncConfig()
 	config.BlobVerification = true
-	syncer := NewBeaconSyncer(config)
+	syncer := beacon.NewBeaconSyncer(config)
 
 	// Create a mock fetcher.
 	fetcher := &e2eBeaconFetcher{
-		blocks: make(map[uint64]*BeaconBlock),
-		blobs:  make(map[uint64][]*BlobSidecar),
+		blocks: make(map[uint64]*beacon.BeaconBlock),
+		blobs:  make(map[uint64][]*beacon.BlobSidecar),
 	}
 
 	// Populate slots 100-102 with blocks and blobs.
 	for slot := uint64(100); slot <= 102; slot++ {
-		block := &BeaconBlock{
+		block := &beacon.BeaconBlock{
 			Slot:          slot,
 			ProposerIndex: slot - 100,
 			StateRoot:     [32]byte{byte(slot)},
@@ -159,7 +163,7 @@ func TestE2E_BlobSyncWorkflow(t *testing.T) {
 		copy(proof[:32], proofHash)
 		copy(proof[32:], proofHash[:16])
 
-		sidecar := &BlobSidecar{
+		sidecar := &beacon.BlobSidecar{
 			Index:             0,
 			KZGCommitment:     commitment,
 			KZGProof:          proof,
@@ -169,7 +173,7 @@ func TestE2E_BlobSyncWorkflow(t *testing.T) {
 		for i := 0; i < 128; i++ {
 			sidecar.Blob[i] = byte(slot + uint64(i))
 		}
-		fetcher.blobs[slot] = []*BlobSidecar{sidecar}
+		fetcher.blobs[slot] = []*beacon.BlobSidecar{sidecar}
 	}
 
 	syncer.SetFetcher(fetcher)
@@ -205,10 +209,10 @@ func TestE2E_BlobSyncWorkflow(t *testing.T) {
 	}
 
 	// Test blob recovery.
-	recovery := NewBlobRecovery(MaxBlobsPerBlock)
+	recovery := beacon.NewBlobRecovery(beacon.MaxBlobsPerBlock)
 
 	// Provide half the required blobs (3 out of 6).
-	var available []*BlobSidecar
+	var available []*beacon.BlobSidecar
 	for i := 0; i < 3; i++ {
 		var commitment [48]byte
 		recCommit := crypto.Keccak256([]byte("recovery-commit"))
@@ -218,7 +222,7 @@ func TestE2E_BlobSyncWorkflow(t *testing.T) {
 		recProof := crypto.Keccak256([]byte("recovery-proof"))
 		copy(proof[:32], recProof)
 		copy(proof[32:], recProof[:16])
-		sc := &BlobSidecar{
+		sc := &beacon.BlobSidecar{
 			Index:         uint64(i),
 			KZGCommitment: commitment,
 			KZGProof:      proof,
@@ -232,8 +236,8 @@ func TestE2E_BlobSyncWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttemptRecovery: %v", err)
 	}
-	if len(recovered) != MaxBlobsPerBlock {
-		t.Errorf("recovered blobs = %d, want %d", len(recovered), MaxBlobsPerBlock)
+	if len(recovered) != beacon.MaxBlobsPerBlock {
+		t.Errorf("recovered blobs = %d, want %d", len(recovered), beacon.MaxBlobsPerBlock)
 	}
 
 	// Verify the first 3 blobs are the originals.
@@ -389,7 +393,7 @@ func TestE2E_ParallelRangeDownload(t *testing.T) {
 	}
 
 	// Split into 4 sub-ranges using SplitAccountRange.
-	subranges := SplitAccountRange(origin, limit, 4)
+	subranges := snap.SplitAccountRange(origin, limit, 4)
 	if len(subranges) != 4 {
 		t.Fatalf("split count = %d, want 4", len(subranges))
 	}
@@ -418,11 +422,11 @@ func TestE2E_ParallelRangeDownload(t *testing.T) {
 	}
 
 	// Create mock accounts for each sub-range.
-	accountSets := make([][]AccountData, 4)
+	accountSets := make([][]snap.AccountData, 4)
 	for i := 0; i < 4; i++ {
 		for j := 0; j < 3; j++ {
 			hash := types.BytesToHash(crypto.Keccak256([]byte{byte(i*10 + j)}))
-			accountSets[i] = append(accountSets[i], AccountData{
+			accountSets[i] = append(accountSets[i], snap.AccountData{
 				Hash:    hash,
 				Nonce:   uint64(i*10 + j),
 				Balance: big.NewInt(int64(1000 * (i + 1))),
@@ -432,9 +436,9 @@ func TestE2E_ParallelRangeDownload(t *testing.T) {
 	}
 
 	// Merge account ranges pair-wise.
-	merged12 := MergeAccountRanges(accountSets[0], accountSets[1])
-	merged34 := MergeAccountRanges(accountSets[2], accountSets[3])
-	mergedAll := MergeAccountRanges(merged12, merged34)
+	merged12 := snap.MergeAccountRanges(accountSets[0], accountSets[1])
+	merged34 := snap.MergeAccountRanges(accountSets[2], accountSets[3])
+	mergedAll := snap.MergeAccountRanges(merged12, merged34)
 
 	// All 12 accounts should be present.
 	if len(mergedAll) != 12 {
@@ -455,14 +459,14 @@ func TestE2E_ParallelRangeDownload(t *testing.T) {
 	proofNode := crypto.Keccak256(append(mockRoot[:], mergedAll[0].Hash[:]...))
 	rootNodeHash := types.BytesToHash(crypto.Keccak256(proofNode))
 
-	err := VerifyAccountRange(rootNodeHash, mergedAll, [][]byte{proofNode})
+	err := snap.VerifyAccountRange(rootNodeHash, mergedAll, [][]byte{proofNode})
 	if err != nil {
 		t.Fatalf("VerifyAccountRange: %v", err)
 	}
 
 	// Create range proofs for each sub-range and merge.
-	prover := NewRangeProver()
-	var subproofs []*RangeProof
+	prover := rangeproof.NewRangeProver()
+	var subproofs []*rangeproof.RangeProof
 	for i := 0; i < 4; i++ {
 		k := make([][]byte, len(accountSets[i]))
 		v := make([][]byte, len(accountSets[i]))
@@ -480,7 +484,7 @@ func TestE2E_ParallelRangeDownload(t *testing.T) {
 	}
 
 	// Verify range hashes are consistent.
-	hash := ComputeRangeHash(mergedProof.Keys, mergedProof.Values)
+	hash := rangeproof.ComputeRangeHash(mergedProof.Keys, mergedProof.Values)
 	if hash.IsZero() {
 		t.Error("merged range hash should not be zero")
 	}
@@ -603,25 +607,25 @@ func TestE2E_FullSyncRoundtrip(t *testing.T) {
 	}
 
 	// Verify the progress tracker works end-to-end.
-	tracker := NewProgressTracker()
+	tracker := support.NewProgressTracker()
 	tracker.Start(uint64(numBlocks))
 
 	info := tracker.GetProgress()
-	if info.Stage != StageProgressHeaders {
+	if info.Stage != support.StageProgressHeaders {
 		t.Errorf("tracker stage = %s, want headers", info.Stage)
 	}
 	if info.HighestBlock != uint64(numBlocks) {
 		t.Errorf("tracker highest = %d, want %d", info.HighestBlock, numBlocks)
 	}
 
-	tracker.SetStage(StageProgressBodies)
+	tracker.SetStage(support.StageProgressBodies)
 	tracker.UpdateBlock(5)
 	tracker.RecordHeaders(5)
 	tracker.RecordBodies(5)
 	tracker.RecordBytes(1024)
 
 	info = tracker.GetProgress()
-	if info.Stage != StageProgressBodies {
+	if info.Stage != support.StageProgressBodies {
 		t.Errorf("tracker stage after update = %s, want bodies", info.Stage)
 	}
 	if info.CurrentBlock != 5 {
@@ -637,7 +641,7 @@ func TestE2E_FullSyncRoundtrip(t *testing.T) {
 		t.Errorf("tracker percent = %.1f, want ~50", info.PercentComplete)
 	}
 
-	tracker.SetStage(StageProgressComplete)
+	tracker.SetStage(support.StageProgressComplete)
 	if !tracker.IsComplete() {
 		t.Error("tracker should be complete")
 	}
@@ -697,19 +701,19 @@ func (ins *e2eBlockInserter) CurrentBlock() *types.Block {
 
 // e2eBeaconFetcher serves beacon blocks and blob sidecars from in-memory maps.
 type e2eBeaconFetcher struct {
-	blocks map[uint64]*BeaconBlock
-	blobs  map[uint64][]*BlobSidecar
+	blocks map[uint64]*beacon.BeaconBlock
+	blobs  map[uint64][]*beacon.BlobSidecar
 }
 
-func (f *e2eBeaconFetcher) FetchBeaconBlock(slot uint64) (*BeaconBlock, error) {
+func (f *e2eBeaconFetcher) FetchBeaconBlock(slot uint64) (*beacon.BeaconBlock, error) {
 	b, ok := f.blocks[slot]
 	if !ok {
-		return nil, ErrBeaconBlockNil
+		return nil, beacon.ErrBeaconBlockNil
 	}
 	return b, nil
 }
 
-func (f *e2eBeaconFetcher) FetchBlobSidecars(slot uint64) ([]*BlobSidecar, error) {
+func (f *e2eBeaconFetcher) FetchBlobSidecars(slot uint64) ([]*beacon.BlobSidecar, error) {
 	sc, ok := f.blobs[slot]
 	if !ok {
 		return nil, nil

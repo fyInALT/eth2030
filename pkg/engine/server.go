@@ -14,52 +14,11 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/backendapi"
 )
 
-// Backend defines the interface that the execution layer must implement
-// for the Engine API to interact with it.
-type Backend interface {
-	// ProcessBlock validates and executes a new payload from the consensus layer.
-	// It returns the payload status indicating whether the block is valid, invalid,
-	// or the node is syncing.
-	ProcessBlock(payload *ExecutionPayloadV3, expectedBlobVersionedHashes []types.Hash, parentBeaconBlockRoot types.Hash) (PayloadStatusV1, error)
-
-	// ProcessBlockV4 validates and executes a Prague payload with execution requests.
-	ProcessBlockV4(payload *ExecutionPayloadV3, expectedBlobVersionedHashes []types.Hash, parentBeaconBlockRoot types.Hash, executionRequests [][]byte) (PayloadStatusV1, error)
-
-	// ProcessBlockV5 validates and executes a new Amsterdam payload with BAL.
-	ProcessBlockV5(payload *ExecutionPayloadV5, expectedBlobVersionedHashes []types.Hash, parentBeaconBlockRoot types.Hash, executionRequests [][]byte) (PayloadStatusV1, error)
-
-	// ForkchoiceUpdated processes a forkchoice state update from the consensus layer.
-	// If payloadAttributes is non-nil, it begins building a new payload.
-	// It returns the payload status and an optional payload ID if building was started.
-	ForkchoiceUpdated(state ForkchoiceStateV1, payloadAttributes *PayloadAttributesV3) (ForkchoiceUpdatedResult, error)
-
-	// ForkchoiceUpdatedV4 processes a forkchoice update with V4 payload attributes (Amsterdam).
-	ForkchoiceUpdatedV4(state ForkchoiceStateV1, payloadAttributes *PayloadAttributesV4) (ForkchoiceUpdatedResult, error)
-
-	// GetPayloadByID retrieves a previously requested payload by its ID.
-	GetPayloadByID(id PayloadID) (*GetPayloadResponse, error)
-
-	// GetPayloadV4ByID retrieves a previously built payload for getPayloadV4 (Prague).
-	GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, error)
-
-	// GetPayloadV6ByID retrieves a previously built payload for getPayloadV6 (Amsterdam).
-	GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, error)
-
-	// GetHeadTimestamp returns the timestamp of the current head block.
-	// Used to validate timestamp progression in payload attributes.
-	GetHeadTimestamp() uint64
-
-	// IsCancun returns true if the given timestamp falls within the Cancun fork.
-	IsCancun(timestamp uint64) bool
-
-	// IsPrague returns true if the given timestamp falls within the Prague fork.
-	IsPrague(timestamp uint64) bool
-
-	// IsAmsterdam returns true if the given timestamp falls within the Amsterdam fork.
-	IsAmsterdam(timestamp uint64) bool
-}
+// Backend is a type alias — canonical definition in engine/backendapi.
+type Backend = backendapi.Backend
 
 // EngineAPI implements the Engine API JSON-RPC methods.
 type EngineAPI struct {

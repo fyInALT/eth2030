@@ -3,9 +3,19 @@
 package rollup
 
 import (
+	"errors"
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
+)
+
+// Shared errors used across rollup sub-packages.
+var (
+	// ErrSTFailed is returned when a rollup state transition fails.
+	ErrSTFailed = errors.New("execute: state transition failed")
+
+	// ErrInvalidBlockData is returned when rollup block data is malformed.
+	ErrInvalidBlockData = errors.New("execute: invalid block data")
 )
 
 // ExecutePrecompileAddress is the address of the EXECUTE precompile.

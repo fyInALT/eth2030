@@ -3,12 +3,14 @@ package rpc
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
 )
 
 // TestAPIDispatch_KnownMethods tests that HandleRequest correctly dispatches
 // to the right method for a variety of known JSON-RPC methods.
 func TestAPIDispatch_KnownMethods(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	tests := []struct {
@@ -55,7 +57,7 @@ func TestAPIDispatch_KnownMethods(t *testing.T) {
 // TestAPIDispatch_MissingParams tests that methods requiring params
 // return ErrCodeInvalidParams when params are missing.
 func TestAPIDispatch_MissingParams(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 
 	methods := []string{
 		"eth_getBlockByNumber",
@@ -104,7 +106,7 @@ func TestAPIDispatch_MissingParams(t *testing.T) {
 // TestAPIResponse_JSONRPCField verifies the response always has
 // jsonrpc set to "2.0".
 func TestAPIResponse_JSONRPCField(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 
 	resp := callRPC(t, api, "eth_chainId")
 	if resp.JSONRPC != "2.0" {
@@ -120,7 +122,7 @@ func TestAPIResponse_JSONRPCField(t *testing.T) {
 // TestAPIResponse_IDPropagation verifies the request ID is propagated to
 // the response.
 func TestAPIResponse_IDPropagation(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 
 	ids := []string{`1`, `"abc"`, `null`, `42`}
 	for _, id := range ids {
@@ -141,7 +143,7 @@ func TestAPIResponse_IDPropagation(t *testing.T) {
 
 // TestAPI_Web3Sha3 tests the web3_sha3 method.
 func TestAPI_Web3Sha3(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 
 	// Keccak256 of empty bytes.
 	resp := callRPC(t, api, "web3_sha3", "0x")
@@ -160,7 +162,7 @@ func TestAPI_Web3Sha3(t *testing.T) {
 
 // TestAPI_EthSyncing tests the eth_syncing method returns false when synced.
 func TestAPI_EthSyncing(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_syncing")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %s", resp.Error.Message)
@@ -172,7 +174,7 @@ func TestAPI_EthSyncing(t *testing.T) {
 
 // TestAPI_EthMaxPriorityFeePerGas tests the eth_maxPriorityFeePerGas method.
 func TestAPI_EthMaxPriorityFeePerGas(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_maxPriorityFeePerGas")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %s", resp.Error.Message)
@@ -185,7 +187,7 @@ func TestAPI_EthMaxPriorityFeePerGas(t *testing.T) {
 
 // TestAPI_EthFeeHistory tests the eth_feeHistory method.
 func TestAPI_EthFeeHistory(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_feeHistory", "0x1", "latest")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %s", resp.Error.Message)
@@ -207,7 +209,7 @@ func TestAPI_EthFeeHistory(t *testing.T) {
 
 // TestAPI_EthFeeHistory_WithRewardPercentiles tests fee history with reward percentiles.
 func TestAPI_EthFeeHistory_WithRewardPercentiles(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_feeHistory", "0x1", "latest", []float64{25.0, 75.0})
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %s", resp.Error.Message)
@@ -228,7 +230,7 @@ func TestAPI_EthFeeHistory_WithRewardPercentiles(t *testing.T) {
 
 // TestAPI_EthFeeHistory_InvalidBlockCount tests fee history with invalid block count.
 func TestAPI_EthFeeHistory_InvalidBlockCount(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	// blockCount of 0 should fail.
 	resp := callRPC(t, api, "eth_feeHistory", "0x0", "latest")
 	if resp.Error == nil {
@@ -238,7 +240,7 @@ func TestAPI_EthFeeHistory_InvalidBlockCount(t *testing.T) {
 
 // TestAPI_Subscribe_NewHeads tests subscribing to newHeads notifications.
 func TestAPI_Subscribe_NewHeads(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_subscribe", "newHeads")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %s", resp.Error.Message)
@@ -254,7 +256,7 @@ func TestAPI_Subscribe_NewHeads(t *testing.T) {
 
 // TestAPI_Subscribe_Logs tests subscribing to logs notifications.
 func TestAPI_Subscribe_Logs(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_subscribe", "logs")
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %s", resp.Error.Message)
@@ -267,7 +269,7 @@ func TestAPI_Subscribe_Logs(t *testing.T) {
 
 // TestAPI_Subscribe_UnsupportedType tests subscription with unsupported type.
 func TestAPI_Subscribe_UnsupportedType(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_subscribe", "badType")
 	if resp.Error == nil {
 		t.Fatal("expected error for unsupported subscription type")
@@ -276,7 +278,7 @@ func TestAPI_Subscribe_UnsupportedType(t *testing.T) {
 
 // TestAPI_Unsubscribe tests unsubscribing.
 func TestAPI_Unsubscribe(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_subscribe", "newHeads")
 	if resp.Error != nil {
 		t.Fatalf("subscribe error: %s", resp.Error.Message)
@@ -302,7 +304,7 @@ func TestAPI_Unsubscribe(t *testing.T) {
 
 // TestAPI_NewBlockFilter_RPC tests creating and polling a block filter via RPC.
 func TestAPI_NewBlockFilter_RPC(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_newBlockFilter")
 	if resp.Error != nil {
 		t.Fatalf("error: %s", resp.Error.Message)
@@ -331,7 +333,7 @@ func TestAPI_NewBlockFilter_RPC(t *testing.T) {
 
 // TestAPI_GetFilterChanges_NotFound tests getFilterChanges with non-existent filter ID.
 func TestAPI_GetFilterChanges_NotFound(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getFilterChanges", "0xdeadbeef")
 	if resp.Error == nil {
 		t.Fatal("expected error for non-existent filter")
@@ -343,8 +345,8 @@ func TestAPI_GetFilterChanges_NotFound(t *testing.T) {
 
 // TestAPI_CreateAccessList tests the eth_createAccessList method.
 func TestAPI_CreateAccessList(t *testing.T) {
-	mb := newMockBackend()
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallGasUsed = 21000
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_createAccessList", map[string]interface{}{
@@ -368,7 +370,7 @@ func TestAPI_CreateAccessList(t *testing.T) {
 
 // TestAPI_GetStorageAt tests the eth_getStorageAt method.
 func TestAPI_GetStorageAt(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getStorageAt",
 		"0x000000000000000000000000000000000000aaaa",
 		"0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -389,8 +391,8 @@ func TestAPI_GetStorageAt(t *testing.T) {
 
 // TestAPI_HistoryPruned verifies EIP-4444 pruning checks.
 func TestAPI_HistoryPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 100 // blocks before 100 are pruned
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 100 // blocks before 100 are pruned
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getLogs", map[string]interface{}{

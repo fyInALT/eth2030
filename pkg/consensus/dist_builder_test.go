@@ -34,6 +34,12 @@ func TestNewDistBlockBuilder_NilConfig(t *testing.T) {
 	}
 }
 
+func fcHash(b byte) types.Hash {
+	var h types.Hash
+	h[0] = b
+	return h
+}
+
 func makeBid(id string, slot Slot, value int64) *ConsensusBuilderBid {
 	return &ConsensusBuilderBid{
 		BuilderID: id, Slot: slot, Value: big.NewInt(value),

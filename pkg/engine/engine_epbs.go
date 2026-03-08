@@ -1,3 +1,5 @@
+// engine_epbs.go implements ePBS (EIP-7732) Engine API methods on EngineAPI.
+// The types live in engine/api/epbs.go and are re-exported via engine/types.go.
 package engine
 
 import (
@@ -6,13 +8,6 @@ import (
 
 	"github.com/eth2030/eth2030/epbs"
 )
-
-// GetPayloadHeaderV1Response is the response for engine_getPayloadHeaderV1.
-// Returns the winning builder bid for the requested slot, providing the
-// proposer with the execution payload commitment without the full payload.
-type GetPayloadHeaderV1Response struct {
-	Bid *epbs.SignedBuilderBid `json:"bid"`
-}
 
 // GetPayloadHeaderV1 returns the winning builder bid for the given slot.
 // The proposer calls this to get the execution payload commitment to include
@@ -45,21 +40,6 @@ func (api *EngineAPI) GetPayloadHeaderV1(slot uint64) (*GetPayloadHeaderV1Respon
 	}
 
 	return &GetPayloadHeaderV1Response{Bid: epbsBid}, nil
-}
-
-// SubmitBlindedBlockV1Request contains a blinded block submission from the proposer.
-// The proposer has committed to a builder's bid and submits it here so the
-// EL can track the commitment and later verify the builder's reveal.
-type SubmitBlindedBlockV1Request struct {
-	Slot            uint64   `json:"slot"`
-	BuilderIndex    uint64   `json:"builderIndex"`
-	BidHash         [32]byte `json:"bidHash"`
-	BeaconBlockRoot [32]byte `json:"beaconBlockRoot"`
-}
-
-// SubmitBlindedBlockV1Response is the response to engine_submitBlindedBlockV1.
-type SubmitBlindedBlockV1Response struct {
-	Status string `json:"status"`
 }
 
 // SubmitBlindedBlockV1 processes a blinded block submission from the CL proposer.

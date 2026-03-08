@@ -9,6 +9,13 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/txpool/frametx"
+)
+
+// Type aliases re-exported from sub-packages for backward compatibility.
+type (
+	PaymasterApprover = frametx.PaymasterApprover
+	FrameStateReader  = frametx.FrameStateReader
 )
 
 // Pool constants.
@@ -476,7 +483,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 				Sender: tx.FrameSender(),
 				Frames: frames,
 			}
-			if err := SimulateVerifyFrame(ftx, pool.codeReader); err != nil {
+			if err := frametx.SimulateVerifyFrame(ftx, pool.codeReader); err != nil {
 				return err
 			}
 		}

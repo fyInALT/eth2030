@@ -4,6 +4,9 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -20,7 +23,7 @@ func TestGetCalldataGas_Zero(t *testing.T) {
 		GasPrice: big.NewInt(1),
 		Data:     nil,
 	})
-	if got := GetCalldataGas(tx); got != 0 {
+	if got := gas.GetCalldataGas(tx); got != 0 {
 		t.Errorf("GetCalldataGas(empty data) = %d, want 0", got)
 	}
 }
@@ -36,7 +39,7 @@ func TestGetCalldataGas_NonZeroData(t *testing.T) {
 		GasPrice: big.NewInt(1),
 		Data:     data,
 	})
-	got := GetCalldataGas(tx)
+	got := gas.GetCalldataGas(tx)
 	// tokens = 2 zero * 1 + 2 nonzero * 4 = 10; gas = 10 * 4 = 40
 	want := uint64(40)
 	if got != want {
@@ -47,7 +50,7 @@ func TestGetCalldataGas_NonZeroData(t *testing.T) {
 // --- SPEC-6.4: CalcCalldataBaseFee ---
 
 func TestCalcCalldataBaseFee_ZeroExcess(t *testing.T) {
-	fee := CalcCalldataBaseFee(0, 1_000_000)
+	fee := gas.CalcCalldataBaseFee(0, 1_000_000)
 	if fee == nil || fee.Sign() <= 0 {
 		t.Errorf("CalcCalldataBaseFee(0, 1M): expected positive fee, got %v", fee)
 	}
@@ -59,7 +62,7 @@ func TestCalcCalldataBaseFee_FromHeader(t *testing.T) {
 		GasLimit:          30_000_000,
 		CalldataExcessGas: &excess,
 	}
-	fee := CalcCalldataBaseFeeFromHeader(h)
+	fee := gas.CalcCalldataBaseFeeFromHeader(h)
 	if fee == nil || fee.Sign() <= 0 {
 		t.Errorf("CalcCalldataBaseFeeFromHeader: expected positive fee, got %v", fee)
 	}
@@ -89,8 +92,8 @@ func TestHeader3DGasVectorFields(t *testing.T) {
 
 func TestCalcCalldataBaseFee_HigherExcessMeansHigherFee(t *testing.T) {
 	// Use large excess to ensure fee difference is visible.
-	fee1 := CalcCalldataBaseFee(0, 1_000_000)
-	fee2 := CalcCalldataBaseFee(100_000_000, 1_000_000)
+	fee1 := gas.CalcCalldataBaseFee(0, 1_000_000)
+	fee2 := gas.CalcCalldataBaseFee(100_000_000, 1_000_000)
 	if fee2.Cmp(fee1) <= 0 {
 		t.Errorf("higher excess gas should produce higher base fee: fee1=%v fee2=%v", fee1, fee2)
 	}
@@ -100,7 +103,7 @@ func TestCalcCalldataBaseFee_HigherExcessMeansHigherFee(t *testing.T) {
 
 func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := NewBlockBuilder(TestConfigGlamsterdan, nil, nil)
+	builder := coreblock.NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -111,7 +114,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 		Time:     1700000000,
 	}
 
-	block, _, err := builder.BuildBlock(parent, &BuildBlockAttributes{
+	block, _, err := builder.BuildBlock(parent, &coreblock.BuildBlockAttributes{
 		Timestamp:    parent.Time + 12,
 		FeeRecipient: types.Address{0x01},
 		GasLimit:     parent.GasLimit,
@@ -140,7 +143,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 	}
 
 	// Dimension 2 = calldata gas; limit must equal CalcCalldataGasLimit(GasLimit).
-	wantCalldataLimit := CalcCalldataGasLimit(h.GasLimit)
+	wantCalldataLimit := gas.CalcCalldataGasLimit(h.GasLimit)
 	if h.GasLimitVec[2] != wantCalldataLimit {
 		t.Errorf("GasLimitVec[2] = %d, want CalcCalldataGasLimit(%d) = %d",
 			h.GasLimitVec[2], h.GasLimit, wantCalldataLimit)
@@ -150,7 +153,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	// Use a config without Glamsterdam.
-	builder := NewBlockBuilder(TestConfig, nil, nil)
+	builder := coreblock.NewBlockBuilder(config.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -161,23 +164,23 @@ func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
 		Time:     1700000000,
 	}
 
-	// Pick a timestamp that is before the Glamsterdam activation in TestConfig.
-	// TestConfig has Glamsterdam at time 0, so we need a config with no Glamsterdam.
-	// Just verify: if Glamsterdam is active in TestConfig, the vectors are set.
+	// Pick a timestamp that is before the Glamsterdam activation in config.TestConfig.
+	// config.TestConfig has Glamsterdam at time 0, so we need a config with no Glamsterdam.
+	// Just verify: if Glamsterdam is active in config.TestConfig, the vectors are set.
 	// This test asserts the inverse: pre-Glamsterdam blocks have nil vectors.
 	//
-	// Since TestConfig activates Glamsterdam at timestamp 0, we use a fork config
+	// Since config.TestConfig activates Glamsterdam at timestamp 0, we use a fork config
 	// that has GlamsterdamTime = nil (pre-Glamsterdam).
-	cfgPreGlam := &ChainConfig{
-		ChainID:        TestConfig.ChainID,
-		HomesteadBlock: TestConfig.HomesteadBlock,
-		EIP155Block:    TestConfig.EIP155Block,
+	cfgPreGlam := &config.ChainConfig{
+		ChainID:        config.TestConfig.ChainID,
+		HomesteadBlock: config.TestConfig.HomesteadBlock,
+		EIP155Block:    config.TestConfig.EIP155Block,
 		// No Glamsterdan — leave GlamsterdanTime nil.
 	}
-	builder2 := NewBlockBuilder(cfgPreGlam, nil, nil)
+	builder2 := coreblock.NewBlockBuilder(cfgPreGlam, nil, nil)
 	builder2.SetState(statedb)
 
-	block, _, err := builder2.BuildBlock(parent, &BuildBlockAttributes{
+	block, _, err := builder2.BuildBlock(parent, &coreblock.BuildBlockAttributes{
 		Timestamp:    parent.Time + 12,
 		FeeRecipient: types.Address{0x01},
 		GasLimit:     parent.GasLimit,

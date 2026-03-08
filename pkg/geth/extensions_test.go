@@ -8,7 +8,7 @@ import (
 	gethvm "github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
-	"github.com/eth2030/eth2030/core"
+	corconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/vm"
 )
 
@@ -147,7 +147,7 @@ func TestInjectCustomPrecompilesIPlus(t *testing.T) {
 func TestEth2028ForkLevelFromConfig(t *testing.T) {
 	tests := []struct {
 		name   string
-		config *core.ChainConfig
+		config *corconfig.ChainConfig
 		time   uint64
 		want   Eth2028ForkLevel
 	}{
@@ -159,7 +159,7 @@ func TestEth2028ForkLevelFromConfig(t *testing.T) {
 		},
 		{
 			name: "pre-glamsterdam",
-			config: &core.ChainConfig{
+			config: &corconfig.ChainConfig{
 				ChainID: big.NewInt(1),
 			},
 			time: 1000,
@@ -167,9 +167,9 @@ func TestEth2028ForkLevelFromConfig(t *testing.T) {
 		},
 		{
 			name: "glamsterdam active",
-			config: func() *core.ChainConfig {
+			config: func() *corconfig.ChainConfig {
 				ts := uint64(500)
-				return &core.ChainConfig{
+				return &corconfig.ChainConfig{
 					ChainID:         big.NewInt(1),
 					GlamsterdanTime: &ts,
 				}
@@ -179,10 +179,10 @@ func TestEth2028ForkLevelFromConfig(t *testing.T) {
 		},
 		{
 			name: "hogota active",
-			config: func() *core.ChainConfig {
+			config: func() *corconfig.ChainConfig {
 				ts := uint64(500)
 				ts2 := uint64(800)
-				return &core.ChainConfig{
+				return &corconfig.ChainConfig{
 					ChainID:         big.NewInt(1),
 					GlamsterdanTime: &ts,
 					HogotaTime:      &ts2,
@@ -193,11 +193,11 @@ func TestEth2028ForkLevelFromConfig(t *testing.T) {
 		},
 		{
 			name: "iplus active",
-			config: func() *core.ChainConfig {
+			config: func() *corconfig.ChainConfig {
 				ts := uint64(500)
 				ts2 := uint64(800)
 				ts3 := uint64(900)
-				return &core.ChainConfig{
+				return &corconfig.ChainConfig{
 					ChainID:         big.NewInt(1),
 					GlamsterdanTime: &ts,
 					HogotaTime:      &ts2,
@@ -290,7 +290,7 @@ func TestListCustomPrecompiles(t *testing.T) {
 
 func TestToGethChainConfigWithEth2028Forks(t *testing.T) {
 	ts := uint64(1000)
-	c := &core.ChainConfig{
+	c := &corconfig.ChainConfig{
 		ChainID:         big.NewInt(1),
 		GlamsterdanTime: &ts,
 	}

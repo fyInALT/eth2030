@@ -2,156 +2,76 @@
 package engine
 
 import (
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
+	engapi "github.com/eth2030/eth2030/engine/api"
+	engblobs "github.com/eth2030/eth2030/engine/blobsbundle"
+	engbuilder "github.com/eth2030/eth2030/engine/builder"
+	engconvert "github.com/eth2030/eth2030/engine/convert"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
-// PayloadID is the identifier for an execution payload being assembled.
-type PayloadID [8]byte
+// Re-exported type aliases for backward compatibility.
+// The canonical definitions live in engine/payload.
+type (
+	PayloadID            = payload.PayloadID
+	Withdrawal           = payload.Withdrawal
+	ExecutionPayloadV1   = payload.ExecutionPayloadV1
+	ExecutionPayloadV2   = payload.ExecutionPayloadV2
+	ExecutionPayloadV3   = payload.ExecutionPayloadV3
+	ExecutionPayloadV4   = payload.ExecutionPayloadV4
+	ExecutionPayloadV5   = payload.ExecutionPayloadV5
+	PayloadAttributesV1  = payload.PayloadAttributesV1
+	PayloadAttributesV2  = payload.PayloadAttributesV2
+	PayloadAttributesV3  = payload.PayloadAttributesV3
+	PayloadAttributesV4  = payload.PayloadAttributesV4
+	GetPayloadV3Response = payload.GetPayloadV3Response
+	GetPayloadV4Response = payload.GetPayloadV4Response
+	GetPayloadV6Response = payload.GetPayloadV6Response
+	GetPayloadResponse   = payload.GetPayloadResponse
+	BlobsBundleV1        = payload.BlobsBundleV1
+)
 
-// String returns the hex representation of the PayloadID.
-func (id PayloadID) String() string {
-	return fmt.Sprintf("0x%x", id[:])
-}
-
-// MarshalJSON implements json.Marshaler. PayloadID encodes as a 0x-prefixed hex string.
-func (id PayloadID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(fmt.Sprintf("0x%x", id[:]))
-}
-
-// UnmarshalJSON implements json.Unmarshaler.
-func (id *PayloadID) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return fmt.Errorf("PayloadID: %w", err)
-	}
-	if len(s) >= 2 && (s[:2] == "0x" || s[:2] == "0X") {
-		s = s[2:]
-	}
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return fmt.Errorf("PayloadID: invalid hex: %w", err)
-	}
-	if len(b) != 8 {
-		return fmt.Errorf("PayloadID: expected 8 bytes, got %d", len(b))
-	}
-	copy(id[:], b)
-	return nil
-}
-
-// Withdrawal represents a validator withdrawal.
-type Withdrawal struct {
-	Index          uint64        `json:"index"`
-	ValidatorIndex uint64        `json:"validatorIndex"`
-	Address        types.Address `json:"address"`
-	Amount         uint64        `json:"amount"` // in Gwei
-}
-
-// ExecutionPayloadV1 is the Prague V1 execution payload.
-type ExecutionPayloadV1 struct {
-	ParentHash    types.Hash    `json:"parentHash"`
-	FeeRecipient  types.Address `json:"feeRecipient"`
-	StateRoot     types.Hash    `json:"stateRoot"`
-	ReceiptsRoot  types.Hash    `json:"receiptsRoot"`
-	LogsBloom     types.Bloom   `json:"logsBloom"`
-	PrevRandao    types.Hash    `json:"prevRandao"`
-	BlockNumber   uint64        `json:"blockNumber"`
-	GasLimit      uint64        `json:"gasLimit"`
-	GasUsed       uint64        `json:"gasUsed"`
-	Timestamp     uint64        `json:"timestamp"`
-	ExtraData     []byte        `json:"extraData"`
-	BaseFeePerGas *big.Int      `json:"baseFeePerGas"`
-	BlockHash     types.Hash    `json:"blockHash"`
-	Transactions  [][]byte      `json:"transactions"`
-}
-
-// ExecutionPayloadV2 extends V1 with withdrawals (Shanghai).
-type ExecutionPayloadV2 struct {
-	ExecutionPayloadV1
-	Withdrawals []*Withdrawal `json:"withdrawals"`
-}
-
-// ExecutionPayloadV3 extends V2 with blob gas (Cancun/EIP-4844).
-type ExecutionPayloadV3 struct {
-	ExecutionPayloadV2
-	BlobGasUsed   uint64 `json:"blobGasUsed"`
-	ExcessBlobGas uint64 `json:"excessBlobGas"`
-}
-
-// ExecutionPayloadV4 extends V3 with execution requests (Prague/EIP-7685).
-type ExecutionPayloadV4 struct {
-	ExecutionPayloadV3
-	ExecutionRequests [][]byte `json:"executionRequests"`
-}
-
-// ExecutionPayloadV5 extends V4 with Block Access Lists (Amsterdam/EIP-7928).
-type ExecutionPayloadV5 struct {
-	ExecutionPayloadV4
-	BlockAccessList json.RawMessage `json:"blockAccessList,omitempty"`
-}
-
-// ForkchoiceStateV1 represents the fork choice state from the consensus layer.
-type ForkchoiceStateV1 struct {
-	HeadBlockHash      types.Hash `json:"headBlockHash"`
-	SafeBlockHash      types.Hash `json:"safeBlockHash"`
-	FinalizedBlockHash types.Hash `json:"finalizedBlockHash"`
-}
-
-// PayloadAttributesV1 contains attributes for building a new payload.
-type PayloadAttributesV1 struct {
-	Timestamp             uint64        `json:"timestamp"`
-	PrevRandao            types.Hash    `json:"prevRandao"`
-	SuggestedFeeRecipient types.Address `json:"suggestedFeeRecipient"`
-}
-
-// PayloadAttributesV2 extends V1 with withdrawals.
-type PayloadAttributesV2 struct {
-	PayloadAttributesV1
-	Withdrawals []*Withdrawal `json:"withdrawals"`
-}
-
-// PayloadAttributesV3 extends V2 with parent beacon block root.
-type PayloadAttributesV3 struct {
-	PayloadAttributesV2
-	ParentBeaconBlockRoot types.Hash `json:"parentBeaconBlockRoot"`
-}
-
-// PayloadAttributesV4 extends V3 with slot number and inclusion list (Amsterdam/FOCIL).
-type PayloadAttributesV4 struct {
-	PayloadAttributesV3
-	SlotNumber                uint64   `json:"slotNumber"`
-	InclusionListTransactions [][]byte `json:"inclusionListTransactions,omitempty"` // EIP-7805 FOCIL
-}
-
-// GetPayloadV3Response is the response for engine_getPayloadV3 (Cancun).
-type GetPayloadV3Response struct {
-	ExecutionPayload *ExecutionPayloadV3 `json:"executionPayload"`
-	BlockValue       *big.Int            `json:"blockValue"`
-	BlobsBundle      *BlobsBundleV1      `json:"blobsBundle"`
-	Override         bool                `json:"shouldOverrideBuilder"`
-}
-
-// GetPayloadV4Response is the response for engine_getPayloadV4 (Prague).
-type GetPayloadV4Response struct {
-	ExecutionPayload  *ExecutionPayloadV3 `json:"executionPayload"`
-	BlockValue        *big.Int            `json:"blockValue"`
-	BlobsBundle       *BlobsBundleV1      `json:"blobsBundle"`
-	Override          bool                `json:"shouldOverrideBuilder"`
-	ExecutionRequests [][]byte            `json:"executionRequests"`
-}
-
-// GetPayloadV6Response is the response for engine_getPayloadV6 (Amsterdam).
-type GetPayloadV6Response struct {
-	ExecutionPayload  *ExecutionPayloadV5 `json:"executionPayload"`
-	BlockValue        *big.Int            `json:"blockValue"`
-	BlobsBundle       *BlobsBundleV1      `json:"blobsBundle"`
-	Override          bool                `json:"shouldOverrideBuilder"`
-	ExecutionRequests [][]byte            `json:"executionRequests"`
-}
+// Re-exported type aliases — status/forkchoice/payload types from engine/payload;
+// handler types from engine/api.
+type (
+	// Status/forkchoice — canonical in engine/payload.
+	PayloadStatusV1         = payload.PayloadStatusV1
+	ForkchoiceStateV1       = payload.ForkchoiceStateV1
+	ForkchoiceUpdatedResult = payload.ForkchoiceUpdatedResult
+	// Glamsterdam — canonical in engine/payload.
+	BlobAndProofV2               = payload.BlobAndProofV2
+	BlobsBundleV2                = payload.BlobsBundleV2
+	GlamsterdamPayloadAttributes = payload.GlamsterdamPayloadAttributes
+	GetPayloadV5Response         = payload.GetPayloadV5Response
+	// V7 — canonical in engine/payload.
+	DALayerConfig        = payload.DALayerConfig
+	ProofRequirements    = payload.ProofRequirements
+	PayloadAttributesV7  = payload.PayloadAttributesV7
+	ExecutionPayloadV7   = payload.ExecutionPayloadV7
+	GetPayloadV7Response = payload.GetPayloadV7Response
+	// Handler types from engine/api.
+	ClientVersionV2   = engapi.ClientVersionV2
+	EngineGlamsterdam = engapi.EngineGlamsterdam
+	// From api/v4.go
+	DepositRequest       = engapi.DepositRequest
+	WithdrawalRequest    = engapi.WithdrawalRequest
+	ConsolidationRequest = engapi.ConsolidationRequest
+	ExecutionRequestsV4  = engapi.ExecutionRequestsV4
+	GetPayloadV4Result   = engapi.GetPayloadV4Result
+	EngV4                = engapi.EngV4
+	// From api/uncoupled.go
+	InclusionProof           = engapi.InclusionProof
+	UncoupledPayloadEnvelope = engapi.UncoupledPayloadEnvelope
+	UncoupledPayloadHandler  = engapi.UncoupledPayloadHandler
+	// Note: EngineV7 is NOT aliased here; engine_v7.go defines engineV7Wrapper
+	// which wraps engapi.EngineV7 and exposes backend for package-internal tests.
+	// From api/epbs.go
+	GetPayloadHeaderV1Response   = engapi.GetPayloadHeaderV1Response
+	SubmitBlindedBlockV1Request  = engapi.SubmitBlindedBlockV1Request
+	SubmitBlindedBlockV1Response = engapi.SubmitBlindedBlockV1Response
+)
 
 // PayloadStatus values.
 const (
@@ -165,18 +85,42 @@ const (
 	StatusInclusionListUnsatisfied = "INCLUSION_LIST_UNSATISFIED"
 )
 
-// PayloadStatusV1 is the response to engine_newPayload.
-type PayloadStatusV1 struct {
-	Status          string      `json:"status"`
-	LatestValidHash *types.Hash `json:"latestValidHash,omitempty"`
-	ValidationError *string     `json:"validationError,omitempty"`
-}
+// Blobsbundle re-exports — canonical definitions live in engine/blobsbundle.
+const (
+	BlobSize             = engblobs.BlobSize
+	KZGCommitmentSize    = engblobs.KZGCommitmentSize
+	KZGProofSize         = engblobs.KZGProofSize
+	MaxBlobsPerBundle    = engblobs.MaxBlobsPerBundle
+	VersionedHashVersion = engblobs.VersionedHashVersion
+)
 
-// ForkchoiceUpdatedResult is the response to engine_forkchoiceUpdated.
-type ForkchoiceUpdatedResult struct {
-	PayloadStatus PayloadStatusV1 `json:"payloadStatus"`
-	PayloadID     *PayloadID      `json:"payloadId,omitempty"`
-}
+// Blob bundle error re-exports.
+var (
+	ErrBlobBundleEmpty        = engblobs.ErrBlobBundleEmpty
+	ErrBlobBundleMismatch     = engblobs.ErrBlobBundleMismatch
+	ErrBlobBundleTooMany      = engblobs.ErrBlobBundleTooMany
+	ErrBlobInvalidSize        = engblobs.ErrBlobInvalidSize
+	ErrCommitmentInvalidSize  = engblobs.ErrCommitmentInvalidSize
+	ErrProofInvalidSize       = engblobs.ErrProofInvalidSize
+	ErrVersionedHashMismatch  = engblobs.ErrVersionedHashMismatch
+	ErrBlobBundleSidecarIndex = engblobs.ErrBlobBundleSidecarIndex
+)
+
+type (
+	KZGVerifier        = engblobs.KZGVerifier
+	BlobSidecar        = engblobs.BlobSidecar
+	BlobsBundleBuilder = engblobs.BlobsBundleBuilder
+)
+
+var (
+	NewBlobsBundleBuilder   = engblobs.NewBlobsBundleBuilder
+	ValidateBundle          = engblobs.ValidateBundle
+	VersionedHash           = engblobs.VersionedHash
+	DeriveVersionedHashes   = engblobs.DeriveVersionedHashes
+	ValidateVersionedHashes = engblobs.ValidateVersionedHashes
+	PrepareSidecars         = engblobs.PrepareSidecars
+	GetSidecar              = engblobs.GetSidecar
+)
 
 // TransitionConfigurationV1 for Engine API transition configuration exchange.
 type TransitionConfigurationV1 struct {
@@ -185,17 +129,87 @@ type TransitionConfigurationV1 struct {
 	TerminalBlockNumber     uint64     `json:"terminalBlockNumber"`
 }
 
-// BlobsBundleV1 is the blobs bundle returned by engine_getPayload.
-type BlobsBundleV1 struct {
-	Commitments [][]byte `json:"commitments"`
-	Proofs      [][]byte `json:"proofs"`
-	Blobs       [][]byte `json:"blobs"`
-}
+// Builder sub-package re-exports for backward compatibility.
+// The canonical definitions live in engine/builder.
+const (
+	BLSPubkeySize    = engbuilder.BLSPubkeySize
+	BLSSignatureSize = engbuilder.BLSSignatureSize
+)
 
-// GetPayloadResponse is the combined response for engine_getPayload.
-type GetPayloadResponse struct {
-	ExecutionPayload *ExecutionPayloadV4 `json:"executionPayload"`
-	BlockValue       *big.Int            `json:"blockValue"`
-	BlobsBundle      *BlobsBundleV1      `json:"blobsBundle,omitempty"`
-	Override         bool                `json:"shouldOverrideBuilder"`
-}
+// Builder status re-exports.
+const (
+	BuilderStatusActive    = engbuilder.BuilderStatusActive
+	BuilderStatusExiting   = engbuilder.BuilderStatusExiting
+	BuilderStatusWithdrawn = engbuilder.BuilderStatusWithdrawn
+)
+
+// Builder type re-exports.
+type (
+	BLSPubkey                      = engbuilder.BLSPubkey
+	BLSSignature                   = engbuilder.BLSSignature
+	BuilderIndex                   = engbuilder.BuilderIndex
+	BuilderStatus                  = engbuilder.BuilderStatus
+	Builder                        = engbuilder.Builder
+	ExecutionPayloadBid            = engbuilder.ExecutionPayloadBid
+	SignedExecutionPayloadBid      = engbuilder.SignedExecutionPayloadBid
+	ExecutionPayloadEnvelope       = engbuilder.ExecutionPayloadEnvelope
+	SignedExecutionPayloadEnvelope = engbuilder.SignedExecutionPayloadEnvelope
+	BuilderRegistrationV1          = engbuilder.BuilderRegistrationV1
+	SignedBuilderRegistrationV1    = engbuilder.SignedBuilderRegistrationV1
+	BuilderRegistry                = engbuilder.BuilderRegistry
+)
+
+// Builder error re-exports.
+var (
+	ErrBuilderNotFound      = engbuilder.ErrBuilderNotFound
+	ErrBuilderAlreadyExists = engbuilder.ErrBuilderAlreadyExists
+	ErrBuilderNotActive     = engbuilder.ErrBuilderNotActive
+	ErrInsufficientStake    = engbuilder.ErrInsufficientStake
+	ErrInvalidBuilderBid    = engbuilder.ErrInvalidBuilderBid
+	ErrInvalidPayloadReveal = engbuilder.ErrInvalidPayloadReveal
+	ErrNoBidsAvailable      = engbuilder.ErrNoBidsAvailable
+	ErrInvalidBidSignature  = engbuilder.ErrInvalidBidSignature
+)
+
+// NewBuilderRegistry re-export.
+var NewBuilderRegistry = engbuilder.NewBuilderRegistry
+
+// MinBuilderStake re-export.
+var MinBuilderStake = engbuilder.MinBuilderStake
+
+// Convert sub-package re-exports for backward compatibility.
+// The canonical definitions live in engine/convert.
+const (
+	PayloadV1 = engconvert.PayloadV1
+	PayloadV2 = engconvert.PayloadV2
+	PayloadV3 = engconvert.PayloadV3
+	PayloadV4 = engconvert.PayloadV4
+	PayloadV5 = engconvert.PayloadV5
+)
+
+type (
+	PayloadVersion     = engconvert.PayloadVersion
+	ForkTimestamps     = engconvert.ForkTimestamps
+	WithdrawalsSummary = engconvert.WithdrawalsSummary
+)
+
+var (
+	PayloadToHeaderV1           = engconvert.PayloadToHeaderV1
+	PayloadToHeaderV2           = engconvert.PayloadToHeaderV2
+	PayloadToHeaderV3           = engconvert.PayloadToHeaderV3
+	PayloadToHeaderV5           = engconvert.PayloadToHeaderV5
+	HeaderToPayloadV2           = engconvert.HeaderToPayloadV2
+	HeaderToPayloadV3           = engconvert.HeaderToPayloadV3
+	ExtractVersionedHashes      = engconvert.ExtractVersionedHashes
+	VersionedHashFromCommitment = engconvert.VersionedHashFromCommitment
+	BlobSidecarFromBundle       = engconvert.BlobSidecarFromBundle
+	ProcessWithdrawalsExt       = engconvert.ProcessWithdrawalsExt
+	CoreWithdrawalsFromPayload  = engconvert.CoreWithdrawalsFromPayload
+	DeterminePayloadVersion     = engconvert.DeterminePayloadVersion
+	ConvertV1ToV2               = engconvert.ConvertV1ToV2
+	ConvertV2ToV3               = engconvert.ConvertV2ToV3
+	ConvertV3ToV4               = engconvert.ConvertV3ToV4
+	ConvertV4ToV5               = engconvert.ConvertV4ToV5
+	ValidatePayloadConsistency  = engconvert.ValidatePayloadConsistency
+	SummarizeWithdrawals        = engconvert.SummarizeWithdrawals
+)

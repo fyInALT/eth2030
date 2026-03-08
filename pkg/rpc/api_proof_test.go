@@ -9,13 +9,15 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/rlp"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 	"github.com/eth2030/eth2030/trie"
 )
 
 // TestGetProof_NonEmptyAccountProof verifies that eth_getProof returns
 // non-empty Merkle proof nodes for an existing account.
 func TestGetProof_NonEmptyAccountProof(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getProof",
 		"0x000000000000000000000000000000000000aaaa",
 		[]string{},
@@ -56,7 +58,7 @@ func TestGetProof_NonEmptyAccountProof(t *testing.T) {
 // TestGetProof_VerifyAccountProof verifies that the returned Merkle proof
 // can be verified against the state root using trie.VerifyProof.
 func TestGetProof_VerifyAccountProof(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	addrHex := "0x000000000000000000000000000000000000aaaa"
@@ -78,7 +80,7 @@ func TestGetProof_VerifyAccountProof(t *testing.T) {
 	}
 
 	// Build the state trie root from the mock state.
-	stateTrie := mb.statedb.BuildStateTrie()
+	stateTrie := mb.Statedb.BuildStateTrie()
 	root := stateTrie.Hash()
 
 	// Verify the proof against the state root.
@@ -96,7 +98,7 @@ func TestGetProof_VerifyAccountProof(t *testing.T) {
 // TestGetProof_NonExistentAccount verifies eth_getProof for an account
 // that does not exist returns zero values and a valid absence proof.
 func TestGetProof_NonExistentAccount(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getProof",
 		"0x0000000000000000000000000000000000001234",
 		[]string{},
@@ -116,13 +118,13 @@ func TestGetProof_NonExistentAccount(t *testing.T) {
 	}
 
 	// Storage hash should be the empty root hash.
-	emptyRoot := encodeHash(types.EmptyRootHash)
+	emptyRoot := rpctypes.EncodeHash(types.EmptyRootHash)
 	if result.StorageHash != emptyRoot {
 		t.Fatalf("want storageHash %v, got %v", emptyRoot, result.StorageHash)
 	}
 
 	// Code hash should be the empty code hash.
-	emptyCode := encodeHash(types.EmptyCodeHash)
+	emptyCode := rpctypes.EncodeHash(types.EmptyCodeHash)
 	if result.CodeHash != emptyCode {
 		t.Fatalf("want codeHash %v, got %v", emptyCode, result.CodeHash)
 	}
@@ -136,11 +138,11 @@ func TestGetProof_NonExistentAccount(t *testing.T) {
 // TestGetProof_WithStorageKeys verifies that storage proofs are returned
 // for the requested storage keys.
 func TestGetProof_WithStorageKeys(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	addr := types.HexToAddress("0xaaaa")
 	slot := types.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000001")
 	val := types.HexToHash("0x000000000000000000000000000000000000000000000000000000000000002a")
-	mb.statedb.SetState(addr, slot, val)
+	mb.Statedb.SetState(addr, slot, val)
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getProof",
@@ -179,11 +181,11 @@ func TestGetProof_WithStorageKeys(t *testing.T) {
 // TestGetProof_StorageAbsenceProof verifies that a storage slot that doesn't
 // exist returns a zero value and a valid absence proof.
 func TestGetProof_StorageAbsenceProof(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	// Set one storage slot so the storage trie is non-empty.
 	addr := types.HexToAddress("0xaaaa")
 	slot1 := types.HexToHash("0x01")
-	mb.statedb.SetState(addr, slot1, types.HexToHash("0x42"))
+	mb.Statedb.SetState(addr, slot1, types.HexToHash("0x42"))
 
 	api := NewEthAPI(mb)
 	// Request proof for a slot that doesn't exist.
@@ -215,12 +217,12 @@ func TestGetProof_StorageAbsenceProof(t *testing.T) {
 // TestGetProof_MultipleStorageKeys verifies that multiple storage keys
 // can be requested at once.
 func TestGetProof_MultipleStorageKeys(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	addr := types.HexToAddress("0xaaaa")
 	slot1 := types.HexToHash("0x01")
 	slot2 := types.HexToHash("0x02")
-	mb.statedb.SetState(addr, slot1, types.HexToHash("0x0a"))
-	mb.statedb.SetState(addr, slot2, types.HexToHash("0x0b"))
+	mb.Statedb.SetState(addr, slot1, types.HexToHash("0x0a"))
+	mb.Statedb.SetState(addr, slot2, types.HexToHash("0x0b"))
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getProof",
@@ -258,10 +260,10 @@ func TestGetProof_MultipleStorageKeys(t *testing.T) {
 // TestGetProof_VerifyStorageProof verifies that returned storage proofs can
 // be cryptographically verified against the storage root.
 func TestGetProof_VerifyStorageProof(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	addr := types.HexToAddress("0xaaaa")
 	slot := types.HexToHash("0x01")
-	mb.statedb.SetState(addr, slot, types.HexToHash("0xff"))
+	mb.Statedb.SetState(addr, slot, types.HexToHash("0xff"))
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getProof",
@@ -312,7 +314,7 @@ func TestGetProof_VerifyStorageProof(t *testing.T) {
 // TestGetProof_EmptyStorageKeys verifies that requesting no storage keys
 // returns an empty StorageProof array.
 func TestGetProof_EmptyStorageKeys(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getProof",
 		"0x000000000000000000000000000000000000aaaa",
 		[]string{},
@@ -330,7 +332,7 @@ func TestGetProof_EmptyStorageKeys(t *testing.T) {
 
 // TestGetProof_InvalidParams verifies error handling for missing params.
 func TestGetProof_InvalidParams(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 
 	// Missing all params.
 	resp := callRPC(t, api, "eth_getProof")

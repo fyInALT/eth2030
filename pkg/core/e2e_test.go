@@ -1,3 +1,5 @@
+//go:build integration
+
 package core
 
 import (
@@ -5,6 +7,11 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -17,7 +24,7 @@ import (
 
 // e2eChain sets up a blockchain with genesis state where the given accounts
 // are pre-funded. Returns the blockchain and the genesis state snapshot.
-func e2eChain(t *testing.T, gasLimit uint64, baseFee *big.Int, alloc map[types.Address]*big.Int) *Blockchain {
+func e2eChain(t *testing.T, gasLimit uint64, baseFee *big.Int, alloc map[types.Address]*big.Int) *chain.Blockchain {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	for addr, bal := range alloc {
@@ -25,7 +32,7 @@ func e2eChain(t *testing.T, gasLimit uint64, baseFee *big.Int, alloc map[types.A
 	}
 	genesis := makeGenesis(gasLimit, baseFee)
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -119,11 +126,11 @@ func (p *simpleTxPool) Pending() []*types.Transaction {
 }
 
 // buildAndInsert builds a block from the pool and inserts it into the chain.
-func buildAndInsert(t *testing.T, bc *Blockchain, pool TxPoolReader, feeRecipient types.Address) (*types.Block, []*types.Receipt) {
+func buildAndInsert(t *testing.T, bc *chain.Blockchain, pool block.TxPoolReader, feeRecipient types.Address) (*types.Block, []*types.Receipt) {
 	t.Helper()
 	parent := bc.CurrentBlock()
-	builder := NewBlockBuilder(TestConfig, bc, pool)
-	attrs := &BuildBlockAttributes{
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
 		FeeRecipient: feeRecipient,
 		GasLimit:     parent.GasLimit(),
@@ -164,7 +171,7 @@ func TestE2E_FullTransactionLifecycle(t *testing.T) {
 	genesisRoot := bc.CurrentBlock().Root()
 
 	// Create and sign a legacy transaction.
-	tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      21000,
@@ -190,8 +197,8 @@ func TestE2E_FullTransactionLifecycle(t *testing.T) {
 	if receipts[0].Status != types.ReceiptStatusSuccessful {
 		t.Fatalf("receipt status = %d, want success", receipts[0].Status)
 	}
-	if receipts[0].GasUsed != TxGas {
-		t.Errorf("receipt gas used = %d, want %d", receipts[0].GasUsed, TxGas)
+	if receipts[0].GasUsed != execution.TxGas {
+		t.Errorf("receipt gas used = %d, want %d", receipts[0].GasUsed, execution.TxGas)
 	}
 
 	// --- Verify state changes ---
@@ -209,7 +216,7 @@ func TestE2E_FullTransactionLifecycle(t *testing.T) {
 	}
 
 	// Sender balance = initial - transfer - gasCost.
-	gasCost := new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(TxGas))
+	gasCost := new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(execution.TxGas))
 	expectedSenderBal := new(big.Int).Sub(initialBalance, transferAmount)
 	expectedSenderBal.Sub(expectedSenderBal, gasCost)
 	senderBal := st.GetBalance(sender)
@@ -310,7 +317,7 @@ func TestE2E_ContractDeploymentAndExecution(t *testing.T) {
 	initCode := append(initPrefix, runtimeCode...)
 
 	// --- Block 1: Deploy contract ---
-	deployTx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	deployTx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      200_000,
@@ -354,7 +361,7 @@ func TestE2E_ContractDeploymentAndExecution(t *testing.T) {
 	}
 
 	// --- Block 2: Call the contract ---
-	callTx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	callTx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(10),
 		Gas:      100_000,
@@ -403,7 +410,7 @@ func TestE2E_MultiBlockChain(t *testing.T) {
 	})
 
 	for i := 0; i < numBlocks; i++ {
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    uint64(i),
 			GasPrice: big.NewInt(10),
 			Gas:      21000,
@@ -493,7 +500,7 @@ func TestE2E_EIP1559DynamicFee(t *testing.T) {
 	feeCap := gwei(20)
 
 	tx := signDynamicFeeTx(t, key, &types.DynamicFeeTx{
-		ChainID:   TestConfig.ChainID,
+		ChainID:   config.TestConfig.ChainID,
 		Nonce:     0,
 		GasTipCap: tipCap,
 		GasFeeCap: feeCap,
@@ -539,7 +546,7 @@ func TestE2E_EIP1559DynamicFee(t *testing.T) {
 	// Verify tip went to coinbase.
 	// Tip per unit of gas = effectivePrice - baseFee
 	tip := new(big.Int).Sub(effectivePrice, blockBaseFee)
-	expectedCoinbaseGain := new(big.Int).Mul(tip, new(big.Int).SetUint64(TxGas))
+	expectedCoinbaseGain := new(big.Int).Mul(tip, new(big.Int).SetUint64(execution.TxGas))
 
 	coinbaseBalAfter := bc.State().GetBalance(coinbase)
 	coinbaseGain := new(big.Int).Sub(coinbaseBalAfter, coinbaseBalBefore)
@@ -550,7 +557,7 @@ func TestE2E_EIP1559DynamicFee(t *testing.T) {
 	// Verify sender paid = effectivePrice * gasUsed + value.
 	st := bc.State()
 	senderBal := st.GetBalance(sender)
-	totalGasCost := new(big.Int).Mul(effectivePrice, new(big.Int).SetUint64(TxGas))
+	totalGasCost := new(big.Int).Mul(effectivePrice, new(big.Int).SetUint64(execution.TxGas))
 	expectedSenderBal := new(big.Int).Sub(ether(100), ether(1))
 	expectedSenderBal.Sub(expectedSenderBal, totalGasCost)
 	if senderBal.Cmp(expectedSenderBal) != 0 {
@@ -581,7 +588,7 @@ func TestE2E_BlockBuilderGasLimit(t *testing.T) {
 	// Create 5 transactions.
 	var txs []*types.Transaction
 	for i := uint64(0); i < 5; i++ {
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    i,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,
@@ -594,8 +601,8 @@ func TestE2E_BlockBuilderGasLimit(t *testing.T) {
 	pool := &simpleTxPool{txs: txs}
 
 	parent := bc.CurrentBlock()
-	builder := NewBlockBuilder(TestConfig, bc, pool)
-	attrs := &BuildBlockAttributes{
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
 		FeeRecipient: coinbase,
 		GasLimit:     50000,
@@ -626,7 +633,7 @@ func TestE2E_BlockBuilderGasLimit(t *testing.T) {
 	}
 
 	// Gas accounting: gasUsed should be exactly includedCount * 21000.
-	expectedGas := uint64(includedCount) * TxGas
+	expectedGas := uint64(includedCount) * execution.TxGas
 	if block.GasUsed() != expectedGas {
 		t.Errorf("gas used = %d, want %d", block.GasUsed(), expectedGas)
 	}
@@ -670,7 +677,7 @@ func TestE2E_ValueTransferChain(t *testing.T) {
 	gasPrice := big.NewInt(10)
 
 	// tx1: A -> B (5 ETH)
-	tx1 := signLegacyTx(t, keyA, TestConfig.ChainID, &types.LegacyTx{
+	tx1 := signLegacyTx(t, keyA, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: gasPrice,
 		Gas:      21000,
@@ -679,7 +686,7 @@ func TestE2E_ValueTransferChain(t *testing.T) {
 	})
 
 	// tx2: B -> C (3 ETH). B's balance after tx1 = 1 ETH (initial) + 5 ETH = 6 ETH.
-	tx2 := signLegacyTx(t, keyB, TestConfig.ChainID, &types.LegacyTx{
+	tx2 := signLegacyTx(t, keyB, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: gasPrice,
 		Gas:      21000,
@@ -701,7 +708,7 @@ func TestE2E_ValueTransferChain(t *testing.T) {
 	}
 
 	st := bc.State()
-	gasCost := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(TxGas))
+	gasCost := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(execution.TxGas))
 
 	// A's balance: 100 ETH - 5 ETH - gasCost
 	expectedA := new(big.Int).Sub(ether(100), transferAtoB)
@@ -777,7 +784,7 @@ func TestE2E_MultiBlockContractInteraction(t *testing.T) {
 	initCode := append(initPrefix, runtimeCode...)
 
 	// --- Block 1: Deploy ---
-	deployTx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	deployTx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      200_000,
@@ -799,7 +806,7 @@ func TestE2E_MultiBlockContractInteraction(t *testing.T) {
 		calldata := make([]byte, 32)
 		calldata[31] = byte(i)
 
-		callTx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		callTx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    uint64(i),
 			GasPrice: big.NewInt(10),
 			Gas:      100_000,
@@ -855,7 +862,7 @@ func TestE2E_MixedTransactionTypes(t *testing.T) {
 	})
 
 	// Block 1: Legacy tx from A + EIP-1559 tx from B.
-	legacyTx := signLegacyTx(t, keyA, TestConfig.ChainID, &types.LegacyTx{
+	legacyTx := signLegacyTx(t, keyA, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: gwei(20),
 		Gas:      21000,
@@ -864,7 +871,7 @@ func TestE2E_MixedTransactionTypes(t *testing.T) {
 	})
 
 	dynamicTx := signDynamicFeeTx(t, keyB, &types.DynamicFeeTx{
-		ChainID:   TestConfig.ChainID,
+		ChainID:   config.TestConfig.ChainID,
 		Nonce:     0,
 		GasTipCap: gwei(2),
 		GasFeeCap: gwei(30),
@@ -893,7 +900,7 @@ func TestE2E_MixedTransactionTypes(t *testing.T) {
 	}
 
 	// Block 2: More transactions from both.
-	legacyTx2 := signLegacyTx(t, keyA, TestConfig.ChainID, &types.LegacyTx{
+	legacyTx2 := signLegacyTx(t, keyA, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    1,
 		GasPrice: gwei(20),
 		Gas:      21000,
@@ -901,7 +908,7 @@ func TestE2E_MixedTransactionTypes(t *testing.T) {
 		Value:    ether(1),
 	})
 	dynamicTx2 := signDynamicFeeTx(t, keyB, &types.DynamicFeeTx{
-		ChainID:   TestConfig.ChainID,
+		ChainID:   config.TestConfig.ChainID,
 		Nonce:     1,
 		GasTipCap: gwei(2),
 		GasFeeCap: gwei(30),
@@ -941,7 +948,7 @@ func TestE2E_NonceOrdering(t *testing.T) {
 
 	// Submit tx with nonce 1 first (skipping nonce 0). It should be skipped
 	// because the sender's state nonce is 0.
-	txNonce1 := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	txNonce1 := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(10),
 		Gas:      21000,
@@ -958,7 +965,7 @@ func TestE2E_NonceOrdering(t *testing.T) {
 	}
 
 	// Now submit nonce 0, which should succeed.
-	txNonce0 := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+	txNonce0 := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10),
 		Gas:      21000,
@@ -1002,7 +1009,7 @@ func TestE2E_StateRootConsistency(t *testing.T) {
 	roots = append(roots, bc.CurrentBlock().Root())
 
 	for i := 0; i < 5; i++ {
-		tx := signLegacyTx(t, key, TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, key, config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    uint64(i),
 			GasPrice: big.NewInt(10),
 			Gas:      21000,
@@ -1136,8 +1143,8 @@ func TestE2E_BaseFeeAdjustment(t *testing.T) {
 
 	// All base fees should be >= 1 (minimum).
 	for i, bf := range baseFees {
-		if bf.Cmp(big.NewInt(MinBaseFee)) < 0 {
-			t.Errorf("base fee at block %d = %s, below minimum %d", i, bf, MinBaseFee)
+		if bf.Cmp(big.NewInt(gas.MinBaseFee)) < 0 {
+			t.Errorf("base fee at block %d = %s, below minimum %d", i, bf, gas.MinBaseFee)
 		}
 	}
 }
@@ -1174,11 +1181,9 @@ func TestE2E_BlockchainPersistence(t *testing.T) {
 	}
 
 	// Evict blocks from in-memory cache.
-	bc.mu.Lock()
 	for _, hash := range blockHashes {
-		delete(bc.blockCache, hash)
+		bc.EvictBlockFromCache(hash)
 	}
-	bc.mu.Unlock()
 
 	// Blocks should still be retrievable from rawdb.
 	for i, hash := range blockHashes {
@@ -1225,7 +1230,7 @@ func TestE2E_MultipleSendersInBlock(t *testing.T) {
 	// Each sender sends 1000 wei to recipient.
 	var txs []*types.Transaction
 	for i := 0; i < numSenders; i++ {
-		tx := signLegacyTx(t, keys[i], TestConfig.ChainID, &types.LegacyTx{
+		tx := signLegacyTx(t, keys[i], config.TestConfig.ChainID, &types.LegacyTx{
 			Nonce:    0,
 			GasPrice: big.NewInt(10),
 			Gas:      21000,

@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -19,7 +19,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // makeE2EBackend creates a full EngineBackend with genesis, usable for e2e tests.
-func makeE2EBackend(t *testing.T, cfg *core.ChainConfig) (*EngineBackend, *EngineAPI) {
+func makeE2EBackend(t *testing.T, cfg *coreconfig.ChainConfig) (*EngineBackend, *EngineAPI) {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis()
@@ -81,7 +81,7 @@ func buildNextPayload(t *testing.T, api *EngineAPI, backend *EngineBackend) *Exe
 // TestE2E_Engine_ILSatisfaction_NoILsStoredAlwaysValid verifies that when no
 // ILs are stored, ProcessBlockV5 always returns VALID regardless of block content.
 func TestE2E_Engine_ILSatisfaction_NoILsStoredAlwaysValid(t *testing.T) {
-	backend, _ := makeE2EBackend(t, core.TestConfig)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 
 	payload := buildNextPayload(t, nil, backend)
 	status, err := backend.ProcessBlockV5(payload, nil, types.Hash{}, nil)
@@ -97,7 +97,7 @@ func TestE2E_Engine_ILSatisfaction_NoILsStoredAlwaysValid(t *testing.T) {
 // an IL and then submitting a block (via ProcessBlockV5) that satisfies it
 // returns VALID (not INCLUSION_LIST_UNSATISFIED).
 func TestE2E_Engine_ProcessInclusionList_ThenProcessBlock(t *testing.T) {
-	backend, _ := makeE2EBackend(t, core.TestConfig)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 
 	// Store an IL with an invalid-RLP "transaction" — this will be skipped
 	// by CheckILSatisfaction (invalid RLP is treated as non-existent tx).
@@ -134,7 +134,7 @@ func TestE2E_Engine_StatusInclusionListUnsatisfied_Constant(t *testing.T) {
 // TestE2E_Engine_IlsAsFocil_EmptyILList verifies that an empty IL list
 // returns an empty focil IL slice without panic.
 func TestE2E_Engine_IlsAsFocil_EmptyILList(t *testing.T) {
-	backend, _ := makeE2EBackend(t, core.TestConfig)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 	// No ILs stored.
 	result := backend.ilsAsFocil()
 	if len(result) != 0 {
@@ -149,7 +149,7 @@ func TestE2E_Engine_IlsAsFocil_EmptyILList(t *testing.T) {
 // TestE2E_Engine_PayloadBodiesV2_KnownAndUnknownHashes verifies that
 // GetPayloadBodiesByHashV2 returns non-nil for known blocks and nil for unknown.
 func TestE2E_Engine_PayloadBodiesV2_KnownAndUnknownHashes(t *testing.T) {
-	_, api := makeE2EBackend(t, core.TestConfig)
+	_, api := makeE2EBackend(t, coreconfig.TestConfig)
 	genesis := makeGenesis()
 	genesisHash := genesis.Hash()
 	unknownHash := types.Hash{0xff, 0xee}
@@ -172,7 +172,7 @@ func TestE2E_Engine_PayloadBodiesV2_KnownAndUnknownHashes(t *testing.T) {
 // TestE2E_Engine_PayloadBodiesV2_RangeIncludesGenesis verifies that the
 // range query returns the genesis block body when queried by block number.
 func TestE2E_Engine_PayloadBodiesV2_RangeIncludesGenesis(t *testing.T) {
-	_, api := makeE2EBackend(t, core.TestConfig)
+	_, api := makeE2EBackend(t, coreconfig.TestConfig)
 
 	results, err := api.GetPayloadBodiesByRangeV2(0, 3)
 	if err != nil {
@@ -197,7 +197,7 @@ func TestE2E_Engine_PayloadBodiesV2_RangeIncludesGenesis(t *testing.T) {
 // has the correct fields (Transactions non-nil, Withdrawals non-nil, no BAL
 // since genesis has no state execution).
 func TestE2E_Engine_PayloadBodiesV2_BodyFields(t *testing.T) {
-	_, api := makeE2EBackend(t, core.TestConfig)
+	_, api := makeE2EBackend(t, coreconfig.TestConfig)
 	genesis := makeGenesis()
 
 	results, err := api.GetPayloadBodiesByHashV2([]types.Hash{genesis.Hash()})
@@ -216,7 +216,7 @@ func TestE2E_Engine_PayloadBodiesV2_BodyFields(t *testing.T) {
 // TestE2E_Engine_PayloadBodiesV2_Handler_DispatchRouting verifies that the
 // full JSON-RPC dispatch correctly routes engine_getPayloadBodiesByHashV2.
 func TestE2E_Engine_PayloadBodiesV2_Handler_DispatchRouting(t *testing.T) {
-	_, api := makeE2EBackend(t, core.TestConfig)
+	_, api := makeE2EBackend(t, coreconfig.TestConfig)
 	genesis := makeGenesis()
 
 	hashesJSON, _ := json.Marshal([]types.Hash{genesis.Hash()})
@@ -239,7 +239,7 @@ func TestE2E_Engine_PayloadBodiesV2_Handler_DispatchRouting(t *testing.T) {
 // TestE2E_Engine_PayloadBodiesV2_RangeHandler_DispatchRouting verifies full
 // JSON-RPC dispatch for engine_getPayloadBodiesByRangeV2.
 func TestE2E_Engine_PayloadBodiesV2_RangeHandler_DispatchRouting(t *testing.T) {
-	_, api := makeE2EBackend(t, core.TestConfig)
+	_, api := makeE2EBackend(t, coreconfig.TestConfig)
 
 	req := []byte(`{"jsonrpc":"2.0","id":2,"method":"engine_getPayloadBodiesByRangeV2","params":[0,1]}`)
 	resp := api.HandleRequest(req)
@@ -261,7 +261,7 @@ func TestE2E_Engine_PayloadBodiesV2_RangeHandler_DispatchRouting(t *testing.T) {
 // fields set in the built block.
 func TestE2E_Engine_3DGasVectors_InBuiltPayload(t *testing.T) {
 	// TestConfigGlamsterdan activates Glamsterdam at genesis (GlamsterdanTime=0).
-	backend, _ := makeE2EBackend(t, core.TestConfigGlamsterdan)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfigGlamsterdan)
 
 	genesisHash := makeGenesis().Hash()
 	fcState := ForkchoiceStateV1{
@@ -443,7 +443,7 @@ func TestE2E_Engine_MultiDimFeeTx_DecodeInPayload(t *testing.T) {
 // TestE2E_Engine_BALFeasibility_NormalPayloadProcesses verifies that a
 // normally-built payload processes without triggering ErrBALFeasibilityViolated.
 func TestE2E_Engine_BALFeasibility_NormalPayloadProcesses(t *testing.T) {
-	backend, _ := makeE2EBackend(t, core.TestConfig)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 
 	payload := buildNextPayload(t, nil, backend)
 
@@ -464,7 +464,7 @@ func TestE2E_Engine_BALFeasibility_NormalPayloadProcesses(t *testing.T) {
 // processing a block via ProcessBlockV5, the BAL (if computed) is stored and
 // can be retrieved via GetPayloadBodiesByHashV2.
 func TestE2E_Engine_BALStoredAfterProcessBlockV5(t *testing.T) {
-	backend, api := makeE2EBackend(t, core.TestConfig)
+	backend, api := makeE2EBackend(t, coreconfig.TestConfig)
 
 	// Build and process a block.
 	payload := buildNextPayload(t, nil, backend)
@@ -523,7 +523,7 @@ func TestE2E_Engine_BALStoredAfterProcessBlockV5(t *testing.T) {
 // TestE2E_Engine_InclusionListBackend_Interface verifies that EngineBackend
 // satisfies InclusionListBackend and that the IL storage / retrieval round-trips.
 func TestE2E_Engine_InclusionListBackend_Interface(t *testing.T) {
-	backend, _ := makeE2EBackend(t, core.TestConfig)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 
 	// Verify interface compliance.
 	var ilb InclusionListBackend = backend
@@ -561,7 +561,7 @@ func TestE2E_Engine_InclusionListBackend_Interface(t *testing.T) {
 // TestE2E_Engine_IlsAsFocil_FieldMapping verifies the slot and proposerIndex
 // mapping between types.InclusionList and focil.InclusionList.
 func TestE2E_Engine_IlsAsFocil_FieldMapping(t *testing.T) {
-	backend, _ := makeE2EBackend(t, core.TestConfig)
+	backend, _ := makeE2EBackend(t, coreconfig.TestConfig)
 
 	txBytes := []byte{0x02, 0xAB, 0xCD}
 	backend.ils = []*types.InclusionList{

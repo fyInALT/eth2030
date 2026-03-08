@@ -4,188 +4,32 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/core/vm"
-	"github.com/eth2030/eth2030/trie"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpcsub "github.com/eth2030/eth2030/rpc/subscription"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 var errCallFailed = errors.New("execution reverted")
 
-// minTestRawTxHex returns a minimal valid RLP-encoded legacy transaction as a
-// 0x-prefixed hex string suitable for use in eth_sendRawTransaction tests.
-func minTestRawTxHex(t *testing.T) string {
-	t.Helper()
-	to := types.HexToAddress("0x1111111111111111111111111111111111111111")
-	inner := &types.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
-		Gas:      21000,
-		To:       &to,
-		Value:    big.NewInt(0),
-		V:        big.NewInt(27),
-		R:        big.NewInt(1),
-		S:        big.NewInt(1),
+// isNullResult returns true if v is a JSON null response result,
+// either a Go nil or json.RawMessage("null").
+func isNullResult(v interface{}) bool {
+	if v == nil {
+		return true
 	}
-	tx := types.NewTransaction(inner)
-	raw, err := tx.EncodeRLP()
-	if err != nil {
-		t.Fatalf("minTestRawTxHex: EncodeRLP: %v", err)
-	}
-	return "0x" + fmt.Sprintf("%x", raw)
+	raw, ok := v.(json.RawMessage)
+	return ok && string(raw) == "null"
 }
 
-// mockBackend implements Backend for testing.
-type mockBackend struct {
-	chainID       *big.Int
-	headers       map[uint64]*types.Header
-	blocks        map[uint64]*types.Block
-	statedb       *state.MemoryStateDB
-	transactions  map[types.Hash]*mockTxInfo
-	receipts      map[types.Hash][]*types.Receipt
-	logs          map[types.Hash][]*types.Log
-	sentTxs       []*types.Transaction
-	callResult    []byte
-	callGasUsed   uint64
-	callErr       error
-	historyOldest uint64
-}
-
-type mockTxInfo struct {
-	tx       *types.Transaction
-	blockNum uint64
-	index    uint64
-}
-
-func newMockBackend() *mockBackend {
-	sdb := state.NewMemoryStateDB()
-	// Create a funded account.
-	addr := types.HexToAddress("0xaaaa")
-	sdb.AddBalance(addr, big.NewInt(1e18))
-	sdb.SetNonce(addr, 5)
-	sdb.SetCode(addr, []byte{0x60, 0x00})
-
-	header := &types.Header{
-		Number:   big.NewInt(42),
-		GasLimit: 30000000,
-		GasUsed:  15000000,
-		Time:     1700000000,
-		BaseFee:  big.NewInt(1000000000),
-	}
-
-	return &mockBackend{
-		chainID:      big.NewInt(1337),
-		headers:      map[uint64]*types.Header{42: header},
-		blocks:       make(map[uint64]*types.Block),
-		statedb:      sdb,
-		transactions: make(map[types.Hash]*mockTxInfo),
-		receipts:     make(map[types.Hash][]*types.Receipt),
-		logs:         make(map[types.Hash][]*types.Log),
-	}
-}
-
-func (b *mockBackend) HeaderByNumber(number BlockNumber) *types.Header {
-	if number == LatestBlockNumber || number == SafeBlockNumber || number == FinalizedBlockNumber {
-		return b.headers[42]
-	}
-	return b.headers[uint64(number)]
-}
-
-func (b *mockBackend) HeaderByHash(hash types.Hash) *types.Header {
-	for _, h := range b.headers {
-		if h.Hash() == hash {
-			return h
-		}
-	}
-	return nil
-}
-
-func (b *mockBackend) BlockByNumber(number BlockNumber) *types.Block {
-	if number == LatestBlockNumber || number == SafeBlockNumber || number == FinalizedBlockNumber {
-		// Find the latest block number from headers.
-		if h := b.headers[42]; h != nil {
-			return b.blocks[42]
-		}
-		return nil
-	}
-	return b.blocks[uint64(number)]
-}
-
-func (b *mockBackend) BlockByHash(hash types.Hash) *types.Block {
-	for _, block := range b.blocks {
-		if block != nil && block.Hash() == hash {
-			return block
-		}
-	}
-	return nil
-}
-
-func (b *mockBackend) CurrentHeader() *types.Header {
-	return b.headers[42]
-}
-
-func (b *mockBackend) ChainID() *big.Int {
-	return b.chainID
-}
-
-func (b *mockBackend) StateAt(root types.Hash) (state.StateDB, error) {
-	return b.statedb, nil
-}
-
-func (b *mockBackend) SendTransaction(tx *types.Transaction) error {
-	b.sentTxs = append(b.sentTxs, tx)
-	return nil
-}
-
-func (b *mockBackend) GetTransaction(hash types.Hash) (*types.Transaction, uint64, uint64) {
-	if info, ok := b.transactions[hash]; ok {
-		return info.tx, info.blockNum, info.index
-	}
-	return nil, 0, 0
-}
-
-func (b *mockBackend) SuggestGasPrice() *big.Int { return big.NewInt(1000000000) }
-
-func (b *mockBackend) GetReceipts(blockHash types.Hash) []*types.Receipt {
-	return b.receipts[blockHash]
-}
-
-func (b *mockBackend) GetLogs(blockHash types.Hash) []*types.Log {
-	return b.logs[blockHash]
-}
-
-func (b *mockBackend) GetBlockReceipts(number uint64) []*types.Receipt {
-	header := b.headers[number]
-	if header == nil {
-		return nil
-	}
-	return b.receipts[header.Hash()]
-}
-
-func (b *mockBackend) EVMCall(from types.Address, to *types.Address, data []byte, gas uint64, value *big.Int, blockNumber BlockNumber) ([]byte, uint64, error) {
-	return b.callResult, b.callGasUsed, b.callErr
-}
-
-func (b *mockBackend) GetProof(addr types.Address, storageKeys []types.Hash, blockNumber BlockNumber) (*trie.AccountProof, error) {
-	// Build a real state trie from the mock state and generate real proofs.
-	stateTrie := b.statedb.BuildStateTrie()
-	storageTrie := b.statedb.BuildStorageTrie(addr)
-	return trie.ProveAccountWithStorage(stateTrie, addr, storageTrie, storageKeys)
-}
-
-func (b *mockBackend) TraceTransaction(txHash types.Hash) (*vm.StructLogTracer, error) {
-	// Return an empty tracer for mock purposes.
-	return vm.NewStructLogTracer(), nil
-}
-
-func (b *mockBackend) HistoryOldestBlock() uint64 {
-	return b.historyOldest
+// apiSubs extracts the *rpcsub.SubscriptionManager from an EthAPI for direct test access.
+func apiSubs(api *EthAPI) *rpcsub.SubscriptionManager {
+	return api.Subs().(*rpcsub.SubscriptionManager)
 }
 
 func callRPC(t *testing.T, api *EthAPI, method string, params ...interface{}) *Response {
@@ -205,7 +49,7 @@ func callRPC(t *testing.T, api *EthAPI, method string, params ...interface{}) *R
 }
 
 func TestEthChainID(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_chainId")
 
 	if resp.Error != nil {
@@ -217,7 +61,7 @@ func TestEthChainID(t *testing.T) {
 }
 
 func TestEthBlockNumber(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_blockNumber")
 
 	if resp.Error != nil {
@@ -229,7 +73,7 @@ func TestEthBlockNumber(t *testing.T) {
 }
 
 func TestEthGetBalance(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBalance", "0x000000000000000000000000000000000000aaaa", "latest")
 
 	if resp.Error != nil {
@@ -246,7 +90,7 @@ func TestEthGetBalance(t *testing.T) {
 }
 
 func TestEthGetTransactionCount(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getTransactionCount", "0x000000000000000000000000000000000000aaaa", "latest")
 
 	if resp.Error != nil {
@@ -258,7 +102,7 @@ func TestEthGetTransactionCount(t *testing.T) {
 }
 
 func TestEthGetCode(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getCode", "0x000000000000000000000000000000000000aaaa", "latest")
 
 	if resp.Error != nil {
@@ -270,7 +114,7 @@ func TestEthGetCode(t *testing.T) {
 }
 
 func TestEthGasPrice(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_gasPrice")
 
 	if resp.Error != nil {
@@ -282,7 +126,7 @@ func TestEthGasPrice(t *testing.T) {
 }
 
 func TestWeb3ClientVersion(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "web3_clientVersion")
 
 	if resp.Error != nil {
@@ -294,7 +138,7 @@ func TestWeb3ClientVersion(t *testing.T) {
 }
 
 func TestNetVersion(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "net_version")
 
 	if resp.Error != nil {
@@ -306,7 +150,7 @@ func TestNetVersion(t *testing.T) {
 }
 
 func TestMethodNotFound(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_nonexistent")
 
 	if resp.Error == nil {
@@ -318,7 +162,7 @@ func TestMethodNotFound(t *testing.T) {
 }
 
 func TestGetBlockByNumber(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBlockByNumber", "latest", false)
 
 	if resp.Error != nil {
@@ -330,7 +174,7 @@ func TestGetBlockByNumber(t *testing.T) {
 }
 
 func TestGetBlockByNumber_NotFound(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBlockByNumber", "0x999", false)
 
 	if resp.Error != nil {
@@ -342,7 +186,7 @@ func TestGetBlockByNumber_NotFound(t *testing.T) {
 }
 
 func TestServer_HTTPPost(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(testutil.NewMockBackend())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -364,7 +208,7 @@ func TestServer_HTTPPost(t *testing.T) {
 }
 
 func TestServer_MethodNotAllowed(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(testutil.NewMockBackend())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -380,8 +224,8 @@ func TestServer_MethodNotAllowed(t *testing.T) {
 }
 
 func TestEthCall(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = []byte{0x00, 0x00, 0x00, 0x01}
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0x00, 0x00, 0x00, 0x01}
 	api := NewEthAPI(mb)
 
 	to := "0x000000000000000000000000000000000000bbbb"
@@ -404,8 +248,8 @@ func TestEthCall(t *testing.T) {
 }
 
 func TestEthCall_Error(t *testing.T) {
-	mb := newMockBackend()
-	mb.callErr = errCallFailed
+	mb := testutil.NewMockBackend()
+	mb.CallErr = errCallFailed
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_call", map[string]interface{}{
@@ -419,8 +263,8 @@ func TestEthCall_Error(t *testing.T) {
 }
 
 func TestEstimateGas(t *testing.T) {
-	mb := newMockBackend()
-	// EVMCall always succeeds (callErr is nil)
+	mb := testutil.NewMockBackend()
+	// EVMCall always succeeds (CallErr is nil)
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_estimateGas", map[string]interface{}{
@@ -442,7 +286,7 @@ func TestEstimateGas(t *testing.T) {
 }
 
 func TestGetTransactionByHash(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	to := types.HexToAddress("0xbbbb")
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    1,
@@ -455,10 +299,10 @@ func TestGetTransactionByHash(t *testing.T) {
 	tx.SetSender(sender)
 
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getTransactionByHash", encodeHash(txHash))
+	resp := callRPC(t, api, "eth_getTransactionByHash", rpctypes.EncodeHash(txHash))
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -476,7 +320,7 @@ func TestGetTransactionByHash(t *testing.T) {
 }
 
 func TestGetTransactionByHash_NotFound(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getTransactionByHash",
 		"0x0000000000000000000000000000000000000000000000000000000000000000")
 
@@ -489,7 +333,7 @@ func TestGetTransactionByHash_NotFound(t *testing.T) {
 }
 
 func TestGetTransactionReceipt(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	to := types.HexToAddress("0xbbbb")
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    1,
@@ -502,9 +346,9 @@ func TestGetTransactionReceipt(t *testing.T) {
 	tx.SetSender(sender)
 
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
 		CumulativeGasUsed: 21000,
@@ -515,10 +359,10 @@ func TestGetTransactionReceipt(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getTransactionReceipt", encodeHash(txHash))
+	resp := callRPC(t, api, "eth_getTransactionReceipt", rpctypes.EncodeHash(txHash))
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -539,13 +383,13 @@ func TestGetTransactionReceipt(t *testing.T) {
 }
 
 func TestGetLogs(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	topic := types.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 	contractAddr := types.HexToAddress("0xcccc")
 
-	mb.logs[blockHash] = []*types.Log{
+	mb.Logs[blockHash] = []*types.Log{
 		{
 			Address:     contractAddr,
 			Topics:      []types.Hash{topic},
@@ -561,8 +405,8 @@ func TestGetLogs(t *testing.T) {
 	from := BlockNumber(42)
 	to := BlockNumber(42)
 	resp := callRPC(t, api, "eth_getLogs", map[string]interface{}{
-		"fromBlock": encodeUint64(uint64(from)),
-		"toBlock":   encodeUint64(uint64(to)),
+		"fromBlock": rpctypes.EncodeUint64(uint64(from)),
+		"toBlock":   rpctypes.EncodeUint64(uint64(to)),
 	})
 
 	if resp.Error != nil {
@@ -578,13 +422,13 @@ func TestGetLogs(t *testing.T) {
 }
 
 func TestGetLogs_AddressFilter(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	addr1 := types.HexToAddress("0xcccc")
 	addr2 := types.HexToAddress("0xdddd")
 
-	mb.logs[blockHash] = []*types.Log{
+	mb.Logs[blockHash] = []*types.Log{
 		{Address: addr1, BlockNumber: 42, BlockHash: blockHash, Index: 0},
 		{Address: addr2, BlockNumber: 42, BlockHash: blockHash, Index: 1},
 	}
@@ -593,7 +437,7 @@ func TestGetLogs_AddressFilter(t *testing.T) {
 	resp := callRPC(t, api, "eth_getLogs", map[string]interface{}{
 		"fromBlock": "0x2a",
 		"toBlock":   "0x2a",
-		"address":   []string{encodeAddress(addr1)},
+		"address":   []string{rpctypes.EncodeAddress(addr1)},
 	})
 
 	if resp.Error != nil {
@@ -609,10 +453,14 @@ func TestGetLogs_AddressFilter(t *testing.T) {
 }
 
 func TestSendRawTransaction(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
-	resp := callRPC(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
+	rawTx, err := testutil.MinTestRawTxHex()
+	if err != nil {
+		t.Fatalf("MinTestRawTxHex: %v", err)
+	}
+	resp := callRPC(t, api, "eth_sendRawTransaction", rawTx)
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -620,14 +468,14 @@ func TestSendRawTransaction(t *testing.T) {
 	if resp.Result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if len(mb.sentTxs) != 1 {
-		t.Fatalf("expected 1 sent tx, got %d", len(mb.sentTxs))
+	if len(mb.SentTxs) != 1 {
+		t.Fatalf("expected 1 sent tx, got %d", len(mb.SentTxs))
 	}
 }
 
 func TestGetBlockReceipts(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	receipt1 := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
@@ -649,7 +497,7 @@ func TestGetBlockReceipts(t *testing.T) {
 		TransactionIndex:  1,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt1, receipt2}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt1, receipt2}
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x2a")
@@ -667,7 +515,7 @@ func TestGetBlockReceipts(t *testing.T) {
 }
 
 func TestGetBlockReceipts_NotFound(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x999")
 
 	if resp.Error != nil {
@@ -681,8 +529,8 @@ func TestGetBlockReceipts_NotFound(t *testing.T) {
 // TestGetBlockReceipts_BlockNumberOrHashObject verifies that the object form
 // {"blockHash":"0x..."} accepted by go-ethereum ethclient works correctly.
 func TestGetBlockReceipts_BlockNumberOrHashObject(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
@@ -694,7 +542,7 @@ func TestGetBlockReceipts_BlockNumberOrHashObject(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
 

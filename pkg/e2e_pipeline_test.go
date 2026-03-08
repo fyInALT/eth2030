@@ -6,7 +6,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/block"
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/txpool"
@@ -52,7 +53,7 @@ func TestE2EFullBlockLifecycle(t *testing.T) {
 		GasUsed:  0,
 		BaseFee:  big.NewInt(1),
 	}
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	block, receipts, err := builder.BuildBlockLegacy(parent, pending, 1700000001, coinbase, nil)
 	if err != nil {
@@ -91,7 +92,7 @@ func TestE2EMultiBlockChain(t *testing.T) {
 
 	statedb.AddBalance(sender, big.NewInt(1_000_000_000))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -164,7 +165,7 @@ func TestE2EEIP1559GasPricing(t *testing.T) {
 
 	statedb.AddBalance(sender, big.NewInt(10_000_000_000))
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	// Start with a known base fee.
@@ -203,7 +204,7 @@ func TestE2EEIP1559GasPricing(t *testing.T) {
 
 	statedb2 := state.NewMemoryStateDB()
 	statedb2.AddBalance(sender, big.NewInt(10_000_000_000))
-	builder2 := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder2 := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder2.SetState(statedb2)
 
 	// Use a parent with gas used at target (50%).
@@ -233,7 +234,7 @@ func TestE2EEIP1559GasPricing(t *testing.T) {
 	}
 	statedb3 := state.NewMemoryStateDB()
 	statedb3.AddBalance(sender, big.NewInt(10_000_000_000))
-	builder3 := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder3 := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder3.SetState(statedb3)
 	highBlock, _, err := builder3.BuildBlockLegacy(parentHigh, nil, 1700000001, coinbase, nil)
 	if err != nil {
@@ -282,7 +283,7 @@ func TestE2EContractDeployAndCall(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 	}
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	block, receipts, err := builder.BuildBlockLegacy(parent, []*types.Transaction{createTx}, 1700000001, coinbase, nil)
 	if err != nil {
@@ -347,7 +348,7 @@ func TestE2EParallelExecution(t *testing.T) {
 	}
 
 	// Sequential execution.
-	seqBuilder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	seqBuilder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	seqBuilder.SetState(seqState)
 	seqBlock, seqReceipts, err := seqBuilder.BuildBlockLegacy(parent, txs, 1700000001, coinbase, nil)
 	if err != nil {
@@ -355,7 +356,7 @@ func TestE2EParallelExecution(t *testing.T) {
 	}
 
 	// Parallel execution (using separate builder with same txs).
-	parBuilder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	parBuilder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	parBuilder.SetState(parState)
 	parBlock, parReceipts, err := parBuilder.BuildBlockLegacy(parent, txs, 1700000001, coinbase, nil)
 	if err != nil {
@@ -480,7 +481,7 @@ func TestE2EStateRootConsistency(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 	}
 
-	builder := core.NewBlockBuilder(core.TestConfig, nil, nil)
+	builder := block.NewBlockBuilder(coreconfig.TestConfig, nil, nil)
 	builder.SetState(statedb)
 	_, _, err := builder.BuildBlockLegacy(parent, []*types.Transaction{tx}, 1700000001, coinbase, nil)
 	if err != nil {

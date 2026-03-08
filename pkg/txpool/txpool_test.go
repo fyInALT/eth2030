@@ -109,6 +109,46 @@ func makeBlobTx(from types.Address, nonce uint64, tipCap, feeCap int64, gas uint
 	return tx
 }
 
+func makeBlobPoolTx(nonce uint64, blobFeeCap, gasFeeCap, gasTipCap int64, blobCount int) *types.Transaction {
+	hashes := make([]types.Hash, blobCount)
+	for i := range hashes {
+		hashes[i] = types.BytesToHash([]byte{byte(nonce), byte(i + 1)})
+	}
+	to := types.BytesToAddress([]byte{0x01})
+	tx := types.NewTransaction(&types.BlobTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      nonce,
+		GasTipCap:  big.NewInt(gasTipCap),
+		GasFeeCap:  big.NewInt(gasFeeCap),
+		Gas:        21000,
+		To:         to,
+		Value:      big.NewInt(0),
+		BlobFeeCap: big.NewInt(blobFeeCap),
+		BlobHashes: hashes,
+	})
+	addr := types.BytesToAddress([]byte{0xAA})
+	tx.SetSender(addr)
+	return tx
+}
+
+func makeBlobPoolTxFrom(nonce uint64, blobFeeCap int64, from types.Address) *types.Transaction {
+	hashes := []types.Hash{types.BytesToHash([]byte{byte(nonce), 0x01})}
+	to := types.BytesToAddress([]byte{0x01})
+	tx := types.NewTransaction(&types.BlobTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      nonce,
+		GasTipCap:  big.NewInt(1_000_000_000),
+		GasFeeCap:  big.NewInt(10_000_000_000),
+		Gas:        21000,
+		To:         to,
+		Value:      big.NewInt(0),
+		BlobFeeCap: big.NewInt(blobFeeCap),
+		BlobHashes: hashes,
+	})
+	tx.SetSender(from)
+	return tx
+}
+
 // newRichPool creates a pool + state where testSender has a large balance.
 func newRichPool() (*TxPool, *mockState) {
 	state := newMockState()

@@ -1,0 +1,472 @@
+// Package api implements Engine API sub-handlers for post-Prague/Glamsterdam/V7 methods.
+// These types and functions are re-exported from the main engine package via type aliases.
+package api
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math/big"
+
+	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/engine/backendapi"
+	"github.com/eth2030/eth2030/engine/payload"
+)
+
+// Execution request type identifiers per EIP-7685.
+const (
+	// DepositRequestType identifies deposit requests (EIP-6110).
+	DepositRequestType byte = 0x00
+
+	// WithdrawalRequestType identifies withdrawal requests (EIP-7002).
+	WithdrawalRequestType byte = 0x01
+
+	// ConsolidationRequestType identifies consolidation requests (EIP-7251).
+	ConsolidationRequestType byte = 0x02
+)
+
+// Maximum sizes for execution requests per type.
+const (
+	MaxDepositRequests       = 8192
+	MaxWithdrawalRequests    = 16
+	MaxConsolidationRequests = 1
+	DepositRequestSize       = 192 // pubkey(48) + withdrawal_creds(32) + amount(8) + signature(96) + index(8)
+	WithdrawalRequestSize    = 76  // source_address(20) + validator_pubkey(48) + amount(8)
+	ConsolidationRequestSize = 116 // source_address(20) + source_pubkey(48) + target_pubkey(48)
+)
+
+// EngV4 errors.
+var (
+	ErrV4NilPayload           = errors.New("engine_v4: nil execution payload")
+	ErrV4RequestTypeMismatch  = errors.New("engine_v4: execution request type mismatch")
+	ErrV4RequestTooLarge      = errors.New("engine_v4: execution request exceeds maximum size")
+	ErrV4MissingRequests      = errors.New("engine_v4: execution requests required for Prague")
+	ErrV4InvalidRequestOrder  = errors.New("engine_v4: execution requests not in type-ascending order")
+	ErrV4DuplicateRequestType = errors.New("engine_v4: duplicate execution request type")
+)
+
+// V4Backend is a type alias — canonical definition in engine/backendapi.
+type V4Backend = backendapi.V4Backend
+
+// ErrUnsupportedFork is returned when a payload timestamp does not match the
+// expected fork. Defined here to avoid importing the engine package.
+var ErrUnsupportedFork = errors.New("engine: unsupported fork")
+
+// EngV4 manages Engine API V4 logic for Prague/Electra.
+type EngV4 struct {
+	backend V4Backend
+}
+
+// NewEngV4 creates a new EngV4 instance.
+func NewEngV4(backend V4Backend) *EngV4 {
+	return &EngV4{backend: backend}
+}
+
+// DepositRequest represents an EIP-6110 deposit from the execution layer.
+type DepositRequest struct {
+	Pubkey                [48]byte   `json:"pubkey"`
+	WithdrawalCredentials types.Hash `json:"withdrawalCredentials"`
+	Amount                uint64     `json:"amount"` // in Gwei
+	Signature             [96]byte   `json:"signature"`
+	Index                 uint64     `json:"index"`
+}
+
+// WithdrawalRequest represents an EIP-7002 withdrawal request triggered
+// from the execution layer's withdrawal request contract.
+type WithdrawalRequest struct {
+	SourceAddress   types.Address `json:"sourceAddress"`
+	ValidatorPubkey [48]byte      `json:"validatorPubkey"`
+	Amount          uint64        `json:"amount"` // in Gwei, 0 = full exit
+}
+
+// ConsolidationRequest represents an EIP-7251 consolidation request that
+// merges one validator's stake into another.
+type ConsolidationRequest struct {
+	SourceAddress types.Address `json:"sourceAddress"`
+	SourcePubkey  [48]byte      `json:"sourcePubkey"`
+	TargetPubkey  [48]byte      `json:"targetPubkey"`
+}
+
+// ExecutionRequestsV4 holds categorized execution requests for Prague.
+type ExecutionRequestsV4 struct {
+	Deposits       []DepositRequest       `json:"deposits"`
+	Withdrawals    []WithdrawalRequest    `json:"withdrawals"`
+	Consolidations []ConsolidationRequest `json:"consolidations"`
+}
+
+// GetPayloadV4Result extends the V3 result with execution requests.
+type GetPayloadV4Result struct {
+	ExecutionPayload  *payload.ExecutionPayloadV3 `json:"executionPayload"`
+	BlockValue        *big.Int                    `json:"blockValue"`
+	BlobsBundle       *payload.BlobsBundleV1      `json:"blobsBundle"`
+	ShouldOverride    bool                        `json:"shouldOverrideBuilder"`
+	ExecutionRequests [][]byte                    `json:"executionRequests"`
+}
+
+// ValidateExecutionRequests checks that the execution requests byte slices
+// are well-formed: each starts with a valid type byte, the list is sorted
+// by type in ascending order, and no type appears more than once.
+func ValidateExecutionRequests(requests [][]byte) error {
+	if requests == nil {
+		return ErrV4MissingRequests
+	}
+
+	seenTypes := make(map[byte]bool)
+	lastType := byte(0)
+
+	for i, req := range requests {
+		if len(req) < 1 {
+			return fmt.Errorf("%w: empty request at index %d", ErrV4RequestTypeMismatch, i)
+		}
+
+		reqType := req[0]
+
+		// Validate known types.
+		switch reqType {
+		case DepositRequestType:
+			if err := validateDepositRequestPayload(req[1:]); err != nil {
+				return err
+			}
+		case WithdrawalRequestType:
+			if err := validateWithdrawalRequestPayload(req[1:]); err != nil {
+				return err
+			}
+		case ConsolidationRequestType:
+			if err := validateConsolidationRequestPayload(req[1:]); err != nil {
+				return err
+			}
+		default:
+			// Unknown request types are accepted but not validated.
+		}
+
+		// Check ascending order.
+		if i > 0 && reqType < lastType {
+			return fmt.Errorf("%w: type 0x%02x at index %d after 0x%02x",
+				ErrV4InvalidRequestOrder, reqType, i, lastType)
+		}
+
+		// Check for duplicates.
+		if seenTypes[reqType] {
+			return fmt.Errorf("%w: type 0x%02x at index %d",
+				ErrV4DuplicateRequestType, reqType, i)
+		}
+		seenTypes[reqType] = true
+		lastType = reqType
+	}
+
+	return nil
+}
+
+// validateDepositRequestPayload checks a deposit request payload size.
+func validateDepositRequestPayload(p []byte) error {
+	if len(p) == 0 {
+		return nil // empty deposit list is valid
+	}
+	if len(p)%DepositRequestSize != 0 {
+		return fmt.Errorf("%w: deposit payload length %d not a multiple of %d",
+			ErrV4RequestTooLarge, len(p), DepositRequestSize)
+	}
+	count := len(p) / DepositRequestSize
+	if count > MaxDepositRequests {
+		return fmt.Errorf("%w: %d deposits exceeds maximum %d",
+			ErrV4RequestTooLarge, count, MaxDepositRequests)
+	}
+	return nil
+}
+
+// validateWithdrawalRequestPayload checks a withdrawal request payload size.
+func validateWithdrawalRequestPayload(p []byte) error {
+	if len(p) == 0 {
+		return nil
+	}
+	if len(p)%WithdrawalRequestSize != 0 {
+		return fmt.Errorf("%w: withdrawal payload length %d not a multiple of %d",
+			ErrV4RequestTooLarge, len(p), WithdrawalRequestSize)
+	}
+	count := len(p) / WithdrawalRequestSize
+	if count > MaxWithdrawalRequests {
+		return fmt.Errorf("%w: %d withdrawal requests exceeds maximum %d",
+			ErrV4RequestTooLarge, count, MaxWithdrawalRequests)
+	}
+	return nil
+}
+
+// validateConsolidationRequestPayload checks a consolidation request payload size.
+func validateConsolidationRequestPayload(p []byte) error {
+	if len(p) == 0 {
+		return nil
+	}
+	if len(p)%ConsolidationRequestSize != 0 {
+		return fmt.Errorf("%w: consolidation payload length %d not a multiple of %d",
+			ErrV4RequestTooLarge, len(p), ConsolidationRequestSize)
+	}
+	count := len(p) / ConsolidationRequestSize
+	if count > MaxConsolidationRequests {
+		return fmt.Errorf("%w: %d consolidation requests exceeds maximum %d",
+			ErrV4RequestTooLarge, count, MaxConsolidationRequests)
+	}
+	return nil
+}
+
+// DecodeDepositRequests parses deposit request objects from the raw bytes.
+func DecodeDepositRequests(p []byte) ([]DepositRequest, error) {
+	if len(p) == 0 {
+		return nil, nil
+	}
+	if len(p)%DepositRequestSize != 0 {
+		return nil, fmt.Errorf("deposit payload length %d not a multiple of %d",
+			len(p), DepositRequestSize)
+	}
+
+	count := len(p) / DepositRequestSize
+	deposits := make([]DepositRequest, count)
+
+	for i := 0; i < count; i++ {
+		offset := i * DepositRequestSize
+		chunk := p[offset : offset+DepositRequestSize]
+
+		copy(deposits[i].Pubkey[:], chunk[0:48])
+		copy(deposits[i].WithdrawalCredentials[:], chunk[48:80])
+		deposits[i].Amount = binary.LittleEndian.Uint64(chunk[80:88])
+		copy(deposits[i].Signature[:], chunk[88:184])
+		deposits[i].Index = binary.LittleEndian.Uint64(chunk[184:192])
+	}
+
+	return deposits, nil
+}
+
+// DecodeWithdrawalRequests parses withdrawal request objects from the raw bytes.
+func DecodeWithdrawalRequests(p []byte) ([]WithdrawalRequest, error) {
+	if len(p) == 0 {
+		return nil, nil
+	}
+	if len(p)%WithdrawalRequestSize != 0 {
+		return nil, fmt.Errorf("withdrawal payload length %d not a multiple of %d",
+			len(p), WithdrawalRequestSize)
+	}
+
+	count := len(p) / WithdrawalRequestSize
+	reqs := make([]WithdrawalRequest, count)
+
+	for i := 0; i < count; i++ {
+		offset := i * WithdrawalRequestSize
+		chunk := p[offset : offset+WithdrawalRequestSize]
+
+		copy(reqs[i].SourceAddress[:], chunk[0:20])
+		copy(reqs[i].ValidatorPubkey[:], chunk[20:68])
+		reqs[i].Amount = binary.LittleEndian.Uint64(chunk[68:76])
+	}
+
+	return reqs, nil
+}
+
+// DecodeConsolidationRequests parses consolidation request objects from raw bytes.
+func DecodeConsolidationRequests(p []byte) ([]ConsolidationRequest, error) {
+	if len(p) == 0 {
+		return nil, nil
+	}
+	if len(p)%ConsolidationRequestSize != 0 {
+		return nil, fmt.Errorf("consolidation payload length %d not a multiple of %d",
+			len(p), ConsolidationRequestSize)
+	}
+
+	count := len(p) / ConsolidationRequestSize
+	reqs := make([]ConsolidationRequest, count)
+
+	for i := 0; i < count; i++ {
+		offset := i * ConsolidationRequestSize
+		chunk := p[offset : offset+ConsolidationRequestSize]
+
+		copy(reqs[i].SourceAddress[:], chunk[0:20])
+		copy(reqs[i].SourcePubkey[:], chunk[20:68])
+		copy(reqs[i].TargetPubkey[:], chunk[68:116])
+	}
+
+	return reqs, nil
+}
+
+// EncodeDepositRequest serializes a deposit request to bytes.
+func EncodeDepositRequest(d *DepositRequest) []byte {
+	buf := make([]byte, DepositRequestSize)
+	copy(buf[0:48], d.Pubkey[:])
+	copy(buf[48:80], d.WithdrawalCredentials[:])
+	binary.LittleEndian.PutUint64(buf[80:88], d.Amount)
+	copy(buf[88:184], d.Signature[:])
+	binary.LittleEndian.PutUint64(buf[184:192], d.Index)
+	return buf
+}
+
+// EncodeWithdrawalRequest serializes a withdrawal request to bytes.
+func EncodeWithdrawalRequest(w *WithdrawalRequest) []byte {
+	buf := make([]byte, WithdrawalRequestSize)
+	copy(buf[0:20], w.SourceAddress[:])
+	copy(buf[20:68], w.ValidatorPubkey[:])
+	binary.LittleEndian.PutUint64(buf[68:76], w.Amount)
+	return buf
+}
+
+// EncodeConsolidationRequest serializes a consolidation request to bytes.
+func EncodeConsolidationRequest(c *ConsolidationRequest) []byte {
+	buf := make([]byte, ConsolidationRequestSize)
+	copy(buf[0:20], c.SourceAddress[:])
+	copy(buf[20:68], c.SourcePubkey[:])
+	copy(buf[68:116], c.TargetPubkey[:])
+	return buf
+}
+
+// GetPayloadV4 retrieves a previously built Prague payload and returns
+// it along with execution requests and block value.
+func (v4 *EngV4) GetPayloadV4(payloadID payload.PayloadID) (*GetPayloadV4Result, error) {
+	resp, err := v4.backend.GetPayloadV4ByID(payloadID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate the fork.
+	if resp.ExecutionPayload != nil && !v4.backend.IsPrague(resp.ExecutionPayload.Timestamp) {
+		return nil, ErrUnsupportedFork
+	}
+
+	return &GetPayloadV4Result{
+		ExecutionPayload:  resp.ExecutionPayload,
+		BlockValue:        resp.BlockValue,
+		BlobsBundle:       resp.BlobsBundle,
+		ShouldOverride:    resp.Override,
+		ExecutionRequests: resp.ExecutionRequests,
+	}, nil
+}
+
+// computePayloadBlockHash computes the expected block hash from the payload
+// fields. This is a simplified hash computation for validation purposes.
+func computePayloadBlockHash(p *payload.ExecutionPayloadV3) types.Hash {
+	var buf []byte
+
+	buf = append(buf, p.ParentHash[:]...)
+	buf = append(buf, p.StateRoot[:]...)
+	buf = append(buf, p.ReceiptsRoot[:]...)
+	buf = append(buf, p.PrevRandao[:]...)
+
+	var numBuf [8]byte
+	binary.BigEndian.PutUint64(numBuf[:], p.BlockNumber)
+	buf = append(buf, numBuf[:]...)
+
+	binary.BigEndian.PutUint64(numBuf[:], p.Timestamp)
+	buf = append(buf, numBuf[:]...)
+
+	binary.BigEndian.PutUint64(numBuf[:], p.GasLimit)
+	buf = append(buf, numBuf[:]...)
+
+	binary.BigEndian.PutUint64(numBuf[:], p.GasUsed)
+	buf = append(buf, numBuf[:]...)
+
+	if p.BaseFeePerGas != nil {
+		buf = append(buf, p.BaseFeePerGas.Bytes()...)
+	}
+
+	buf = append(buf, p.FeeRecipient[:]...)
+	buf = append(buf, p.ExtraData...)
+	buf = append(buf, p.LogsBloom[:]...)
+
+	for _, txBytes := range p.Transactions {
+		buf = append(buf, txBytes...)
+	}
+
+	return crypto.Keccak256Hash(buf)
+}
+
+// BuildExecutionRequestsList constructs the ordered execution requests
+// byte slice list from individual request sets. Each entry is prefixed
+// with its type byte.
+func BuildExecutionRequestsList(
+	deposits []DepositRequest,
+	withdrawals []WithdrawalRequest,
+	consolidations []ConsolidationRequest,
+) [][]byte {
+	var result [][]byte
+
+	// Type 0x00: Deposits.
+	if len(deposits) > 0 {
+		var p []byte
+		for i := range deposits {
+			p = append(p, EncodeDepositRequest(&deposits[i])...)
+		}
+		result = append(result, append([]byte{DepositRequestType}, p...))
+	}
+
+	// Type 0x01: Withdrawal requests.
+	if len(withdrawals) > 0 {
+		var p []byte
+		for i := range withdrawals {
+			p = append(p, EncodeWithdrawalRequest(&withdrawals[i])...)
+		}
+		result = append(result, append([]byte{WithdrawalRequestType}, p...))
+	}
+
+	// Type 0x02: Consolidation requests.
+	if len(consolidations) > 0 {
+		var p []byte
+		for i := range consolidations {
+			p = append(p, EncodeConsolidationRequest(&consolidations[i])...)
+		}
+		result = append(result, append([]byte{ConsolidationRequestType}, p...))
+	}
+
+	return result
+}
+
+// ExecutionRequestsHash computes the hash of the execution requests list.
+// This is used for inclusion in the block header (EIP-7685).
+func ExecutionRequestsHash(requests [][]byte) types.Hash {
+	if len(requests) == 0 {
+		return types.Hash{}
+	}
+	var combined []byte
+	for _, req := range requests {
+		combined = append(combined, req...)
+	}
+	return crypto.Keccak256Hash(combined)
+}
+
+// ClassifyExecutionRequests separates raw request byte slices into typed
+// request structures by their type prefix byte.
+func ClassifyExecutionRequests(requests [][]byte) (*ExecutionRequestsV4, error) {
+	result := &ExecutionRequestsV4{}
+
+	for i, req := range requests {
+		if len(req) < 1 {
+			return nil, fmt.Errorf("empty request at index %d", i)
+		}
+
+		reqType := req[0]
+		p := req[1:]
+
+		switch reqType {
+		case DepositRequestType:
+			deposits, err := DecodeDepositRequests(p)
+			if err != nil {
+				return nil, fmt.Errorf("deposit decode: %w", err)
+			}
+			result.Deposits = append(result.Deposits, deposits...)
+
+		case WithdrawalRequestType:
+			wReqs, err := DecodeWithdrawalRequests(p)
+			if err != nil {
+				return nil, fmt.Errorf("withdrawal decode: %w", err)
+			}
+			result.Withdrawals = append(result.Withdrawals, wReqs...)
+
+		case ConsolidationRequestType:
+			cReqs, err := DecodeConsolidationRequests(p)
+			if err != nil {
+				return nil, fmt.Errorf("consolidation decode: %w", err)
+			}
+			result.Consolidations = append(result.Consolidations, cReqs...)
+
+		default:
+			// Unknown request types are silently skipped.
+		}
+	}
+
+	return result, nil
+}
