@@ -17,6 +17,7 @@ import (
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/das"
 	"github.com/eth2030/eth2030/epbs"
+	epbsauction "github.com/eth2030/eth2030/epbs/auction"
 	"github.com/eth2030/eth2030/focil"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/txpool"
@@ -59,7 +60,7 @@ func TestE2E_Roadmap_GlamsterdamRepricing(t *testing.T) {
 // TestE2E_Roadmap_EPBSBuilderAuction tests builder bid submission, auction
 // winner selection, and bid ordering.
 func TestE2E_Roadmap_EPBSBuilderAuction(t *testing.T) {
-	auction := epbs.NewPayloadAuction()
+	auction := epbsauction.NewPayloadAuction()
 	slot := uint64(100)
 
 	bid1 := e2e.MakeBuilderBid(slot, 5000, 1)
