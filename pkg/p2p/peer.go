@@ -18,12 +18,6 @@ var (
 	ErrPeerNotRegistered = errors.New("p2p: peer not registered")
 )
 
-// Cap represents a peer capability (protocol name and version).
-type Cap struct {
-	Name    string
-	Version uint
-}
-
 // Peer represents a connected remote node in the eth protocol.
 type Peer struct {
 	id         string     // Unique peer identifier (e.g., enode ID).

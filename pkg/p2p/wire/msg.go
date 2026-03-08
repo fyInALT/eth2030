@@ -1,4 +1,4 @@
-package p2p
+package wire
 
 import (
 	"errors"
@@ -82,7 +82,7 @@ func (p *MsgPipeEnd) WriteMsg(msg Msg) error {
 	case p.send <- msg:
 		return nil
 	case <-p.done:
-		return errors.New("p2p: pipe closed")
+		return errors.New("p2p/wire: pipe closed")
 	}
 }
 

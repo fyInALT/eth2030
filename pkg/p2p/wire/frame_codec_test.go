@@ -1,8 +1,7 @@
-package p2p
+package wire
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"net"
 	"sync"
@@ -526,4 +525,3 @@ func TestFrameCodec_ConcurrentReadWrite(t *testing.T) {
 
 // Ensure imports are used.
 var _ = fmt.Sprintf
-var _ = sha256.Sum256

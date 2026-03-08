@@ -64,6 +64,9 @@ type Config struct {
 	BootstrapNodes string
 }
 
+// baseProtocolVersion is the devp2p hello protocol version.
+const baseProtocolVersion = 5
+
 // Protocol represents a sub-protocol that runs on top of the devp2p connection.
 type Protocol struct {
 	Name    string
@@ -276,7 +279,7 @@ func (srv *Server) setupConn(ct ConnTransport, dialed bool) {
 
 	// Optionally wrap with RLPx encryption.
 	if srv.config.EnableRLPx {
-		rlpx := NewRLPxTransport(ct.(*FrameConnTransport).FrameTransport.conn)
+		rlpx := NewRLPxTransport(ct.(*FrameConnTransport).FrameTransport.Conn())
 		if err := rlpx.Handshake(dialed); err != nil {
 			ct.Close()
 			return

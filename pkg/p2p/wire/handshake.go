@@ -1,4 +1,4 @@
-package p2p
+package wire
 
 import (
 	"encoding/binary"
@@ -16,20 +16,20 @@ const (
 	PongMsg       = 0x83
 )
 
-// Handshake errors.
-var (
-	ErrHandshakeTimeout    = errors.New("p2p: handshake timeout")
-	ErrIncompatibleVersion = errors.New("p2p: incompatible protocol version")
-	ErrNoMatchingCaps      = errors.New("p2p: no matching capabilities")
-)
-
 // devp2p base protocol version. We implement v5 which is used by all modern
 // Ethereum clients since the Constantinople fork.
 const baseProtocolVersion = 5
 
+// Handshake errors.
+var (
+	ErrHandshakeTimeout    = errors.New("p2p/wire: handshake timeout")
+	ErrIncompatibleVersion = errors.New("p2p/wire: incompatible protocol version")
+	ErrNoMatchingCaps      = errors.New("p2p/wire: no matching capabilities")
+)
+
 // HelloPacket is the devp2p hello message exchanged during the capability
 // handshake. Each side advertises its client identity and supported
-// sub-protocol capabilities. The format mirrors go-ethereum's p2p.protoHandshake.
+// sub-protocol capabilities.
 type HelloPacket struct {
 	Version    uint64 // devp2p base protocol version (5).
 	Name       string // Client identity string (e.g. "ETH2030/v0.1.0").
@@ -39,7 +39,6 @@ type HelloPacket struct {
 }
 
 // EncodeHello serializes a HelloPacket into a wire-format byte slice.
-// Wire format: [version:8][nameLen:2][name][capCount:2]{[capNameLen:1][capName][capVersion:4]}*[listenPort:8][idLen:2][id]
 func EncodeHello(h *HelloPacket) []byte {
 	// Pre-calculate size.
 	size := 8 + 2 + len(h.Name) // version + nameLen + name
@@ -89,7 +88,7 @@ func EncodeHello(h *HelloPacket) []byte {
 // DecodeHello deserializes a HelloPacket from wire-format bytes.
 func DecodeHello(data []byte) (*HelloPacket, error) {
 	if len(data) < 8+2 {
-		return nil, fmt.Errorf("p2p: hello packet too short")
+		return nil, fmt.Errorf("p2p/wire: hello packet too short")
 	}
 	h := &HelloPacket{}
 	off := 0
@@ -100,31 +99,31 @@ func DecodeHello(data []byte) (*HelloPacket, error) {
 
 	// Name.
 	if off+2 > len(data) {
-		return nil, fmt.Errorf("p2p: hello packet truncated at name length")
+		return nil, fmt.Errorf("p2p/wire: hello packet truncated at name length")
 	}
 	nameLen := int(binary.BigEndian.Uint16(data[off:]))
 	off += 2
 	if off+nameLen > len(data) {
-		return nil, fmt.Errorf("p2p: hello packet truncated at name")
+		return nil, fmt.Errorf("p2p/wire: hello packet truncated at name")
 	}
 	h.Name = string(data[off : off+nameLen])
 	off += nameLen
 
 	// Caps.
 	if off+2 > len(data) {
-		return nil, fmt.Errorf("p2p: hello packet truncated at cap count")
+		return nil, fmt.Errorf("p2p/wire: hello packet truncated at cap count")
 	}
 	capCount := int(binary.BigEndian.Uint16(data[off:]))
 	off += 2
 	h.Caps = make([]Cap, 0, capCount)
 	for i := 0; i < capCount; i++ {
 		if off+1 > len(data) {
-			return nil, fmt.Errorf("p2p: hello packet truncated at cap %d name length", i)
+			return nil, fmt.Errorf("p2p/wire: hello packet truncated at cap %d name length", i)
 		}
 		cnLen := int(data[off])
 		off++
 		if off+cnLen+4 > len(data) {
-			return nil, fmt.Errorf("p2p: hello packet truncated at cap %d", i)
+			return nil, fmt.Errorf("p2p/wire: hello packet truncated at cap %d", i)
 		}
 		name := string(data[off : off+cnLen])
 		off += cnLen
@@ -135,19 +134,19 @@ func DecodeHello(data []byte) (*HelloPacket, error) {
 
 	// ListenPort.
 	if off+8 > len(data) {
-		return nil, fmt.Errorf("p2p: hello packet truncated at listen port")
+		return nil, fmt.Errorf("p2p/wire: hello packet truncated at listen port")
 	}
 	h.ListenPort = binary.BigEndian.Uint64(data[off:])
 	off += 8
 
 	// ID.
 	if off+2 > len(data) {
-		return nil, fmt.Errorf("p2p: hello packet truncated at id length")
+		return nil, fmt.Errorf("p2p/wire: hello packet truncated at id length")
 	}
 	idLen := int(binary.BigEndian.Uint16(data[off:]))
 	off += 2
 	if off+idLen > len(data) {
-		return nil, fmt.Errorf("p2p: hello packet truncated at id")
+		return nil, fmt.Errorf("p2p/wire: hello packet truncated at id")
 	}
 	h.ID = string(data[off : off+idLen])
 
@@ -191,10 +190,8 @@ func (r DisconnectReason) String() string {
 
 // PerformHandshake exchanges hello messages with the remote peer over the
 // given transport. It sends our hello and reads the remote hello concurrently.
-// On success, it returns the remote HelloPacket. On failure, it sends a
-// disconnect message with an appropriate reason.
+// On success, it returns the remote HelloPacket.
 func PerformHandshake(tr Transport, local *HelloPacket) (*HelloPacket, error) {
-	// Send and receive concurrently to avoid deadlock on synchronous transports.
 	type result struct {
 		hello *HelloPacket
 		err   error
@@ -215,7 +212,7 @@ func PerformHandshake(tr Transport, local *HelloPacket) (*HelloPacket, error) {
 	go func() {
 		msg, err := tr.ReadMsg()
 		if err != nil {
-			recvCh <- result{nil, fmt.Errorf("p2p: handshake read: %w", err)}
+			recvCh <- result{nil, fmt.Errorf("p2p/wire: handshake read: %w", err)}
 			return
 		}
 		if msg.Code == DisconnectMsg {
@@ -223,11 +220,11 @@ func PerformHandshake(tr Transport, local *HelloPacket) (*HelloPacket, error) {
 			if len(msg.Payload) > 0 {
 				reason = DisconnectReason(msg.Payload[0])
 			}
-			recvCh <- result{nil, fmt.Errorf("p2p: remote disconnected during handshake: %s", reason)}
+			recvCh <- result{nil, fmt.Errorf("p2p/wire: remote disconnected during handshake: %s", reason)}
 			return
 		}
 		if msg.Code != HelloMsg {
-			recvCh <- result{nil, fmt.Errorf("p2p: expected hello (0x%02x), got 0x%02x", HelloMsg, msg.Code)}
+			recvCh <- result{nil, fmt.Errorf("p2p/wire: expected hello (0x%02x), got 0x%02x", HelloMsg, msg.Code)}
 			return
 		}
 		remote, err := DecodeHello(msg.Payload)
@@ -238,24 +235,20 @@ func PerformHandshake(tr Transport, local *HelloPacket) (*HelloPacket, error) {
 		recvCh <- result{remote, nil}
 	}()
 
-	// Wait for send to complete.
 	if err := <-sendCh; err != nil {
-		return nil, fmt.Errorf("p2p: handshake write: %w", err)
+		return nil, fmt.Errorf("p2p/wire: handshake write: %w", err)
 	}
 
-	// Wait for receive.
 	res := <-recvCh
 	if res.err != nil {
 		return nil, res.err
 	}
 
-	// Validate version compatibility.
 	if res.hello.Version < baseProtocolVersion {
 		sendDisconnect(tr, DiscProtocolError)
 		return nil, fmt.Errorf("%w: remote=%d, local=%d", ErrIncompatibleVersion, res.hello.Version, baseProtocolVersion)
 	}
 
-	// Check for at least one matching capability.
 	if !hasMatchingCap(local.Caps, res.hello.Caps) {
 		sendDisconnect(tr, DiscUselessPeer)
 		return nil, ErrNoMatchingCaps
@@ -265,8 +258,6 @@ func PerformHandshake(tr Transport, local *HelloPacket) (*HelloPacket, error) {
 }
 
 // sendDisconnect sends a disconnect message with the given reason.
-// The write is performed in a goroutine to avoid blocking on synchronous
-// transports (e.g., net.Pipe) when the remote side is no longer reading.
 func sendDisconnect(tr Transport, reason DisconnectReason) {
 	go func() {
 		_ = tr.WriteMsg(Msg{
@@ -277,8 +268,7 @@ func sendDisconnect(tr Transport, reason DisconnectReason) {
 	}()
 }
 
-// hasMatchingCap returns true if local and remote share at least one capability
-// with the same name and version.
+// hasMatchingCap returns true if local and remote share at least one capability.
 func hasMatchingCap(local, remote []Cap) bool {
 	for _, lc := range local {
 		for _, rc := range remote {

@@ -1,20 +1,11 @@
-package p2p
+package wire
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
-)
-
-var (
-	// ErrTransportClosed is returned when reading/writing on a closed transport.
-	ErrTransportClosed = errors.New("p2p: transport closed")
-
-	// ErrFrameTooLarge is returned when a frame exceeds MaxMessageSize.
-	ErrFrameTooLarge = errors.New("p2p: frame too large")
 )
 
 // Transport is the interface for reading and writing devp2p messages on a connection.
@@ -55,7 +46,7 @@ type TCPDialer struct{}
 func (d *TCPDialer) Dial(addr string) (ConnTransport, error) {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("p2p: dial error: %w", err)
+		return nil, fmt.Errorf("p2p/wire: dial error: %w", err)
 	}
 	return NewFrameConnTransport(conn), nil
 }
@@ -123,6 +114,9 @@ func NewFrameTransport(conn net.Conn) *FrameTransport {
 	return &FrameTransport{conn: conn}
 }
 
+// Conn returns the underlying net.Conn.
+func (t *FrameTransport) Conn() net.Conn { return t.conn }
+
 // ReadMsg reads a single framed message from the connection.
 func (t *FrameTransport) ReadMsg() (Msg, error) {
 	t.rmu.Lock()
@@ -135,7 +129,7 @@ func (t *FrameTransport) ReadMsg() (Msg, error) {
 	}
 	frameLen := binary.BigEndian.Uint32(lenBuf[:])
 	if frameLen == 0 {
-		return Msg{}, errors.New("p2p: empty frame")
+		return Msg{}, fmt.Errorf("p2p/wire: empty frame")
 	}
 	if frameLen > MaxMessageSize+1 {
 		return Msg{}, fmt.Errorf("%w: %d bytes", ErrFrameTooLarge, frameLen)

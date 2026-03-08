@@ -1,4 +1,4 @@
-package p2p
+package wire
 
 import (
 	"bytes"
@@ -27,10 +27,10 @@ const (
 )
 
 var (
-	ErrSnappyDecompressTooLarge = errors.New("p2p: snappy decompressed data too large")
-	ErrCodecClosed              = errors.New("p2p: frame codec closed")
-	ErrPongTimeout              = errors.New("p2p: pong timeout")
-	ErrUnknownCapability        = errors.New("p2p: unknown capability for message code")
+	ErrSnappyDecompressTooLarge = errors.New("p2p/wire: snappy decompressed data too large")
+	ErrCodecClosed              = errors.New("p2p/wire: frame codec closed")
+	ErrPongTimeout              = errors.New("p2p/wire: pong timeout")
+	ErrUnknownCapability        = errors.New("p2p/wire: unknown capability for message code")
 )
 
 // FrameCodec implements the RLPx frame codec with AES-256-CTR encryption,
@@ -73,10 +73,10 @@ type FrameCodecConfig struct {
 // NewFrameCodec creates a new RLPx frame codec. Keys must be 32+ bytes.
 func NewFrameCodec(conn net.Conn, cfg FrameCodecConfig) (*FrameCodec, error) {
 	if len(cfg.AESKey) < 32 {
-		return nil, errors.New("p2p: AES key must be at least 32 bytes")
+		return nil, errors.New("p2p/wire: AES key must be at least 32 bytes")
 	}
 	if len(cfg.MACKey) < 32 {
-		return nil, errors.New("p2p: MAC key must be at least 32 bytes")
+		return nil, errors.New("p2p/wire: MAC key must be at least 32 bytes")
 	}
 
 	encKey := deriveCodecKey(cfg.AESKey, []byte("frame-enc"))
@@ -91,11 +91,11 @@ func NewFrameCodec(conn net.Conn, cfg FrameCodecConfig) (*FrameCodec, error) {
 
 	encBlock, err := aes.NewCipher(encKey[:32])
 	if err != nil {
-		return nil, fmt.Errorf("p2p: enc cipher: %w", err)
+		return nil, fmt.Errorf("p2p/wire: enc cipher: %w", err)
 	}
 	decBlock, err := aes.NewCipher(decKey[:32])
 	if err != nil {
-		return nil, fmt.Errorf("p2p: dec cipher: %w", err)
+		return nil, fmt.Errorf("p2p/wire: dec cipher: %w", err)
 	}
 
 	encIV := sha256Hash(encKey)[:aes.BlockSize]
@@ -118,15 +118,15 @@ func NewFrameCodec(conn net.Conn, cfg FrameCodecConfig) (*FrameCodec, error) {
 
 // computeCapOffsets assigns message code offsets after the base protocol (0x00-0x0F).
 func computeCapOffsets(caps []Cap) []capOffset {
-	const baseProtoLen = 16 // base protocol: codes 0x00-0x0F
+	const baseProtoLen = 16
 	offsets := make([]capOffset, 0, len(caps))
 	offset := uint64(baseProtoLen)
 	for _, c := range caps {
-		length := uint64(17) // default codes per capability
+		length := uint64(17)
 		if c.Name == "eth" {
-			length = 21 // eth/68 uses codes 0x00-0x14
+			length = 21
 		} else if c.Name == "snap" {
-			length = 8 // snap protocol uses codes 0x00-0x07
+			length = 8
 		}
 		offsets = append(offsets, capOffset{
 			Name:    c.Name,
@@ -140,7 +140,6 @@ func computeCapOffsets(caps []Cap) []capOffset {
 }
 
 // CapOffset returns the message code offset for the given capability name.
-// Returns 0, false if the capability is not found.
 func (fc *FrameCodec) CapOffset(name string) (uint64, bool) {
 	for _, co := range fc.capOffsets {
 		if co.Name == name {
@@ -191,6 +190,7 @@ func (fc *FrameCodec) WriteMsg(msg Msg) error {
 	fc.egressMAC.Reset()
 	fc.egressMAC.Write(encBody)
 	bodyMAC := fc.egressMAC.Sum(nil)[:codecMACSize]
+
 	var buf bytes.Buffer
 	buf.Write(encHeader[:])
 	buf.Write(headerMAC)
@@ -268,7 +268,7 @@ func (fc *FrameCodec) ReadMsg() (Msg, error) {
 	}
 
 	if len(body) == 0 {
-		return Msg{}, errors.New("p2p: empty codec frame")
+		return Msg{}, errors.New("p2p/wire: empty codec frame")
 	}
 
 	code := uint64(body[0])
@@ -297,6 +297,7 @@ func (fc *FrameCodec) SendDisconnect(reason DisconnectReason) error {
 
 // StartKeepalive starts the background ping/pong keepalive loop.
 func (fc *FrameCodec) StartKeepalive() { go fc.keepaliveLoop() }
+
 func (fc *FrameCodec) keepaliveLoop() {
 	ticker := time.NewTicker(keepaliveInterval)
 	defer ticker.Stop()
@@ -312,7 +313,6 @@ func (fc *FrameCodec) keepaliveLoop() {
 				fc.SendDisconnect(DiscNetworkError)
 				return
 			}
-			// Ignore error; if write fails, the read loop will catch it.
 			_ = fc.SendPing()
 
 		case <-fc.keepaliveDone:
@@ -340,11 +340,12 @@ func (fc *FrameCodec) Close() error {
 func (fc *FrameCodec) IsClosed() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.closed }
 
 // --- Helper functions ---
+
 func deriveCodecKey(material, tag []byte) []byte {
 	h := sha256.New()
 	h.Write(tag)
 	h.Write(material)
-	return h.Sum(nil) // 32 bytes
+	return h.Sum(nil)
 }
 
 func sha256Hash(data []byte) []byte {
@@ -372,7 +373,6 @@ func padTo16(data []byte) []byte {
 	return padded
 }
 
-// unpadFrom16 removes trailing zero bytes added as padding.
 func unpadFrom16(data []byte) []byte {
 	end := len(data)
 	for end > 1 && data[end-1] == 0 {
@@ -381,7 +381,6 @@ func unpadFrom16(data []byte) []byte {
 	return data[:end]
 }
 
-// --- Snappy compression (simplified varint-length + identity encoding) ---
 func snappyEncode(src []byte) []byte {
 	lenBuf := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutUvarint(lenBuf, uint64(len(src)))
@@ -397,14 +396,14 @@ func snappyDecode(src []byte, maxSize int) ([]byte, error) {
 	}
 	decodedLen, n := binary.Uvarint(src)
 	if n <= 0 {
-		return nil, errors.New("p2p: invalid snappy length")
+		return nil, errors.New("p2p/wire: invalid snappy length")
 	}
 	if int(decodedLen) > maxSize {
 		return nil, ErrSnappyDecompressTooLarge
 	}
 	data := src[n:]
 	if uint64(len(data)) != decodedLen {
-		return nil, fmt.Errorf("p2p: snappy length mismatch: header=%d actual=%d", decodedLen, len(data))
+		return nil, fmt.Errorf("p2p/wire: snappy length mismatch: header=%d actual=%d", decodedLen, len(data))
 	}
 	out := make([]byte, decodedLen)
 	copy(out, data)
@@ -429,7 +428,7 @@ func DeriveFrameKeys(sharedSecret, initiatorNonce, responderNonce []byte) (aesKe
 func GenerateNonce() ([32]byte, error) {
 	var nonce [32]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return nonce, fmt.Errorf("p2p: nonce generation: %w", err)
+		return nonce, fmt.Errorf("p2p/wire: nonce generation: %w", err)
 	}
 	return nonce, nil
 }
