@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/sync/downloader"
 )
 
 // --- Header chain validation edge cases ---
@@ -142,8 +143,8 @@ func TestAssembleBlocks_MoreBodiesThanHeaders(t *testing.T) {
 // --- HeaderFetcher extended tests ---
 
 func TestHeaderFetcher_DeliverErrorReported(t *testing.T) {
-	f := NewHeaderFetcher(192)
-	peer := PeerID("peer1")
+	f := downloader.NewHeaderFetcher(192)
+	peer := downloader.PeerID("peer1")
 	f.Request(peer, 1, 10)
 
 	// Deliver an error.
@@ -171,9 +172,9 @@ func TestHeaderFetcher_DeliverErrorReported(t *testing.T) {
 }
 
 func TestHeaderFetcher_DeliverErrorUnknownPeer(t *testing.T) {
-	f := NewHeaderFetcher(192)
+	f := downloader.NewHeaderFetcher(192)
 	// Delivering error for unknown peer should not panic.
-	f.DeliverError(PeerID("ghost"), errors.New("some error"))
+	f.DeliverError(downloader.PeerID("ghost"), errors.New("some error"))
 
 	// Should still produce a response (the implementation always sends to results).
 	select {
@@ -187,9 +188,9 @@ func TestHeaderFetcher_DeliverErrorUnknownPeer(t *testing.T) {
 }
 
 func TestHeaderFetcher_HasPending(t *testing.T) {
-	f := NewHeaderFetcher(192)
-	peer1 := PeerID("peer1")
-	peer2 := PeerID("peer2")
+	f := downloader.NewHeaderFetcher(192)
+	peer1 := downloader.PeerID("peer1")
+	peer2 := downloader.PeerID("peer2")
 
 	if f.HasPending(peer1) {
 		t.Fatal("should not have pending for peer1")
@@ -205,8 +206,8 @@ func TestHeaderFetcher_HasPending(t *testing.T) {
 }
 
 func TestHeaderFetcher_MaxBatchCapping(t *testing.T) {
-	f := NewHeaderFetcher(10)
-	peer := PeerID("peer1")
+	f := downloader.NewHeaderFetcher(10)
+	peer := downloader.PeerID("peer1")
 	f.Request(peer, 1, 1000)
 
 	// The request should be accepted but internally capped.
@@ -216,8 +217,8 @@ func TestHeaderFetcher_MaxBatchCapping(t *testing.T) {
 }
 
 func TestHeaderFetcher_MultiplePeers(t *testing.T) {
-	f := NewHeaderFetcher(192)
-	peers := []PeerID{"peer1", "peer2", "peer3"}
+	f := downloader.NewHeaderFetcher(192)
+	peers := []downloader.PeerID{"peer1", "peer2", "peer3"}
 
 	for i, p := range peers {
 		if err := f.Request(p, uint64(i*10+1), 10); err != nil {
@@ -242,8 +243,8 @@ func TestHeaderFetcher_MultiplePeers(t *testing.T) {
 // --- BodyFetcher extended tests ---
 
 func TestBodyFetcher_DuplicateRequest(t *testing.T) {
-	f := NewBodyFetcher(128)
-	peer := PeerID("peer1")
+	f := downloader.NewBodyFetcher(128)
+	peer := downloader.PeerID("peer1")
 
 	if err := f.Request(peer, 1, 5); err != nil {
 		t.Fatalf("first request: %v", err)
@@ -254,8 +255,8 @@ func TestBodyFetcher_DuplicateRequest(t *testing.T) {
 }
 
 func TestBodyFetcher_MaxBatchCapping(t *testing.T) {
-	f := NewBodyFetcher(10)
-	peer := PeerID("peer1")
+	f := downloader.NewBodyFetcher(10)
+	peer := downloader.PeerID("peer1")
 	if err := f.Request(peer, 1, 1000); err != nil {
 		t.Fatalf("Request: %v", err)
 	}
@@ -265,16 +266,16 @@ func TestBodyFetcher_MaxBatchCapping(t *testing.T) {
 }
 
 func TestBodyFetcher_DeliverUnknown(t *testing.T) {
-	f := NewBodyFetcher(128)
-	err := f.Deliver(PeerID("ghost"), nil)
+	f := downloader.NewBodyFetcher(128)
+	err := f.Deliver(downloader.PeerID("ghost"), nil)
 	if err == nil {
 		t.Fatal("deliver to unknown peer should fail")
 	}
 }
 
 func TestBodyFetcher_MultiplePeers(t *testing.T) {
-	f := NewBodyFetcher(128)
-	peers := []PeerID{"a", "b", "c"}
+	f := downloader.NewBodyFetcher(128)
+	peers := []downloader.PeerID{"a", "b", "c"}
 
 	for _, p := range peers {
 		f.Request(p, 1, 5)

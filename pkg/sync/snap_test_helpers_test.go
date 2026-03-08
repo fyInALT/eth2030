@@ -5,21 +5,21 @@ package sync
 
 import (
 	"bytes"
+	"math/big"
+	"sort"
 	gosync "sync"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
-
-	"math/big"
-	"sort"
+	"github.com/eth2030/eth2030/sync/snap"
 )
 
-// mockSnapPeer implements SnapPeer for testing.
+// mockSnapPeer implements snap.SnapPeer for testing.
 type mockSnapPeer struct {
 	mu       gosync.Mutex
 	id       string
-	accounts []AccountData
-	storage  map[types.Hash][]StorageData
+	accounts []snap.AccountData
+	storage  map[types.Hash][]snap.StorageData
 	codes    map[types.Hash][]byte
 	healData map[string][]byte
 
@@ -32,7 +32,7 @@ type mockSnapPeer struct {
 func newMockSnapPeer(id string) *mockSnapPeer {
 	return &mockSnapPeer{
 		id:       id,
-		storage:  make(map[types.Hash][]StorageData),
+		storage:  make(map[types.Hash][]snap.StorageData),
 		codes:    make(map[types.Hash][]byte),
 		healData: make(map[string][]byte),
 	}
@@ -40,53 +40,53 @@ func newMockSnapPeer(id string) *mockSnapPeer {
 
 func (m *mockSnapPeer) ID() string { return m.id }
 
-func (m *mockSnapPeer) RequestAccountRange(req AccountRangeRequest) (*AccountRangeResponse, error) {
+func (m *mockSnapPeer) RequestAccountRange(req snap.AccountRangeRequest) (*snap.AccountRangeResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.accountErr != nil {
 		return nil, m.accountErr
 	}
-	var result []AccountData
+	var result []snap.AccountData
 	for _, acct := range m.accounts {
 		if bytes.Compare(acct.Hash[:], req.Origin[:]) >= 0 &&
 			bytes.Compare(acct.Hash[:], req.Limit[:]) <= 0 {
 			result = append(result, acct)
 		}
-		if len(result) >= MaxAccountRange {
+		if len(result) >= snap.MaxAccountRange {
 			break
 		}
 	}
-	return &AccountRangeResponse{ID: req.ID, Accounts: result}, nil
+	return &snap.AccountRangeResponse{ID: req.ID, Accounts: result}, nil
 }
 
-func (m *mockSnapPeer) RequestStorageRange(req StorageRangeRequest) (*StorageRangeResponse, error) {
+func (m *mockSnapPeer) RequestStorageRange(req snap.StorageRangeRequest) (*snap.StorageRangeResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.storageErr != nil {
 		return nil, m.storageErr
 	}
-	var result []StorageData
+	var result []snap.StorageData
 	for _, acctHash := range req.Accounts {
 		for _, slot := range m.storage[acctHash] {
 			result = append(result, slot)
 		}
 	}
-	return &StorageRangeResponse{ID: req.ID, Slots: result}, nil
+	return &snap.StorageRangeResponse{ID: req.ID, Slots: result}, nil
 }
 
-func (m *mockSnapPeer) RequestBytecodes(req BytecodeRequest) (*BytecodeResponse, error) {
+func (m *mockSnapPeer) RequestBytecodes(req snap.BytecodeRequest) (*snap.BytecodeResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.bytecodeErr != nil {
 		return nil, m.bytecodeErr
 	}
-	var result []BytecodeData
+	var result []snap.BytecodeData
 	for _, hash := range req.Hashes {
 		if code, ok := m.codes[hash]; ok {
-			result = append(result, BytecodeData{Hash: hash, Code: code})
+			result = append(result, snap.BytecodeData{Hash: hash, Code: code})
 		}
 	}
-	return &BytecodeResponse{ID: req.ID, Codes: result}, nil
+	return &snap.BytecodeResponse{ID: req.ID, Codes: result}, nil
 }
 
 func (m *mockSnapPeer) RequestTrieNodes(root types.Hash, paths [][]byte) ([][]byte, error) {
@@ -102,10 +102,10 @@ func (m *mockSnapPeer) RequestTrieNodes(root types.Hash, paths [][]byte) ([][]by
 	return result, nil
 }
 
-// mockStateWriter implements StateWriter for testing.
+// mockStateWriter implements snap.StateWriter for testing.
 type mockStateWriter struct {
 	mu       gosync.Mutex
-	accounts map[types.Hash]AccountData
+	accounts map[types.Hash]snap.AccountData
 	storage  map[string][]byte
 	codes    map[types.Hash][]byte
 	nodes    map[string][]byte
@@ -117,14 +117,14 @@ type mockStateWriter struct {
 
 func newMockStateWriter() *mockStateWriter {
 	return &mockStateWriter{
-		accounts: make(map[types.Hash]AccountData),
+		accounts: make(map[types.Hash]snap.AccountData),
 		storage:  make(map[string][]byte),
 		codes:    make(map[types.Hash][]byte),
 		nodes:    make(map[string][]byte),
 	}
 }
 
-func (w *mockStateWriter) WriteAccount(hash types.Hash, data AccountData) error {
+func (w *mockStateWriter) WriteAccount(hash types.Hash, data snap.AccountData) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.accounts[hash] = data
@@ -180,21 +180,21 @@ func (w *mockStateWriter) MissingTrieNodes(_ types.Hash, limit int) [][]byte {
 	return w.missingPaths[:count]
 }
 
-// blockingSnapPeer is a SnapPeer that blocks until unblocked via blockCh.
+// blockingSnapPeer is a snap.SnapPeer that blocks until unblocked via blockCh.
 type blockingSnapPeer struct {
 	inner   *mockSnapPeer
 	blockCh chan struct{}
 }
 
 func (p *blockingSnapPeer) ID() string { return p.inner.ID() }
-func (p *blockingSnapPeer) RequestAccountRange(req AccountRangeRequest) (*AccountRangeResponse, error) {
+func (p *blockingSnapPeer) RequestAccountRange(req snap.AccountRangeRequest) (*snap.AccountRangeResponse, error) {
 	<-p.blockCh
 	return p.inner.RequestAccountRange(req)
 }
-func (p *blockingSnapPeer) RequestStorageRange(req StorageRangeRequest) (*StorageRangeResponse, error) {
+func (p *blockingSnapPeer) RequestStorageRange(req snap.StorageRangeRequest) (*snap.StorageRangeResponse, error) {
 	return p.inner.RequestStorageRange(req)
 }
-func (p *blockingSnapPeer) RequestBytecodes(req BytecodeRequest) (*BytecodeResponse, error) {
+func (p *blockingSnapPeer) RequestBytecodes(req snap.BytecodeRequest) (*snap.BytecodeResponse, error) {
 	return p.inner.RequestBytecodes(req)
 }
 func (p *blockingSnapPeer) RequestTrieNodes(root types.Hash, paths [][]byte) ([][]byte, error) {
@@ -202,15 +202,15 @@ func (p *blockingSnapPeer) RequestTrieNodes(root types.Hash, paths [][]byte) ([]
 }
 
 // makeTestAccounts creates n test accounts sorted by hash.
-func makeTestAccounts(n int) []AccountData { return makeSnapTestAccounts(n) }
+func makeTestAccounts(n int) []snap.AccountData { return makeSnapTestAccounts(n) }
 
 // makeSnapTestAccounts creates n test accounts sorted by hash.
-func makeSnapTestAccounts(n int) []AccountData {
-	accounts := make([]AccountData, n)
+func makeSnapTestAccounts(n int) []snap.AccountData {
+	accounts := make([]snap.AccountData, n)
 	for i := 0; i < n; i++ {
 		hashInput := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
 		hash := types.BytesToHash(crypto.Keccak256(hashInput))
-		accounts[i] = AccountData{
+		accounts[i] = snap.AccountData{
 			Hash:     hash,
 			Nonce:    uint64(i),
 			Balance:  big.NewInt(int64(1000 * (i + 1))),
