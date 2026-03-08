@@ -13,7 +13,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/das"
-	"github.com/eth2030/eth2030/engine"
+	"github.com/eth2030/eth2030/engine/distbuilder"
 	"github.com/eth2030/eth2030/rollup"
 	"github.com/eth2030/eth2030/txpool"
 )
@@ -189,8 +189,8 @@ func ExecuteAttackRecovery(reorgDepth, finalizedEpoch, currentEpoch uint64) (
 // ---------------------------------------------------------------------------
 
 // MakeBuilderBidForSlot creates a builder bid with the given parameters.
-func MakeBuilderBidForSlot(builderID types.Hash, slot, value uint64) *engine.BuilderBid {
-	return &engine.BuilderBid{
+func MakeBuilderBidForSlot(builderID types.Hash, slot, value uint64) *distbuilder.BuilderBid {
+	return &distbuilder.BuilderBid{
 		BuilderID: builderID,
 		Slot:      slot,
 		BlockHash: crypto.Keccak256Hash(builderID[:], []byte{byte(slot)}),
@@ -200,10 +200,10 @@ func MakeBuilderBidForSlot(builderID types.Hash, slot, value uint64) *engine.Bui
 }
 
 // MakeBuilderNetwork creates a BuilderNetwork with pre-registered builders.
-func MakeBuilderNetwork(numBuilders int) *engine.BuilderNetwork {
-	cfg := engine.DefaultBuilderConfig()
+func MakeBuilderNetwork(numBuilders int) *distbuilder.BuilderNetwork {
+	cfg := distbuilder.DefaultBuilderConfig()
 	cfg.MaxBuilders = numBuilders + 10
-	bn := engine.NewBuilderNetwork(cfg)
+	bn := distbuilder.NewBuilderNetwork(cfg)
 	for i := 0; i < numBuilders; i++ {
 		id := DeterministicHash(uint64(i + 100))
 		addr := DeterministicAddress(byte(i + 1))

@@ -1,4 +1,4 @@
-package engine
+package requests
 
 import (
 	"bytes"
@@ -33,9 +33,9 @@ func makeConsolidationData(count int) []byte {
 }
 
 func TestParseExecutionRequests_Valid(t *testing.T) {
-	deposit := append([]byte{DepositRequestType}, makeDepositData(1)...)
-	withdrawal := append([]byte{WithdrawalRequestType}, makeWithdrawalReqData(1)...)
-	consolidation := append([]byte{ConsolidationRequestType}, makeConsolidationData(1)...)
+	deposit := append([]byte{ExecReqDepositType}, makeDepositData(1)...)
+	withdrawal := append([]byte{ExecReqWithdrawalType}, makeWithdrawalReqData(1)...)
+	consolidation := append([]byte{ExecReqConsolidationType}, makeConsolidationData(1)...)
 
 	raw := [][]byte{deposit, withdrawal, consolidation}
 	reqs, err := ParseExecutionRequests(raw)
@@ -45,13 +45,13 @@ func TestParseExecutionRequests_Valid(t *testing.T) {
 	if len(reqs) != 3 {
 		t.Fatalf("expected 3 requests, got %d", len(reqs))
 	}
-	if reqs[0].Type != DepositRequestType {
+	if reqs[0].Type != ExecReqDepositType {
 		t.Errorf("expected deposit type, got 0x%02x", reqs[0].Type)
 	}
-	if reqs[1].Type != WithdrawalRequestType {
+	if reqs[1].Type != ExecReqWithdrawalType {
 		t.Errorf("expected withdrawal type, got 0x%02x", reqs[1].Type)
 	}
-	if reqs[2].Type != ConsolidationRequestType {
+	if reqs[2].Type != ExecReqConsolidationType {
 		t.Errorf("expected consolidation type, got 0x%02x", reqs[2].Type)
 	}
 	if len(reqs[0].Data) != DepositRequestDataLen {
@@ -94,9 +94,9 @@ func TestParseExecutionRequests_EmptyList(t *testing.T) {
 
 func TestValidateExecutionRequestList_Valid(t *testing.T) {
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: makeDepositData(1)},
-		{Type: WithdrawalRequestType, Data: makeWithdrawalReqData(1)},
-		{Type: ConsolidationRequestType, Data: makeConsolidationData(1)},
+		{Type: ExecReqDepositType, Data: makeDepositData(1)},
+		{Type: ExecReqWithdrawalType, Data: makeWithdrawalReqData(1)},
+		{Type: ExecReqConsolidationType, Data: makeConsolidationData(1)},
 	}
 	if err := ValidateExecutionRequestList(reqs); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -117,8 +117,8 @@ func TestValidateExecutionRequestList_Nil(t *testing.T) {
 
 func TestValidateExecutionRequestList_NotAscending(t *testing.T) {
 	reqs := []*ExecutionRequest{
-		{Type: WithdrawalRequestType, Data: makeWithdrawalReqData(1)},
-		{Type: DepositRequestType, Data: makeDepositData(1)},
+		{Type: ExecReqWithdrawalType, Data: makeWithdrawalReqData(1)},
+		{Type: ExecReqDepositType, Data: makeDepositData(1)},
 	}
 	err := ValidateExecutionRequestList(reqs)
 	if err == nil {
@@ -128,8 +128,8 @@ func TestValidateExecutionRequestList_NotAscending(t *testing.T) {
 
 func TestValidateExecutionRequestList_DuplicateType(t *testing.T) {
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: makeDepositData(1)},
-		{Type: DepositRequestType, Data: makeDepositData(1)},
+		{Type: ExecReqDepositType, Data: makeDepositData(1)},
+		{Type: ExecReqDepositType, Data: makeDepositData(1)},
 	}
 	err := ValidateExecutionRequestList(reqs)
 	if err == nil {
@@ -150,7 +150,7 @@ func TestValidateExecutionRequestList_UnknownType(t *testing.T) {
 func TestValidateExecutionRequestList_InvalidDataLen(t *testing.T) {
 	// Deposit with wrong data length (not a multiple of 192).
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: []byte{1, 2, 3}},
+		{Type: ExecReqDepositType, Data: []byte{1, 2, 3}},
 	}
 	err := ValidateExecutionRequestList(reqs)
 	if err == nil {
@@ -160,7 +160,7 @@ func TestValidateExecutionRequestList_InvalidDataLen(t *testing.T) {
 
 func TestValidateExecutionRequestList_EmptyData(t *testing.T) {
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: []byte{}},
+		{Type: ExecReqDepositType, Data: []byte{}},
 	}
 	err := ValidateExecutionRequestList(reqs)
 	if err == nil {
@@ -171,7 +171,7 @@ func TestValidateExecutionRequestList_EmptyData(t *testing.T) {
 func TestValidateExecutionRequestList_TooMany(t *testing.T) {
 	// 17 items exceeds MaxExecutionRequestsPerType=16.
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: makeDepositData(17)},
+		{Type: ExecReqDepositType, Data: makeDepositData(17)},
 	}
 	err := ValidateExecutionRequestList(reqs)
 	if err == nil {
@@ -182,7 +182,7 @@ func TestValidateExecutionRequestList_TooMany(t *testing.T) {
 func TestValidateExecutionRequestList_MultipleItems(t *testing.T) {
 	// 3 deposit items should be valid.
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: makeDepositData(3)},
+		{Type: ExecReqDepositType, Data: makeDepositData(3)},
 	}
 	if err := ValidateExecutionRequestList(reqs); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -199,11 +199,11 @@ func TestValidateExecutionRequestList_NilEntry(t *testing.T) {
 
 func TestExecutionRequest_Encode(t *testing.T) {
 	data := makeDepositData(1)
-	req := &ExecutionRequest{Type: DepositRequestType, Data: data}
+	req := &ExecutionRequest{Type: ExecReqDepositType, Data: data}
 	encoded := req.Encode()
 
-	if encoded[0] != DepositRequestType {
-		t.Errorf("expected type 0x%02x, got 0x%02x", DepositRequestType, encoded[0])
+	if encoded[0] != ExecReqDepositType {
+		t.Errorf("expected type 0x%02x, got 0x%02x", ExecReqDepositType, encoded[0])
 	}
 	if !bytes.Equal(encoded[1:], data) {
 		t.Error("encoded data does not match original")
@@ -211,7 +211,7 @@ func TestExecutionRequest_Encode(t *testing.T) {
 }
 
 func TestExecutionRequestsHash_Empty(t *testing.T) {
-	h := ExecutionRequestsHash(nil)
+	h := ComputeExecutionRequestsHash(nil)
 	var zero [32]byte
 	if h != zero {
 		t.Errorf("expected zero hash for nil requests, got %x", h)
@@ -220,17 +220,17 @@ func TestExecutionRequestsHash_Empty(t *testing.T) {
 
 func TestExecutionRequestsHash_NonEmpty(t *testing.T) {
 	raw := [][]byte{
-		append([]byte{DepositRequestType}, makeDepositData(1)...),
-		append([]byte{WithdrawalRequestType}, makeWithdrawalReqData(1)...),
+		append([]byte{ExecReqDepositType}, makeDepositData(1)...),
+		append([]byte{ExecReqWithdrawalType}, makeWithdrawalReqData(1)...),
 	}
-	h := ExecutionRequestsHash(raw)
+	h := ComputeExecutionRequestsHash(raw)
 	var zero [32]byte
 	if h == zero {
 		t.Error("expected non-zero hash for non-empty requests")
 	}
 
 	// Same input should produce same hash.
-	h2 := ExecutionRequestsHash(raw)
+	h2 := ComputeExecutionRequestsHash(raw)
 	if h != h2 {
 		t.Error("hash is not deterministic")
 	}
@@ -238,31 +238,31 @@ func TestExecutionRequestsHash_NonEmpty(t *testing.T) {
 
 func TestSplitRequestsByType(t *testing.T) {
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: makeDepositData(1)},
-		{Type: WithdrawalRequestType, Data: makeWithdrawalReqData(1)},
-		{Type: ConsolidationRequestType, Data: makeConsolidationData(1)},
+		{Type: ExecReqDepositType, Data: makeDepositData(1)},
+		{Type: ExecReqWithdrawalType, Data: makeWithdrawalReqData(1)},
+		{Type: ExecReqConsolidationType, Data: makeConsolidationData(1)},
 	}
 
 	groups := SplitRequestsByType(reqs)
 	if len(groups) != 3 {
 		t.Fatalf("expected 3 groups, got %d", len(groups))
 	}
-	if len(groups[DepositRequestType]) != 1 {
-		t.Errorf("expected 1 deposit request, got %d", len(groups[DepositRequestType]))
+	if len(groups[ExecReqDepositType]) != 1 {
+		t.Errorf("expected 1 deposit request, got %d", len(groups[ExecReqDepositType]))
 	}
-	if len(groups[WithdrawalRequestType]) != 1 {
-		t.Errorf("expected 1 withdrawal request, got %d", len(groups[WithdrawalRequestType]))
+	if len(groups[ExecReqWithdrawalType]) != 1 {
+		t.Errorf("expected 1 withdrawal request, got %d", len(groups[ExecReqWithdrawalType]))
 	}
 }
 
 func TestSplitRequestsByType_WithNil(t *testing.T) {
 	reqs := []*ExecutionRequest{
-		{Type: DepositRequestType, Data: makeDepositData(1)},
+		{Type: ExecReqDepositType, Data: makeDepositData(1)},
 		nil,
-		{Type: WithdrawalRequestType, Data: makeWithdrawalReqData(1)},
+		{Type: ExecReqWithdrawalType, Data: makeWithdrawalReqData(1)},
 	}
 	groups := SplitRequestsByType(reqs)
-	if len(groups[DepositRequestType]) != 1 {
+	if len(groups[ExecReqDepositType]) != 1 {
 		t.Error("nil entry should be skipped")
 	}
 }
@@ -290,14 +290,14 @@ func TestCountConsolidationRequests(t *testing.T) {
 
 func TestExecutionRequestConstants(t *testing.T) {
 	// Verify type bytes.
-	if DepositRequestType != 0x00 {
-		t.Errorf("DepositRequestType: got 0x%02x, want 0x00", DepositRequestType)
+	if ExecReqDepositType != 0x00 {
+		t.Errorf("ExecReqDepositType: got 0x%02x, want 0x00", ExecReqDepositType)
 	}
-	if WithdrawalRequestType != 0x01 {
-		t.Errorf("WithdrawalRequestType: got 0x%02x, want 0x01", WithdrawalRequestType)
+	if ExecReqWithdrawalType != 0x01 {
+		t.Errorf("ExecReqWithdrawalType: got 0x%02x, want 0x01", ExecReqWithdrawalType)
 	}
-	if ConsolidationRequestType != 0x02 {
-		t.Errorf("ConsolidationRequestType: got 0x%02x, want 0x02", ConsolidationRequestType)
+	if ExecReqConsolidationType != 0x02 {
+		t.Errorf("ExecReqConsolidationType: got 0x%02x, want 0x02", ExecReqConsolidationType)
 	}
 
 	// Verify data lengths per spec.
@@ -315,7 +315,7 @@ func TestExecutionRequestConstants(t *testing.T) {
 func TestParseAndRoundtrip(t *testing.T) {
 	// Create raw requests, parse them, encode back, verify match.
 	origData := makeDepositData(2)
-	raw := [][]byte{append([]byte{DepositRequestType}, origData...)}
+	raw := [][]byte{append([]byte{ExecReqDepositType}, origData...)}
 
 	reqs, err := ParseExecutionRequests(raw)
 	if err != nil {

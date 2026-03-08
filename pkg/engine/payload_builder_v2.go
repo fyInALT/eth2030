@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/blocks"
 )
 
 // Payload builder V2 errors.
@@ -73,7 +74,7 @@ func NewPayloadBuilderV2(config PayloadBuilderV2Config) *PayloadBuilderV2 {
 		config.BuildDeadline = 2 * time.Second
 	}
 	if config.GasLimit == 0 {
-		config.GasLimit = DefaultGasElasticLimit
+		config.GasLimit = blocks.DefaultGasElasticLimit
 	}
 	return &PayloadBuilderV2{
 		config: config,
@@ -111,8 +112,8 @@ func (pb *PayloadBuilderV2) buildLoop(ctx context.Context, candidates []*types.T
 	sorted := make([]*types.Transaction, len(candidates))
 	copy(sorted, candidates)
 	sort.Slice(sorted, func(i, j int) bool {
-		pi := effectiveGasPriceForAssembly(sorted[i], baseFee)
-		pj := effectiveGasPriceForAssembly(sorted[j], baseFee)
+		pi := blocks.EffectiveGasPriceForAssembly(sorted[i], baseFee)
+		pj := blocks.EffectiveGasPriceForAssembly(sorted[j], baseFee)
 		return pi.Cmp(pj) > 0
 	})
 
@@ -161,7 +162,7 @@ func (pb *PayloadBuilderV2) buildLoop(ctx context.Context, candidates []*types.T
 		// Check blob gas limit.
 		if tx.Type() == types.BlobTxType {
 			txBlobGas := tx.BlobGas()
-			if blobGas+txBlobGas > MaxBlobGasPerAssembly {
+			if blobGas+txBlobGas > blocks.MaxBlobGasPerAssembly {
 				track.reason = "exceeds blob gas limit"
 				tracking = append(tracking, track)
 				continue
@@ -183,7 +184,7 @@ func (pb *PayloadBuilderV2) buildLoop(ctx context.Context, candidates []*types.T
 		tracking = append(tracking, track)
 
 		// Accumulate tip.
-		tip := calcTipForAssembly(tx, baseFee)
+		tip := blocks.CalcTipForAssembly(tx, baseFee)
 		if tip.Sign() > 0 {
 			tipTotal := new(big.Int).Mul(tip, new(big.Int).SetUint64(tx.Gas()))
 			reward.Add(reward, tipTotal)
@@ -380,7 +381,7 @@ func CalcPayloadValue(txs []*types.Transaction, baseFee *big.Int) *big.Int {
 		return total
 	}
 	for _, tx := range txs {
-		effectivePrice := effectiveGasPriceForAssembly(tx, baseFee)
+		effectivePrice := blocks.EffectiveGasPriceForAssembly(tx, baseFee)
 		tip := new(big.Int).Sub(effectivePrice, baseFee)
 		if tip.Sign() <= 0 {
 			continue

@@ -1,6 +1,6 @@
 // block_pipeline.go orchestrates the block building pipeline:
 // anonymous ingress -> encrypted pool -> Big FOCIL -> dependency partition -> parallel build -> merge -> propose.
-package engine
+package blocks
 
 import (
 	"errors"

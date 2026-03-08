@@ -12,7 +12,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/pqc"
 	"github.com/eth2030/eth2030/das"
-	"github.com/eth2030/eth2030/engine"
+	"github.com/eth2030/eth2030/engine/distbuilder"
 	"github.com/eth2030/eth2030/rollup"
 	"github.com/eth2030/eth2030/txpool"
 )
@@ -759,6 +759,6 @@ func TestE2EAdv_TechDebtFieldDeprecation(t *testing.T) {
 }
 
 // Ensure unused imports are satisfied.
-var _ = engine.DefaultBuilderConfig
+var _ = distbuilder.DefaultBuilderConfig
 var _ = state.NewMemoryStateDB
 var _ = txpool.DefaultShardConfig

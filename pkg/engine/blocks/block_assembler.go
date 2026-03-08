@@ -1,4 +1,4 @@
-package engine
+package blocks
 
 import (
 	"context"
@@ -110,8 +110,8 @@ func (ba *BlockAssembler) assembleWithContext(ctx context.Context, candidates []
 	sorted := make([]*types.Transaction, len(candidates))
 	copy(sorted, candidates)
 	sort.Slice(sorted, func(i, j int) bool {
-		pi := effectiveGasPriceForAssembly(sorted[i], baseFee)
-		pj := effectiveGasPriceForAssembly(sorted[j], baseFee)
+		pi := EffectiveGasPriceForAssembly(sorted[i], baseFee)
+		pj := EffectiveGasPriceForAssembly(sorted[j], baseFee)
 		return pi.Cmp(pj) > 0
 	})
 
@@ -165,7 +165,7 @@ func (ba *BlockAssembler) assembleWithContext(ctx context.Context, candidates []
 		ba.gasUsed += txGas
 
 		// Accumulate coinbase reward (tip portion).
-		tip := calcTipForAssembly(tx, baseFee)
+		tip := CalcTipForAssembly(tx, baseFee)
 		if tip.Sign() > 0 {
 			tipTotal := new(big.Int).Mul(tip, new(big.Int).SetUint64(txGas))
 			ba.reward.Add(ba.reward, tipTotal)
@@ -250,8 +250,8 @@ func CalcBlobGasUsed(txs []*types.Transaction) uint64 {
 	return total
 }
 
-// effectiveGasPriceForAssembly computes the effective gas price for sorting.
-func effectiveGasPriceForAssembly(tx *types.Transaction, baseFee *big.Int) *big.Int {
+// EffectiveGasPriceForAssembly computes the effective gas price for sorting.
+func EffectiveGasPriceForAssembly(tx *types.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil || tx.Type() == types.LegacyTxType || tx.Type() == types.AccessListTxType {
 		gp := tx.GasPrice()
 		if gp == nil {
@@ -275,8 +275,8 @@ func effectiveGasPriceForAssembly(tx *types.Transaction, baseFee *big.Int) *big.
 	return eff
 }
 
-// calcTipForAssembly computes the per-gas tip paid by a transaction.
-func calcTipForAssembly(tx *types.Transaction, baseFee *big.Int) *big.Int {
+// CalcTipForAssembly computes the per-gas tip paid by a transaction.
+func CalcTipForAssembly(tx *types.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		gp := tx.GasPrice()
 		if gp == nil {
@@ -284,7 +284,7 @@ func calcTipForAssembly(tx *types.Transaction, baseFee *big.Int) *big.Int {
 		}
 		return new(big.Int).Set(gp)
 	}
-	effectivePrice := effectiveGasPriceForAssembly(tx, baseFee)
+	effectivePrice := EffectiveGasPriceForAssembly(tx, baseFee)
 	tip := new(big.Int).Sub(effectivePrice, baseFee)
 	if tip.Sign() < 0 {
 		tip.SetInt64(0)

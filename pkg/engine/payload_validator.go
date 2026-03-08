@@ -15,6 +15,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	engreqs "github.com/eth2030/eth2030/engine/requests"
 )
 
 // Fork identifiers for fork-specific validation rules.
@@ -291,12 +292,12 @@ func (v *ForkPayloadValidator) ValidateRequests(requests [][]byte) error {
 	}
 
 	// Parse and validate the request list.
-	parsed, err := ParseExecutionRequests(requests)
+	parsed, err := engreqs.ParseExecutionRequests(requests)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrForkRequestsInvalid, err)
 	}
 
-	if err := ValidateExecutionRequestList(parsed); err != nil {
+	if err := engreqs.ValidateExecutionRequestList(parsed); err != nil {
 		return fmt.Errorf("%w: %v", ErrForkRequestsInvalid, err)
 	}
 

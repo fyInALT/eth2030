@@ -8,7 +8,7 @@
 // complementing the existing BlobSidecar (which uses dynamic slices).
 //
 // Reference: EIPs/EIPS/eip-4844.md, consensus-specs/specs/deneb
-package engine
+package blobval
 
 import (
 	"errors"
@@ -21,7 +21,7 @@ import (
 
 // FixedBlobSidecar represents a blob sidecar with fixed-size arrays.
 // This is the consensus-layer representation where blob, commitment, and proof
-// sizes are known at compile time. See also BlobSidecar in blobs_bundle.go
+// sizes are known at compile time. See also BlobSidecar in engine/blobs_bundle.go
 // which uses dynamic slices for the engine API wire format.
 type FixedBlobSidecar struct {
 	// BlobIndex is the index of this blob within the block.

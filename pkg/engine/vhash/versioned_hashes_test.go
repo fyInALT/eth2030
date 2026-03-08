@@ -1,4 +1,4 @@
-package engine
+package vhash
 
 import (
 	"crypto/sha256"

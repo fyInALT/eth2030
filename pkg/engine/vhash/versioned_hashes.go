@@ -13,8 +13,8 @@
 //   - Commitment-to-hash mapping construction
 //
 // The core VersionedHash function and ValidateVersionedHashes are in
-// blobs_bundle.go. This file adds higher-level utilities.
-package engine
+// engine/blobs_bundle.go. This file adds higher-level utilities.
+package vhash
 
 import (
 	"crypto/sha256"
@@ -34,6 +34,9 @@ const (
 
 	// VersionedHashLen is the byte length of a versioned hash (same as Hash).
 	VersionedHashLen = 32
+
+	// KZGCommitmentSize is the byte length of a compressed KZG commitment (G1).
+	KZGCommitmentSize = 48
 )
 
 // Versioned hash errors.
@@ -52,7 +55,7 @@ var (
 // commitment. The result is SHA-256(commitment) with byte[0] replaced by the
 // version byte (0x01).
 //
-// This is equivalent to the VersionedHash function in blobs_bundle.go but
+// This is equivalent to the VersionedHash function in engine/blobs_bundle.go but
 // accepts a version byte parameter for extensibility.
 func ComputeVersionedHash(commitment []byte, version byte) (types.Hash, error) {
 	if commitment == nil {

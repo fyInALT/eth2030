@@ -2,7 +2,7 @@
 // network propagation. Part of the J+ era roadmap: as block sizes grow with
 // increased gas limits, chunked propagation enables progressive validation and
 // reduces peak bandwidth requirements.
-package engine
+package chunking
 
 import (
 	"errors"

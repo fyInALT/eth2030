@@ -9,7 +9,7 @@
 // Requests are encoded as type || data and must appear in ascending type order
 // within a block. The consensus layer validates the content; the execution layer
 // validates structure and ordering.
-package engine
+package requests
 
 import (
 	"errors"
