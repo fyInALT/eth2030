@@ -1,4 +1,4 @@
-package rpc
+package rpcserver
 
 import (
 	"bytes"
@@ -6,12 +6,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
-// TestServerHandler_ValidRequest tests the server handles a valid JSON-RPC
-// POST request and returns a proper response.
+// stubHandler is a minimal RequestHandler for server tests.
+type stubHandler struct{}
+
+func (s *stubHandler) HandleRequest(req *rpctypes.Request) *rpctypes.Response {
+	switch req.Method {
+	case "eth_chainId":
+		return rpctypes.NewSuccessResponse(req.ID, "0x539")
+	case "eth_blockNumber":
+		return rpctypes.NewSuccessResponse(req.ID, "0x2a")
+	case "eth_gasPrice":
+		return rpctypes.NewSuccessResponse(req.ID, "0x3b9aca00")
+	default:
+		return rpctypes.NewErrorResponse(req.ID, rpctypes.ErrCodeMethodNotFound,
+			"method not found: "+req.Method)
+	}
+}
+
+func newStubHandler() *stubHandler { return &stubHandler{} }
+
 func TestServerHandler_ValidRequest(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -29,7 +48,7 @@ func TestServerHandler_ValidRequest(t *testing.T) {
 		t.Fatalf("want Content-Type application/json, got %s", ct)
 	}
 
-	var rpcResp Response
+	var rpcResp rpctypes.Response
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -41,9 +60,8 @@ func TestServerHandler_ValidRequest(t *testing.T) {
 	}
 }
 
-// TestServerHandler_MethodNotAllowed tests that GET returns 405.
 func TestServerHandler_MethodNotAllowed(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -58,9 +76,8 @@ func TestServerHandler_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestServerHandler_InvalidJSON tests that invalid JSON returns a parse error.
 func TestServerHandler_InvalidJSON(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -71,22 +88,20 @@ func TestServerHandler_InvalidJSON(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var rpcResp Response
+	var rpcResp rpctypes.Response
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if rpcResp.Error == nil {
 		t.Fatal("expected parse error")
 	}
-	if rpcResp.Error.Code != ErrCodeParse {
-		t.Fatalf("want error code %d, got %d", ErrCodeParse, rpcResp.Error.Code)
+	if rpcResp.Error.Code != rpctypes.ErrCodeParse {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeParse, rpcResp.Error.Code)
 	}
 }
 
-// TestServerHandler_MethodNotFound tests that an unknown method returns the
-// correct error code.
 func TestServerHandler_MethodNotFound(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -97,22 +112,20 @@ func TestServerHandler_MethodNotFound(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var rpcResp Response
+	var rpcResp rpctypes.Response
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if rpcResp.Error == nil {
 		t.Fatal("expected method not found error")
 	}
-	if rpcResp.Error.Code != ErrCodeMethodNotFound {
-		t.Fatalf("want error code %d, got %d", ErrCodeMethodNotFound, rpcResp.Error.Code)
+	if rpcResp.Error.Code != rpctypes.ErrCodeMethodNotFound {
+		t.Fatalf("want error code %d, got %d", rpctypes.ErrCodeMethodNotFound, rpcResp.Error.Code)
 	}
 }
 
-// TestServerHandler_MultipleRequests tests that the server handles multiple
-// sequential requests correctly.
 func TestServerHandler_MultipleRequests(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -124,7 +137,7 @@ func TestServerHandler_MultipleRequests(t *testing.T) {
 			t.Fatalf("HTTP POST for %s: %v", method, err)
 		}
 
-		var rpcResp Response
+		var rpcResp rpctypes.Response
 		if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 			t.Fatalf("decode response for %s: %v", method, err)
 		}
@@ -136,9 +149,8 @@ func TestServerHandler_MultipleRequests(t *testing.T) {
 	}
 }
 
-// TestServerHandler_EmptyBody tests the server with an empty request body.
 func TestServerHandler_EmptyBody(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -148,19 +160,17 @@ func TestServerHandler_EmptyBody(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var rpcResp Response
+	var rpcResp rpctypes.Response
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	// Empty body is not valid JSON, so should return a parse error.
 	if rpcResp.Error == nil {
 		t.Fatal("expected error for empty body")
 	}
 }
 
-// TestNewServer creates a server and verifies the handler is non-nil.
 func TestNewServer(t *testing.T) {
-	srv := NewServer(newMockBackend())
+	srv := NewServer(newStubHandler())
 	if srv == nil {
 		t.Fatal("NewServer returned nil")
 	}

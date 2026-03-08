@@ -1,4 +1,4 @@
-package rpc
+package rpcserver
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // --- DefaultServerConfig ---
@@ -46,7 +48,6 @@ func TestRateLimiter_Allow_AllowsInitialRequests(t *testing.T) {
 	if rl == nil {
 		t.Fatal("expected non-nil RateLimiter")
 	}
-	// Initial tokens equal rps, so first 10 should be allowed.
 	for i := range 10 {
 		if !rl.Allow() {
 			t.Fatalf("request %d should be allowed (have tokens)", i+1)
@@ -56,7 +57,6 @@ func TestRateLimiter_Allow_AllowsInitialRequests(t *testing.T) {
 
 func TestRateLimiter_Allow_DeniesWhenExhausted(t *testing.T) {
 	rl := NewRateLimiter(3)
-	// Drain tokens.
 	for range 3 {
 		rl.Allow()
 	}
@@ -81,14 +81,11 @@ func TestRateLimiter_NegativeRPS_ReturnsNil(t *testing.T) {
 
 func TestRateLimiter_Allow_RefillsAfterTime(t *testing.T) {
 	rl := NewRateLimiter(5)
-	// Drain all tokens.
 	for range 5 {
 		rl.Allow()
 	}
-	// Simulate time passing: advance lastRefill 2s into the past.
 	rl.AdvanceLastRefill(2 * time.Second)
 
-	// After 2 seconds elapsed, should have refilled 2*5=10 tokens (capped at maxTokens=5).
 	if !rl.Allow() {
 		t.Fatal("should allow after refill period")
 	}
@@ -100,7 +97,7 @@ func TestNewExtServer_DefaultsApplied(t *testing.T) {
 	cfg := ServerConfig{
 		MaxRequestSize: 0, // should be defaulted
 	}
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 	if srv == nil {
 		t.Fatal("expected non-nil ExtServer")
 	}
@@ -113,7 +110,7 @@ func TestNewExtServer_NegativeRPSDefaults(t *testing.T) {
 	cfg := ServerConfig{
 		RateLimitPerSec: -1,
 	}
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 	if srv.Config().RateLimitPerSec != DefaultServerConfig().RateLimitPerSec {
 		t.Fatalf("negative RPS should be replaced with default, got %d", srv.Config().RateLimitPerSec)
 	}
@@ -123,7 +120,7 @@ func TestNewExtServer_ZeroRPS_NoRateLimiter(t *testing.T) {
 	cfg := ServerConfig{
 		RateLimitPerSec: 0,
 	}
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 	if srv.GetRateLimiter() != nil {
 		t.Fatal("zero RPS should result in nil rateLimiter")
 	}
@@ -132,7 +129,7 @@ func TestNewExtServer_ZeroRPS_NoRateLimiter(t *testing.T) {
 // --- ExtServer.Handler ---
 
 func TestExtServer_Handler_NotNil(t *testing.T) {
-	srv := NewExtServer(newMockBackend(), DefaultServerConfig())
+	srv := NewExtServer(newStubHandler(), DefaultServerConfig())
 	if srv.Handler() == nil {
 		t.Fatal("Handler() should not return nil")
 	}
@@ -141,7 +138,7 @@ func TestExtServer_Handler_NotNil(t *testing.T) {
 func TestExtServer_Handler_ServesRequest(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = "" // no auth required
-	srv := NewExtServer(newTestBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -153,7 +150,7 @@ func TestExtServer_Handler_ServesRequest(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	var rpcResp Response
+	var rpcResp rpctypes.Response
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -167,7 +164,7 @@ func TestExtServer_Handler_ServesRequest(t *testing.T) {
 func TestExtServer_RequestCount(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = ""
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	if srv.RequestCount() != 0 {
 		t.Fatalf("want 0 initial requests, got %d", srv.RequestCount())
@@ -192,7 +189,7 @@ func TestExtServer_RequestCount(t *testing.T) {
 // --- ExtServer.Addr before start ---
 
 func TestExtServer_Addr_BeforeStart(t *testing.T) {
-	srv := NewExtServer(newMockBackend(), DefaultServerConfig())
+	srv := NewExtServer(newStubHandler(), DefaultServerConfig())
 	if srv.Addr() != nil {
 		t.Fatal("Addr() should return nil before Start()")
 	}
@@ -203,7 +200,7 @@ func TestExtServer_Addr_BeforeStart(t *testing.T) {
 func TestExtServer_Use_MiddlewareApplied(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = ""
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	var middlewareCalled bool
 	srv.Use(func(next http.Handler) http.Handler {
@@ -233,7 +230,7 @@ func TestExtServer_Use_MiddlewareApplied(t *testing.T) {
 func TestExtServer_AuthRejectsUnauthorized(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = "supersecret"
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -253,7 +250,7 @@ func TestExtServer_AuthRejectsUnauthorized(t *testing.T) {
 func TestExtServer_AuthAllowsValidToken(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = "supersecret"
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -274,10 +271,10 @@ func TestExtServer_AuthAllowsValidToken(t *testing.T) {
 	}
 }
 
-// --- ExtCORSMiddleware ---
+// --- CORSMiddleware ---
 
 func TestExtCORSMiddleware_SetsHeaders(t *testing.T) {
-	mw := ExtCORSMiddleware([]string{"*"})
+	mw := CORSMiddleware([]string{"*"})
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -293,7 +290,7 @@ func TestExtCORSMiddleware_SetsHeaders(t *testing.T) {
 }
 
 func TestExtCORSMiddleware_Preflight(t *testing.T) {
-	mw := ExtCORSMiddleware([]string{"*"})
+	mw := CORSMiddleware([]string{"*"})
 	innerCalled := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		innerCalled = true
@@ -312,10 +309,10 @@ func TestExtCORSMiddleware_Preflight(t *testing.T) {
 	}
 }
 
-// --- ExtAuthMiddleware ---
+// --- AuthMiddleware ---
 
 func TestExtAuthMiddleware_NoSecret_AllowAll(t *testing.T) {
-	mw := ExtAuthMiddleware("")
+	mw := AuthMiddleware("")
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -332,7 +329,7 @@ func TestExtAuthMiddleware_NoSecret_AllowAll(t *testing.T) {
 }
 
 func TestExtAuthMiddleware_ValidToken(t *testing.T) {
-	mw := ExtAuthMiddleware("mytoken")
+	mw := AuthMiddleware("mytoken")
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -350,7 +347,7 @@ func TestExtAuthMiddleware_ValidToken(t *testing.T) {
 }
 
 func TestExtAuthMiddleware_InvalidToken(t *testing.T) {
-	mw := ExtAuthMiddleware("mytoken")
+	mw := AuthMiddleware("mytoken")
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("should not be called with invalid token")
 	}))
@@ -365,10 +362,10 @@ func TestExtAuthMiddleware_InvalidToken(t *testing.T) {
 	}
 }
 
-// --- ExtRateLimitMiddleware ---
+// --- RateLimitMiddleware ---
 
 func TestExtRateLimitMiddleware_NilLimiter_AllowAll(t *testing.T) {
-	mw := ExtRateLimitMiddleware(nil)
+	mw := RateLimitMiddleware(nil)
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -386,11 +383,10 @@ func TestExtRateLimitMiddleware_NilLimiter_AllowAll(t *testing.T) {
 
 func TestExtRateLimitMiddleware_ExhaustedLimiter_Denies(t *testing.T) {
 	rl := NewRateLimiter(2)
-	// Exhaust tokens.
 	rl.Allow()
 	rl.Allow()
 
-	mw := ExtRateLimitMiddleware(rl)
+	mw := RateLimitMiddleware(rl)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("inner handler should not be called when rate limited")
 	}))
@@ -407,7 +403,7 @@ func TestExtRateLimitMiddleware_ExhaustedLimiter_Denies(t *testing.T) {
 // --- ExtServer.Stop before Start ---
 
 func TestExtServer_Stop_BeforeStart(t *testing.T) {
-	srv := NewExtServer(newMockBackend(), DefaultServerConfig())
+	srv := NewExtServer(newStubHandler(), DefaultServerConfig())
 	if err := srv.Stop(); err != nil {
 		t.Fatalf("Stop() before Start() should not error, got %v", err)
 	}
@@ -418,12 +414,10 @@ func TestExtServer_Stop_BeforeStart(t *testing.T) {
 func TestExtServer_Start_AlreadyStarted(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = ""
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
-	// Start on a random port in background.
 	started := make(chan struct{})
 	go func() {
-		// We mark started=true before blocking, so we signal after the flag is set.
 		srv.MarkStarted()
 		close(started)
 	}()
@@ -440,7 +434,7 @@ func TestExtServer_Start_AlreadyStarted(t *testing.T) {
 func TestExtServer_HandleRPC_OptionsMethod(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = ""
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -463,7 +457,7 @@ func TestExtServer_HandleRPC_OptionsMethod(t *testing.T) {
 func TestExtServer_HandleRPC_GetMethodNotAllowed(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.AuthSecret = ""
-	srv := NewExtServer(newMockBackend(), cfg)
+	srv := NewExtServer(newStubHandler(), cfg)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
