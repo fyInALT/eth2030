@@ -7,7 +7,7 @@
 // their transactions will be included before full finality completes.
 //
 // This targets the CL Cryptography track: "secure prequorum" milestone.
-package consensus
+package prequorum
 
 import (
 	"encoding/binary"

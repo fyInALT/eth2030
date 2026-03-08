@@ -3,13 +3,21 @@
 // proposer slashings (double proposals) and attester slashings
 // (double votes and surround votes) per the beacon chain spec (phase0).
 
-package consensus
+package slashdetect
 
 import (
 	"sort"
 	"sync"
 
+	"github.com/eth2030/eth2030/consensus/cltypes"
 	"github.com/eth2030/eth2030/core/types"
+)
+
+// Local type aliases for consensus primitive types.
+type (
+	ValidatorIndex = cltypes.ValidatorIndex
+	Slot           = cltypes.Slot
+	Epoch          = cltypes.Epoch
 )
 
 // Slashing detection constants.

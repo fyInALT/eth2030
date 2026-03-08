@@ -4,14 +4,21 @@
 // multi-round message exchange of traditional PBFT/HotStuff protocols.
 //
 // State machine: Idle -> Proposed -> Voting -> Finalized (or Failed).
-package consensus
+package minimmit
 
 import (
 	"errors"
 	"sync"
 
+	"github.com/eth2030/eth2030/consensus/cltypes"
 	"github.com/eth2030/eth2030/core/types"
 )
+
+// Local type aliases.
+type ValidatorIndex = cltypes.ValidatorIndex
+
+// gweiPerETH is the number of Gwei in one ETH.
+const gweiPerETH uint64 = 1_000_000_000
 
 // Minimmit errors.
 var (
@@ -142,11 +149,11 @@ type MinimmitEngine struct {
 // and 1 ETH missed slot penalty.
 func DefaultMinimmitConfig() *MinimmitConfig {
 	return &MinimmitConfig{
-		TotalStake:           32_000_000 * GweiPerETH,
+		TotalStake:           32_000_000 * gweiPerETH,
 		FinalityThresholdNum: 2,
 		FinalityThresholdDen: 3,
 		VoterLimit:           8192,
-		MissedSlotPenalty:    1 * GweiPerETH,
+		MissedSlotPenalty:    1 * gweiPerETH,
 	}
 }
 

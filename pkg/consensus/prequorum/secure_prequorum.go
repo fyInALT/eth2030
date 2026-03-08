@@ -10,7 +10,7 @@
 //     commitment storage, and VRF-based quorum weighting.
 //   - Two-phase commit-reveal: validators first commit a blinded vote, then
 //     reveal the actual vote, preventing front-running and last-revealer attacks.
-package consensus
+package prequorum
 
 import (
 	"encoding/binary"

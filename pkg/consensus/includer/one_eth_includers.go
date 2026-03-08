@@ -3,7 +3,7 @@
 // a transaction includer, democratising the block building process. Includers
 // are selected pseudorandomly per slot to build an ordered list of transactions
 // that must be included by the block proposer (FOCIL-adjacent).
-package consensus
+package includer
 
 import (
 	"encoding/binary"
@@ -11,9 +11,13 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/eth2030/eth2030/consensus/cltypes"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 )
+
+// Local type aliases for consensus primitive types.
+type Slot = cltypes.Slot
 
 // 1 ETH includer errors.
 var (

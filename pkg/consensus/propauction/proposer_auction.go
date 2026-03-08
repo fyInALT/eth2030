@@ -1,4 +1,4 @@
-package consensus
+package propauction
 
 import (
 	"encoding/binary"
@@ -10,6 +10,8 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 )
+
+const gweiPerETH uint64 = 1_000_000_000
 
 // AuctionedProposerSelection implements APS for block proposer selection
 // using sealed-bid Vickrey auctions with VRF-based fallback.
@@ -82,7 +84,7 @@ type AuctionedProposerConfig struct {
 // DefaultAuctionedProposerConfig returns production defaults.
 func DefaultAuctionedProposerConfig() AuctionedProposerConfig {
 	return AuctionedProposerConfig{
-		MinBid:          1 * GweiPerETH,
+		MinBid:          1 * gweiPerETH,
 		MaxAuctionSlots: 32,
 		FallbackEnabled: true,
 	}

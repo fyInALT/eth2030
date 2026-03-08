@@ -5,14 +5,21 @@
 // the block is considered "fast confirmed" -- not finalized, but highly likely
 // to be included in the canonical chain. This reduces perceived latency for
 // users and applications without weakening finality guarantees.
-package consensus
+package fastconfirm
 
 import (
 	"errors"
 	"sync"
 	"time"
 
+	"github.com/eth2030/eth2030/consensus/cltypes"
 	"github.com/eth2030/eth2030/core/types"
+)
+
+// Local type aliases for consensus primitive types.
+type (
+	Slot           = cltypes.Slot
+	ValidatorIndex = cltypes.ValidatorIndex
 )
 
 // Fast confirmation errors.

@@ -1,4 +1,4 @@
-package consensus
+package minimmit
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ func makeMinimmitRoot(b byte) types.Hash {
 func TestDefaultMinimmitConfig(t *testing.T) {
 	cfg := DefaultMinimmitConfig()
 
-	expectedStake := uint64(32_000_000) * GweiPerETH
+	expectedStake := uint64(32_000_000) * gweiPerETH
 	if cfg.TotalStake != expectedStake {
 		t.Errorf("TotalStake = %d, want %d", cfg.TotalStake, expectedStake)
 	}
@@ -30,8 +30,8 @@ func TestDefaultMinimmitConfig(t *testing.T) {
 	if cfg.VoterLimit != 8192 {
 		t.Errorf("VoterLimit = %d, want 8192", cfg.VoterLimit)
 	}
-	if cfg.MissedSlotPenalty != 1*GweiPerETH {
-		t.Errorf("MissedSlotPenalty = %d, want %d", cfg.MissedSlotPenalty, 1*GweiPerETH)
+	if cfg.MissedSlotPenalty != 1*gweiPerETH {
+		t.Errorf("MissedSlotPenalty = %d, want %d", cfg.MissedSlotPenalty, 1*gweiPerETH)
 	}
 }
 

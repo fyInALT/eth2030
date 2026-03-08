@@ -1,4 +1,4 @@
-package consensus
+package propauction
 
 import (
 	"testing"
@@ -39,7 +39,7 @@ func TestAPS_SubmitBid(t *testing.T) {
 	bid := &AuctionBid{
 		Bidder:          1,
 		Slot:            10,
-		Amount:          100 * GweiPerETH,
+		Amount:          100 * gweiPerETH,
 		BlockCommitment: auctionTestRoot(0xAA),
 	}
 	if err := aps.SubmitBid(bid); err != nil {

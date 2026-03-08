@@ -1,8 +1,8 @@
-// Package consensus - attestation voting system for single-slot finality.
+// Package voting implements the attestation voting system for single-slot finality.
 //
 // VotingManager manages per-slot voting rounds. Each round collects votes from
 // unique voters and finalizes when the quorum threshold is reached.
-package consensus
+package voting
 
 import (
 	"errors"

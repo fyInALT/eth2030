@@ -1,4 +1,4 @@
-package consensus
+package prequorum
 
 import (
 	"sync"
