@@ -250,11 +250,9 @@ func TestSubscriptionDispatcher_CleanupStale(t *testing.T) {
 	sub3, _ := d.Subscribe("client-3", TopicPendingTxs, nil)
 
 	// Backdate sub1 and sub2 to make them stale.
-	d.mu.Lock()
-	d.subs[sub1.ID].Created = time.Now().Add(-10 * time.Minute)
-	d.subs[sub2.ID].Created = time.Now().Add(-10 * time.Minute)
-	// sub3 stays fresh.
-	d.mu.Unlock()
+	staleTime := time.Now().Add(-10 * time.Minute)
+	d.BackdateSubscription(sub1.ID, staleTime, time.Time{})
+	d.BackdateSubscription(sub2.ID, staleTime, time.Time{})
 
 	removed := d.CleanupStale(5 * time.Minute)
 	if removed != 2 {
@@ -276,10 +274,7 @@ func TestSubscriptionDispatcher_CleanupStaleWithRecentActivity(t *testing.T) {
 	sub, _ := d.Subscribe("client-1", TopicNewHeads, nil)
 
 	// Backdate creation but set recent LastEvent.
-	d.mu.Lock()
-	d.subs[sub.ID].Created = time.Now().Add(-10 * time.Minute)
-	d.subs[sub.ID].LastEvent = time.Now()
-	d.mu.Unlock()
+	d.BackdateSubscription(sub.ID, time.Now().Add(-10*time.Minute), time.Now())
 
 	removed := d.CleanupStale(5 * time.Minute)
 	if removed != 0 {

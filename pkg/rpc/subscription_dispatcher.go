@@ -407,3 +407,18 @@ func (d *SubscriptionDispatcher) CheckClientRateLimit(clientID string) bool {
 	}
 	return cs.eventCount < d.config.MaxEventsPerSec
 }
+
+// BackdateSubscription sets the Created and LastEvent timestamps of a subscription.
+// This is used in tests to simulate stale subscriptions for CleanupStale testing.
+// Returns false if the subscription does not exist.
+func (d *SubscriptionDispatcher) BackdateSubscription(id string, created, lastEvent time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	sub, ok := d.subs[id]
+	if !ok {
+		return false
+	}
+	sub.Created = created
+	sub.LastEvent = lastEvent
+	return true
+}
