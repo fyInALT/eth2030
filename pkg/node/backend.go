@@ -375,6 +375,16 @@ func newEngineBackend(n *Node) engine.Backend {
 	}
 }
 
+func (b *engineBackend) GetHeadHash() types.Hash {
+	if blk := b.node.blockchain.CurrentBlock(); blk != nil {
+		return blk.Hash()
+	}
+	return types.Hash{}
+}
+
+func (b *engineBackend) GetSafeHash() types.Hash      { return types.Hash{} }
+func (b *engineBackend) GetFinalizedHash() types.Hash { return types.Hash{} }
+
 func (b *engineBackend) ProcessBlock(
 	payload *engine.ExecutionPayloadV3,
 	expectedBlobVersionedHashes []types.Hash,
