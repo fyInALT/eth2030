@@ -1,10 +1,12 @@
-package rpc
+package rpcbatch
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 func TestNewBatchValidator(t *testing.T) {
@@ -105,8 +107,7 @@ func TestBatchValidator_Validate_Mixed(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_HandleBatchValidated(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	body := `[
 		{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1},
@@ -128,8 +129,7 @@ func TestExtendedBatchHandler_HandleBatchValidated(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_HandleBatchValidated_MixedValidity(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	body := `[
 		{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1},
@@ -151,8 +151,8 @@ func TestExtendedBatchHandler_HandleBatchValidated_MixedValidity(t *testing.T) {
 	if responses[1].Error == nil {
 		t.Fatal("response 1 should have error")
 	}
-	if responses[1].Error.Code != ErrCodeInvalidRequest {
-		t.Fatalf("want code %d, got %d", ErrCodeInvalidRequest, responses[1].Error.Code)
+	if responses[1].Error.Code != rpctypes.ErrCodeInvalidRequest {
+		t.Fatalf("want code %d, got %d", rpctypes.ErrCodeInvalidRequest, responses[1].Error.Code)
 	}
 	// Item 2: valid.
 	if responses[2].Error != nil {
@@ -161,8 +161,7 @@ func TestExtendedBatchHandler_HandleBatchValidated_MixedValidity(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_HandleBatchValidated_Empty(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	_, err := bh.HandleBatchValidated([]byte(`[]`))
 	if err == nil {
@@ -171,8 +170,7 @@ func TestExtendedBatchHandler_HandleBatchValidated_Empty(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_HandleBatchValidated_TooLarge(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	var reqs []string
 	for i := 0; i <= MaxBatchSize; i++ {
@@ -187,8 +185,7 @@ func TestExtendedBatchHandler_HandleBatchValidated_TooLarge(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_Stats(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	// Initial stats.
 	stats := bh.Stats()
@@ -213,8 +210,7 @@ func TestExtendedBatchHandler_Stats(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_Stats_ErrorTracking(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	body := `[
 		{"jsonrpc":"1.0","method":"eth_chainId","params":[],"id":1},
@@ -230,8 +226,7 @@ func TestExtendedBatchHandler_Stats_ErrorTracking(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_SetParallelism(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	bh.SetParallelism(4)
 	if bh.Parallelism() != 4 {
@@ -244,8 +239,7 @@ func TestExtendedBatchHandler_SetParallelism(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_OrderPreserved(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 	bh.SetParallelism(8)
 
 	var reqs []string
@@ -448,8 +442,7 @@ func TestBatchStatsSnapshot_JSON(t *testing.T) {
 }
 
 func TestExtendedBatchHandler_LargestBatchTracking(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
-	bh := NewExtendedBatchHandler(api)
+	bh := NewExtendedBatchHandler(newMockHandler())
 
 	// First batch: 2 items.
 	body1 := `[
