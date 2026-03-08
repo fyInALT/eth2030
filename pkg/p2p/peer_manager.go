@@ -6,6 +6,9 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/p2p/ethproto"
+	"github.com/eth2030/eth2030/p2p/peermgr"
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 var (
@@ -23,8 +26,8 @@ type PeerManager struct {
 
 // managedPeer wraps a Peer with its associated transport for sending messages.
 type managedPeer struct {
-	Peer      *Peer
-	Transport Transport
+	Peer      *peermgr.Peer
+	Transport wire.Transport
 }
 
 // NewPeerManager creates a new PeerManager.
@@ -36,7 +39,7 @@ func NewPeerManager() *PeerManager {
 
 // AddPeer registers a peer and its transport with the manager.
 // Returns ErrPeerAlreadyRegistered if the peer is already tracked.
-func (pm *PeerManager) AddPeer(p *Peer, tr Transport) error {
+func (pm *PeerManager) AddPeer(p *peermgr.Peer, tr wire.Transport) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -44,7 +47,7 @@ func (pm *PeerManager) AddPeer(p *Peer, tr Transport) error {
 		return ErrPeerManagerClosed
 	}
 	if _, exists := pm.peers[p.ID()]; exists {
-		return ErrPeerAlreadyRegistered
+		return peermgr.ErrPeerAlreadyRegistered
 	}
 	pm.peers[p.ID()] = &managedPeer{Peer: p, Transport: tr}
 	return nil
@@ -60,14 +63,14 @@ func (pm *PeerManager) RemovePeer(id string) error {
 		return ErrPeerManagerClosed
 	}
 	if _, exists := pm.peers[id]; !exists {
-		return ErrPeerNotRegistered
+		return peermgr.ErrPeerNotRegistered
 	}
 	delete(pm.peers, id)
 	return nil
 }
 
 // Peer returns the peer with the given ID, or nil if not found.
-func (pm *PeerManager) Peer(id string) *Peer {
+func (pm *PeerManager) GetPeer(id string) *peermgr.Peer {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	if mp, ok := pm.peers[id]; ok {
@@ -77,10 +80,10 @@ func (pm *PeerManager) Peer(id string) *Peer {
 }
 
 // Peers returns a snapshot of all managed peers.
-func (pm *PeerManager) Peers() []*Peer {
+func (pm *PeerManager) Peers() []*peermgr.Peer {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	list := make([]*Peer, 0, len(pm.peers))
+	list := make([]*peermgr.Peer, 0, len(pm.peers))
 	for _, mp := range pm.peers {
 		list = append(list, mp.Peer)
 	}
@@ -95,11 +98,11 @@ func (pm *PeerManager) Len() int {
 }
 
 // BestPeer returns the peer with the highest total difficulty, or nil if empty.
-func (pm *PeerManager) BestPeer() *Peer {
+func (pm *PeerManager) BestPeer() *peermgr.Peer {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	var best *Peer
+	var best *peermgr.Peer
 	var bestTD *big.Int
 
 	for _, mp := range pm.peers {
@@ -115,7 +118,7 @@ func (pm *PeerManager) BestPeer() *Peer {
 // BroadcastBlock sends a new block announcement to all peers except those
 // listed in the exclude set. Each peer's head is updated with the new block.
 func (pm *PeerManager) BroadcastBlock(block *types.Block, td *big.Int, exclude map[string]bool) []error {
-	msg, err := EncodeMessage(NewBlockMsg, NewBlockData{
+	msg, err := wire.EncodeMessage(ethproto.NewBlockMsg, ethproto.NewBlockData{
 		Block: block,
 		TD:    td,
 	})
@@ -131,7 +134,7 @@ func (pm *PeerManager) BroadcastBlock(block *types.Block, td *big.Int, exclude m
 		if exclude != nil && exclude[id] {
 			continue
 		}
-		wireMsg := Msg{
+		wireMsg := wire.Msg{
 			Code:    msg.Code,
 			Size:    msg.Size,
 			Payload: msg.Payload,
@@ -149,7 +152,7 @@ func (pm *PeerManager) BroadcastBlock(block *types.Block, td *big.Int, exclude m
 // BroadcastTransactions sends a batch of transaction hashes (ETH/68 style)
 // to all peers except those in the exclude set.
 func (pm *PeerManager) BroadcastTransactions(txTypes []byte, txSizes []uint32, txHashes []types.Hash, exclude map[string]bool) []error {
-	msg, err := EncodeMessage(NewPooledTransactionHashesMsg, NewPooledTransactionHashesPacket68{
+	msg, err := wire.EncodeMessage(ethproto.NewPooledTransactionHashesMsg, ethproto.NewPooledTransactionHashesPacket68{
 		Types:  txTypes,
 		Sizes:  txSizes,
 		Hashes: txHashes,
@@ -166,7 +169,7 @@ func (pm *PeerManager) BroadcastTransactions(txTypes []byte, txSizes []uint32, t
 		if exclude != nil && exclude[id] {
 			continue
 		}
-		wireMsg := Msg{
+		wireMsg := wire.Msg{
 			Code:    msg.Code,
 			Size:    msg.Size,
 			Payload: msg.Payload,
@@ -180,8 +183,8 @@ func (pm *PeerManager) BroadcastTransactions(txTypes []byte, txSizes []uint32, t
 
 // BroadcastBlockHashes sends block hash announcements to all peers except
 // those in the exclude set.
-func (pm *PeerManager) BroadcastBlockHashes(hashes []NewBlockHashesEntry, exclude map[string]bool) []error {
-	msg, err := EncodeMessage(NewBlockHashesMsg, hashes)
+func (pm *PeerManager) BroadcastBlockHashes(hashes []ethproto.NewBlockHashesEntry, exclude map[string]bool) []error {
+	msg, err := wire.EncodeMessage(ethproto.NewBlockHashesMsg, hashes)
 	if err != nil {
 		return []error{err}
 	}
@@ -194,7 +197,7 @@ func (pm *PeerManager) BroadcastBlockHashes(hashes []NewBlockHashesEntry, exclud
 		if exclude != nil && exclude[id] {
 			continue
 		}
-		wireMsg := Msg{
+		wireMsg := wire.Msg{
 			Code:    msg.Code,
 			Size:    msg.Size,
 			Payload: msg.Payload,

@@ -8,6 +8,10 @@ import (
 	"log"
 	"net"
 	"sync"
+
+	"github.com/eth2030/eth2030/p2p/peermgr"
+	"github.com/eth2030/eth2030/p2p/scoring"
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 // Config holds the configuration for a P2P Server.
@@ -40,11 +44,11 @@ type Config struct {
 
 	// Dialer is the interface used for outbound connections.
 	// If nil, a TCPDialer is used.
-	Dialer Dialer
+	Dialer wire.Dialer
 
 	// Listener is the interface for accepting inbound connections.
 	// If nil, a TCPListener is created from ListenAddr.
-	Listener Listener
+	Listener wire.Listener
 
 	// DisableHandshake disables the devp2p hello handshake, for backward
 	// compatibility with tests that connect raw TCP clients without
@@ -75,17 +79,17 @@ type Protocol struct {
 
 	// Run is called for each peer that supports this protocol.
 	// It should read/write messages and return when done.
-	Run func(peer *Peer, t Transport) error
+	Run func(peer *peermgr.Peer, t wire.Transport) error
 }
 
 // Server manages TCP connections and peer lifecycle.
 type Server struct {
 	config   Config
-	listener Listener
-	dialer   Dialer
-	peers    *ManagedPeerSet
+	listener wire.Listener
+	dialer   wire.Dialer
+	peers    *peermgr.ManagedPeerSet
 	nodes    *NodeTable
-	scores   *ScoreMap
+	scores   *scoring.ScoreMap
 	localID  string // Node ID used in handshake.
 
 	mu      sync.Mutex
@@ -109,9 +113,9 @@ func NewServer(cfg Config) *Server {
 	return &Server{
 		config:  cfg,
 		dialer:  cfg.Dialer,
-		peers:   NewManagedPeerSet(cfg.MaxPeers),
+		peers:   peermgr.NewManagedPeerSet(cfg.MaxPeers),
 		nodes:   NewNodeTable(),
-		scores:  NewScoreMap(),
+		scores:  scoring.NewScoreMap(),
 		localID: localID,
 		quit:    make(chan struct{}),
 	}
@@ -128,7 +132,7 @@ func (srv *Server) Start() error {
 
 	// Set up the dialer.
 	if srv.dialer == nil {
-		srv.dialer = &TCPDialer{}
+		srv.dialer = &wire.TCPDialer{}
 	}
 
 	// Set up the listener.
@@ -139,7 +143,7 @@ func (srv *Server) Start() error {
 		if err != nil {
 			return fmt.Errorf("p2p: listen error: %w", err)
 		}
-		srv.listener = NewTCPListener(ln)
+		srv.listener = wire.NewTCPListener(ln)
 	}
 
 	srv.running = true
@@ -203,7 +207,7 @@ func (srv *Server) PeerCount() int {
 }
 
 // PeersList returns a snapshot of connected peers.
-func (srv *Server) PeersList() []*Peer {
+func (srv *Server) PeersList() []*peermgr.Peer {
 	return srv.peers.Peers()
 }
 
@@ -213,12 +217,12 @@ func (srv *Server) NodeTable() *NodeTable {
 }
 
 // Scores returns the server's peer score map.
-func (srv *Server) Scores() *ScoreMap {
+func (srv *Server) Scores() *scoring.ScoreMap {
 	return srv.scores
 }
 
 // PeerScore returns the score tracker for a connected peer.
-func (srv *Server) PeerScore(id string) *PeerScore {
+func (srv *Server) PeerScore(id string) *scoring.PeerScore {
 	return srv.scores.Get(id)
 }
 
@@ -258,12 +262,12 @@ func (srv *Server) listenLoop() {
 }
 
 // localHello builds the local hello packet from the server's configuration.
-func (srv *Server) localHello() *HelloPacket {
-	caps := make([]Cap, len(srv.config.Protocols))
+func (srv *Server) localHello() *wire.HelloPacket {
+	caps := make([]wire.Cap, len(srv.config.Protocols))
 	for i, p := range srv.config.Protocols {
-		caps[i] = Cap{Name: p.Name, Version: p.Version}
+		caps[i] = wire.Cap{Name: p.Name, Version: p.Version}
 	}
-	return &HelloPacket{
+	return &wire.HelloPacket{
 		Version:    baseProtocolVersion,
 		Name:       srv.config.Name,
 		Caps:       caps,
@@ -274,12 +278,12 @@ func (srv *Server) localHello() *HelloPacket {
 
 // setupConn handles a new connection: performs handshake, creates a peer,
 // and runs all matching protocols via the multiplexer.
-func (srv *Server) setupConn(ct ConnTransport, dialed bool) {
-	var tr Transport = ct
+func (srv *Server) setupConn(ct wire.ConnTransport, dialed bool) {
+	var tr wire.Transport = ct
 
 	// Optionally wrap with RLPx encryption.
 	if srv.config.EnableRLPx {
-		rlpx := NewRLPxTransport(ct.(*FrameConnTransport).FrameTransport.Conn())
+		rlpx := wire.NewRLPxTransport(ct.(*wire.FrameConnTransport).FrameTransport.Conn())
 		if err := rlpx.Handshake(dialed); err != nil {
 			ct.Close()
 			return
@@ -289,10 +293,10 @@ func (srv *Server) setupConn(ct ConnTransport, dialed bool) {
 
 	// Perform devp2p hello handshake (unless disabled).
 	var peerID string
-	var peerCaps []Cap
+	var peerCaps []wire.Cap
 
 	if !srv.config.DisableHandshake {
-		remoteHello, err := PerformHandshake(tr, srv.localHello())
+		remoteHello, err := wire.PerformHandshake(tr, srv.localHello())
 		if err != nil {
 			tr.Close()
 			return
@@ -304,7 +308,7 @@ func (srv *Server) setupConn(ct ConnTransport, dialed bool) {
 		peerID = randomID()
 	}
 
-	peer := NewPeer(peerID, ct.RemoteAddr(), peerCaps)
+	peer := peermgr.NewPeer(peerID, ct.RemoteAddr(), peerCaps)
 	score := srv.scores.Get(peerID)
 
 	if err := srv.peers.Add(peer); err != nil {
@@ -395,11 +399,11 @@ type muxTransportAdapter struct {
 	rw  *ProtoRW
 }
 
-func (a *muxTransportAdapter) ReadMsg() (Msg, error) {
+func (a *muxTransportAdapter) ReadMsg() (wire.Msg, error) {
 	return a.rw.ReadMsg()
 }
 
-func (a *muxTransportAdapter) WriteMsg(msg Msg) error {
+func (a *muxTransportAdapter) WriteMsg(msg wire.Msg) error {
 	return a.mux.WriteMsg(a.rw, msg)
 }
 

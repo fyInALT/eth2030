@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/eth2030/eth2030/p2p/wire"
 )
 
 var (
@@ -20,21 +22,21 @@ var (
 type ProtoRW struct {
 	proto  Protocol
 	offset uint64 // Code offset for this protocol in the multiplexed stream.
-	in     chan Msg
+	in     chan wire.Msg
 	closed chan struct{}
 }
 
 // ReadMsg reads the next message destined for this protocol. The returned
 // message's Code is relative to the protocol (i.e., offset has been subtracted).
-func (rw *ProtoRW) ReadMsg() (Msg, error) {
+func (rw *ProtoRW) ReadMsg() (wire.Msg, error) {
 	select {
 	case msg, ok := <-rw.in:
 		if !ok {
-			return Msg{}, ErrMuxClosed
+			return wire.Msg{}, ErrMuxClosed
 		}
 		return msg, nil
 	case <-rw.closed:
-		return Msg{}, ErrMuxClosed
+		return wire.Msg{}, ErrMuxClosed
 	}
 }
 
@@ -42,7 +44,7 @@ func (rw *ProtoRW) ReadMsg() (Msg, error) {
 // Each protocol is assigned a contiguous range of message codes. Incoming messages
 // are dispatched to the correct protocol based on their code.
 type Multiplexer struct {
-	transport Transport
+	transport wire.Transport
 	protos    []*ProtoRW
 	totalLen  uint64 // Total message code space across all protocols.
 
@@ -61,7 +63,7 @@ type ProtoMatch struct {
 
 // NewMultiplexer creates a multiplexer for the given protocols over a transport.
 // Protocols are sorted by (Name, Version) and assigned contiguous code ranges.
-func NewMultiplexer(tr Transport, protocols []Protocol) *Multiplexer {
+func NewMultiplexer(tr wire.Transport, protocols []Protocol) *Multiplexer {
 	// Sort protocols by name, then version (ascending).
 	sorted := make([]Protocol, len(protocols))
 	copy(sorted, protocols)
@@ -82,7 +84,7 @@ func NewMultiplexer(tr Transport, protocols []Protocol) *Multiplexer {
 		rw := &ProtoRW{
 			proto:  p,
 			offset: offset,
-			in:     make(chan Msg, 16),
+			in:     make(chan wire.Msg, 16),
 			closed: mux.done,
 		}
 		mux.protos = append(mux.protos, rw)
@@ -101,7 +103,7 @@ func (mux *Multiplexer) Protocols() []*ProtoRW {
 
 // WriteMsg sends a message for the given protocol. The code is offset by the
 // protocol's base before writing to the transport.
-func (mux *Multiplexer) WriteMsg(rw *ProtoRW, msg Msg) error {
+func (mux *Multiplexer) WriteMsg(rw *ProtoRW, msg wire.Msg) error {
 	mux.mu.Lock()
 	if mux.closed {
 		mux.mu.Unlock()
@@ -114,7 +116,7 @@ func (mux *Multiplexer) WriteMsg(rw *ProtoRW, msg Msg) error {
 	}
 
 	// Offset the code for the wire.
-	wireMsg := Msg{
+	wireMsg := wire.Msg{
 		Code:    msg.Code + rw.offset,
 		Size:    msg.Size,
 		Payload: msg.Payload,
@@ -143,7 +145,7 @@ func (mux *Multiplexer) ReadLoop() error {
 		}
 
 		// Subtract offset so the protocol sees code-relative values.
-		localMsg := Msg{
+		localMsg := wire.Msg{
 			Code:    msg.Code - rw.offset,
 			Size:    msg.Size,
 			Payload: msg.Payload,
