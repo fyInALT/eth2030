@@ -5,13 +5,15 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // TestGetBlockByNumber_HistoryPruned verifies that requesting full tx data
 // for a pruned block returns the EIP-4444 error.
 func TestGetBlockByNumber_HistoryPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 100
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 100
 
 	api := NewEthAPI(mb)
 	// Block 42 is below the oldest available (100), requesting fullTx=true
@@ -29,8 +31,8 @@ func TestGetBlockByNumber_HistoryPruned(t *testing.T) {
 // TestGetBlockByNumber_HeaderOnlyNotPruned verifies that requesting headers
 // only (fullTx=false) works even for pruned blocks.
 func TestGetBlockByNumber_HeaderOnlyNotPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 100
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 100
 
 	api := NewEthAPI(mb)
 	// Block 42 is below oldest, but fullTx=false should still return header.
@@ -47,7 +49,7 @@ func TestGetBlockByNumber_HeaderOnlyNotPruned(t *testing.T) {
 // TestGetBlockByNumber_NoPruning verifies normal behavior when no pruning
 // has occurred (historyOldest=0).
 func TestGetBlockByNumber_NoPruning(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	// historyOldest defaults to 0 (no pruning).
 
 	api := NewEthAPI(mb)
@@ -64,8 +66,8 @@ func TestGetBlockByNumber_NoPruning(t *testing.T) {
 // TestGetTransactionReceipt_HistoryPruned verifies that receipt requests
 // for pruned blocks return the EIP-4444 error.
 func TestGetTransactionReceipt_HistoryPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 100
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 100
 
 	to := types.HexToAddress("0xbbbb")
 	tx := types.NewTransaction(&types.LegacyTx{
@@ -80,10 +82,10 @@ func TestGetTransactionReceipt_HistoryPruned(t *testing.T) {
 
 	txHash := tx.Hash()
 	// Block 42 is below the oldest available (100).
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getTransactionReceipt", encodeHash(txHash))
+	resp := callRPC(t, api, "eth_getTransactionReceipt", rpctypes.EncodeHash(txHash))
 
 	if resp.Error == nil {
 		t.Fatal("expected EIP-4444 pruned error for receipt in old block")
@@ -96,8 +98,8 @@ func TestGetTransactionReceipt_HistoryPruned(t *testing.T) {
 // TestGetBlockReceipts_HistoryPruned verifies that block receipt requests
 // for pruned blocks return the EIP-4444 error.
 func TestGetBlockReceipts_HistoryPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 100
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 100
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x2a")
@@ -113,8 +115,8 @@ func TestGetBlockReceipts_HistoryPruned(t *testing.T) {
 // TestGetLogs_HistoryPruned verifies that log queries touching pruned blocks
 // return the EIP-4444 error.
 func TestGetLogs_HistoryPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 100
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 100
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getLogs", map[string]interface{}{
@@ -133,8 +135,8 @@ func TestGetLogs_HistoryPruned(t *testing.T) {
 // TestGetLogs_NotPruned verifies logs work when the block range is within
 // the available history.
 func TestGetLogs_NotPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 10
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 10
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getLogs", map[string]interface{}{

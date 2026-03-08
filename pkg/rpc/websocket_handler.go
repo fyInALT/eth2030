@@ -7,6 +7,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	rpcsub "github.com/eth2030/eth2030/rpc/subscription"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // WebSocket configuration constants.
@@ -190,7 +193,7 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// handshake here (using gorilla/websocket or nhooyr.io/websocket).
 	// For this implementation, we acknowledge the upgrade and set up the
 	// response to indicate the connection was accepted.
-	w.Header().Set("X-WS-Connection-ID", encodeUint64(conn.id))
+	w.Header().Set("X-WS-Connection-ID", rpctypes.EncodeUint64(conn.id))
 	w.WriteHeader(http.StatusSwitchingProtocols)
 }
 
@@ -253,7 +256,7 @@ func (conn *WSConn) handleSubscribe(req *Request) ([]byte, error) {
 	conn.mu.Lock()
 	if len(conn.subscriptions) >= WSMaxSubscriptionsPerConn {
 		conn.mu.Unlock()
-		errResp := errorResponse(req.ID, ErrCodeInvalidRequest,
+		errResp := rpctypes.NewErrorResponse(req.ID, ErrCodeInvalidRequest,
 			fmt.Sprintf("maximum subscriptions per connection (%d) reached", WSMaxSubscriptionsPerConn))
 		return json.Marshal(errResp)
 	}
@@ -374,7 +377,7 @@ func (h *WSHandler) BroadcastToSubscribers(subType string, data interface{}) {
 		conn.mu.Lock()
 		for subID := range conn.subscriptions {
 			// Format as eth_subscription notification.
-			notif := FormatWSNotification(subID, json.RawMessage(notification))
+			notif := rpcsub.FormatWSNotification(subID, json.RawMessage(notification))
 			msg, _ := json.Marshal(notif)
 			select {
 			case conn.sendCh <- msg:

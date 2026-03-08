@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
 )
 
 func TestNewWSHandler(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	if h == nil {
 		t.Fatal("expected non-nil handler")
@@ -24,7 +26,7 @@ func TestNewWSHandler(t *testing.T) {
 }
 
 func TestNewWSHandler_DefaultMaxConns(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 0)
 	if h.maxConns != 100 {
 		t.Fatalf("want default maxConns 100, got %d", h.maxConns)
@@ -32,7 +34,7 @@ func TestNewWSHandler_DefaultMaxConns(t *testing.T) {
 }
 
 func TestWSConn_HandleMessage_SingleRequest(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -52,7 +54,7 @@ func TestWSConn_HandleMessage_SingleRequest(t *testing.T) {
 }
 
 func TestWSConn_HandleMessage_BatchRequest(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -75,7 +77,7 @@ func TestWSConn_HandleMessage_BatchRequest(t *testing.T) {
 }
 
 func TestWSConn_HandleMessage_InvalidJSON(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -97,7 +99,7 @@ func TestWSConn_HandleMessage_InvalidJSON(t *testing.T) {
 }
 
 func TestWSConn_HandleMessage_ClosedConnection(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 	conn.Close()
@@ -109,7 +111,7 @@ func TestWSConn_HandleMessage_ClosedConnection(t *testing.T) {
 }
 
 func TestWSConn_HandleMessage_Subscribe(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -132,7 +134,7 @@ func TestWSConn_HandleMessage_Subscribe(t *testing.T) {
 }
 
 func TestWSConn_HandleMessage_Unsubscribe(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -162,7 +164,7 @@ func TestWSConn_HandleMessage_Unsubscribe(t *testing.T) {
 }
 
 func TestWSConn_MaxSubscriptions(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -225,7 +227,7 @@ func TestRateBucket_Remaining(t *testing.T) {
 }
 
 func TestWSConn_RateLimit(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 	// Override rate limiter to a small window.
@@ -252,7 +254,7 @@ func TestWSConn_RateLimit(t *testing.T) {
 }
 
 func TestWSConn_Close(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -268,7 +270,7 @@ func TestWSConn_Close(t *testing.T) {
 }
 
 func TestWSConn_ID(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn1 := h.newWSConn()
 	conn2 := h.newWSConn()
@@ -279,7 +281,7 @@ func TestWSConn_ID(t *testing.T) {
 }
 
 func TestWSConn_Info(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
 
@@ -296,7 +298,7 @@ func TestWSConn_Info(t *testing.T) {
 }
 
 func TestWSHandler_AddRemoveConnection(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 2)
 
 	conn1 := h.newWSConn()
@@ -329,7 +331,7 @@ func TestWSHandler_AddRemoveConnection(t *testing.T) {
 }
 
 func TestWSHandler_RemoveConnection_CleansSubscriptions(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	h := NewWSHandler(api, 10)
 	conn := h.newWSConn()
@@ -350,7 +352,7 @@ func TestWSHandler_RemoveConnection_CleansSubscriptions(t *testing.T) {
 }
 
 func TestWSHandler_ServeHTTP_MissingUpgrade(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 
 	req := httptest.NewRequest("GET", "/ws", nil)
@@ -363,7 +365,7 @@ func TestWSHandler_ServeHTTP_MissingUpgrade(t *testing.T) {
 }
 
 func TestWSHandler_ServeHTTP_ValidUpgrade(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 10)
 
 	req := httptest.NewRequest("GET", "/ws", nil)
@@ -380,7 +382,7 @@ func TestWSHandler_ServeHTTP_ValidUpgrade(t *testing.T) {
 }
 
 func TestWSHandler_ServeHTTP_MaxConnections(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	h := NewWSHandler(api, 1)
 
 	// First connection.

@@ -7,13 +7,16 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpcsub "github.com/eth2030/eth2030/rpc/subscription"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // ---------- eth_getBlockReceipts ----------
 
 func TestGetBlockReceipts_WithLogs(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	contractAddr := types.HexToAddress("0xcccc")
 	topic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
@@ -36,7 +39,7 @@ func TestGetBlockReceipts_WithLogs(t *testing.T) {
 			},
 		},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "latest")
@@ -57,7 +60,7 @@ func TestGetBlockReceipts_WithLogs(t *testing.T) {
 }
 
 func TestGetBlockReceipts_EmptyBlock(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getBlockReceipts", "latest")
@@ -76,7 +79,7 @@ func TestGetBlockReceipts_EmptyBlock(t *testing.T) {
 // ---------- eth_maxPriorityFeePerGas ----------
 
 func TestMaxPriorityFeePerGas(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_maxPriorityFeePerGas")
 
 	if resp.Error != nil {
@@ -95,7 +98,7 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 // ---------- eth_feeHistory ----------
 
 func TestFeeHistory(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	// Request 1 block of history ending at "latest" (block 42)
@@ -134,7 +137,7 @@ func TestFeeHistory(t *testing.T) {
 }
 
 func TestFeeHistory_NoRewardPercentiles(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_feeHistory", "0x1", "latest")
@@ -151,7 +154,7 @@ func TestFeeHistory_NoRewardPercentiles(t *testing.T) {
 }
 
 func TestFeeHistory_InvalidBlockCount(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_feeHistory", "0x0", "latest")
 
 	if resp.Error == nil {
@@ -162,7 +165,7 @@ func TestFeeHistory_InvalidBlockCount(t *testing.T) {
 // ---------- eth_syncing ----------
 
 func TestSyncing(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_syncing")
 
 	if resp.Error != nil {
@@ -181,8 +184,8 @@ func TestSyncing(t *testing.T) {
 // ---------- eth_createAccessList ----------
 
 func TestCreateAccessList(t *testing.T) {
-	mb := newMockBackend()
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallGasUsed = 21000
 	api := NewEthAPI(mb)
 
 	to := "0x000000000000000000000000000000000000bbbb"
@@ -208,8 +211,8 @@ func TestCreateAccessList(t *testing.T) {
 }
 
 func TestCreateAccessList_Error(t *testing.T) {
-	mb := newMockBackend()
-	mb.callErr = errCallFailed
+	mb := testutil.NewMockBackend()
+	mb.CallErr = errCallFailed
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_createAccessList", map[string]interface{}{
@@ -225,7 +228,7 @@ func TestCreateAccessList_Error(t *testing.T) {
 // ---------- WebSocket Subscriptions ----------
 
 func TestSubscription_NewHeads(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	// Subscribe to newHeads
@@ -246,7 +249,7 @@ func TestSubscription_NewHeads(t *testing.T) {
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
-	if sub.Type != SubNewHeads {
+	if sub.Type != rpcsub.SubNewHeads {
 		t.Fatalf("want SubNewHeads, got %d", sub.Type)
 	}
 
@@ -287,7 +290,7 @@ func TestSubscription_NewHeads(t *testing.T) {
 }
 
 func TestSubscription_Logs(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	contractAddr := types.HexToAddress("0xcccc")
@@ -295,7 +298,7 @@ func TestSubscription_Logs(t *testing.T) {
 
 	// Subscribe to logs from a specific contract
 	resp := callRPC(t, api, "eth_subscribe", "logs", map[string]interface{}{
-		"address": []string{encodeAddress(contractAddr)},
+		"address": []string{rpctypes.EncodeAddress(contractAddr)},
 	})
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -329,8 +332,8 @@ func TestSubscription_Logs(t *testing.T) {
 		if !ok {
 			t.Fatalf("notification not *RPCLog: %T", msg)
 		}
-		if rpcLog.Address != encodeAddress(contractAddr) {
-			t.Fatalf("want address %v, got %v", encodeAddress(contractAddr), rpcLog.Address)
+		if rpcLog.Address != rpctypes.EncodeAddress(contractAddr) {
+			t.Fatalf("want address %v, got %v", rpctypes.EncodeAddress(contractAddr), rpcLog.Address)
 		}
 	default:
 		t.Fatal("expected notification on channel for matching log")
@@ -349,7 +352,7 @@ func TestSubscription_Logs(t *testing.T) {
 }
 
 func TestSubscription_NewPendingTransactions(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_subscribe", "newPendingTransactions")
@@ -369,8 +372,8 @@ func TestSubscription_NewPendingTransactions(t *testing.T) {
 		if !ok {
 			t.Fatalf("notification not string: %T", msg)
 		}
-		if hashStr != encodeHash(txHash) {
-			t.Fatalf("want %v, got %v", encodeHash(txHash), hashStr)
+		if hashStr != rpctypes.EncodeHash(txHash) {
+			t.Fatalf("want %v, got %v", rpctypes.EncodeHash(txHash), hashStr)
 		}
 	default:
 		t.Fatal("expected notification on channel")
@@ -380,7 +383,7 @@ func TestSubscription_NewPendingTransactions(t *testing.T) {
 }
 
 func TestSubscription_InvalidType(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_subscribe", "invalidType")
 
 	if resp.Error == nil {
@@ -389,7 +392,7 @@ func TestSubscription_InvalidType(t *testing.T) {
 }
 
 func TestUnsubscribe_NonExistent(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_unsubscribe", "0xnonexistent")
 
 	if resp.Error != nil {
@@ -429,8 +432,8 @@ func TestFilter_GetFilterChanges(t *testing.T) {
 	if len(hashes) != 1 {
 		t.Fatalf("want 1 hash, got %d", len(hashes))
 	}
-	if hashes[0] != encodeHash(newHash) {
-		t.Fatalf("want %v, got %v", encodeHash(newHash), hashes[0])
+	if hashes[0] != rpctypes.EncodeHash(newHash) {
+		t.Fatalf("want %v, got %v", rpctypes.EncodeHash(newHash), hashes[0])
 	}
 
 	// Second poll: no new blocks
@@ -483,7 +486,7 @@ func TestFilter_Uninstall(t *testing.T) {
 // ---------- WSNotification formatting ----------
 
 func TestFormatWSNotification(t *testing.T) {
-	notif := FormatWSNotification("0xabc123", map[string]string{"test": "value"})
+	notif := rpcsub.FormatWSNotification("0xabc123", map[string]string{"test": "value"})
 	if notif.JSONRPC != "2.0" {
 		t.Fatalf("want jsonrpc 2.0, got %v", notif.JSONRPC)
 	}
@@ -492,7 +495,7 @@ func TestFormatWSNotification(t *testing.T) {
 	}
 
 	// Verify the params can be parsed
-	var result WSSubscriptionResult
+	var result rpcsub.WSSubscriptionResult
 	if err := json.Unmarshal(notif.Params, &result); err != nil {
 		t.Fatalf("unmarshal params: %v", err)
 	}

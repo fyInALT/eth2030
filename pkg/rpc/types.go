@@ -5,10 +5,6 @@ package rpc
 // types.go re-exports types from rpc/types for backward compatibility.
 
 import (
-	"encoding/json"
-	"math/big"
-
-	coretypes "github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/rpc/adminapi"
 	rpcbackend "github.com/eth2030/eth2030/rpc/backend"
 	rpcbatch "github.com/eth2030/eth2030/rpc/batch"
@@ -93,36 +89,3 @@ var (
 	FormatReceipt     = rpctypes.FormatReceipt
 	FormatLog         = rpctypes.FormatLog
 )
-
-// Unexported wrappers for internal helpers used throughout the rpc package.
-// These delegate to the exported versions in rpctypes.
-
-func encodeHash(h coretypes.Hash) string       { return rpctypes.EncodeHash(h) }
-func encodeAddress(a coretypes.Address) string { return rpctypes.EncodeAddress(a) }
-func encodeBytes(b []byte) string              { return rpctypes.EncodeBytes(b) }
-func encodeBloom(b coretypes.Bloom) string     { return rpctypes.EncodeBloom(b) }
-func encodeUint64(n uint64) string             { return rpctypes.EncodeUint64(n) }
-func encodeBigInt(n *big.Int) string           { return rpctypes.EncodeBigInt(n) }
-func fromHexBytes(s string) []byte             { return rpctypes.FromHexBytes(s) }
-func unhex(c byte) byte                        { return rpctypes.Unhex(c) }
-func parseHexUint64(s string) uint64           { return rpctypes.ParseHexUint64(s) }
-func parseHexBigInt(s string) *big.Int         { return rpctypes.ParseHexBigInt(s) }
-func formatUncleHashes(u []*coretypes.Header) []string {
-	return rpctypes.FormatUncleHashes(u)
-}
-func formatAccessList(al coretypes.AccessList) []RPCAccessTuple {
-	return rpctypes.FormatAccessList(al)
-}
-func formatAuthorizationList(auths []coretypes.Authorization) []RPCAuthorization {
-	return rpctypes.FormatAuthorizationList(auths)
-}
-
-// successResponse creates a JSON-RPC 2.0 success response.
-func successResponse(id json.RawMessage, result interface{}) *Response {
-	return rpctypes.NewSuccessResponse(id, result)
-}
-
-// errorResponse creates a JSON-RPC 2.0 error response.
-func errorResponse(id json.RawMessage, code int, message string) *Response {
-	return rpctypes.NewErrorResponse(id, code, message)
-}

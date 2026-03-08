@@ -7,12 +7,15 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpcsub "github.com/eth2030/eth2030/rpc/subscription"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // newTestBackend builds a mockBackend with two blocks (42 and 43) and
 // pre-populated logs used by the RPC integration tests.
-func newTestBackend() *mockBackend {
-	mb := newMockBackend()
+func newTestBackend() *testutil.MockBackend {
+	mb := testutil.NewMockBackend()
 	// Add a second block (43) so we have a range to query.
 	header43 := &types.Header{
 		Number:   big.NewInt(43),
@@ -21,10 +24,10 @@ func newTestBackend() *mockBackend {
 		Time:     1700000012,
 		BaseFee:  big.NewInt(1000000000),
 	}
-	mb.headers[43] = header43
+	mb.Headers[43] = header43
 
 	// Populate logs for block 42 and 43.
-	block42Hash := mb.headers[42].Hash()
+	block42Hash := mb.Headers[42].Hash()
 	block43Hash := header43.Hash()
 
 	transferTopic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
@@ -32,7 +35,7 @@ func newTestBackend() *mockBackend {
 	contractA := types.HexToAddress("0xaaaa")
 	contractB := types.HexToAddress("0xbbbb")
 
-	mb.logs[block42Hash] = []*types.Log{
+	mb.Logs[block42Hash] = []*types.Log{
 		{
 			Address:     contractA,
 			Topics:      []types.Hash{transferTopic},
@@ -44,9 +47,9 @@ func newTestBackend() *mockBackend {
 		},
 	}
 	// Set bloom on block 42 header.
-	mb.headers[42].Bloom = types.LogsBloom(mb.logs[block42Hash])
+	mb.Headers[42].Bloom = types.LogsBloom(mb.Logs[block42Hash])
 
-	mb.logs[block43Hash] = []*types.Log{
+	mb.Logs[block43Hash] = []*types.Log{
 		{
 			Address:     contractA,
 			Topics:      []types.Hash{transferTopic},
@@ -66,7 +69,7 @@ func newTestBackend() *mockBackend {
 			Index:       1,
 		},
 	}
-	mb.headers[43].Bloom = types.LogsBloom(mb.logs[block43Hash])
+	mb.Headers[43].Bloom = types.LogsBloom(mb.Logs[block43Hash])
 
 	return mb
 }
@@ -138,16 +141,16 @@ func TestRPC_EthGetFilterChanges_Log(t *testing.T) {
 	// so the scan range will be 43..42 (empty, since current=42 < from=43).
 	// Update: CurrentHeader returns 42, so toBlock defaults to 42.
 	// We need to adjust: set the mock's current header to 43.
-	mb.headers[43] = &types.Header{
+	mb.Headers[43] = &types.Header{
 		Number:   big.NewInt(43),
 		GasLimit: 30000000,
 		Time:     1700000012,
 		BaseFee:  big.NewInt(1000000000),
 	}
 	// Populate logs for block 43.
-	block43Hash := mb.headers[43].Hash()
+	block43Hash := mb.Headers[43].Hash()
 	transferTopic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
-	mb.logs[block43Hash] = []*types.Log{
+	mb.Logs[block43Hash] = []*types.Log{
 		{
 			Address:     types.HexToAddress("0xaaaa"),
 			Topics:      []types.Hash{transferTopic},
@@ -156,17 +159,17 @@ func TestRPC_EthGetFilterChanges_Log(t *testing.T) {
 			BlockHash:   block43Hash,
 		},
 	}
-	mb.headers[43].Bloom = types.LogsBloom(mb.logs[block43Hash])
+	mb.Headers[43].Bloom = types.LogsBloom(mb.Logs[block43Hash])
 
 	// To make pollLogs work, we need CurrentHeader to return block 43.
 	// Override by changing the mock to return header 43 as current.
-	origHeader := mb.headers[42]
-	mb.headers[42] = nil // temporarily remove 42
-	mb.headers[43].Number = big.NewInt(43)
+	origHeader := mb.Headers[42]
+	mb.Headers[42] = nil // temporarily remove 42
+	mb.Headers[43].Number = big.NewInt(43)
 
 	// Restore: the mock's CurrentHeader returns headers[42] always.
 	// We need to update the mock. Instead, let's test with block 42.
-	mb.headers[42] = origHeader
+	mb.Headers[42] = origHeader
 
 	// Simpler test: filter from block 42 with current at 42.
 	resp2 := callRPC(t, api, "eth_newFilter", map[string]interface{}{
@@ -284,8 +287,8 @@ func TestRPC_EthGetFilterChanges_BlockFilter(t *testing.T) {
 	if len(hashes) != 1 {
 		t.Fatalf("want 1 hash, got %d", len(hashes))
 	}
-	if hashes[0] != encodeHash(newHash) {
-		t.Fatalf("want %v, got %v", encodeHash(newHash), hashes[0])
+	if hashes[0] != rpctypes.EncodeHash(newHash) {
+		t.Fatalf("want %v, got %v", rpctypes.EncodeHash(newHash), hashes[0])
 	}
 }
 
@@ -315,7 +318,7 @@ func TestRPC_EthGetFilterChanges_PendingTxFilter(t *testing.T) {
 // ---------- net_ and web3_ method tests ----------
 
 func TestRPC_NetListening(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "net_listening")
 
 	if resp.Error != nil {
@@ -327,7 +330,7 @@ func TestRPC_NetListening(t *testing.T) {
 }
 
 func TestRPC_NetPeerCount(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "net_peerCount")
 
 	if resp.Error != nil {
@@ -339,7 +342,7 @@ func TestRPC_NetPeerCount(t *testing.T) {
 }
 
 func TestRPC_Web3Sha3(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	// keccak256("") = c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
 	resp := callRPC(t, api, "web3_sha3", "0x")
 
@@ -350,14 +353,14 @@ func TestRPC_Web3Sha3(t *testing.T) {
 	if !ok {
 		t.Fatalf("result not string: %T", resp.Result)
 	}
-	want := encodeHash(types.EmptyCodeHash)
+	want := rpctypes.EncodeHash(types.EmptyCodeHash)
 	if got != want {
 		t.Fatalf("want %v, got %v", want, got)
 	}
 }
 
 func TestRPC_Web3Sha3_WithData(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	// keccak256(0x68656c6c6f) = keccak256("hello")
 	resp := callRPC(t, api, "web3_sha3", "0x68656c6c6f")
 
@@ -365,14 +368,14 @@ func TestRPC_Web3Sha3_WithData(t *testing.T) {
 		t.Fatalf("error: %v", resp.Error.Message)
 	}
 	got := resp.Result.(string)
-	expected := encodeHash(crypto.Keccak256Hash([]byte("hello")))
+	expected := rpctypes.EncodeHash(crypto.Keccak256Hash([]byte("hello")))
 	if got != expected {
 		t.Fatalf("want %v, got %v", expected, got)
 	}
 }
 
 func TestRPC_Web3Sha3_MissingParam(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "web3_sha3")
 
 	if resp.Error == nil {
@@ -424,7 +427,7 @@ func TestFilterCriteria_NestedTopics(t *testing.T) {
 // ---------- eth_subscribe / eth_unsubscribe RPC integration tests ----------
 
 func TestRPC_EthSubscribe_MissingParam(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_subscribe")
 
 	if resp.Error == nil {
@@ -436,7 +439,7 @@ func TestRPC_EthSubscribe_MissingParam(t *testing.T) {
 }
 
 func TestRPC_EthUnsubscribe_MissingParam(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 	resp := callRPC(t, api, "eth_unsubscribe")
 
 	if resp.Error == nil {
@@ -448,15 +451,15 @@ func TestRPC_EthUnsubscribe_MissingParam(t *testing.T) {
 }
 
 func TestRPC_EthSubscribe_LogsWithFilter(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	contractAddr := types.HexToAddress("0xcccc")
 	transferTopic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 
 	resp := callRPC(t, api, "eth_subscribe", "logs", map[string]interface{}{
-		"address": []string{encodeAddress(contractAddr)},
-		"topics":  [][]string{{encodeHash(transferTopic)}},
+		"address": []string{rpctypes.EncodeAddress(contractAddr)},
+		"topics":  [][]string{{rpctypes.EncodeHash(transferTopic)}},
 	})
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -467,7 +470,7 @@ func TestRPC_EthSubscribe_LogsWithFilter(t *testing.T) {
 	if sub == nil {
 		t.Fatal("subscription not found")
 	}
-	if sub.Type != SubLogs {
+	if sub.Type != rpcsub.SubLogs {
 		t.Fatalf("want SubLogs, got %d", sub.Type)
 	}
 
@@ -481,7 +484,7 @@ func TestRPC_EthSubscribe_LogsWithFilter(t *testing.T) {
 }
 
 func TestRPC_EthSubscribe_LogsNoFilter(t *testing.T) {
-	api := NewEthAPI(newMockBackend())
+	api := NewEthAPI(testutil.NewMockBackend())
 
 	// Subscribe to logs without specifying a filter (matches all logs).
 	resp := callRPC(t, api, "eth_subscribe", "logs")
@@ -504,7 +507,7 @@ func TestRPC_EthSubscribe_LogsNoFilter(t *testing.T) {
 }
 
 func TestRPC_EthSubscribe_FullLifecycle(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	// Step 1: Subscribe to newHeads.

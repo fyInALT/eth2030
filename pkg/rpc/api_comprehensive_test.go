@@ -7,12 +7,14 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // ---------- eth_blockNumber ----------
 
 func TestEthBlockNumber_ReturnsCorrectBlock(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_blockNumber")
 
@@ -32,7 +34,7 @@ func TestEthBlockNumber_ReturnsCorrectBlock(t *testing.T) {
 // ---------- eth_getBlockByNumber ----------
 
 func TestEthGetBlockByNumberLatest(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockByNumber", "latest", false)
 
@@ -52,7 +54,7 @@ func TestEthGetBlockByNumberLatest(t *testing.T) {
 }
 
 func TestEthGetBlockByNumberGenesis(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	// Add genesis header at block 0.
 	genesisHeader := &types.Header{
 		Number:   big.NewInt(0),
@@ -61,7 +63,7 @@ func TestEthGetBlockByNumberGenesis(t *testing.T) {
 		Time:     1690000000,
 		BaseFee:  big.NewInt(1000000000),
 	}
-	mb.headers[0] = genesisHeader
+	mb.Headers[0] = genesisHeader
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockByNumber", "0x0", false)
@@ -82,7 +84,7 @@ func TestEthGetBlockByNumberGenesis(t *testing.T) {
 }
 
 func TestEthGetBlockByNumber_NonExistent(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockByNumber", "0xffffff", false)
 
@@ -97,11 +99,11 @@ func TestEthGetBlockByNumber_NonExistent(t *testing.T) {
 // ---------- eth_getBlockByHash ----------
 
 func TestEthGetBlockByHash_Valid(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getBlockByHash", encodeHash(blockHash), false)
+	resp := callRPC(t, api, "eth_getBlockByHash", rpctypes.EncodeHash(blockHash), false)
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -119,7 +121,7 @@ func TestEthGetBlockByHash_Valid(t *testing.T) {
 }
 
 func TestEthGetBlockByHash_Invalid(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockByHash",
 		"0x0000000000000000000000000000000000000000000000000000000000000000", false)
@@ -135,7 +137,7 @@ func TestEthGetBlockByHash_Invalid(t *testing.T) {
 // ---------- eth_getTransactionCount ----------
 
 func TestEthGetTransactionCount_Existing(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getTransactionCount",
@@ -155,7 +157,7 @@ func TestEthGetTransactionCount_Existing(t *testing.T) {
 }
 
 func TestEthGetTransactionCount_NonExisting(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getTransactionCount",
@@ -177,7 +179,7 @@ func TestEthGetTransactionCount_NonExisting(t *testing.T) {
 // ---------- eth_getBalance ----------
 
 func TestEthGetBalance_FundedAccount(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getBalance",
@@ -197,7 +199,7 @@ func TestEthGetBalance_FundedAccount(t *testing.T) {
 }
 
 func TestEthGetBalance_ZeroBalance(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getBalance",
@@ -218,7 +220,7 @@ func TestEthGetBalance_ZeroBalance(t *testing.T) {
 // ---------- eth_getCode ----------
 
 func TestEthGetCode_Contract(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getCode",
@@ -238,7 +240,7 @@ func TestEthGetCode_Contract(t *testing.T) {
 }
 
 func TestEthGetCode_EOA(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getCode",
@@ -260,7 +262,7 @@ func TestEthGetCode_EOA(t *testing.T) {
 // ---------- eth_chainId ----------
 
 func TestEthChainId_Correct(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_chainId")
 
@@ -280,7 +282,7 @@ func TestEthChainId_Correct(t *testing.T) {
 // ---------- eth_gasPrice ----------
 
 func TestEthGasPrice_NonZero(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_gasPrice")
 
@@ -303,7 +305,7 @@ func TestEthGasPrice_NonZero(t *testing.T) {
 // ---------- net_version ----------
 
 func TestNetVersion_ReturnsVersionString(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "net_version")
 
@@ -322,7 +324,7 @@ func TestNetVersion_ReturnsVersionString(t *testing.T) {
 // ---------- net_listening ----------
 
 func TestNetListening_ReturnsTrue(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "net_listening")
 
@@ -341,7 +343,7 @@ func TestNetListening_ReturnsTrue(t *testing.T) {
 // ---------- net_peerCount ----------
 
 func TestNetPeerCount_ReturnsCount(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "net_peerCount")
 
@@ -361,7 +363,7 @@ func TestNetPeerCount_ReturnsCount(t *testing.T) {
 // ---------- web3_clientVersion ----------
 
 func TestWeb3ClientVersion_ReturnsVersion(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "web3_clientVersion")
 
@@ -380,7 +382,7 @@ func TestWeb3ClientVersion_ReturnsVersion(t *testing.T) {
 // ---------- web3_sha3 ----------
 
 func TestWeb3Sha3_Keccak256(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	// Keccak256 of empty data "0x".
@@ -396,14 +398,14 @@ func TestWeb3Sha3_Keccak256(t *testing.T) {
 
 	// Compute expected hash.
 	expected := crypto.Keccak256Hash(nil)
-	expectedHex := encodeHash(expected)
+	expectedHex := rpctypes.EncodeHash(expected)
 	if got != expectedHex {
 		t.Fatalf("want %v, got %v", expectedHex, got)
 	}
 }
 
 func TestWeb3Sha3_WithData(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	// Keccak256 of "0x68656c6c6f" ("hello")
@@ -419,14 +421,14 @@ func TestWeb3Sha3_WithData(t *testing.T) {
 
 	// Compute expected hash of "hello".
 	expected := crypto.Keccak256Hash([]byte("hello"))
-	expectedHex := encodeHash(expected)
+	expectedHex := rpctypes.EncodeHash(expected)
 	if got != expectedHex {
 		t.Fatalf("want %v, got %v", expectedHex, got)
 	}
 }
 
 func TestWeb3Sha3_MissingParams(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "web3_sha3")
 
@@ -441,11 +443,11 @@ func TestWeb3Sha3_MissingParams(t *testing.T) {
 // ---------- eth_getStorageAt ----------
 
 func TestEthGetStorageAt_ValidSlot(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	addr := types.HexToAddress("0xaaaa")
 	slot := types.HexToHash("0x01")
 	val := types.HexToHash("0x42")
-	mb.statedb.SetState(addr, slot, val)
+	mb.Statedb.SetState(addr, slot, val)
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getStorageAt",
@@ -460,14 +462,14 @@ func TestEthGetStorageAt_ValidSlot(t *testing.T) {
 	if !ok {
 		t.Fatalf("result not string: %T", resp.Result)
 	}
-	expected := encodeHash(val)
+	expected := rpctypes.EncodeHash(val)
 	if got != expected {
 		t.Fatalf("want %v, got %v", expected, got)
 	}
 }
 
 func TestEthGetStorageAt_EmptySlot(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_getStorageAt",
@@ -483,7 +485,7 @@ func TestEthGetStorageAt_EmptySlot(t *testing.T) {
 		t.Fatalf("result not string: %T", resp.Result)
 	}
 	// Empty slot should return zero hash.
-	expected := encodeHash(types.Hash{})
+	expected := rpctypes.EncodeHash(types.Hash{})
 	if got != expected {
 		t.Fatalf("want %v, got %v", expected, got)
 	}
@@ -492,7 +494,7 @@ func TestEthGetStorageAt_EmptySlot(t *testing.T) {
 // ---------- eth_getTransactionByHash ----------
 
 func TestEthGetTransactionByHash_Found(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	to := types.HexToAddress("0xbbbb")
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    10,
@@ -504,10 +506,10 @@ func TestEthGetTransactionByHash_Found(t *testing.T) {
 	sender := types.HexToAddress("0xaaaa")
 	tx.SetSender(sender)
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getTransactionByHash", encodeHash(txHash))
+	resp := callRPC(t, api, "eth_getTransactionByHash", rpctypes.EncodeHash(txHash))
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -525,7 +527,7 @@ func TestEthGetTransactionByHash_Found(t *testing.T) {
 }
 
 func TestEthGetTransactionByHash_NotFound(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getTransactionByHash",
 		"0x0000000000000000000000000000000000000000000000000000000000000000")
@@ -541,7 +543,7 @@ func TestEthGetTransactionByHash_NotFound(t *testing.T) {
 // ---------- eth_getTransactionReceipt ----------
 
 func TestEthGetTransactionReceipt_Valid(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	to := types.HexToAddress("0xbbbb")
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    1,
@@ -554,9 +556,9 @@ func TestEthGetTransactionReceipt_Valid(t *testing.T) {
 	tx.SetSender(sender)
 
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
 		CumulativeGasUsed: 21000,
@@ -567,10 +569,10 @@ func TestEthGetTransactionReceipt_Valid(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "eth_getTransactionReceipt", encodeHash(txHash))
+	resp := callRPC(t, api, "eth_getTransactionReceipt", rpctypes.EncodeHash(txHash))
 
 	if resp.Error != nil {
 		t.Fatalf("error: %v", resp.Error.Message)
@@ -590,8 +592,8 @@ func TestEthGetTransactionReceipt_Valid(t *testing.T) {
 // ---------- eth_call ----------
 
 func TestEthCall_Success(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = []byte{0x00, 0x00, 0x00, 0x01}
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0x00, 0x00, 0x00, 0x01}
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_call", map[string]interface{}{
@@ -615,7 +617,7 @@ func TestEthCall_Success(t *testing.T) {
 // ---------- eth_estimateGas ----------
 
 func TestEthEstimateGas_SimpleTransfer(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 
 	resp := callRPC(t, api, "eth_estimateGas", map[string]interface{}{
@@ -639,12 +641,12 @@ func TestEthEstimateGas_SimpleTransfer(t *testing.T) {
 // ---------- eth_getLogs ----------
 
 func TestEthGetLogs_ByBlockRange(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 	contractAddr := types.HexToAddress("0xcccc")
 	topic := types.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 
-	mb.logs[blockHash] = []*types.Log{
+	mb.Logs[blockHash] = []*types.Log{
 		{
 			Address:     contractAddr,
 			Topics:      []types.Hash{topic},
@@ -677,7 +679,7 @@ func TestEthGetLogs_ByBlockRange(t *testing.T) {
 // ---------- Missing parameter edge cases ----------
 
 func TestEthGetBalance_MissingParams(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBalance", "0x000000000000000000000000000000000000aaaa")
 
@@ -690,7 +692,7 @@ func TestEthGetBalance_MissingParams(t *testing.T) {
 }
 
 func TestEthGetBlockByNumber_MissingParams(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockByNumber")
 
@@ -703,7 +705,7 @@ func TestEthGetBlockByNumber_MissingParams(t *testing.T) {
 }
 
 func TestEthGetBlockByHash_MissingParams(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockByHash")
 
@@ -718,7 +720,7 @@ func TestEthGetBlockByHash_MissingParams(t *testing.T) {
 // ---------- JSON serialization round-trip ----------
 
 func TestEthBlockNumber_JSONRoundTrip(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_blockNumber")
 
@@ -744,7 +746,7 @@ func TestEthBlockNumber_JSONRoundTrip(t *testing.T) {
 // ---------- eth_protocolVersion ----------
 
 func TestEthProtocolVersion(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_protocolVersion")
 
@@ -760,7 +762,7 @@ func TestEthProtocolVersion(t *testing.T) {
 // ---------- eth_accounts ----------
 
 func TestEthAccounts(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_accounts")
 
@@ -772,7 +774,7 @@ func TestEthAccounts(t *testing.T) {
 // ---------- eth_mining ----------
 
 func TestEthMining(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_mining")
 
@@ -784,7 +786,7 @@ func TestEthMining(t *testing.T) {
 // ---------- eth_hashrate ----------
 
 func TestEthHashrate(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_hashrate")
 
@@ -796,7 +798,7 @@ func TestEthHashrate(t *testing.T) {
 // ---------- eth_getUncleCountByBlockHash ----------
 
 func TestEthGetUncleCountByBlockHash(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getUncleCountByBlockHash",
 		"0x0000000000000000000000000000000000000000000000000000000000001234")
@@ -809,7 +811,7 @@ func TestEthGetUncleCountByBlockHash(t *testing.T) {
 // ---------- eth_getUncleCountByBlockNumber ----------
 
 func TestEthGetUncleCountByBlockNumber(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getUncleCountByBlockNumber", "0x2a")
 
@@ -821,11 +823,11 @@ func TestEthGetUncleCountByBlockNumber(t *testing.T) {
 // ---------- EIP-4444: history pruning ----------
 
 func TestEthGetBlockByNumber_HistoryPruned(t *testing.T) {
-	mb := newMockBackend()
-	mb.historyOldest = 40 // blocks before 40 are pruned
+	mb := testutil.NewMockBackend()
+	mb.HistoryOldest = 40 // blocks before 40 are pruned
 
 	// Add a header at block 30 (pruned range).
-	mb.headers[30] = &types.Header{
+	mb.Headers[30] = &types.Header{
 		Number:   big.NewInt(30),
 		GasLimit: 30000000,
 		GasUsed:  0,

@@ -6,13 +6,15 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // ---------- eth_getBlockReceipts enhanced fields ----------
 
 func TestGetBlockReceipts_EffectiveGasPrice(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
@@ -26,7 +28,7 @@ func TestGetBlockReceipts_EffectiveGasPrice(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x2a")
@@ -51,8 +53,8 @@ func TestGetBlockReceipts_EffectiveGasPrice(t *testing.T) {
 }
 
 func TestGetBlockReceipts_EIP4844Fields(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
@@ -68,7 +70,7 @@ func TestGetBlockReceipts_EIP4844Fields(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x2a")
@@ -93,8 +95,8 @@ func TestGetBlockReceipts_EIP4844Fields(t *testing.T) {
 }
 
 func TestGetBlockReceipts_NoBlobFields_LegacyTx(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
@@ -108,7 +110,7 @@ func TestGetBlockReceipts_NoBlobFields_LegacyTx(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x2a")
@@ -130,8 +132,8 @@ func TestGetBlockReceipts_NoBlobFields_LegacyTx(t *testing.T) {
 }
 
 func TestGetBlockReceipts_LogIndexing(t *testing.T) {
-	mb := newMockBackend()
-	blockHash := mb.headers[42].Hash()
+	mb := testutil.NewMockBackend()
+	blockHash := mb.Headers[42].Hash()
 
 	contractAddr := types.HexToAddress("0xcccc")
 	topic := types.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
@@ -161,7 +163,7 @@ func TestGetBlockReceipts_LogIndexing(t *testing.T) {
 			{Address: contractAddr, Topics: []types.Hash{topic}, Data: []byte{0x03}, BlockNumber: 42, BlockHash: blockHash, TxIndex: 1, Index: 2},
 		},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt1, receipt2}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt1, receipt2}
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "eth_getBlockReceipts", "0x2a")
@@ -251,9 +253,9 @@ func TestRPCReceipt_JSON_NoBlobFields(t *testing.T) {
 // ---------- Dispatcher routing ----------
 
 func TestDispatcher_DebugTraceBlockByNumber(t *testing.T) {
-	mb := newMockBackend()
-	block := types.NewBlock(mb.headers[42], nil)
-	mb.blocks[42] = block
+	mb := testutil.NewMockBackend()
+	block := types.NewBlock(mb.Headers[42], nil)
+	mb.Blocks[42] = block
 
 	api := NewEthAPI(mb)
 	resp := callRPC(t, api, "debug_traceBlockByNumber", "0x2a")
@@ -263,12 +265,12 @@ func TestDispatcher_DebugTraceBlockByNumber(t *testing.T) {
 }
 
 func TestDispatcher_DebugTraceBlockByHash(t *testing.T) {
-	mb := newMockBackend()
-	block := types.NewBlock(mb.headers[42], nil)
-	mb.blocks[42] = block
+	mb := testutil.NewMockBackend()
+	block := types.NewBlock(mb.Headers[42], nil)
+	mb.Blocks[42] = block
 
 	api := NewEthAPI(mb)
-	resp := callRPC(t, api, "debug_traceBlockByHash", encodeHash(block.Hash()))
+	resp := callRPC(t, api, "debug_traceBlockByHash", rpctypes.EncodeHash(block.Hash()))
 	if resp.Error != nil {
 		t.Fatalf("expected routing to succeed, got error: %v", resp.Error.Message)
 	}

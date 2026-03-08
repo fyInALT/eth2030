@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/internal/testutil"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
 // RPC conformance test suite.
@@ -20,8 +22,8 @@ import (
 
 // newConformanceBackend returns a mockBackend configured for conformance tests
 // with two blocks (0 genesis, 42 current) and a funded account.
-func newConformanceBackend() *mockBackend {
-	mb := newMockBackend()
+func newConformanceBackend() *testutil.MockBackend {
+	mb := testutil.NewMockBackend()
 
 	// Add genesis block header (block 0).
 	genesis := &types.Header{
@@ -31,7 +33,7 @@ func newConformanceBackend() *mockBackend {
 		Time:     1600000000,
 		BaseFee:  big.NewInt(1000000000),
 	}
-	mb.headers[0] = genesis
+	mb.Headers[0] = genesis
 
 	return mb
 }
@@ -223,9 +225,9 @@ func TestConformance_GetBlockByHash(t *testing.T) {
 	mb := newConformanceBackend()
 	api := NewEthAPI(mb)
 
-	header := mb.headers[42]
+	header := mb.Headers[42]
 	hash := header.Hash()
-	hashHex := encodeHash(hash)
+	hashHex := rpctypes.EncodeHash(hash)
 
 	// Without full transactions.
 	resp := conformanceCall(t, api, "eth_getBlockByHash", hashHex, false)
@@ -311,9 +313,9 @@ func TestConformance_GetBlockByNumber_FullTx(t *testing.T) {
 	sender := types.HexToAddress("0xaaaa")
 	tx.SetSender(sender)
 
-	header := mb.headers[42]
+	header := mb.Headers[42]
 	block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
-	mb.blocks[42] = block
+	mb.Blocks[42] = block
 
 	api := NewEthAPI(mb)
 	resp := conformanceCall(t, api, "eth_getBlockByNumber", "latest", true)
@@ -345,10 +347,10 @@ func TestConformance_GetTransactionByHash(t *testing.T) {
 	tx.SetSender(sender)
 
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
 	api := NewEthAPI(mb)
-	resp := conformanceCall(t, api, "eth_getTransactionByHash", encodeHash(txHash))
+	resp := conformanceCall(t, api, "eth_getTransactionByHash", rpctypes.EncodeHash(txHash))
 	requireSuccess(t, resp)
 
 	rpcTx, ok := resp.Result.(*RPCTransaction)
@@ -358,7 +360,7 @@ func TestConformance_GetTransactionByHash(t *testing.T) {
 	if rpcTx.Nonce != "0x7" {
 		t.Fatalf("expected nonce 0x7, got %s", rpcTx.Nonce)
 	}
-	if rpcTx.Hash != encodeHash(txHash) {
+	if rpcTx.Hash != rpctypes.EncodeHash(txHash) {
 		t.Fatalf("hash mismatch: got %s", rpcTx.Hash)
 	}
 }
@@ -391,9 +393,9 @@ func TestConformance_GetTransactionReceipt(t *testing.T) {
 	tx.SetSender(sender)
 
 	txHash := tx.Hash()
-	mb.transactions[txHash] = &mockTxInfo{tx: tx, blockNum: 42, index: 0}
+	mb.Transactions[txHash] = &testutil.MockTxInfo{Tx: tx, BlockNum: 42, Index: 0}
 
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 	receipt := &types.Receipt{
 		Status:            types.ReceiptStatusSuccessful,
 		CumulativeGasUsed: 21000,
@@ -404,10 +406,10 @@ func TestConformance_GetTransactionReceipt(t *testing.T) {
 		TransactionIndex:  0,
 		Logs:              []*types.Log{},
 	}
-	mb.receipts[blockHash] = []*types.Receipt{receipt}
+	mb.Receipts[blockHash] = []*types.Receipt{receipt}
 
 	api := NewEthAPI(mb)
-	resp := conformanceCall(t, api, "eth_getTransactionReceipt", encodeHash(txHash))
+	resp := conformanceCall(t, api, "eth_getTransactionReceipt", rpctypes.EncodeHash(txHash))
 	requireSuccess(t, resp)
 
 	rpcReceipt, ok := resp.Result.(*RPCReceipt)
@@ -417,7 +419,7 @@ func TestConformance_GetTransactionReceipt(t *testing.T) {
 	if rpcReceipt.Status != "0x1" {
 		t.Fatalf("expected status 0x1, got %s", rpcReceipt.Status)
 	}
-	if rpcReceipt.TransactionHash != encodeHash(txHash) {
+	if rpcReceipt.TransactionHash != rpctypes.EncodeHash(txHash) {
 		t.Fatalf("tx hash mismatch")
 	}
 	if rpcReceipt.GasUsed != "0x5208" {
@@ -440,7 +442,7 @@ func TestConformance_GetTransactionReceipt_NotFound(t *testing.T) {
 
 func TestConformance_EthCall_Success(t *testing.T) {
 	mb := newConformanceBackend()
-	mb.callResult = []byte{0x00, 0x00, 0x00, 0x2a} // returns 42
+	mb.CallResult = []byte{0x00, 0x00, 0x00, 0x2a} // returns 42
 	api := NewEthAPI(mb)
 
 	resp := conformanceCall(t, api, "eth_call", map[string]interface{}{
@@ -457,7 +459,7 @@ func TestConformance_EthCall_Success(t *testing.T) {
 
 func TestConformance_EthCall_Error(t *testing.T) {
 	mb := newConformanceBackend()
-	mb.callErr = errors.New("execution reverted")
+	mb.CallErr = errors.New("execution reverted")
 	api := NewEthAPI(mb)
 
 	resp := conformanceCall(t, api, "eth_call", map[string]interface{}{
@@ -469,7 +471,7 @@ func TestConformance_EthCall_Error(t *testing.T) {
 
 func TestConformance_EthCall_EmptyData(t *testing.T) {
 	mb := newConformanceBackend()
-	mb.callResult = []byte{}
+	mb.CallResult = []byte{}
 	api := NewEthAPI(mb)
 
 	resp := conformanceCall(t, api, "eth_call", map[string]interface{}{
@@ -545,12 +547,12 @@ func TestConformance_GetLogs_Empty(t *testing.T) {
 
 func TestConformance_GetLogs_WithLogs(t *testing.T) {
 	mb := newConformanceBackend()
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 
 	topic := types.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 	addr := types.HexToAddress("0xcccc")
 
-	mb.logs[blockHash] = []*types.Log{
+	mb.Logs[blockHash] = []*types.Log{
 		{Address: addr, Topics: []types.Hash{topic}, Data: []byte{0x01},
 			BlockNumber: 42, BlockHash: blockHash, TxIndex: 0, Index: 0},
 		{Address: addr, Topics: []types.Hash{topic}, Data: []byte{0x02},
@@ -575,12 +577,12 @@ func TestConformance_GetLogs_WithLogs(t *testing.T) {
 
 func TestConformance_GetLogs_AddressFilter(t *testing.T) {
 	mb := newConformanceBackend()
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 
 	addr1 := types.HexToAddress("0xcccc")
 	addr2 := types.HexToAddress("0xdddd")
 
-	mb.logs[blockHash] = []*types.Log{
+	mb.Logs[blockHash] = []*types.Log{
 		{Address: addr1, BlockNumber: 42, BlockHash: blockHash, Index: 0},
 		{Address: addr2, BlockNumber: 42, BlockHash: blockHash, Index: 1},
 	}
@@ -589,7 +591,7 @@ func TestConformance_GetLogs_AddressFilter(t *testing.T) {
 	resp := conformanceCall(t, api, "eth_getLogs", map[string]interface{}{
 		"fromBlock": "0x2a",
 		"toBlock":   "0x2a",
-		"address":   []string{encodeAddress(addr2)},
+		"address":   []string{rpctypes.EncodeAddress(addr2)},
 	})
 	requireSuccess(t, resp)
 
@@ -604,13 +606,13 @@ func TestConformance_GetLogs_AddressFilter(t *testing.T) {
 
 func TestConformance_GetLogs_TopicFilter(t *testing.T) {
 	mb := newConformanceBackend()
-	blockHash := mb.headers[42].Hash()
+	blockHash := mb.Headers[42].Hash()
 
 	topic1 := types.HexToHash("0xaaa1")
 	topic2 := types.HexToHash("0xaaa2")
 	addr := types.HexToAddress("0xcccc")
 
-	mb.logs[blockHash] = []*types.Log{
+	mb.Logs[blockHash] = []*types.Log{
 		{Address: addr, Topics: []types.Hash{topic1}, BlockNumber: 42, BlockHash: blockHash, Index: 0},
 		{Address: addr, Topics: []types.Hash{topic2}, BlockNumber: 42, BlockHash: blockHash, Index: 1},
 	}
@@ -619,7 +621,7 @@ func TestConformance_GetLogs_TopicFilter(t *testing.T) {
 	resp := conformanceCall(t, api, "eth_getLogs", map[string]interface{}{
 		"fromBlock": "0x2a",
 		"toBlock":   "0x2a",
-		"topics":    [][]string{{encodeHash(topic1)}},
+		"topics":    [][]string{{rpctypes.EncodeHash(topic1)}},
 	})
 	requireSuccess(t, resp)
 
@@ -645,15 +647,19 @@ func TestConformance_SendRawTransaction_Valid(t *testing.T) {
 	mb := newConformanceBackend()
 	api := NewEthAPI(mb)
 
-	resp := conformanceCall(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
+	rawTx, err := testutil.MinTestRawTxHex()
+	if err != nil {
+		t.Fatalf("MinTestRawTxHex: %v", err)
+	}
+	resp := conformanceCall(t, api, "eth_sendRawTransaction", rawTx)
 	requireSuccess(t, resp)
 
 	txHash := mustString(t, resp)
 	if !strings.HasPrefix(txHash, "0x") {
 		t.Fatalf("expected hex-encoded hash, got %s", txHash)
 	}
-	if len(mb.sentTxs) != 1 {
-		t.Fatalf("expected 1 sent tx, got %d", len(mb.sentTxs))
+	if len(mb.SentTxs) != 1 {
+		t.Fatalf("expected 1 sent tx, got %d", len(mb.SentTxs))
 	}
 }
 
@@ -673,16 +679,20 @@ func TestConformance_SendRawTransaction_MissingParams(t *testing.T) {
 
 func TestConformance_SendRawTransaction_BackendError(t *testing.T) {
 	mb := newConformanceBackend()
-	mb2 := &sendErrBackend{mockBackend: mb, sendErr: errors.New("nonce too low")}
+	mb2 := &sendErrBackend{MockBackend: mb, sendErr: errors.New("nonce too low")}
 
 	api := NewEthAPI(mb2)
-	resp := conformanceCall(t, api, "eth_sendRawTransaction", minTestRawTxHex(t))
+	rawTx, err := testutil.MinTestRawTxHex()
+	if err != nil {
+		t.Fatalf("MinTestRawTxHex: %v", err)
+	}
+	resp := conformanceCall(t, api, "eth_sendRawTransaction", rawTx)
 	requireError(t, resp, ErrCodeInternal)
 }
 
-// sendErrBackend wraps mockBackend to return an error on SendTransaction.
+// sendErrBackend wraps testutil.MockBackend to return an error on SendTransaction.
 type sendErrBackend struct {
-	*mockBackend
+	*testutil.MockBackend
 	sendErr error
 }
 
@@ -712,7 +722,7 @@ func TestConformance_Error_MethodNotFound(t *testing.T) {
 
 func TestConformance_Error_InternalError(t *testing.T) {
 	mb := newConformanceBackend()
-	mb.callErr = errors.New("internal failure")
+	mb.CallErr = errors.New("internal failure")
 	api := NewEthAPI(mb)
 
 	resp := conformanceCall(t, api, "eth_call", map[string]interface{}{
@@ -757,7 +767,7 @@ func TestConformance_EdgeCase_MaxUint256Balance(t *testing.T) {
 	maxAddr := types.HexToAddress("0xffff")
 	maxBalance := new(big.Int)
 	maxBalance.SetString("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
-	mb.statedb.AddBalance(maxAddr, maxBalance)
+	mb.Statedb.AddBalance(maxAddr, maxBalance)
 
 	api := NewEthAPI(mb)
 	resp := conformanceCall(t, api, "eth_getBalance",
