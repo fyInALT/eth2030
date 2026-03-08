@@ -1,7 +1,7 @@
 // blob_pool.go implements a dedicated blob transaction pool (BlobTxPool)
 // that manages EIP-4844 type-3 transactions separately from the main pool.
 // It enforces blob gas limits and tracks excess blob gas for base fee computation.
-package txpool
+package blobpool
 
 import (
 	"errors"
