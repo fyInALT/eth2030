@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -21,7 +22,7 @@ func makeTestTx(nonce uint64) *types.Transaction {
 
 func TestNewDependencyGraph_NilBAL(t *testing.T) {
 	txs := []*types.Transaction{makeTestTx(0), makeTestTx(1)}
-	dg := NewDependencyGraph(txs, nil)
+	dg := execution.NewDependencyGraph(txs, nil)
 	if dg == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -31,7 +32,7 @@ func TestNewDependencyGraph_NilBAL(t *testing.T) {
 }
 
 func TestNewDependencyGraph_Empty(t *testing.T) {
-	dg := NewDependencyGraph(nil, nil)
+	dg := execution.NewDependencyGraph(nil, nil)
 	if dg == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -70,7 +71,7 @@ func TestDependencyGraph_NoConflicts(t *testing.T) {
 		},
 	})
 
-	dg := NewDependencyGraph(txs, accessList)
+	dg := execution.NewDependencyGraph(txs, accessList)
 	if dg.ConflictCount() != 0 {
 		t.Fatalf("expected 0 conflicts, got %d", dg.ConflictCount())
 	}
@@ -107,7 +108,7 @@ func TestDependencyGraph_WriteWriteConflict(t *testing.T) {
 		},
 	})
 
-	dg := NewDependencyGraph(txs, accessList)
+	dg := execution.NewDependencyGraph(txs, accessList)
 	if dg.ConflictCount() != 1 {
 		t.Fatalf("expected 1 conflict, got %d", dg.ConflictCount())
 	}
@@ -136,7 +137,7 @@ func TestDependencyGraph_ReadWriteConflict(t *testing.T) {
 		},
 	})
 
-	dg := NewDependencyGraph(txs, accessList)
+	dg := execution.NewDependencyGraph(txs, accessList)
 	if dg.ConflictCount() != 1 {
 		t.Fatalf("expected 1 conflict, got %d", dg.ConflictCount())
 	}
@@ -172,7 +173,7 @@ func TestDependencyGraph_Partition(t *testing.T) {
 		},
 	})
 
-	dg := NewDependencyGraph(txs, accessList)
+	dg := execution.NewDependencyGraph(txs, accessList)
 	groups := dg.Partition(0)
 
 	if len(groups) < 2 {
@@ -221,7 +222,7 @@ func TestDependencyGraph_Partition_MaxGroups(t *testing.T) {
 		},
 	})
 
-	dg := NewDependencyGraph(txs, accessList)
+	dg := execution.NewDependencyGraph(txs, accessList)
 
 	// Without limit, should be 3 groups (complete conflict graph).
 	unlimitedGroups := dg.Partition(0)
@@ -265,7 +266,7 @@ func TestConflictCount(t *testing.T) {
 		},
 	})
 
-	dg := NewDependencyGraph(txs, accessList)
+	dg := execution.NewDependencyGraph(txs, accessList)
 	count := dg.ConflictCount()
 	if count != 1 {
 		t.Fatalf("expected 1 conflict edge, got %d", count)
@@ -286,7 +287,7 @@ func TestClassifyTransactions(t *testing.T) {
 	})
 
 	txs := []*types.Transaction{localTx, globalTx, localTx}
-	local, global := ClassifyTransactions(txs)
+	local, global := execution.ClassifyTransactions(txs)
 
 	if len(local) != 2 {
 		t.Fatalf("expected 2 local txs, got %d", len(local))

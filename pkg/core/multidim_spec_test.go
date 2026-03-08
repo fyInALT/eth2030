@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
@@ -102,7 +103,7 @@ func TestCalcCalldataBaseFee_HigherExcessMeansHigherFee(t *testing.T) {
 
 func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
-	builder := NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
+	builder := coreblock.NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -113,7 +114,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 		Time:     1700000000,
 	}
 
-	block, _, err := builder.BuildBlock(parent, &BuildBlockAttributes{
+	block, _, err := builder.BuildBlock(parent, &coreblock.BuildBlockAttributes{
 		Timestamp:    parent.Time + 12,
 		FeeRecipient: types.Address{0x01},
 		GasLimit:     parent.GasLimit,
@@ -152,7 +153,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	// Use a config without Glamsterdam.
-	builder := NewBlockBuilder(config.TestConfig, nil, nil)
+	builder := coreblock.NewBlockBuilder(config.TestConfig, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -176,10 +177,10 @@ func TestBuildBlock_3DGasVectors_NotSetWithoutGlamsterdam(t *testing.T) {
 		EIP155Block:    config.TestConfig.EIP155Block,
 		// No Glamsterdan — leave GlamsterdanTime nil.
 	}
-	builder2 := NewBlockBuilder(cfgPreGlam, nil, nil)
+	builder2 := coreblock.NewBlockBuilder(cfgPreGlam, nil, nil)
 	builder2.SetState(statedb)
 
-	block, _, err := builder2.BuildBlock(parent, &BuildBlockAttributes{
+	block, _, err := builder2.BuildBlock(parent, &coreblock.BuildBlockAttributes{
 		Timestamp:    parent.Time + 12,
 		FeeRecipient: types.Address{0x01},
 		GasLimit:     parent.GasLimit,

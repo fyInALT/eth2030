@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/eips"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -39,7 +40,7 @@ func TestBeaconBlockRootNotCalledPreCancun(t *testing.T) {
 	}
 
 	block := types.NewBlock(header, &types.Body{})
-	proc := NewStateProcessor(preCancunConfig)
+	proc := execution.NewStateProcessor(preCancunConfig)
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -77,7 +78,7 @@ func TestBeaconBlockRootCalledPostCancun(t *testing.T) {
 	}
 
 	block := types.NewBlock(header, &types.Body{})
-	proc := NewStateProcessor(config.TestConfig) // config.TestConfig has all forks active
+	proc := execution.NewStateProcessor(config.TestConfig) // config.TestConfig has all forks active
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

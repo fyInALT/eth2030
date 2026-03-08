@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
@@ -12,7 +13,7 @@ import (
 // --- Header Validation Tests ---
 
 func TestValidateHeader_ParentHashMismatch(t *testing.T) {
-	v := NewBlockValidator(config.TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 	child := makeValidChild(parent)
 	child.ParentHash = types.Hash{0xde, 0xad} // wrong parent hash
@@ -24,7 +25,7 @@ func TestValidateHeader_ParentHashMismatch(t *testing.T) {
 }
 
 func TestValidateHeader_GasLimitBoundary(t *testing.T) {
-	v := NewBlockValidator(config.TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	tests := []struct {
 		name      string
@@ -64,8 +65,8 @@ func TestValidateHeader_GasLimitBoundary(t *testing.T) {
 		},
 		{
 			name:      "below minimum gas limit",
-			parentGL:  MinGasLimit + 10,
-			childGL:   MinGasLimit - 1,
+			parentGL:  coreblock.MinGasLimit + 10,
+			childGL:   coreblock.MinGasLimit - 1,
 			expectErr: true,
 		},
 	}
@@ -89,19 +90,19 @@ func TestValidateHeader_GasLimitBoundary(t *testing.T) {
 }
 
 func TestValidateHeader_ExtraDataBoundary(t *testing.T) {
-	v := NewBlockValidator(config.TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 
 	// Exactly 32 bytes: should pass.
 	child := makeValidChild(parent)
-	child.Extra = make([]byte, MaxExtraDataSize)
+	child.Extra = make([]byte, coreblock.MaxExtraDataSize)
 	if err := v.ValidateHeader(child, parent); err != nil {
 		t.Errorf("32-byte extra data should be valid: %v", err)
 	}
 
 	// 33 bytes: should fail.
 	child2 := makeValidChild(parent)
-	child2.Extra = make([]byte, MaxExtraDataSize+1)
+	child2.Extra = make([]byte, coreblock.MaxExtraDataSize+1)
 	if err := v.ValidateHeader(child2, parent); err == nil {
 		t.Error("33-byte extra data should be rejected")
 	}
@@ -115,7 +116,7 @@ func TestValidateHeader_ExtraDataBoundary(t *testing.T) {
 }
 
 func TestValidateHeader_PostMergeFields(t *testing.T) {
-	v := NewBlockValidator(config.TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 
 	// Difficulty must be 0 post-merge.
@@ -141,7 +142,7 @@ func TestValidateHeader_PostMergeFields(t *testing.T) {
 }
 
 func TestValidateHeader_GasUsedExactlyAtLimit(t *testing.T) {
-	v := NewBlockValidator(config.TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 	parent := makeValidParent()
 
 	// Gas used == gas limit: should pass.

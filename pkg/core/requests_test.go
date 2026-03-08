@@ -4,7 +4,9 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -46,11 +48,11 @@ func setupSystemContract(statedb *state.MemoryStateDB, addr types.Address, reque
 	var countVal types.Hash
 	countVal[31] = byte(count & 0xFF)
 	countVal[30] = byte((count >> 8) & 0xFF)
-	statedb.SetState(addr, requestCountSlot, countVal)
+	statedb.SetState(addr, execution.RequestCountSlot, countVal)
 
 	// Store each request at consecutive slots starting from slot 1.
 	for i, data := range requestData {
-		slot := incrementSlot(requestDataSlotBase, uint64(i))
+		slot := execution.IncrementSlot(execution.RequestDataSlotBase, uint64(i))
 		statedb.SetState(addr, slot, data)
 	}
 }
@@ -64,7 +66,7 @@ func TestProcessRequests_PrePrague_ReturnsNil(t *testing.T) {
 		Time:     1000,
 	}
 
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,7 +83,7 @@ func TestProcessRequests_NilConfig_ReturnsNil(t *testing.T) {
 		Time:     1000,
 	}
 
-	requests, err := ProcessRequests(nil, statedb, header)
+	requests, err := execution.ProcessRequests(nil, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestProcessRequests_PostPrague_NoContracts(t *testing.T) {
 	}
 
 	// No system contracts deployed - should return empty requests.
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,7 +128,7 @@ func TestProcessRequests_DepositRequests(t *testing.T) {
 	req2[1] = 0xDD
 	setupSystemContract(statedb, types.DepositContractAddress, []types.Hash{req1, req2})
 
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,7 +162,7 @@ func TestProcessRequests_WithdrawalRequests(t *testing.T) {
 	req[2] = 0x33
 	setupSystemContract(statedb, types.WithdrawalRequestAddress, []types.Hash{req})
 
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +190,7 @@ func TestProcessRequests_ConsolidationRequests(t *testing.T) {
 	req[0] = 0xFF
 	setupSystemContract(statedb, types.ConsolidationRequestAddress, []types.Hash{req})
 
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +226,7 @@ func TestProcessRequests_AllThreeTypes(t *testing.T) {
 	con[0] = 0x03
 	setupSystemContract(statedb, types.ConsolidationRequestAddress, []types.Hash{con})
 
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,7 +261,7 @@ func TestProcessRequests_ClearsCountAfterRead(t *testing.T) {
 	setupSystemContract(statedb, types.DepositContractAddress, []types.Hash{req})
 
 	// First call should return 1 request.
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,7 +270,7 @@ func TestProcessRequests_ClearsCountAfterRead(t *testing.T) {
 	}
 
 	// Second call should return 0 requests (count was cleared).
-	requests2, err := ProcessRequests(config, statedb, header)
+	requests2, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,9 +291,9 @@ func TestProcessRequests_ZeroCountContract(t *testing.T) {
 	// Create deposit contract with count=0 (no requests).
 	statedb.CreateAccount(types.DepositContractAddress)
 	statedb.SetCode(types.DepositContractAddress, []byte{0x00})
-	statedb.SetState(types.DepositContractAddress, requestCountSlot, types.Hash{})
+	statedb.SetState(types.DepositContractAddress, execution.RequestCountSlot, types.Hash{})
 
-	requests, err := ProcessRequests(config, statedb, header)
+	requests, err := execution.ProcessRequests(config, statedb, header)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -320,7 +322,7 @@ func TestProcessWithRequests(t *testing.T) {
 	// Create an empty block.
 	block := types.NewBlock(header, &types.Body{})
 
-	proc := NewStateProcessor(config)
+	proc := execution.NewStateProcessor(config)
 	result, err := proc.ProcessWithRequests(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -338,7 +340,7 @@ func TestProcessWithRequests(t *testing.T) {
 
 func TestValidateRequests_PostPrague_ValidHash(t *testing.T) {
 	config := pragueConfig()
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	requests := types.Requests{
 		types.NewRequest(types.DepositRequestType, []byte{0xAA, 0xBB}),
@@ -359,7 +361,7 @@ func TestValidateRequests_PostPrague_ValidHash(t *testing.T) {
 
 func TestValidateRequests_PostPrague_InvalidHash(t *testing.T) {
 	config := pragueConfig()
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	requests := types.Requests{
 		types.NewRequest(types.DepositRequestType, []byte{0xAA, 0xBB}),
@@ -380,7 +382,7 @@ func TestValidateRequests_PostPrague_InvalidHash(t *testing.T) {
 
 func TestValidateRequests_PostPrague_MissingHash(t *testing.T) {
 	config := pragueConfig()
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	header := &types.Header{
 		Number:       big.NewInt(1),
@@ -395,7 +397,7 @@ func TestValidateRequests_PostPrague_MissingHash(t *testing.T) {
 
 func TestValidateRequests_PrePrague_NoHash(t *testing.T) {
 	config := prePragueConfig()
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	header := &types.Header{
 		Number:       big.NewInt(1),
@@ -411,7 +413,7 @@ func TestValidateRequests_PrePrague_NoHash(t *testing.T) {
 
 func TestValidateRequests_PrePrague_HasHash(t *testing.T) {
 	config := prePragueConfig()
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	hash := types.Hash{0x01}
 	header := &types.Header{
@@ -428,7 +430,7 @@ func TestValidateRequests_PrePrague_HasHash(t *testing.T) {
 
 func TestValidateRequests_PostPrague_EmptyRequests(t *testing.T) {
 	config := pragueConfig()
-	v := NewBlockValidator(config)
+	v := coreblock.NewBlockValidator(config)
 
 	// Empty requests list should produce a valid hash.
 	var requests types.Requests
@@ -449,30 +451,30 @@ func TestValidateRequests_PostPrague_EmptyRequests(t *testing.T) {
 func TestCountToUint64(t *testing.T) {
 	// Zero value.
 	var zero types.Hash
-	if countToUint64(zero) != 0 {
+	if execution.CountToUint64(zero) != 0 {
 		t.Fatal("expected 0 for zero hash")
 	}
 
 	// Value 1 in big-endian.
 	var one types.Hash
 	one[31] = 1
-	if countToUint64(one) != 1 {
-		t.Fatalf("expected 1, got %d", countToUint64(one))
+	if execution.CountToUint64(one) != 1 {
+		t.Fatalf("expected 1, got %d", execution.CountToUint64(one))
 	}
 
 	// Value 256 in big-endian.
 	var v256 types.Hash
 	v256[30] = 1
-	if countToUint64(v256) != 256 {
-		t.Fatalf("expected 256, got %d", countToUint64(v256))
+	if execution.CountToUint64(v256) != 256 {
+		t.Fatalf("expected 256, got %d", execution.CountToUint64(v256))
 	}
 
 	// Value 0xFFFF in big-endian.
 	var vFFFF types.Hash
 	vFFFF[30] = 0xFF
 	vFFFF[31] = 0xFF
-	if countToUint64(vFFFF) != 0xFFFF {
-		t.Fatalf("expected 0xFFFF, got %d", countToUint64(vFFFF))
+	if execution.CountToUint64(vFFFF) != 0xFFFF {
+		t.Fatalf("expected 0xFFFF, got %d", execution.CountToUint64(vFFFF))
 	}
 }
 
@@ -480,20 +482,20 @@ func TestIncrementSlot(t *testing.T) {
 	base := types.BytesToHash([]byte{0x01})
 
 	// Increment by 0.
-	result := incrementSlot(base, 0)
+	result := execution.IncrementSlot(base, 0)
 	if result != base {
 		t.Fatalf("increment by 0 should return base, got %s", result.Hex())
 	}
 
 	// Increment by 1: slot 1 + 1 = slot 2.
-	result = incrementSlot(base, 1)
+	result = execution.IncrementSlot(base, 1)
 	expected := types.BytesToHash([]byte{0x02})
 	if result != expected {
 		t.Fatalf("increment by 1: want %s, got %s", expected.Hex(), result.Hex())
 	}
 
 	// Increment by 255.
-	result = incrementSlot(base, 255)
+	result = execution.IncrementSlot(base, 255)
 	var exp256 types.Hash
 	exp256[31] = 0x00 // 1 + 255 = 256 = 0x100
 	exp256[30] = 0x01
@@ -504,28 +506,28 @@ func TestIncrementSlot(t *testing.T) {
 
 func TestTrimTrailingZeros(t *testing.T) {
 	// All zeros.
-	result := trimTrailingZeros(make([]byte, 32))
+	result := execution.TrimTrailingZeros(make([]byte, 32))
 	if result != nil {
 		t.Fatalf("expected nil for all zeros, got %x", result)
 	}
 
 	// Data with trailing zeros.
 	data := []byte{0xAA, 0xBB, 0x00, 0x00}
-	result = trimTrailingZeros(data)
+	result = execution.TrimTrailingZeros(data)
 	if len(result) != 2 || result[0] != 0xAA || result[1] != 0xBB {
 		t.Fatalf("expected [AA BB], got %x", result)
 	}
 
 	// Data with no trailing zeros.
 	data2 := []byte{0x01, 0x02, 0x03}
-	result = trimTrailingZeros(data2)
+	result = execution.TrimTrailingZeros(data2)
 	if len(result) != 3 {
 		t.Fatalf("expected 3 bytes, got %d", len(result))
 	}
 
 	// Single non-zero byte.
 	data3 := []byte{0xFF, 0x00, 0x00, 0x00}
-	result = trimTrailingZeros(data3)
+	result = execution.TrimTrailingZeros(data3)
 	if len(result) != 1 || result[0] != 0xFF {
 		t.Fatalf("expected [FF], got %x", result)
 	}

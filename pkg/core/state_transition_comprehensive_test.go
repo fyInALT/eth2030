@@ -4,7 +4,10 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -48,8 +51,8 @@ func TestETHTransferFullCycle(t *testing.T) {
 		Coinbase: coinbase,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -58,8 +61,8 @@ func TestETHTransferFullCycle(t *testing.T) {
 	}
 
 	// Verify gas used.
-	if result.UsedGas != TxGas {
-		t.Errorf("UsedGas = %d, want %d", result.UsedGas, TxGas)
+	if result.UsedGas != execution.TxGas {
+		t.Errorf("UsedGas = %d, want %d", result.UsedGas, execution.TxGas)
 	}
 
 	// Verify recipient balance.
@@ -116,8 +119,8 @@ func TestETHTransferInsufficientBalance(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	_, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err == nil {
 		t.Fatal("expected insufficient balance error")
 	}
@@ -143,7 +146,7 @@ func TestETHTransferInsufficientGas(t *testing.T) {
 	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
-		GasLimit: 5000, // below TxGas (21000)
+		GasLimit: 5000, // below execution.TxGas (21000)
 		GasPrice: big.NewInt(1),
 		Value:    big.NewInt(1),
 		Nonce:    0,
@@ -156,8 +159,8 @@ func TestETHTransferInsufficientGas(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	_, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	// Intrinsic gas too low is now returned as a protocol error (matching go-ethereum).
 	if err == nil {
 		t.Fatal("expected error for intrinsic gas too low")
@@ -209,8 +212,8 @@ func TestNonceValidationComprehensive(t *testing.T) {
 				Nonce:    tt.nonce,
 			}
 
-			gp := new(GasPool).AddGas(header.GasLimit)
-			_, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+			gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+			_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 			if tt.wantErr && err == nil {
 				t.Error("expected nonce error, got nil")
 			}
@@ -233,7 +236,7 @@ func TestGasRefundMechanics(t *testing.T) {
 	statedb.CreateAccount(recipient)
 
 	// Simple transfer to verify refund cap. A plain transfer has no refund
-	// (refund counter stays zero), so we verify that UsedGas == TxGas.
+	// (refund counter stays zero), so we verify that UsedGas == execution.TxGas.
 	msg := &config.Message{
 		From:     sender,
 		To:       &recipient,
@@ -253,16 +256,16 @@ func TestGasRefundMechanics(t *testing.T) {
 	// Track sender balance before.
 	senderBalBefore := new(big.Int).Set(statedb.GetBalance(sender))
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
 
 	// No refund counter was incremented for a simple transfer, so
 	// gasUsed should equal intrinsic gas exactly.
-	if result.UsedGas != TxGas {
-		t.Errorf("UsedGas = %d, want %d (no refund expected)", result.UsedGas, TxGas)
+	if result.UsedGas != execution.TxGas {
+		t.Errorf("UsedGas = %d, want %d (no refund expected)", result.UsedGas, execution.TxGas)
 	}
 
 	// Verify the MaxRefundQuotient constant is 5 (EIP-3529).
@@ -314,8 +317,8 @@ func TestValueTransferToNewAccount(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -361,8 +364,8 @@ func TestZeroValueTransfer(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -384,7 +387,7 @@ func TestZeroValueTransfer(t *testing.T) {
 }
 
 // TestContractCreationGas verifies that contract creation transactions
-// consume more gas than a simple transfer (TxGas + TxCreateGas + execution).
+// consume more gas than a simple transfer (execution.TxGas + execution.TxCreateGas + execution).
 func TestContractCreationGas(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 
@@ -417,16 +420,16 @@ func TestContractCreationGas(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
 
-	// Gas used should be at least TxGas + TxCreateGas.
-	minGas := TxGas + TxCreateGas
+	// Gas used should be at least execution.TxGas + execution.TxCreateGas.
+	minGas := execution.TxGas + execution.TxCreateGas
 	if result.UsedGas < minGas {
-		t.Errorf("UsedGas = %d, want >= %d (TxGas + TxCreateGas)", result.UsedGas, minGas)
+		t.Errorf("UsedGas = %d, want >= %d (execution.TxGas + execution.TxCreateGas)", result.UsedGas, minGas)
 	}
 }
 
@@ -459,8 +462,8 @@ func TestGlamsterdamReducedIntrinsicGas(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -471,8 +474,8 @@ func TestGlamsterdamReducedIntrinsicGas(t *testing.T) {
 	// Under EIP-2780, TxBaseGlamsterdam = 4500 (vs legacy 21000).
 	// The total gas should be well under 21000 for a simple transfer
 	// to an existing account.
-	if result.UsedGas >= TxGas {
-		t.Errorf("UsedGas = %d, expected < %d under Glamsterdam (EIP-2780)", result.UsedGas, TxGas)
+	if result.UsedGas >= execution.TxGas {
+		t.Errorf("UsedGas = %d, expected < %d under Glamsterdam (EIP-2780)", result.UsedGas, execution.TxGas)
 	}
 
 	// Verify the reduced base cost constant.
@@ -630,7 +633,7 @@ func TestRulesReflectForkActivation(t *testing.T) {
 // --- Block validation tests ---
 
 // TestBlockGasLimitBounds verifies the gas limit adjustment rules: the gas
-// limit can change by at most 1/GasLimitBoundDivisor per block.
+// limit can change by at most 1/coreblock.GasLimitBoundDivisor per block.
 func TestBlockGasLimitBounds(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -659,31 +662,31 @@ func TestBlockGasLimitBounds(t *testing.T) {
 		{
 			name:      "increase at max allowed",
 			parentGL:  30_000_000,
-			childGL:   30_000_000 + 30_000_000/GasLimitBoundDivisor - 1,
+			childGL:   30_000_000 + 30_000_000/coreblock.GasLimitBoundDivisor - 1,
 			expectErr: false,
 		},
 		{
 			name:      "increase exceeds max",
 			parentGL:  30_000_000,
-			childGL:   30_000_000 + 30_000_000/GasLimitBoundDivisor,
+			childGL:   30_000_000 + 30_000_000/coreblock.GasLimitBoundDivisor,
 			expectErr: true,
 		},
 		{
 			name:      "decrease at max allowed",
 			parentGL:  30_000_000,
-			childGL:   30_000_000 - 30_000_000/GasLimitBoundDivisor + 1,
+			childGL:   30_000_000 - 30_000_000/coreblock.GasLimitBoundDivisor + 1,
 			expectErr: false,
 		},
 		{
 			name:      "decrease exceeds max",
 			parentGL:  30_000_000,
-			childGL:   30_000_000 - 30_000_000/GasLimitBoundDivisor,
+			childGL:   30_000_000 - 30_000_000/coreblock.GasLimitBoundDivisor,
 			expectErr: true,
 		},
 		{
 			name:      "below minimum",
-			parentGL:  MinGasLimit + 100,
-			childGL:   MinGasLimit - 1,
+			parentGL:  coreblock.MinGasLimit + 100,
+			childGL:   coreblock.MinGasLimit - 1,
 			expectErr: true,
 		},
 	}
@@ -704,7 +707,7 @@ func TestBlockGasLimitBounds(t *testing.T) {
 // TestBlockHeaderValidation verifies that ValidateHeader checks block number,
 // timestamp, parent hash, and gas limit.
 func TestBlockHeaderValidation(t *testing.T) {
-	v := NewBlockValidator(config.TestConfig)
+	v := coreblock.NewBlockValidator(config.TestConfig)
 
 	parent := makeValidParent()
 	validChild := makeValidChild(parent)
@@ -782,8 +785,8 @@ func TestSequentialTransactions(t *testing.T) {
 			Value:    big.NewInt(100),
 			Nonce:    i,
 		}
-		gp := new(GasPool).AddGas(header.GasLimit)
-		result, err := applyMessage(config.TestConfig, nil, statedb, header, msg, gp)
+		gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+		result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, msg, gp)
 		if err != nil {
 			t.Fatalf("tx %d: applyMessage failed: %v", i, err)
 		}
@@ -864,8 +867,8 @@ func TestGlamsterdamNewAccountSurchargeComprehensive(t *testing.T) {
 				Time:     100,
 			}
 
-			gp := new(GasPool).AddGas(header.GasLimit)
-			result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+			gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+			result, err := execution.ApplyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 			if err != nil {
 				t.Fatalf("applyMessage failed: %v", err)
 			}

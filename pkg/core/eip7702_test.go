@@ -8,6 +8,8 @@ import (
 
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/eips"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -42,9 +44,9 @@ func TestIntrinsicGas_NoAuthorizations(t *testing.T) {
 	data := []byte{0x00, 0x01, 0x00, 0xff}
 	isCreate := false
 
-	gas := intrinsicGas(data, isCreate, false, 0, 0)
-	// TxGas(21000) + 2*TxDataZeroGas(4) + 2*TxDataNonZeroGas(16) = 21040
-	expected := TxGas + 2*TxDataZeroGas + 2*TxDataNonZeroGas
+	gas := execution.IntrinsicGas(data, isCreate, false, 0, 0)
+	// execution.TxGas(21000) + 2*execution.TxDataZeroGas(4) + 2*execution.TxDataNonZeroGas(16) = 21040
+	expected := execution.TxGas + 2*execution.TxDataZeroGas + 2*execution.TxDataNonZeroGas
 	if gas != expected {
 		t.Errorf("intrinsicGas without auths: got %d, want %d", gas, expected)
 	}
@@ -55,15 +57,15 @@ func TestIntrinsicGas_WithAuthorizations(t *testing.T) {
 	isCreate := false
 
 	// 3 authorizations, 0 empty accounts
-	gas := intrinsicGas(data, isCreate, false, 3, 0)
-	expected := TxGas + 3*PerAuthBaseCost
+	gas := execution.IntrinsicGas(data, isCreate, false, 3, 0)
+	expected := execution.TxGas + 3*execution.PerAuthBaseCost
 	if gas != expected {
 		t.Errorf("intrinsicGas with 3 auths, 0 empty: got %d, want %d", gas, expected)
 	}
 
 	// 3 authorizations, 2 empty accounts
-	gas = intrinsicGas(data, isCreate, false, 3, 2)
-	expected = TxGas + 3*PerAuthBaseCost + 2*PerEmptyAccountCost
+	gas = execution.IntrinsicGas(data, isCreate, false, 3, 2)
+	expected = execution.TxGas + 3*execution.PerAuthBaseCost + 2*execution.PerEmptyAccountCost
 	if gas != expected {
 		t.Errorf("intrinsicGas with 3 auths, 2 empty: got %d, want %d", gas, expected)
 	}
@@ -71,9 +73,9 @@ func TestIntrinsicGas_WithAuthorizations(t *testing.T) {
 
 func TestIntrinsicGas_SingleAuthEmptyAccount(t *testing.T) {
 	data := []byte{}
-	gas := intrinsicGas(data, false, false, 1, 1)
-	// TxGas + PerAuthBaseCost + PerEmptyAccountCost
-	expected := TxGas + PerAuthBaseCost + PerEmptyAccountCost
+	gas := execution.IntrinsicGas(data, false, false, 1, 1)
+	// execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
+	expected := execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
 	if gas != expected {
 		t.Errorf("intrinsicGas with 1 auth, 1 empty: got %d, want %d", gas, expected)
 	}
@@ -81,8 +83,8 @@ func TestIntrinsicGas_SingleAuthEmptyAccount(t *testing.T) {
 
 func TestIntrinsicGas_AuthWithDataAndCreate(t *testing.T) {
 	data := []byte{0x60, 0x80, 0x60, 0x40} // 4 non-zero bytes
-	gas := intrinsicGas(data, true, false, 2, 1)
-	expected := TxGas + TxCreateGas + 4*TxDataNonZeroGas + 2*PerAuthBaseCost + 1*PerEmptyAccountCost
+	gas := execution.IntrinsicGas(data, true, false, 2, 1)
+	expected := execution.TxGas + execution.TxCreateGas + 4*execution.TxDataNonZeroGas + 2*execution.PerAuthBaseCost + 1*execution.PerEmptyAccountCost
 	if gas != expected {
 		t.Errorf("intrinsicGas with create+auth: got %d, want %d", gas, expected)
 	}
@@ -129,9 +131,9 @@ func TestSetCodeTx_AuthorizationProcessedInApplyMessage(t *testing.T) {
 	}
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -200,16 +202,16 @@ func TestSetCodeTx_IntrinsicGasIncludesAuthCosts(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 		Coinbase: types.HexToAddress("0xfee"),
 	}
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
 
-	// Expected intrinsic gas: TxGas + PerAuthBaseCost + PerEmptyAccountCost
+	// Expected intrinsic gas: execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
 	// (emptyTarget doesn't exist, so it counts as empty)
-	expectedIntrinsic := TxGas + PerAuthBaseCost + PerEmptyAccountCost
+	expectedIntrinsic := execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
 	if result.UsedGas < expectedIntrinsic {
 		t.Errorf("gas used %d is less than expected intrinsic %d", result.UsedGas, expectedIntrinsic)
 	}
@@ -224,14 +226,14 @@ func TestSetCodeTx_IntrinsicGasTooLow(t *testing.T) {
 
 	to := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
-	// Set gas limit to just the base TxGas, which is insufficient for a
+	// Set gas limit to just the base execution.TxGas, which is insufficient for a
 	// SetCode tx with authorizations.
 	msg := config.Message{
 		From:      sender,
 		To:        &to,
 		Nonce:     0,
 		Value:     new(big.Int),
-		GasLimit:  TxGas, // 21000 - not enough for auth costs
+		GasLimit:  execution.TxGas, // 21000 - not enough for auth costs
 		GasFeeCap: big.NewInt(1),
 		GasTipCap: big.NewInt(0),
 		GasPrice:  big.NewInt(1),
@@ -256,9 +258,9 @@ func TestSetCodeTx_IntrinsicGasTooLow(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 		Coinbase: types.HexToAddress("0xfee"),
 	}
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	// Intrinsic gas too low is now returned as a protocol error (matching go-ethereum).
 	if err == nil {
 		t.Fatal("SetCode tx with insufficient gas should return error")
@@ -320,16 +322,16 @@ func TestSetCodeTx_NonExistentAccountAuthGas(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 		Coinbase: types.HexToAddress("0xfee"),
 	}
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
 
-	// Expected: TxGas + 2*PerAuthBaseCost + 1*PerEmptyAccountCost
+	// Expected: execution.TxGas + 2*execution.PerAuthBaseCost + 1*execution.PerEmptyAccountCost
 	// (existingAddr is non-empty, nonExistentAddr is empty)
-	expectedIntrinsic := TxGas + 2*PerAuthBaseCost + 1*PerEmptyAccountCost
+	expectedIntrinsic := execution.TxGas + 2*execution.PerAuthBaseCost + 1*execution.PerEmptyAccountCost
 	if result.UsedGas < expectedIntrinsic {
 		t.Errorf("gas used %d is less than expected intrinsic %d", result.UsedGas, expectedIntrinsic)
 	}
@@ -363,15 +365,15 @@ func TestSetCodeTx_LegacyTxUnaffected(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 		Coinbase: types.HexToAddress("0xfee"),
 	}
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
-	// Should use exactly TxGas for a simple transfer.
-	if result.UsedGas != TxGas {
-		t.Errorf("legacy tx gas: got %d, want %d", result.UsedGas, TxGas)
+	// Should use exactly execution.TxGas for a simple transfer.
+	if result.UsedGas != execution.TxGas {
+		t.Errorf("legacy tx gas: got %d, want %d", result.UsedGas, execution.TxGas)
 	}
 }
 
@@ -481,9 +483,9 @@ func TestSetCodeTx_MultipleAuthsWithSignatures(t *testing.T) {
 	}
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	_, err = applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	_, err = execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	blkpkg "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
@@ -18,12 +19,12 @@ import (
 func newUint64(v uint64) *uint64 { return &v }
 
 // testChain creates a blockchain with a genesis block for use in tests.
-func testChain(t *testing.T) (*Blockchain, *state.MemoryStateDB) {
+func testChain(t *testing.T) (*chain.Blockchain, *state.MemoryStateDB) {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -83,7 +84,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 		Time:              parentHeader.Time + 12,
 		Difficulty:        new(big.Int),
 		BaseFee:           gas.CalcBaseFee(parentHeader),
-		UncleHash:         EmptyUncleHash,
+		UncleHash:         blkpkg.EmptyUncleHash,
 		WithdrawalsHash:   &emptyWHash,
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
@@ -144,7 +145,7 @@ func makeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
 		Time:              0,
 		Difficulty:        new(big.Int),
 		BaseFee:           baseFee,
-		UncleHash:         EmptyUncleHash,
+		UncleHash:         blkpkg.EmptyUncleHash,
 		WithdrawalsHash:   &emptyWithdrawalsHash,
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,

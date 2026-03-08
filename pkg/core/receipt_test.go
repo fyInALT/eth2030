@@ -4,6 +4,8 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
@@ -11,7 +13,7 @@ import (
 )
 
 // testChainWithFunds creates a blockchain with a funded sender account.
-func testChainWithFunds(t *testing.T) (*Blockchain, types.Address, types.Address) {
+func testChainWithFunds(t *testing.T) (*chain.Blockchain, types.Address, types.Address) {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	sender := types.HexToAddress("0xaaaa")
@@ -23,7 +25,7 @@ func testChainWithFunds(t *testing.T) (*Blockchain, types.Address, types.Address
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -203,7 +205,7 @@ func TestGetLogsWithContract(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -221,8 +223,8 @@ func TestGetLogsWithContract(t *testing.T) {
 	// Use BlockBuilder to construct the block so the bloom filter is computed
 	// correctly from the receipts' logs.
 	pool := &mockTxPool{txs: []*types.Transaction{tx}}
-	builder := NewBlockBuilder(config.TestConfig, bc, pool)
-	attrs := &BuildBlockAttributes{
+	builder := coreblock.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &coreblock.BuildBlockAttributes{
 		Timestamp:    genesis.Time() + 12,
 		FeeRecipient: types.HexToAddress("0xfee"),
 		GasLimit:     30_000_000,

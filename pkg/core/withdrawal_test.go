@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -43,7 +44,7 @@ func TestWithdrawalProcessing(t *testing.T) {
 		},
 	}
 
-	wHash := CalcWithdrawalsHash(withdrawals)
+	wHash := execution.CalcWithdrawalsHash(withdrawals)
 
 	header := &types.Header{
 		Number:          big.NewInt(1),
@@ -59,7 +60,7 @@ func TestWithdrawalProcessing(t *testing.T) {
 	}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error processing block with withdrawals: %v", err)
@@ -119,7 +120,7 @@ func TestWithdrawalProcessingWithTransactions(t *testing.T) {
 		},
 	}
 
-	wHash := CalcWithdrawalsHash(withdrawals)
+	wHash := execution.CalcWithdrawalsHash(withdrawals)
 
 	header := &types.Header{
 		Number:          big.NewInt(1),
@@ -136,7 +137,7 @@ func TestWithdrawalProcessingWithTransactions(t *testing.T) {
 	}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 	receipts, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error processing block: %v", err)
@@ -161,7 +162,7 @@ func TestWithdrawalProcessingEmpty(t *testing.T) {
 	statedb.AddBalance(addr, big.NewInt(1000))
 
 	// Process with empty withdrawals slice.
-	ProcessWithdrawals(statedb, []*types.Withdrawal{})
+	execution.ProcessWithdrawals(statedb, []*types.Withdrawal{})
 
 	// Balance should be unchanged.
 	if got := statedb.GetBalance(addr); got.Cmp(big.NewInt(1000)) != 0 {
@@ -169,7 +170,7 @@ func TestWithdrawalProcessingEmpty(t *testing.T) {
 	}
 
 	// Process with nil withdrawals.
-	ProcessWithdrawals(statedb, nil)
+	execution.ProcessWithdrawals(statedb, nil)
 	if got := statedb.GetBalance(addr); got.Cmp(big.NewInt(1000)) != 0 {
 		t.Fatalf("balance should be unchanged after nil withdrawals, got %v", got)
 	}
@@ -191,7 +192,7 @@ func TestWithdrawalProcessingZeroAmount(t *testing.T) {
 		},
 	}
 
-	ProcessWithdrawals(statedb, withdrawals)
+	execution.ProcessWithdrawals(statedb, withdrawals)
 
 	// Even zero-amount withdrawal calls AddBalance(0), which is valid.
 	bal := statedb.GetBalance(addr)
@@ -213,7 +214,7 @@ func TestWithdrawalProcessingMultipleToSameAddress(t *testing.T) {
 		{Index: 2, ValidatorIndex: 3, Address: addr, Amount: 500_000_000},   // 0.5 ETH
 	}
 
-	ProcessWithdrawals(statedb, withdrawals)
+	execution.ProcessWithdrawals(statedb, withdrawals)
 
 	// Total: 3.5 ETH = 3,500,000,000 Gwei = 3.5e18 Wei
 	expected := new(big.Int).Mul(big.NewInt(3_500_000_000), big.NewInt(1_000_000_000))
@@ -225,12 +226,12 @@ func TestWithdrawalProcessingMultipleToSameAddress(t *testing.T) {
 // TestWithdrawalsHash verifies the withdrawal hash computation.
 func TestWithdrawalsHash(t *testing.T) {
 	// Empty withdrawals should produce EmptyRootHash.
-	emptyHash := CalcWithdrawalsHash(nil)
+	emptyHash := execution.CalcWithdrawalsHash(nil)
 	if emptyHash != types.EmptyRootHash {
 		t.Fatalf("empty withdrawals hash: want %v, got %v", types.EmptyRootHash, emptyHash)
 	}
 
-	emptySliceHash := CalcWithdrawalsHash([]*types.Withdrawal{})
+	emptySliceHash := execution.CalcWithdrawalsHash([]*types.Withdrawal{})
 	if emptySliceHash != types.EmptyRootHash {
 		t.Fatalf("empty slice withdrawals hash: want %v, got %v", types.EmptyRootHash, emptySliceHash)
 	}
@@ -244,7 +245,7 @@ func TestWithdrawalsHash(t *testing.T) {
 			Amount:         1_000_000_000,
 		},
 	}
-	hash1 := CalcWithdrawalsHash(withdrawals)
+	hash1 := execution.CalcWithdrawalsHash(withdrawals)
 	if hash1 == (types.Hash{}) {
 		t.Fatal("non-empty withdrawals should produce non-zero hash")
 	}
@@ -253,7 +254,7 @@ func TestWithdrawalsHash(t *testing.T) {
 	}
 
 	// Same input should produce the same hash (deterministic).
-	hash2 := CalcWithdrawalsHash(withdrawals)
+	hash2 := execution.CalcWithdrawalsHash(withdrawals)
 	if hash1 != hash2 {
 		t.Fatalf("hash should be deterministic: %v != %v", hash1, hash2)
 	}
@@ -267,7 +268,7 @@ func TestWithdrawalsHash(t *testing.T) {
 			Amount:         1_000_000_000,
 		},
 	}
-	hash3 := CalcWithdrawalsHash(withdrawals2)
+	hash3 := execution.CalcWithdrawalsHash(withdrawals2)
 	if hash1 == hash3 {
 		t.Fatal("different withdrawals should produce different hashes")
 	}
@@ -281,8 +282,8 @@ func TestWithdrawalsHash(t *testing.T) {
 		{Index: 1, ValidatorIndex: 2, Address: types.HexToAddress("0xbb"), Amount: 200},
 		{Index: 0, ValidatorIndex: 1, Address: types.HexToAddress("0xaa"), Amount: 100},
 	}
-	hashA := CalcWithdrawalsHash(withdrawalsA)
-	hashB := CalcWithdrawalsHash(withdrawalsB)
+	hashA := execution.CalcWithdrawalsHash(withdrawalsA)
+	hashB := execution.CalcWithdrawalsHash(withdrawalsB)
 	if hashA == hashB {
 		t.Fatal("different withdrawal ordering should produce different hashes")
 	}
@@ -334,7 +335,7 @@ func TestWithdrawalsNotAppliedPreShanghai(t *testing.T) {
 	}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(preShanghaiConfig)
+	proc := execution.NewStateProcessor(preShanghaiConfig)
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -355,7 +356,7 @@ func TestWithdrawalsHashInHeader(t *testing.T) {
 		{Index: 1, ValidatorIndex: 2, Address: types.HexToAddress("0xbb"), Amount: 200},
 	}
 
-	wHash := CalcWithdrawalsHash(withdrawals)
+	wHash := execution.CalcWithdrawalsHash(withdrawals)
 
 	header := &types.Header{
 		Number:          big.NewInt(1),
@@ -379,7 +380,7 @@ func TestWithdrawalsHashInHeader(t *testing.T) {
 	}
 
 	// Recompute from the block's withdrawals and verify.
-	recomputed := CalcWithdrawalsHash(block.Withdrawals())
+	recomputed := execution.CalcWithdrawalsHash(block.Withdrawals())
 	if recomputed != wHash {
 		t.Fatalf("recomputed hash mismatch: want %v, got %v", wHash, recomputed)
 	}

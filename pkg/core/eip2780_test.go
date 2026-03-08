@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -83,7 +85,7 @@ func TestEIP2780IntrinsicGas(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := intrinsicGasGlamst(tt.data, tt.isCreate, tt.hasValue, tt.toExists, tt.authCount, tt.emptyAuth)
+			got := execution.IntrinsicGasGlamst(tt.data, tt.isCreate, tt.hasValue, tt.toExists, tt.authCount, tt.emptyAuth)
 			if got != tt.want {
 				t.Errorf("intrinsicGasGlamst = %d, want %d", got, tt.want)
 			}
@@ -119,8 +121,8 @@ func TestEIP2780ReducedIntrinsicGasViaApplyMessage(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -162,8 +164,8 @@ func TestEIP2780NewAccountSurcharge(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}

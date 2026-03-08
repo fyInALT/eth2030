@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -41,9 +43,9 @@ func TestEIP7778BlockGasAccountingNoRefunds(t *testing.T) {
 		Time:     100,
 	}
 
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -91,9 +93,9 @@ func TestEIP7778BlockGasPoolCorrectness(t *testing.T) {
 	}
 
 	initialPoolGas := header.GasLimit
-	gp := new(GasPool).AddGas(initialPoolGas)
+	gp := new(gaspool.GasPool).AddGas(initialPoolGas)
 
-	result, err := applyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfigGlamsterdan, nil, statedb, header, msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -50,19 +52,19 @@ func setupSender(statedb *state.MemoryStateDB) types.Address {
 
 // applyTx is a helper that creates a message from a transaction, sets the
 // sender, and calls applyMessage, returning the result and receipt status.
-func applyTx(t *testing.T, statedb *state.MemoryStateDB, sender types.Address, tx *types.Transaction) (*ExecutionResult, *types.Receipt) {
+func applyTx(t *testing.T, statedb *state.MemoryStateDB, sender types.Address, tx *types.Transaction) (*execution.ExecutionResult, *types.Receipt) {
 	t.Helper()
 	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		// Pre-execution validation error (intrinsic gas, nonce, balance).
 		// Return a failed result. State is not modified by applyMessage on error.
-		result = &ExecutionResult{
+		result = &execution.ExecutionResult{
 			UsedGas: msg.GasLimit,
 			Err:     err,
 		}
@@ -132,8 +134,8 @@ func TestProcessorContractCreation(t *testing.T) {
 	}
 
 	// Gas used should be more than simple transfer (21000 + create overhead).
-	if result.UsedGas <= TxGas+TxCreateGas {
-		t.Fatalf("gas used %d should exceed base create cost %d", result.UsedGas, TxGas+TxCreateGas)
+	if result.UsedGas <= execution.TxGas+execution.TxCreateGas {
+		t.Fatalf("gas used %d should exceed base create cost %d", result.UsedGas, execution.TxGas+execution.TxCreateGas)
 	}
 }
 
@@ -181,8 +183,8 @@ func TestProcessorContractCall(t *testing.T) {
 	}
 
 	// Gas should be more than simple transfer due to EVM execution.
-	if result.UsedGas <= TxGas {
-		t.Fatalf("gas used %d should exceed base transfer gas %d", result.UsedGas, TxGas)
+	if result.UsedGas <= execution.TxGas {
+		t.Fatalf("gas used %d should exceed base transfer gas %d", result.UsedGas, execution.TxGas)
 	}
 }
 
@@ -206,14 +208,14 @@ func TestProcessorOutOfGas(t *testing.T) {
 	dataGas := uint64(0)
 	for _, b := range initCode {
 		if b == 0 {
-			dataGas += TxDataZeroGas
+			dataGas += execution.TxDataZeroGas
 		} else {
-			dataGas += TxDataNonZeroGas
+			dataGas += execution.TxDataNonZeroGas
 		}
 	}
 	words := (uint64(len(initCode)) + 31) / 32
 	initCodeWordGas := words * vm.InitCodeWordGas
-	intrinsic := TxGas + TxCreateGas + dataGas + initCodeWordGas
+	intrinsic := execution.TxGas + execution.TxCreateGas + dataGas + initCodeWordGas
 	// Give just enough for intrinsic + a tiny bit for EVM, but not enough for SSTORE.
 	gasLimit := intrinsic + 100
 

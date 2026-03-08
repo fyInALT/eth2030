@@ -3,10 +3,12 @@ package core
 import (
 	"math"
 	"testing"
+
+	"github.com/eth2030/eth2030/core/ratemeter"
 )
 
 func TestRateMeter_DefaultConfig(t *testing.T) {
-	cfg := DefaultRateMeterConfig()
+	cfg := ratemeter.DefaultRateMeterConfig()
 	if cfg.WindowSize != 64 {
 		t.Errorf("WindowSize = %d, want 64", cfg.WindowSize)
 	}
@@ -19,7 +21,7 @@ func TestRateMeter_DefaultConfig(t *testing.T) {
 }
 
 func TestRateMeter_NewRateMeter(t *testing.T) {
-	rm := NewRateMeter(DefaultRateMeterConfig())
+	rm := ratemeter.NewRateMeter(ratemeter.DefaultRateMeterConfig())
 	if rm.WindowSize() != 64 {
 		t.Errorf("WindowSize() = %d, want 64", rm.WindowSize())
 	}
@@ -30,7 +32,7 @@ func TestRateMeter_NewRateMeter(t *testing.T) {
 
 func TestRateMeter_InvalidConfig(t *testing.T) {
 	// Zero values should be corrected.
-	rm := NewRateMeter(RateMeterConfig{})
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{})
 	if rm.WindowSize() != 64 {
 		t.Errorf("WindowSize() = %d, want 64 (default)", rm.WindowSize())
 	}
@@ -40,7 +42,7 @@ func TestRateMeter_InvalidConfig(t *testing.T) {
 }
 
 func TestRateMeter_RecordBlockAndRate(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000_000,
 		EMAAlpha:        0.5,
@@ -65,7 +67,7 @@ func TestRateMeter_RecordBlockAndRate(t *testing.T) {
 }
 
 func TestRateMeter_RollingAverage(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000_000,
 		EMAAlpha:        0.1,
@@ -91,7 +93,7 @@ func TestRateMeter_RollingAverage(t *testing.T) {
 }
 
 func TestRateMeter_WindowTrimming(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      5,
 		TargetGasPerSec: 1_000_000_000,
 		EMAAlpha:        0.1,
@@ -109,7 +111,7 @@ func TestRateMeter_WindowTrimming(t *testing.T) {
 }
 
 func TestRateMeter_AdaptiveParallelism_BelowTarget(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000_000,
 		EMAAlpha:        1.0, // Use instant rate for testing.
@@ -130,7 +132,7 @@ func TestRateMeter_AdaptiveParallelism_BelowTarget(t *testing.T) {
 }
 
 func TestRateMeter_AdaptiveParallelism_AboveTarget(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000,
 		EMAAlpha:        1.0,
@@ -151,7 +153,7 @@ func TestRateMeter_AdaptiveParallelism_AboveTarget(t *testing.T) {
 }
 
 func TestRateMeter_UtilizationRatio(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000,
 		EMAAlpha:        1.0,
@@ -175,7 +177,7 @@ func TestRateMeter_UtilizationRatio(t *testing.T) {
 }
 
 func TestRateMeter_IsAtTarget(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000,
 		EMAAlpha:        1.0,
@@ -198,7 +200,7 @@ func TestRateMeter_IsAtTarget(t *testing.T) {
 }
 
 func TestRateMeter_Reset(t *testing.T) {
-	rm := NewRateMeter(DefaultRateMeterConfig())
+	rm := ratemeter.NewRateMeter(ratemeter.DefaultRateMeterConfig())
 	rm.RecordBlock(0, 100_000_000, 0)
 	rm.RecordBlock(1, 100_000_000, 12)
 
@@ -213,7 +215,7 @@ func TestRateMeter_Reset(t *testing.T) {
 }
 
 func TestRateMeter_ZeroTimeDelta(t *testing.T) {
-	rm := NewRateMeter(RateMeterConfig{
+	rm := ratemeter.NewRateMeter(ratemeter.RateMeterConfig{
 		WindowSize:      10,
 		TargetGasPerSec: 1_000_000_000,
 		EMAAlpha:        0.5,

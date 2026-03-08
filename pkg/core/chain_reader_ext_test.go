@@ -4,6 +4,8 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -14,14 +16,14 @@ func makeTestBlockForFullChain(num uint64, parentHash types.Hash, txs []*types.T
 		GasLimit:   30_000_000,
 		Difficulty: big.NewInt(1),
 		BaseFee:    big.NewInt(1_000_000_000),
-		UncleHash:  EmptyUncleHash,
+		UncleHash:  coreblock.EmptyUncleHash,
 	}
 	body := &types.Body{Transactions: txs}
 	return types.NewBlock(header, body)
 }
 
 func TestMemoryFullChainAddAndGet(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	// Create genesis block.
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
@@ -57,7 +59,7 @@ func TestMemoryFullChainAddAndGet(t *testing.T) {
 }
 
 func TestMemoryFullChainGetTransaction(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
 	mfc.AddBlock(genesis)
@@ -99,7 +101,7 @@ func TestMemoryFullChainGetTransaction(t *testing.T) {
 }
 
 func TestMemoryFullChainGetReceipt(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
 	mfc.AddBlock(genesis)
@@ -142,7 +144,7 @@ func TestMemoryFullChainGetReceipt(t *testing.T) {
 }
 
 func TestMemoryFullChainGetTotalDifficulty(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
 	mfc.AddBlock(genesis)
@@ -188,7 +190,7 @@ func TestMemoryFullChainGetTotalDifficulty(t *testing.T) {
 }
 
 func TestMemoryFullChainGetCanonicalHash(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
 	mfc.AddBlock(genesis)
@@ -205,7 +207,7 @@ func TestMemoryFullChainGetCanonicalHash(t *testing.T) {
 }
 
 func TestMemoryFullChainChainHeight(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	if mfc.ChainHeight() != 0 {
 		t.Fatalf("expected height 0, got %d", mfc.ChainHeight())
@@ -225,7 +227,7 @@ func TestMemoryFullChainChainHeight(t *testing.T) {
 }
 
 func TestMemoryFullChainBlockRange(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
 	mfc.AddBlock(genesis)
@@ -256,7 +258,7 @@ func TestMemoryFullChainBlockRange(t *testing.T) {
 }
 
 func TestMemoryFullChainHasBlock(t *testing.T) {
-	mfc := NewMemoryFullChain()
+	mfc := chain.NewMemoryFullChain()
 
 	genesis := makeTestBlockForFullChain(0, types.Hash{}, nil)
 	mfc.AddBlock(genesis)
@@ -271,5 +273,5 @@ func TestMemoryFullChainHasBlock(t *testing.T) {
 
 func TestFullChainReaderInterface(t *testing.T) {
 	// Verify the MemoryFullChain satisfies FullChainReader.
-	var _ FullChainReader = (*MemoryFullChain)(nil)
+	var _ chain.FullChainReader = (*chain.MemoryFullChain)(nil)
 }

@@ -4,7 +4,10 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -66,10 +69,10 @@ func newSSTOREState() (state.StateDB, types.Address) {
 func TestReceipt_DimStorageGas_GlamsterdamActive(t *testing.T) {
 	statedb, sender := newSSTOREState()
 	header := newGlamHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 	tx := newCallTx(0, sender)
 
-	receipt, _, err := ApplyTransactionWithBAL(config.TestConfigGlamsterdan, statedb, header, tx, gp, nil)
+	receipt, _, err := execution.ApplyTransactionWithBAL(config.TestConfigGlamsterdan, statedb, header, tx, gp, nil)
 	if err != nil {
 		t.Fatalf("ApplyTransaction: %v", err)
 	}
@@ -91,11 +94,11 @@ func TestReceipt_DimStorageGas_GlamsterdamActive(t *testing.T) {
 func TestReceipt_DimStorageGas_PreGlamsterdam(t *testing.T) {
 	statedb, sender := newSSTOREState()
 	header := newGlamHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 	tx := newCallTx(0, sender)
 
 	// config.TestConfig has GlamsterdanTime = nil → pre-Glamsterdam.
-	receipt, _, err := ApplyTransactionWithBAL(config.TestConfig, statedb, header, tx, gp, nil)
+	receipt, _, err := execution.ApplyTransactionWithBAL(config.TestConfig, statedb, header, tx, gp, nil)
 	if err != nil {
 		t.Fatalf("ApplyTransaction: %v", err)
 	}
@@ -113,7 +116,7 @@ func TestReceipt_DimStorageGas_SimpleTransfer(t *testing.T) {
 	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)))
 
 	header := newGlamHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(10_000_000_000), // 10 Gwei > MinBaseFee
@@ -123,7 +126,7 @@ func TestReceipt_DimStorageGas_SimpleTransfer(t *testing.T) {
 	})
 	tx.SetSender(sender)
 
-	receipt, _, err := ApplyTransactionWithBAL(config.TestConfigGlamsterdan, statedb, header, tx, gp, nil)
+	receipt, _, err := execution.ApplyTransactionWithBAL(config.TestConfigGlamsterdan, statedb, header, tx, gp, nil)
 	if err != nil {
 		t.Fatalf("ApplyTransaction: %v", err)
 	}
@@ -157,7 +160,7 @@ func TestBlockBuilder_DimStorageCap_Accumulates(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 	}
 
-	builder := NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
+	builder := coreblock.NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
 	builder.SetState(statedb)
 
 	_, receipts, err := builder.BuildBlockLegacy(parent, txs, 1, types.HexToAddress("0xff"), nil)
@@ -221,7 +224,7 @@ func TestBlockBuilder_DimStorageCap_RejectExcess(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 	}
 
-	builder := NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
+	builder := coreblock.NewBlockBuilder(config.TestConfigGlamsterdan, nil, nil)
 	builder.SetState(statedb)
 
 	// Use BuildBlock (not Legacy) which enforces the DimStorage cap.
@@ -284,7 +287,7 @@ func TestBlockBuilder_DimStorageCap_NoEnforcementPreGlamsterdam(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 	}
 
-	builder := NewBlockBuilder(config.TestConfig, nil, nil) // pre-Glamsterdam
+	builder := coreblock.NewBlockBuilder(config.TestConfig, nil, nil) // pre-Glamsterdam
 	builder.SetState(statedb)
 
 	_, receipts, err := builder.BuildBlockLegacy(parent, txs, 1, types.HexToAddress("0xff"), nil)
@@ -313,10 +316,10 @@ func TestBlockBuilder_DimStorageCap_NoEnforcementPreGlamsterdam(t *testing.T) {
 func TestProcessorWiresReservoir(t *testing.T) {
 	statedb, sender := newSSTOREState()
 	header := newGlamHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 	tx := newCallTx(0, sender)
 
-	receipt, used, err := ApplyTransactionWithBAL(config.TestConfigGlamsterdan, statedb, header, tx, gp, nil)
+	receipt, used, err := execution.ApplyTransactionWithBAL(config.TestConfigGlamsterdan, statedb, header, tx, gp, nil)
 	if err != nil {
 		t.Fatalf("ApplyTransaction: %v", err)
 	}

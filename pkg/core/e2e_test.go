@@ -5,7 +5,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
@@ -19,7 +22,7 @@ import (
 
 // e2eChain sets up a blockchain with genesis state where the given accounts
 // are pre-funded. Returns the blockchain and the genesis state snapshot.
-func e2eChain(t *testing.T, gasLimit uint64, baseFee *big.Int, alloc map[types.Address]*big.Int) *Blockchain {
+func e2eChain(t *testing.T, gasLimit uint64, baseFee *big.Int, alloc map[types.Address]*big.Int) *chain.Blockchain {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	for addr, bal := range alloc {
@@ -27,7 +30,7 @@ func e2eChain(t *testing.T, gasLimit uint64, baseFee *big.Int, alloc map[types.A
 	}
 	genesis := makeGenesis(gasLimit, baseFee)
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -121,11 +124,11 @@ func (p *simpleTxPool) Pending() []*types.Transaction {
 }
 
 // buildAndInsert builds a block from the pool and inserts it into the chain.
-func buildAndInsert(t *testing.T, bc *Blockchain, pool TxPoolReader, feeRecipient types.Address) (*types.Block, []*types.Receipt) {
+func buildAndInsert(t *testing.T, bc *chain.Blockchain, pool block.TxPoolReader, feeRecipient types.Address) (*types.Block, []*types.Receipt) {
 	t.Helper()
 	parent := bc.CurrentBlock()
-	builder := NewBlockBuilder(config.TestConfig, bc, pool)
-	attrs := &BuildBlockAttributes{
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
 		FeeRecipient: feeRecipient,
 		GasLimit:     parent.GasLimit(),
@@ -192,8 +195,8 @@ func TestE2E_FullTransactionLifecycle(t *testing.T) {
 	if receipts[0].Status != types.ReceiptStatusSuccessful {
 		t.Fatalf("receipt status = %d, want success", receipts[0].Status)
 	}
-	if receipts[0].GasUsed != TxGas {
-		t.Errorf("receipt gas used = %d, want %d", receipts[0].GasUsed, TxGas)
+	if receipts[0].GasUsed != execution.TxGas {
+		t.Errorf("receipt gas used = %d, want %d", receipts[0].GasUsed, execution.TxGas)
 	}
 
 	// --- Verify state changes ---
@@ -211,7 +214,7 @@ func TestE2E_FullTransactionLifecycle(t *testing.T) {
 	}
 
 	// Sender balance = initial - transfer - gasCost.
-	gasCost := new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(TxGas))
+	gasCost := new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(execution.TxGas))
 	expectedSenderBal := new(big.Int).Sub(initialBalance, transferAmount)
 	expectedSenderBal.Sub(expectedSenderBal, gasCost)
 	senderBal := st.GetBalance(sender)
@@ -541,7 +544,7 @@ func TestE2E_EIP1559DynamicFee(t *testing.T) {
 	// Verify tip went to coinbase.
 	// Tip per unit of gas = effectivePrice - baseFee
 	tip := new(big.Int).Sub(effectivePrice, blockBaseFee)
-	expectedCoinbaseGain := new(big.Int).Mul(tip, new(big.Int).SetUint64(TxGas))
+	expectedCoinbaseGain := new(big.Int).Mul(tip, new(big.Int).SetUint64(execution.TxGas))
 
 	coinbaseBalAfter := bc.State().GetBalance(coinbase)
 	coinbaseGain := new(big.Int).Sub(coinbaseBalAfter, coinbaseBalBefore)
@@ -552,7 +555,7 @@ func TestE2E_EIP1559DynamicFee(t *testing.T) {
 	// Verify sender paid = effectivePrice * gasUsed + value.
 	st := bc.State()
 	senderBal := st.GetBalance(sender)
-	totalGasCost := new(big.Int).Mul(effectivePrice, new(big.Int).SetUint64(TxGas))
+	totalGasCost := new(big.Int).Mul(effectivePrice, new(big.Int).SetUint64(execution.TxGas))
 	expectedSenderBal := new(big.Int).Sub(ether(100), ether(1))
 	expectedSenderBal.Sub(expectedSenderBal, totalGasCost)
 	if senderBal.Cmp(expectedSenderBal) != 0 {
@@ -596,8 +599,8 @@ func TestE2E_BlockBuilderGasLimit(t *testing.T) {
 	pool := &simpleTxPool{txs: txs}
 
 	parent := bc.CurrentBlock()
-	builder := NewBlockBuilder(config.TestConfig, bc, pool)
-	attrs := &BuildBlockAttributes{
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
 		FeeRecipient: coinbase,
 		GasLimit:     50000,
@@ -628,7 +631,7 @@ func TestE2E_BlockBuilderGasLimit(t *testing.T) {
 	}
 
 	// Gas accounting: gasUsed should be exactly includedCount * 21000.
-	expectedGas := uint64(includedCount) * TxGas
+	expectedGas := uint64(includedCount) * execution.TxGas
 	if block.GasUsed() != expectedGas {
 		t.Errorf("gas used = %d, want %d", block.GasUsed(), expectedGas)
 	}
@@ -703,7 +706,7 @@ func TestE2E_ValueTransferChain(t *testing.T) {
 	}
 
 	st := bc.State()
-	gasCost := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(TxGas))
+	gasCost := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(execution.TxGas))
 
 	// A's balance: 100 ETH - 5 ETH - gasCost
 	expectedA := new(big.Int).Sub(ether(100), transferAtoB)

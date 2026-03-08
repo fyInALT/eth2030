@@ -3,6 +3,8 @@ package core
 import (
 	"testing"
 
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
 )
@@ -10,8 +12,8 @@ import (
 // TestEIP7976Constants verifies the Glamsterdam calldata floor cost constants.
 func TestEIP7976Constants(t *testing.T) {
 	// EIP-7976: TOTAL_COST_FLOOR_PER_TOKEN = 16 (up from EIP-7623's 10).
-	if TotalCostFloorPerTokenGlamst != 16 {
-		t.Errorf("TotalCostFloorPerTokenGlamst = %d, want 16", TotalCostFloorPerTokenGlamst)
+	if gas.TotalCostFloorPerTokenGlamst != 16 {
+		t.Errorf("gas.TotalCostFloorPerTokenGlamst = %d, want 16", gas.TotalCostFloorPerTokenGlamst)
 	}
 }
 
@@ -34,21 +36,21 @@ func TestEIP7976CalldataFloorGas(t *testing.T) {
 			data: make([]byte, 100),
 			// floor_tokens = 100 * 4 = 400
 			// floor = 4500 + 400 * 16 = 10900
-			want: vm.TxBaseGlamsterdam + 400*TotalCostFloorPerTokenGlamst,
+			want: vm.TxBaseGlamsterdam + 400*gas.TotalCostFloorPerTokenGlamst,
 		},
 		{
 			name: "all non-zero bytes",
 			data: []byte{0xff, 0xaa, 0xbb, 0xcc},
 			// floor_tokens = 4 * 4 = 16
 			// floor = 4500 + 16 * 16 = 4756
-			want: vm.TxBaseGlamsterdam + 16*TotalCostFloorPerTokenGlamst,
+			want: vm.TxBaseGlamsterdam + 16*gas.TotalCostFloorPerTokenGlamst,
 		},
 		{
 			name: "mixed calldata",
 			data: []byte{0x00, 0xff, 0x00, 0xaa},
 			// EIP-7976: floor_tokens = (2 + 2) * 4 = 16 (all bytes weighted same)
 			// floor = 4500 + 16 * 16 = 4756
-			want: vm.TxBaseGlamsterdam + 16*TotalCostFloorPerTokenGlamst,
+			want: vm.TxBaseGlamsterdam + 16*gas.TotalCostFloorPerTokenGlamst,
 		},
 		{
 			name:     "create transaction",
@@ -56,13 +58,13 @@ func TestEIP7976CalldataFloorGas(t *testing.T) {
 			isCreate: true,
 			// floor_tokens = 2 * 4 = 8
 			// floor = 4500 + 32000 + 8 * 16 = 36628
-			want: vm.TxBaseGlamsterdam + TxCreateGas + 8*TotalCostFloorPerTokenGlamst,
+			want: vm.TxBaseGlamsterdam + execution.TxCreateGas + 8*gas.TotalCostFloorPerTokenGlamst,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calldataFloorGasGlamst(tt.data, nil, tt.isCreate)
+			got := execution.CalldataFloorGasGlamst(tt.data, nil, tt.isCreate)
 			if got != tt.want {
 				t.Errorf("calldataFloorGasGlamst = %d, want %d", got, tt.want)
 			}
@@ -77,8 +79,8 @@ func TestEIP7976FloorVsStandard(t *testing.T) {
 	data := make([]byte, 1000)
 	data[0] = 0xff // one non-zero byte
 
-	standardGas := intrinsicGasGlamst(data, false, false, true, 0, 0)
-	floorGas := calldataFloorGasGlamst(data, nil, false)
+	standardGas := execution.IntrinsicGasGlamst(data, false, false, true, 0, 0)
+	floorGas := execution.CalldataFloorGasGlamst(data, nil, false)
 
 	// Standard: 4500 + 999*4 + 1*16 = 4500 + 3996 + 16 = 8512
 	// Floor: 4500 + 1000*4*16 = 4500 + 64000 = 68500
@@ -96,12 +98,12 @@ func TestEIP7976ComparedToEIP7623(t *testing.T) {
 	}
 
 	// Pre-Glamsterdam floor: 21000 + 500*4*10 = 21000 + 20000 = 41000
-	preFloor := calldataFloorGas(data, false)
+	preFloor := execution.CalldataFloorGas(data, false)
 
 	// Glamsterdam floor: 4500 + 500*4*16 = 4500 + 32000 = 36500
 	// (Lower base cost but higher per-token floor means the comparison
 	// depends on data size.)
-	glamFloor := calldataFloorGasGlamst(data, nil, false)
+	glamFloor := execution.CalldataFloorGasGlamst(data, nil, false)
 
 	_ = preFloor
 	_ = glamFloor
@@ -125,7 +127,7 @@ func TestEIP7976CalldataTokens(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calldataTokens(tt.data)
+			got := execution.CalldataTokens(tt.data)
 			if got != tt.want {
 				t.Errorf("calldataTokens = %d, want %d", got, tt.want)
 			}
@@ -173,7 +175,7 @@ func TestEIP7981AccessListDataTokens(t *testing.T) {
 	for _, tt := range tests {
 		if tt.want == 0 && tt.al == nil {
 			t.Run(tt.name, func(t *testing.T) {
-				got := accessListDataTokens(tt.al)
+				got := execution.AccessListDataTokens(tt.al)
 				if got != tt.want {
 					t.Errorf("accessListDataTokens = %d, want %d", got, tt.want)
 				}
@@ -182,7 +184,7 @@ func TestEIP7981AccessListDataTokens(t *testing.T) {
 		}
 		if tt.want > 0 {
 			t.Run(tt.name, func(t *testing.T) {
-				got := accessListDataTokens(tt.al)
+				got := execution.AccessListDataTokens(tt.al)
 				if got != tt.want {
 					t.Errorf("accessListDataTokens = %d, want %d", got, tt.want)
 				}
@@ -202,18 +204,18 @@ func TestEIP7981AccessListGasGlamst(t *testing.T) {
 		},
 	}
 
-	gas := accessListGasGlamst(al)
+	alGas := execution.AccessListGasGlamst(al)
 
 	// Base: 3200 (address) + 2500 (key) = 5700
 	// Data tokens: address(19 zeros + 1 nonzero = 23) + key(31 zeros + 1 nonzero = 35) = 58
 	// Data cost: 58 * 16 = 928
 	// Total: 5700 + 928 = 6628
 	expectedBase := vm.AccessListAddressGlamst + vm.AccessListStorageGlamst
-	dataTokens := accessListDataTokens(al)
-	expectedTotal := expectedBase + dataTokens*TotalCostFloorPerTokenGlamst
+	dataTokens := execution.AccessListDataTokens(al)
+	expectedTotal := expectedBase + dataTokens*gas.TotalCostFloorPerTokenGlamst
 
-	if gas != expectedTotal {
-		t.Errorf("accessListGasGlamst = %d, want %d", gas, expectedTotal)
+	if alGas != expectedTotal {
+		t.Errorf("accessListGasGlamst = %d, want %d", alGas, expectedTotal)
 	}
 }
 
@@ -229,8 +231,8 @@ func TestEIP7981FloorIncludesAccessList(t *testing.T) {
 	}
 
 	// Floor with access list should be higher than without.
-	floorWithAL := calldataFloorGasGlamst(data, al, false)
-	floorWithoutAL := calldataFloorGasGlamst(data, nil, false)
+	floorWithAL := execution.CalldataFloorGasGlamst(data, al, false)
+	floorWithoutAL := execution.CalldataFloorGasGlamst(data, nil, false)
 
 	if floorWithAL <= floorWithoutAL {
 		t.Errorf("floor with access list (%d) should be > floor without (%d)",

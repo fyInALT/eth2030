@@ -10,7 +10,10 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -50,7 +53,7 @@ func TestE2E_BALOrdering_InProcessedBlock(t *testing.T) {
 	buildState := statedb.Copy()
 	block := makeBlockWithState(genesis, txs, buildState)
 
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 	result, err := proc.ProcessWithBAL(block, statedb)
 	if err != nil {
 		t.Fatalf("ProcessWithBAL: %v", err)
@@ -123,16 +126,16 @@ func TestE2E_CalldataGasHeader_UpdatesAcrossBlocks(t *testing.T) {
 	statedb.AddBalance(sender, ether(100))
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfigGlamsterdan, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfigGlamsterdan, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
-	buildInsertGlamsterdan := func(pool TxPoolReader) *types.Block {
+	buildInsertGlamsterdan := func(pool coreblock.TxPoolReader) *types.Block {
 		t.Helper()
 		parent := bc.CurrentBlock()
-		builder := NewBlockBuilder(config.TestConfigGlamsterdan, bc, pool)
-		attrs := &BuildBlockAttributes{
+		builder := coreblock.NewBlockBuilder(config.TestConfigGlamsterdan, bc, pool)
+		attrs := &coreblock.BuildBlockAttributes{
 			Timestamp:    parent.Time() + 12,
 			FeeRecipient: coinbase,
 			GasLimit:     parent.GasLimit(),
@@ -409,7 +412,7 @@ func TestE2E_MultiBlock_BALAccessIndex(t *testing.T) {
 		sender: ether(100),
 	})
 
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 
 	for blockNum := uint64(1); blockNum <= 3; blockNum++ {
 		nonce := blockNum - 1
@@ -423,8 +426,8 @@ func TestE2E_MultiBlock_BALAccessIndex(t *testing.T) {
 
 		pool := &simpleTxPool{txs: []*types.Transaction{tx}}
 		parent := bc.CurrentBlock()
-		builder := NewBlockBuilder(config.TestConfig, bc, pool)
-		attrs := &BuildBlockAttributes{
+		builder := coreblock.NewBlockBuilder(config.TestConfig, bc, pool)
+		attrs := &coreblock.BuildBlockAttributes{
 			Timestamp:    parent.Time() + 12,
 			FeeRecipient: coinbase,
 			GasLimit:     parent.GasLimit(),

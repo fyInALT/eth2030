@@ -7,6 +7,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -130,7 +131,7 @@ func TestParallelProcessIndependentTransactions(t *testing.T) {
 
 	accessList := buildBALForIndependentTransfers(senders, recipients)
 
-	proc := NewParallelProcessor(config.TestConfig)
+	proc := execution.NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -179,7 +180,7 @@ func TestParallelProcessFallbackSequential(t *testing.T) {
 	header := newTestHeader()
 	block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
-	proc := NewParallelProcessor(config.TestConfig)
+	proc := execution.NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -203,7 +204,7 @@ func TestParallelProcessEmptyBlock(t *testing.T) {
 	header := newTestHeader()
 	block := types.NewBlock(header, &types.Body{})
 
-	proc := NewParallelProcessor(config.TestConfig)
+	proc := execution.NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -226,7 +227,7 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: &correctHash,
 		}
-		if err := validateBAL(header, accessList); err != nil {
+		if err := execution.ValidateBAL(header, accessList); err != nil {
 			t.Fatalf("expected valid BAL, got error: %v", err)
 		}
 	})
@@ -237,12 +238,12 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: &wrongHash,
 		}
-		err := validateBAL(header, accessList)
+		err := execution.ValidateBAL(header, accessList)
 		if err == nil {
 			t.Fatal("expected hash mismatch error")
 		}
-		if !errors.Is(err, ErrBALHashMismatch) {
-			t.Fatalf("expected ErrBALHashMismatch, got: %v", err)
+		if !errors.Is(err, execution.ErrBALHashMismatch) {
+			t.Fatalf("expected execution.ErrBALHashMismatch, got: %v", err)
 		}
 	})
 
@@ -251,7 +252,7 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: nil,
 		}
-		err := validateBAL(header, accessList)
+		err := execution.ValidateBAL(header, accessList)
 		if err == nil {
 			t.Fatal("expected error for nil header hash")
 		}
@@ -262,7 +263,7 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: &correctHash,
 		}
-		err := validateBAL(header, nil)
+		err := execution.ValidateBAL(header, nil)
 		if err == nil {
 			t.Fatal("expected error for nil access list")
 		}
@@ -305,7 +306,7 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 
 	accessList := buildBALForIndependentTransfers(senders, recipients)
 
-	proc := NewParallelProcessor(config.TestConfig)
+	proc := execution.NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -371,7 +372,7 @@ func TestParallelProcessConflictingTransactions(t *testing.T) {
 
 	accessList := buildBALForConflictingTransfers(senders, sharedRecipient, n)
 
-	proc := NewParallelProcessor(config.TestConfig)
+	proc := execution.NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -417,7 +418,7 @@ func TestParallelProcessWithEmptyBAL(t *testing.T) {
 
 	emptyBAL := bal.NewBlockAccessList()
 
-	proc := NewParallelProcessor(config.TestConfig)
+	proc := execution.NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, emptyBAL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

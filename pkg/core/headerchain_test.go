@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
@@ -80,7 +81,7 @@ func nextHeader(parent *types.Header) *types.Header {
 
 func TestHeaderChain_Genesis(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	if hc.ChainLength() != 1 {
 		t.Fatalf("chain length: want 1, got %d", hc.ChainLength())
@@ -94,7 +95,7 @@ func TestHeaderChain_Genesis(t *testing.T) {
 
 func TestHeaderChain_InsertSingle(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	h1 := nextHeader(genesis)
 	n, err := hc.InsertHeaders([]*types.Header{h1})
@@ -112,7 +113,7 @@ func TestHeaderChain_InsertSingle(t *testing.T) {
 
 func TestHeaderChain_InsertChain(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	headers := make([]*types.Header, 10)
 	parent := genesis
@@ -140,7 +141,7 @@ func TestHeaderChain_InsertChain(t *testing.T) {
 
 func TestHeaderChain_GetByNumber(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	h1 := nextHeader(genesis)
 	h2 := nextHeader(h1)
@@ -157,7 +158,7 @@ func TestHeaderChain_GetByNumber(t *testing.T) {
 
 func TestHeaderChain_GetByHash(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	h1 := nextHeader(genesis)
 	hc.InsertHeaders([]*types.Header{h1})
@@ -173,7 +174,7 @@ func TestHeaderChain_GetByHash(t *testing.T) {
 
 func TestHeaderChain_HasHeader(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	if !hc.HasHeader(genesis.Hash()) {
 		t.Fatal("should have genesis")
@@ -192,7 +193,7 @@ func TestHeaderChain_HasHeader(t *testing.T) {
 
 func TestHeaderChain_InvalidHeader(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	badBlobGas := uint64(0)
 	badExcess := uint64(0)
@@ -217,7 +218,7 @@ func TestHeaderChain_InvalidHeader(t *testing.T) {
 
 func TestHeaderChain_UnknownParent(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	orphanBlobGas := uint64(0)
 	orphanExcess := uint64(0)
@@ -241,7 +242,7 @@ func TestHeaderChain_UnknownParent(t *testing.T) {
 
 func TestHeaderChain_SetHead(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	headers := make([]*types.Header, 5)
 	parent := genesis
@@ -271,7 +272,7 @@ func TestHeaderChain_SetHead(t *testing.T) {
 
 func TestHeaderChain_DuplicateInsert(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	h1 := nextHeader(genesis)
 	hc.InsertHeaders([]*types.Header{h1})
@@ -288,7 +289,7 @@ func TestHeaderChain_DuplicateInsert(t *testing.T) {
 
 func TestHeaderChain_GetAncestor(t *testing.T) {
 	genesis := genesisHeader()
-	hc := NewHeaderChain(config.TestConfig, genesis)
+	hc := chain.NewHeaderChain(config.TestConfig, genesis)
 
 	headers := make([]*types.Header, 5)
 	parent := genesis

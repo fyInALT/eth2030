@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	coreblock "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -345,9 +346,9 @@ func TestE2E_LocalTx_TransportMgrProducesNoSideEffects(t *testing.T) {
 
 	// Build an empty block — no txs, transport manager not involved.
 	pool := &simpleTxPool{txs: nil}
-	builder := NewBlockBuilder(config.TestConfig, bc, pool)
+	builder := coreblock.NewBlockBuilder(config.TestConfig, bc, pool)
 	parent := bc.CurrentBlock()
-	attrs := &BuildBlockAttributes{
+	attrs := &coreblock.BuildBlockAttributes{
 		Timestamp:    parent.Time() + 12,
 		FeeRecipient: coinbase,
 		GasLimit:     parent.GasLimit(),

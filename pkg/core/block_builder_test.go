@@ -4,7 +4,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
@@ -12,8 +15,8 @@ import (
 )
 
 // newLegacyBuilder creates a block builder for testing using the legacy interface.
-func newLegacyBuilder(config *config.ChainConfig, statedb state.StateDB) *BlockBuilder {
-	b := NewBlockBuilder(config, nil, nil)
+func newLegacyBuilder(config *config.ChainConfig, statedb state.StateDB) *block.BlockBuilder {
+	b := block.NewBlockBuilder(config, nil, nil)
 	b.SetState(statedb)
 	return b
 }
@@ -296,15 +299,15 @@ func TestBuildBlock_Empty(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
 	// No txpool (nil) means no transactions available.
-	builder := NewBlockBuilder(config.TestConfig, bc, nil)
+	builder := block.NewBlockBuilder(config.TestConfig, bc, nil)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -350,7 +353,7 @@ func TestBuildBlock_WithTransactions(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -370,9 +373,9 @@ func TestBuildBlock_WithTransactions(t *testing.T) {
 	}
 	pool := &mockTxPool{txs: txs}
 
-	builder := NewBlockBuilder(config.TestConfig, bc, pool)
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -408,7 +411,7 @@ func TestBuildBlock_GasLimitEnforcement(t *testing.T) {
 
 	genesis := makeGenesis(50000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -428,9 +431,9 @@ func TestBuildBlock_GasLimitEnforcement(t *testing.T) {
 	}
 	pool := &mockTxPool{txs: txs}
 
-	builder := NewBlockBuilder(config.TestConfig, bc, pool)
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     50000, // Only room for ~2 transactions.
@@ -521,7 +524,7 @@ func TestReorg_Simple(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -555,7 +558,7 @@ func TestReorg_Simple(t *testing.T) {
 		Time:       genesis.Time() + 6, // different timestamp -> different hash
 		Difficulty: new(big.Int),
 		BaseFee:    gas.CalcBaseFee(genesis.Header()),
-		UncleHash:  EmptyUncleHash,
+		UncleHash:  block.EmptyUncleHash,
 	}
 	// Process B1 through the state processor to get correct state root, etc.
 	emptyWHash := types.EmptyRootHash
@@ -591,7 +594,7 @@ func TestReorg_Simple(t *testing.T) {
 	b1Block := types.NewBlock(b1Header, b1Body)
 
 	// Execute against bState to get correct fields.
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 	result, procErr := proc.ProcessWithBAL(b1Block, bState)
 	if procErr == nil {
 		b1Header.GasUsed = 0
@@ -957,7 +960,7 @@ func TestBuildBlock_WithdrawalProcessing(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
@@ -980,9 +983,9 @@ func TestBuildBlock_WithdrawalProcessing(t *testing.T) {
 		},
 	}
 
-	builder := NewBlockBuilder(config.TestConfig, bc, nil)
+	builder := block.NewBlockBuilder(config.TestConfig, bc, nil)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -1040,7 +1043,7 @@ func TestBuildBlock_WithdrawalBalanceCredits(t *testing.T) {
 
 	// Use BuildBlock (not legacy) to process withdrawals via attributes.
 	// We set state directly since we are using newLegacyBuilder.
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    1700000001,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -1054,7 +1057,7 @@ func TestBuildBlock_WithdrawalBalanceCredits(t *testing.T) {
 		},
 	}
 
-	bb := NewBlockBuilder(config.TestConfig, nil, nil)
+	bb := block.NewBlockBuilder(config.TestConfig, nil, nil)
 	bb.SetState(statedb)
 
 	_, _, err := bb.BuildBlock(parent, attrs)
@@ -1215,14 +1218,14 @@ func TestBuildBlock_RequestsHash(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1000))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 
-	builder := NewBlockBuilder(config.TestConfig, bc, nil)
+	builder := block.NewBlockBuilder(config.TestConfig, bc, nil)
 
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,
@@ -1446,7 +1449,7 @@ func TestCalldataFloorDelta(t *testing.T) {
 	// Floor = 21000 + 1000 * 4 tokens * 10 per token = 21000 + 40000 = 61000
 	// If standard gas used is say 30000, delta = 61000 - 30000 = 31000.
 	delta = calldataFloorDelta(txWithData, 30000)
-	expectedFloor := uint64(21000 + 1000*4*TotalCostFloorPerToken)
+	expectedFloor := uint64(21000 + 1000*4*gas.TotalCostFloorPerToken)
 	expectedDelta := expectedFloor - 30000
 	if delta != expectedDelta {
 		t.Errorf("calldataFloorDelta = %d, want %d (floor=%d, standardUsed=30000)",
@@ -1529,7 +1532,7 @@ func TestBuildBlock_NoBlobGasFieldsPreCancun(t *testing.T) {
 	}
 
 	statedb := state.NewMemoryStateDB()
-	builder := NewBlockBuilder(preCancunConfig, nil, nil)
+	builder := block.NewBlockBuilder(preCancunConfig, nil, nil)
 	builder.SetState(statedb)
 
 	parent := &types.Header{
@@ -1539,7 +1542,7 @@ func TestBuildBlock_NoBlobGasFieldsPreCancun(t *testing.T) {
 		BaseFee:  big.NewInt(1),
 	}
 
-	attrs := &BuildBlockAttributes{
+	attrs := &block.BuildBlockAttributes{
 		Timestamp:    12,
 		FeeRecipient: types.BytesToAddress([]byte{0xff}),
 		GasLimit:     30_000_000,

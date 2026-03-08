@@ -6,6 +6,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/eips"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -31,7 +32,7 @@ func TestEIP2935_IntegratedWithProcessor(t *testing.T) {
 	body := &types.Body{}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -81,7 +82,7 @@ func TestEIP2935_NotActivePrePrague(t *testing.T) {
 	body := &types.Body{}
 	block := types.NewBlock(header, body)
 
-	proc := NewStateProcessor(prePragueConfig)
+	proc := execution.NewStateProcessor(prePragueConfig)
 	_, err := proc.Process(block, statedb)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

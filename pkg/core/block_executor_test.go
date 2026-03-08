@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -33,8 +34,8 @@ func newExecTestTx(gas uint64, data []byte) *types.Transaction {
 }
 
 func TestNewBlockExecutor(t *testing.T) {
-	config := DefaultExecutorConfig()
-	be := NewBlockExecutor(config)
+	config := block.DefaultExecutorConfig()
+	be := block.NewBlockExecutor(config)
 	if be == nil {
 		t.Fatal("expected non-nil executor")
 	}
@@ -45,7 +46,7 @@ func TestNewBlockExecutor(t *testing.T) {
 }
 
 func TestExecuteEmptyBlock(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	result, err := be.Execute(header, nil)
@@ -71,7 +72,7 @@ func TestExecuteEmptyBlock(t *testing.T) {
 }
 
 func TestExecuteWithTransactions(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{
@@ -103,15 +104,15 @@ func TestExecuteWithTransactions(t *testing.T) {
 }
 
 func TestExecuteNilHeader(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	_, err := be.Execute(nil, nil)
-	if err != ErrNilHeader {
+	if err != block.ErrNilHeader {
 		t.Fatalf("expected ErrNilHeader, got %v", err)
 	}
 }
 
 func TestExecuteNilTransaction(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{newExecTestTx(21000, nil), nil}
@@ -122,7 +123,7 @@ func TestExecuteNilTransaction(t *testing.T) {
 }
 
 func TestExecuteGasExceeded(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 50000) // low gas limit
 
 	txs := []*types.Transaction{
@@ -136,8 +137,8 @@ func TestExecuteGasExceeded(t *testing.T) {
 }
 
 func TestExecuteMaxGasPerBlockConfig(t *testing.T) {
-	config := ExecutorConfig{MaxGasPerBlock: 40000}
-	be := NewBlockExecutor(config)
+	config := block.ExecutorConfig{MaxGasPerBlock: 40000}
+	be := block.NewBlockExecutor(config)
 	header := newExecTestHeader(1, 30_000_000) // header has high limit
 
 	txs := []*types.Transaction{
@@ -151,8 +152,8 @@ func TestExecuteMaxGasPerBlockConfig(t *testing.T) {
 }
 
 func TestExecuteWithTracing(t *testing.T) {
-	config := ExecutorConfig{TraceExecution: true, MaxGasPerBlock: 30_000_000}
-	be := NewBlockExecutor(config)
+	config := block.ExecutorConfig{TraceExecution: true, MaxGasPerBlock: 30_000_000}
+	be := block.NewBlockExecutor(config)
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{newExecTestTx(21000, []byte{0xab})}
@@ -177,7 +178,7 @@ func TestExecuteWithTracing(t *testing.T) {
 }
 
 func TestValidateExecution(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{newExecTestTx(21000, nil)}
@@ -198,7 +199,7 @@ func TestValidateExecution(t *testing.T) {
 }
 
 func TestValidateExecutionGasMismatch(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{newExecTestTx(21000, nil)}
@@ -215,7 +216,7 @@ func TestValidateExecutionGasMismatch(t *testing.T) {
 }
 
 func TestValidateExecutionRootMismatch(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{newExecTestTx(21000, nil)}
@@ -232,22 +233,22 @@ func TestValidateExecutionRootMismatch(t *testing.T) {
 }
 
 func TestValidateExecutionNilInputs(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 
 	err := be.ValidateExecution(nil, newExecTestHeader(1, 30_000_000))
 	if err == nil {
 		t.Fatal("expected error for nil result")
 	}
 
-	result := &BlockExecutionResult{Success: true}
+	result := &block.BlockExecutionResult{Success: true}
 	err = be.ValidateExecution(result, nil)
-	if err != ErrNilHeader {
+	if err != block.ErrNilHeader {
 		t.Fatalf("expected ErrNilHeader, got %v", err)
 	}
 }
 
 func TestBlockExecutorEstimateGasSimpleTransfer(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	tx := newExecTestTx(100000, nil)
 
 	gas, err := be.EstimateGas(tx)
@@ -260,7 +261,7 @@ func TestBlockExecutorEstimateGasSimpleTransfer(t *testing.T) {
 }
 
 func TestEstimateGasWithCalldata(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	data := []byte{0x00, 0x00, 0x01, 0x02} // 2 zero bytes (4 gas each) + 2 nonzero (16 each)
 	tx := newExecTestTx(100000, data)
 
@@ -275,7 +276,7 @@ func TestEstimateGasWithCalldata(t *testing.T) {
 }
 
 func TestBlockExecutorEstimateGasContractCreation(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	// Contract creation: no To address.
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    0,
@@ -297,15 +298,15 @@ func TestBlockExecutorEstimateGasContractCreation(t *testing.T) {
 }
 
 func TestEstimateGasNilTransaction(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	_, err := be.EstimateGas(nil)
-	if err != ErrNilTransaction {
+	if err != block.ErrNilTransaction {
 		t.Fatalf("expected ErrNilTransaction, got %v", err)
 	}
 }
 
 func TestEstimateGasWithAccessList(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	to := types.HexToAddress("0xdead")
 	tx := types.NewTransaction(&types.AccessListTx{
 		ChainID:  big.NewInt(1),
@@ -331,7 +332,7 @@ func TestEstimateGasWithAccessList(t *testing.T) {
 }
 
 func TestExecutionStats(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	txs := []*types.Transaction{
@@ -363,7 +364,7 @@ func TestExecutionStats(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 
 	be.Execute(header, []*types.Transaction{newExecTestTx(21000, nil)})
@@ -376,7 +377,7 @@ func TestReset(t *testing.T) {
 }
 
 func TestExecuteDeterministic(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 	txs := []*types.Transaction{newExecTestTx(21000, nil), newExecTestTx(30000, []byte{0x01})}
 
@@ -396,7 +397,7 @@ func TestExecuteDeterministic(t *testing.T) {
 }
 
 func TestExecuteConcurrent(t *testing.T) {
-	be := NewBlockExecutor(DefaultExecutorConfig())
+	be := block.NewBlockExecutor(block.DefaultExecutorConfig())
 	header := newExecTestHeader(1, 30_000_000)
 	txs := []*types.Transaction{newExecTestTx(21000, nil)}
 

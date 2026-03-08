@@ -5,12 +5,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/types"
 )
 
 func TestNewChainReorgHandler(t *testing.T) {
-	cfg := DefaultReorgConfig()
-	h := NewChainReorgHandler(cfg)
+	cfg := chain.DefaultReorgConfig()
+	h := chain.NewChainReorgHandler(cfg)
 
 	if h == nil {
 		t.Fatal("expected non-nil handler")
@@ -29,7 +30,7 @@ func TestNewChainReorgHandler(t *testing.T) {
 }
 
 func TestChainReorgNormalExtension(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	// Build a chain: genesis -> 1 -> 2 -> 3.
 	hashes := make([]types.Hash, 4)
@@ -79,7 +80,7 @@ func TestChainReorgNormalExtension(t *testing.T) {
 }
 
 func TestChainReorgDetection(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	// Build canonical chain: 0 -> 1 -> 2 -> 3.
 	canon := []types.Hash{
@@ -128,9 +129,9 @@ func TestChainReorgDetection(t *testing.T) {
 }
 
 func TestChainReorgMaxDepth(t *testing.T) {
-	cfg := DefaultReorgConfig()
+	cfg := chain.DefaultReorgConfig()
 	cfg.MaxReorgDepth = 2
-	h := NewChainReorgHandler(cfg)
+	h := chain.NewChainReorgHandler(cfg)
 
 	// Build canonical chain: 0 -> 1 -> 2 -> 3 -> 4.
 	hashes := make([]types.Hash, 5)
@@ -149,7 +150,7 @@ func TestChainReorgMaxDepth(t *testing.T) {
 	// This would reorg blocks 2, 3, 4 -> depth 3, exceeds limit of 2.
 	forkHash := types.HexToHash("0xd1")
 	_, err := h.ProcessNewHead(2, forkHash, hashes[1])
-	if err != ErrReorgTooDeep {
+	if err != chain.ErrReorgTooDeep {
 		t.Fatalf("expected ErrReorgTooDeep, got %v", err)
 	}
 
@@ -161,16 +162,16 @@ func TestChainReorgMaxDepth(t *testing.T) {
 }
 
 func TestChainReorgZeroHash(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	_, err := h.ProcessNewHead(1, types.Hash{}, types.Hash{})
-	if err != ErrReorgZeroHash {
+	if err != chain.ErrReorgZeroHash {
 		t.Fatalf("expected ErrReorgZeroHash, got %v", err)
 	}
 }
 
 func TestChainReorgGetSetCanonicalHash(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	hash := types.HexToHash("0xfeed")
 	h.SetCanonicalHash(42, hash)
@@ -188,7 +189,7 @@ func TestChainReorgGetSetCanonicalHash(t *testing.T) {
 }
 
 func TestChainReorgIsCanonical(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	hash := types.HexToHash("0xbabe")
 	h.SetCanonicalHash(10, hash)
@@ -209,7 +210,7 @@ func TestChainReorgIsCanonical(t *testing.T) {
 }
 
 func TestChainReorgHistory(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	// No history initially.
 	history := h.ReorgHistory(10)
@@ -256,9 +257,9 @@ func TestChainReorgHistory(t *testing.T) {
 }
 
 func TestChainReorgMaxDepthSeen(t *testing.T) {
-	cfg := DefaultReorgConfig()
+	cfg := chain.DefaultReorgConfig()
 	cfg.MaxReorgDepth = 100 // high enough to not block
-	h := NewChainReorgHandler(cfg)
+	h := chain.NewChainReorgHandler(cfg)
 
 	// Build chain: 0 -> 1 -> 2 -> 3 -> 4.
 	hashes := []types.Hash{
@@ -298,10 +299,10 @@ func TestChainReorgMaxDepthSeen(t *testing.T) {
 }
 
 func TestChainReorgMetricsDisabled(t *testing.T) {
-	cfg := DefaultReorgConfig()
+	cfg := chain.DefaultReorgConfig()
 	cfg.TrackMetrics = false
 	cfg.NotifyOnReorg = false
-	h := NewChainReorgHandler(cfg)
+	h := chain.NewChainReorgHandler(cfg)
 
 	// Build and reorg.
 	h.ProcessNewHead(0, types.HexToHash("0x50"), types.Hash{})
@@ -331,7 +332,7 @@ func TestChainReorgMetricsDisabled(t *testing.T) {
 }
 
 func TestChainReorgConcurrency(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	// Initialize chain.
 	h.ProcessNewHead(0, types.HexToHash("0x70"), types.Hash{})
@@ -373,7 +374,7 @@ func TestChainReorgConcurrency(t *testing.T) {
 }
 
 func TestChainReorgEventFields(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	// Build chain: 0 -> 1 -> 2.
 	h.ProcessNewHead(0, types.HexToHash("0x90"), types.Hash{})
@@ -405,7 +406,7 @@ func TestChainReorgEventFields(t *testing.T) {
 }
 
 func TestChainReorgFirstBlock(t *testing.T) {
-	h := NewChainReorgHandler(DefaultReorgConfig())
+	h := chain.NewChainReorgHandler(chain.DefaultReorgConfig())
 
 	// Processing the very first block should always succeed without reorg.
 	hash := types.HexToHash("0xae")

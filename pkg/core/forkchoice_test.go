@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	coreblock "github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
@@ -13,16 +15,16 @@ import (
 )
 
 // testForkChoice creates a blockchain and ForkChoice for testing.
-func testForkChoice(t *testing.T) (*Blockchain, *ForkChoice) {
+func testForkChoice(t *testing.T) (*chain.Blockchain, *chain.ForkChoice) {
 	t.Helper()
 	statedb := state.NewMemoryStateDB()
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, statedb, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
-	fc := NewForkChoice(bc)
+	fc := chain.NewForkChoice(bc)
 	return bc, fc
 }
 
@@ -40,7 +42,7 @@ func makeForkBlock(parent *types.Block, timeOffset uint64) *types.Block {
 		Time:                parentHeader.Time + timeOffset,
 		Difficulty:          new(big.Int),
 		BaseFee:             gas.CalcBaseFee(parentHeader),
-		UncleHash:           EmptyUncleHash,
+		UncleHash:           coreblock.EmptyUncleHash,
 		BlockAccessListHash: &emptyBALHash,
 	}
 	return types.NewBlock(header, nil)
@@ -288,19 +290,19 @@ func TestFindCommonAncestor_SameChain(t *testing.T) {
 	genesis := bc.Genesis()
 
 	// Build a linear chain.
-	chain := makeChainBlocks(genesis, 3, state.NewMemoryStateDB())
-	for _, b := range chain {
+	blocks := makeChainBlocks(genesis, 3, state.NewMemoryStateDB())
+	for _, b := range blocks {
 		if err := bc.InsertBlock(b); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 	}
 
 	// Common ancestor of b1 and b3 on the same chain is b1.
-	ancestor := FindCommonAncestor(bc, chain[0], chain[2])
+	ancestor := chain.FindCommonAncestor(bc, blocks[0], blocks[2])
 	if ancestor == nil {
 		t.Fatal("expected common ancestor")
 	}
-	if ancestor.Hash() != chain[0].Hash() {
+	if ancestor.Hash() != blocks[0].Hash() {
 		t.Errorf("common ancestor = %v (block %d), want b1 (block 1)",
 			ancestor.Hash(), ancestor.NumberU64())
 	}
@@ -327,7 +329,7 @@ func TestFindCommonAncestor_Fork(t *testing.T) {
 	bc.StoreBlockInCache(b2)
 
 	// Common ancestor of a2 and b2 should be genesis.
-	ancestor := FindCommonAncestor(bc, chainA[1], b2)
+	ancestor := chain.FindCommonAncestor(bc, chainA[1], b2)
 	if ancestor == nil {
 		t.Fatal("expected common ancestor")
 	}
@@ -357,7 +359,7 @@ func TestFindCommonAncestor_ForkAtBlock1(t *testing.T) {
 	bc.StoreBlockInCache(b3)
 
 	// Common ancestor of a3 and b3 should be a1.
-	ancestor := FindCommonAncestor(bc, chainA[2], b3)
+	ancestor := chain.FindCommonAncestor(bc, chainA[2], b3)
 	if ancestor == nil {
 		t.Fatal("expected common ancestor")
 	}
@@ -384,7 +386,7 @@ func TestFindCommonAncestor_UnequalHeights(t *testing.T) {
 	bc.StoreBlockInCache(b3)
 
 	// Common ancestor of a5 and b3 should be a2.
-	ancestor := FindCommonAncestor(bc, blocks[4], b3)
+	ancestor := chain.FindCommonAncestor(bc, blocks[4], b3)
 	if ancestor == nil {
 		t.Fatal("expected common ancestor")
 	}
@@ -404,7 +406,7 @@ func TestFindCommonAncestor_IdenticalBlocks(t *testing.T) {
 	}
 
 	// Common ancestor of b1 and b1 is b1 itself.
-	ancestor := FindCommonAncestor(bc, b1, b1)
+	ancestor := chain.FindCommonAncestor(bc, b1, b1)
 	if ancestor == nil {
 		t.Fatal("expected common ancestor")
 	}
@@ -416,12 +418,12 @@ func TestFindCommonAncestor_IdenticalBlocks(t *testing.T) {
 func TestFindCommonAncestor_NilInput(t *testing.T) {
 	bc, _ := testForkChoice(t)
 
-	ancestor := FindCommonAncestor(bc, nil, bc.Genesis())
+	ancestor := chain.FindCommonAncestor(bc, nil, bc.Genesis())
 	if ancestor != nil {
 		t.Error("expected nil for nil input")
 	}
 
-	ancestor = FindCommonAncestor(bc, bc.Genesis(), nil)
+	ancestor = chain.FindCommonAncestor(bc, bc.Genesis(), nil)
 	if ancestor != nil {
 		t.Error("expected nil for nil input")
 	}
@@ -673,11 +675,11 @@ func TestForkChoice_StateRollbackOnReorg(t *testing.T) {
 
 	genesis := makeGenesis(30_000_000, big.NewInt(1))
 	db := rawdb.NewMemoryDB()
-	bc, err := NewBlockchain(config.TestConfig, genesis, genesisState, db)
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, genesisState, db)
 	if err != nil {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
-	fc := NewForkChoice(bc)
+	fc := chain.NewForkChoice(bc)
 
 	// Build chain A: genesis -> a1 (sends to receiverA).
 	txA := types.NewTransaction(&types.LegacyTx{
@@ -729,7 +731,7 @@ func TestForkChoice_StateRollbackOnReorg(t *testing.T) {
 			Time:                genesis.Time() + 6,
 			Difficulty:          new(big.Int),
 			BaseFee:             gas.CalcBaseFee(genesis.Header()),
-			UncleHash:           EmptyUncleHash,
+			UncleHash:           coreblock.EmptyUncleHash,
 			BlockAccessListHash: &emptyBALHash,
 		}
 		b1 = types.NewBlock(b1Header, nil)

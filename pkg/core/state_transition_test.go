@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -45,8 +46,8 @@ func TestTxIntrinsicGasSimpleTransfer(t *testing.T) {
 	tx := makeLegacyTx(0, &addr, big.NewInt(0), 21000, big.NewInt(1), nil)
 
 	got := txIntrinsicGas(tx)
-	if got != TxGas {
-		t.Errorf("txIntrinsicGas(simple transfer) = %d, want %d", got, TxGas)
+	if got != execution.TxGas {
+		t.Errorf("txIntrinsicGas(simple transfer) = %d, want %d", got, execution.TxGas)
 	}
 }
 
@@ -54,7 +55,7 @@ func TestTxIntrinsicGasContractCreation(t *testing.T) {
 	tx := makeLegacyTx(0, nil, big.NewInt(0), 100000, big.NewInt(1), nil)
 
 	got := txIntrinsicGas(tx)
-	expected := TxGas + TxCreateGas
+	expected := execution.TxGas + execution.TxCreateGas
 	if got != expected {
 		t.Errorf("txIntrinsicGas(create) = %d, want %d", got, expected)
 	}
@@ -67,7 +68,7 @@ func TestTxIntrinsicGasWithData(t *testing.T) {
 	tx := makeLegacyTx(0, &addr, big.NewInt(0), 100000, big.NewInt(1), data)
 
 	got := txIntrinsicGas(tx)
-	expected := TxGas + 3*TxDataZeroGas + 2*TxDataNonZeroGas
+	expected := execution.TxGas + 3*execution.TxDataZeroGas + 2*execution.TxDataNonZeroGas
 	if got != expected {
 		t.Errorf("txIntrinsicGas(data) = %d, want %d", got, expected)
 	}

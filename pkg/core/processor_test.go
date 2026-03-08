@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/execution"
+	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -32,7 +34,7 @@ func newTestHeader() *types.Header {
 }
 
 func TestProcessEmptyBlock(t *testing.T) {
-	proc := NewStateProcessor(config.TestConfig)
+	proc := execution.NewStateProcessor(config.TestConfig)
 	statedb := state.NewMemoryStateDB()
 	header := newTestHeader()
 
@@ -65,11 +67,11 @@ func TestSimpleTransfer(t *testing.T) {
 	msg.From = sender
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
 	// Manually apply using applyMessage to set From
 	snapshot := statedb.Snapshot()
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		statedb.RevertToSnapshot(snapshot)
 		t.Fatalf("unexpected error: %v", err)
@@ -77,8 +79,8 @@ func TestSimpleTransfer(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("transfer should not fail: %v", result.Err)
 	}
-	if result.UsedGas != TxGas {
-		t.Fatalf("expected gas used %d, got %d", TxGas, result.UsedGas)
+	if result.UsedGas != execution.TxGas {
+		t.Fatalf("expected gas used %d, got %d", execution.TxGas, result.UsedGas)
 	}
 
 	// Recipient should have 1 ETH
@@ -88,7 +90,7 @@ func TestSimpleTransfer(t *testing.T) {
 	}
 
 	// Sender should have 10 ETH - 1 ETH - gasCost
-	gasCost := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(TxGas))
+	gasCost := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(execution.TxGas))
 	expectedSender := new(big.Int).Sub(tenETH, oneETH)
 	expectedSender.Sub(expectedSender, gasCost)
 	senderBal := statedb.GetBalance(sender)
@@ -121,9 +123,9 @@ func TestInsufficientBalance(t *testing.T) {
 	msg.From = sender
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected insufficient balance error")
 	}
@@ -153,14 +155,14 @@ func TestGasPoolExhaustion(t *testing.T) {
 	header := newTestHeader()
 
 	// Gas pool with only 10000 gas (less than 21000 required)
-	gp := new(GasPool).AddGas(10000)
+	gp := new(gaspool.GasPool).AddGas(10000)
 
-	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected gas pool exhaustion error")
 	}
-	if err != ErrGasPoolExhausted {
-		t.Fatalf("expected ErrGasPoolExhausted, got: %v", err)
+	if err != gaspool.ErrGasPoolExhausted {
+		t.Fatalf("expected gaspool.ErrGasPoolExhausted, got: %v", err)
 	}
 }
 
@@ -183,9 +185,9 @@ func TestNonceValidation(t *testing.T) {
 	msg.From = sender
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	_, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	_, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected nonce too low error")
 	}
@@ -195,8 +197,8 @@ func TestNonceValidation(t *testing.T) {
 	msg = config.TransactionToMessage(tx)
 	msg.From = sender
 
-	gp = new(GasPool).AddGas(header.GasLimit)
-	_, err = applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	gp = new(gaspool.GasPool).AddGas(header.GasLimit)
+	_, err = execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err == nil {
 		t.Fatal("expected nonce too high error")
 	}
@@ -206,8 +208,8 @@ func TestNonceValidation(t *testing.T) {
 	msg = config.TransactionToMessage(tx)
 	msg.From = sender
 
-	gp = new(GasPool).AddGas(header.GasLimit)
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	gp = new(gaspool.GasPool).AddGas(header.GasLimit)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("expected correct nonce to succeed, got: %v", err)
 	}
@@ -261,7 +263,7 @@ func TestChainConfig(t *testing.T) {
 }
 
 func TestGasPool(t *testing.T) {
-	gp := new(GasPool).AddGas(100)
+	gp := new(gaspool.GasPool).AddGas(100)
 	if gp.Gas() != 100 {
 		t.Fatalf("expected 100, got %d", gp.Gas())
 	}
@@ -289,7 +291,7 @@ func TestGasPool(t *testing.T) {
 
 func TestExecutionResult(t *testing.T) {
 	// Successful result
-	r := &ExecutionResult{UsedGas: 21000, Err: nil, ReturnData: []byte{0x01}}
+	r := &execution.ExecutionResult{UsedGas: 21000, Err: nil, ReturnData: []byte{0x01}}
 	if r.Failed() {
 		t.Fatal("should not be failed")
 	}
@@ -304,7 +306,7 @@ func TestExecutionResult(t *testing.T) {
 	}
 
 	// Failed result
-	r = &ExecutionResult{UsedGas: 21000, Err: ErrGasLimitExceeded, ReturnData: []byte{0x08}}
+	r = &execution.ExecutionResult{UsedGas: 21000, Err: execution.ErrGasLimitExceeded, ReturnData: []byte{0x08}}
 	if !r.Failed() {
 		t.Fatal("should be failed")
 	}
@@ -398,9 +400,9 @@ func TestContractCreation(t *testing.T) {
 	msg.From = sender
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage should not return protocol error for contract creation, got: %v", err)
 	}
@@ -413,8 +415,8 @@ func TestContractCreation(t *testing.T) {
 		t.Fatalf("nonce should be incremented, got %d", statedb.GetNonce(sender))
 	}
 
-	// Gas should be consumed (more than base TxGas due to create overhead + execution)
-	if result.UsedGas <= TxGas {
+	// Gas should be consumed (more than base execution.TxGas due to create overhead + execution)
+	if result.UsedGas <= execution.TxGas {
 		t.Fatalf("contract creation should use more gas than simple transfer, got %d", result.UsedGas)
 	}
 }
@@ -458,9 +460,9 @@ func TestContractCall(t *testing.T) {
 	msg.From = sender
 
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
@@ -496,14 +498,14 @@ func TestProcessBlockWithTransfer(t *testing.T) {
 	// We need to set From on the message. Since Process uses config.TransactionToMessage
 	// internally without setting From, we test via ApplyTransaction directly.
 	header := newTestHeader()
-	gp := new(GasPool).AddGas(header.GasLimit)
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
 	// Set the from on the message manually by calling the lower-level function
 	msg := config.TransactionToMessage(tx)
 	msg.From = sender
 
 	snapshot := statedb.Snapshot()
-	result, err := applyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
 		statedb.RevertToSnapshot(snapshot)
 		t.Fatalf("unexpected error: %v", err)
@@ -521,7 +523,7 @@ func TestProcessBlockWithTransfer(t *testing.T) {
 	if receipt.Status != types.ReceiptStatusSuccessful {
 		t.Fatal("receipt should be successful")
 	}
-	if receipt.CumulativeGasUsed != TxGas {
-		t.Fatalf("receipt cumulative gas: want %d, got %d", TxGas, receipt.CumulativeGasUsed)
+	if receipt.CumulativeGasUsed != execution.TxGas {
+		t.Fatalf("receipt cumulative gas: want %d, got %d", execution.TxGas, receipt.CumulativeGasUsed)
 	}
 }
