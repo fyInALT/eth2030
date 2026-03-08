@@ -10,6 +10,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/engine/backendapi"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -45,13 +46,8 @@ var (
 	ErrV4DuplicateRequestType = errors.New("engine_v4: duplicate execution request type")
 )
 
-// V4Backend defines the minimal backend interface required by EngV4.
-type V4Backend interface {
-	// GetPayloadV4ByID retrieves a previously built payload for getPayloadV4 (Prague).
-	GetPayloadV4ByID(id payload.PayloadID) (*payload.GetPayloadV4Response, error)
-	// IsPrague returns true if the given timestamp falls within the Prague fork.
-	IsPrague(timestamp uint64) bool
-}
+// V4Backend is a type alias — canonical definition in engine/backendapi.
+type V4Backend = backendapi.V4Backend
 
 // ErrUnsupportedFork is returned when a payload timestamp does not match the
 // expected fork. Defined here to avoid importing the engine package.

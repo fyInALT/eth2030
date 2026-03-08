@@ -9,6 +9,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/apierrors"
+	"github.com/eth2030/eth2030/engine/backendapi"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -18,91 +19,17 @@ type jsonrpcError struct {
 	Message string `json:"message"`
 }
 
-// GlamsterdamBackend defines the backend interface for post-Glamsterdam Engine API.
-// Implementations must be safe for concurrent use.
-type GlamsterdamBackend interface {
-	// NewPayloadV5 validates and executes a post-Glamsterdam payload with
-	// blob versioned hashes, parent beacon block root, and execution requests.
-	NewPayloadV5(p *payload.ExecutionPayloadV5,
-		expectedBlobVersionedHashes []types.Hash,
-		parentBeaconBlockRoot types.Hash,
-		executionRequests [][]byte) (*PayloadStatusV1, error)
-
-	// ForkchoiceUpdatedV4G processes a forkchoice update with V4 attributes
-	// including withdrawals, parent beacon block root, and slot number.
-	ForkchoiceUpdatedV4G(state *ForkchoiceStateV1, attrs *GlamsterdamPayloadAttributes) (*ForkchoiceUpdatedResult, error)
-
-	// GetPayloadV5 retrieves a previously built payload by ID.
-	// Returns execution payload, block value, blobs bundle, and execution requests.
-	GetPayloadV5(id payload.PayloadID) (*GetPayloadV5Response, error)
-
-	// GetBlobsV2 retrieves blobs by versioned hashes from the blob pool.
-	// Returns nil for the entire result if any blob is missing (all-or-nothing).
-	GetBlobsV2(versionedHashes []types.Hash) ([]*BlobAndProofV2, error)
-}
-
-// PayloadStatusV1 is the response to engine_newPayload.
-type PayloadStatusV1 struct {
-	Status          string      `json:"status"`
-	LatestValidHash *types.Hash `json:"latestValidHash,omitempty"`
-	ValidationError *string     `json:"validationError,omitempty"`
-}
-
-// ForkchoiceStateV1 represents the fork choice state from the consensus layer.
-type ForkchoiceStateV1 struct {
-	HeadBlockHash      types.Hash `json:"headBlockHash"`
-	SafeBlockHash      types.Hash `json:"safeBlockHash"`
-	FinalizedBlockHash types.Hash `json:"finalizedBlockHash"`
-}
-
-// ForkchoiceUpdatedResult is the response to engine_forkchoiceUpdated.
-type ForkchoiceUpdatedResult struct {
-	PayloadStatus PayloadStatusV1    `json:"payloadStatus"`
-	PayloadID     *payload.PayloadID `json:"payloadId,omitempty"`
-}
-
-// BlobAndProofV2 represents a blob with its cell proofs (Osaka spec).
-type BlobAndProofV2 struct {
-	// Blob is the raw blob data (131072 bytes).
-	Blob []byte `json:"blob"`
-	// Proofs contains KZG cell proofs for the blob (CELLS_PER_EXT_BLOB proofs).
-	Proofs [][]byte `json:"proofs"`
-}
-
-// BlobsBundleV2 extends BlobsBundleV1 with cell proofs per EIP-7594.
-type BlobsBundleV2 struct {
-	Commitments [][]byte `json:"commitments"`
-	Proofs      [][]byte `json:"proofs"`
-	Blobs       [][]byte `json:"blobs"`
-}
-
-// GlamsterdamPayloadAttributes contains attributes for building a post-Glamsterdam
-// payload. Extends V3 with targetBlobCount and slot number.
-type GlamsterdamPayloadAttributes struct {
-	// Timestamp for the new payload.
-	Timestamp uint64 `json:"timestamp"`
-	// PrevRandao for the new payload.
-	PrevRandao types.Hash `json:"prevRandao"`
-	// SuggestedFeeRecipient for the new payload.
-	SuggestedFeeRecipient types.Address `json:"suggestedFeeRecipient"`
-	// Withdrawals to process in this payload.
-	Withdrawals []*payload.Withdrawal `json:"withdrawals"`
-	// ParentBeaconBlockRoot is the root of the parent beacon block.
-	ParentBeaconBlockRoot types.Hash `json:"parentBeaconBlockRoot"`
-	// TargetBlobCount is the target number of blobs per block.
-	TargetBlobCount uint64 `json:"targetBlobCount"`
-	// SlotNumber is the slot for this payload (Amsterdam PayloadAttributesV4).
-	SlotNumber uint64 `json:"slotNumber"`
-}
-
-// GetPayloadV5Response is the response for engine_getPayloadV5 (Osaka spec).
-type GetPayloadV5Response struct {
-	ExecutionPayload  *payload.ExecutionPayloadV3 `json:"executionPayload"`
-	BlockValue        []byte                      `json:"blockValue"`
-	BlobsBundle       *BlobsBundleV2              `json:"blobsBundle"`
-	Override          bool                        `json:"shouldOverrideBuilder"`
-	ExecutionRequests [][]byte                    `json:"executionRequests"`
-}
+// Type aliases — canonical definitions live in engine/payload and engine/backendapi.
+type (
+	GlamsterdamBackend           = backendapi.GlamsterdamBackend
+	PayloadStatusV1              = payload.PayloadStatusV1
+	ForkchoiceStateV1            = payload.ForkchoiceStateV1
+	ForkchoiceUpdatedResult      = payload.ForkchoiceUpdatedResult
+	BlobAndProofV2               = payload.BlobAndProofV2
+	BlobsBundleV2                = payload.BlobsBundleV2
+	GlamsterdamPayloadAttributes = payload.GlamsterdamPayloadAttributes
+	GetPayloadV5Response         = payload.GetPayloadV5Response
+)
 
 // ClientVersionV2 extends ClientVersionV1 with additional fields.
 type ClientVersionV2 struct {

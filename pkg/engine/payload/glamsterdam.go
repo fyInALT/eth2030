@@ -1,0 +1,38 @@
+// Package payload: Glamsterdam-era payload types.
+package payload
+
+import "github.com/eth2030/eth2030/core/types"
+
+// GlamsterdamPayloadAttributes contains attributes for building a post-Glamsterdam
+// payload. Extends V3 with targetBlobCount and slot number.
+type GlamsterdamPayloadAttributes struct {
+	Timestamp             uint64        `json:"timestamp"`
+	PrevRandao            types.Hash    `json:"prevRandao"`
+	SuggestedFeeRecipient types.Address `json:"suggestedFeeRecipient"`
+	Withdrawals           []*Withdrawal `json:"withdrawals"`
+	ParentBeaconBlockRoot types.Hash    `json:"parentBeaconBlockRoot"`
+	TargetBlobCount       uint64        `json:"targetBlobCount"`
+	SlotNumber            uint64        `json:"slotNumber"`
+}
+
+// BlobAndProofV2 represents a blob with its cell proofs (Osaka spec).
+type BlobAndProofV2 struct {
+	Blob   []byte   `json:"blob"`
+	Proofs [][]byte `json:"proofs"`
+}
+
+// BlobsBundleV2 extends BlobsBundleV1 with cell proofs per EIP-7594.
+type BlobsBundleV2 struct {
+	Commitments [][]byte `json:"commitments"`
+	Proofs      [][]byte `json:"proofs"`
+	Blobs       [][]byte `json:"blobs"`
+}
+
+// GetPayloadV5Response is the response for engine_getPayloadV5 (Osaka spec).
+type GetPayloadV5Response struct {
+	ExecutionPayload  *ExecutionPayloadV3 `json:"executionPayload"`
+	BlockValue        []byte              `json:"blockValue"`
+	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
+	Override          bool                `json:"shouldOverrideBuilder"`
+	ExecutionRequests [][]byte            `json:"executionRequests"`
+}

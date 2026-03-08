@@ -3,80 +3,24 @@ package api
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/apierrors"
+	"github.com/eth2030/eth2030/engine/backendapi"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
-// EngineV7Backend defines the backend interface for Engine API V7.
-type EngineV7Backend interface {
-	// NewPayloadV7 validates and executes a 2028-era payload.
-	NewPayloadV7(p *ExecutionPayloadV7) (*PayloadStatusV1, error)
-
-	// ForkchoiceUpdatedV7 processes a forkchoice update with V7 attributes.
-	ForkchoiceUpdatedV7(state *ForkchoiceStateV1, attrs *PayloadAttributesV7) (*ForkchoiceUpdatedResult, error)
-
-	// GetPayloadV7 retrieves a previously built V7 payload by ID.
-	GetPayloadV7(id payload.PayloadID) (*ExecutionPayloadV7, error)
-}
-
-// DALayerConfig configures the data availability layer for the 2030 roadmap.
-type DALayerConfig struct {
-	SampleCount       uint64 `json:"sampleCount"`
-	ColumnCount       uint64 `json:"columnCount"`
-	RecoveryThreshold uint64 `json:"recoveryThreshold"`
-}
-
-// ProofRequirements specifies the mandatory proof parameters per the K+ era.
-type ProofRequirements struct {
-	MinProofs    uint64   `json:"minProofs"`
-	TotalProofs  uint64   `json:"totalProofs"`
-	AllowedTypes []string `json:"allowedTypes"`
-}
-
-// Validate checks that proof requirements are internally consistent.
-func (pr *ProofRequirements) Validate() error {
-	if pr.TotalProofs == 0 {
-		return errors.New("engine: totalProofs must be > 0")
-	}
-	if pr.MinProofs == 0 {
-		return errors.New("engine: minProofs must be > 0")
-	}
-	if pr.MinProofs > pr.TotalProofs {
-		return fmt.Errorf("engine: minProofs (%d) > totalProofs (%d)", pr.MinProofs, pr.TotalProofs)
-	}
-	return nil
-}
-
-// PayloadAttributesV7 extends V3 attributes with 2030 roadmap features.
-type PayloadAttributesV7 struct {
-	payload.PayloadAttributesV3
-
-	DALayerConfig     *DALayerConfig     `json:"daLayerConfig,omitempty"`
-	ProofRequirements *ProofRequirements `json:"proofRequirements,omitempty"`
-	ShieldedTxs       [][]byte           `json:"shieldedTxs,omitempty"`
-}
-
-// ExecutionPayloadV7 extends V3 with 2030 roadmap fields.
-type ExecutionPayloadV7 struct {
-	payload.ExecutionPayloadV3
-
-	BlobCommitments  []types.Hash `json:"blobCommitments"`
-	ProofSubmissions [][]byte     `json:"proofSubmissions"`
-	ShieldedResults  []types.Hash `json:"shieldedResults"`
-}
-
-// GetPayloadV7Response is the response for engine_getPayloadV7.
-type GetPayloadV7Response struct {
-	ExecutionPayload *ExecutionPayloadV7    `json:"executionPayload"`
-	BlockValue       []byte                 `json:"blockValue"`
-	BlobsBundle      *payload.BlobsBundleV1 `json:"blobsBundle"`
-	Override         bool                   `json:"shouldOverrideBuilder"`
-}
+// Type aliases — canonical definitions live in engine/payload and engine/backendapi.
+type (
+	EngineV7Backend      = backendapi.EngineV7Backend
+	DALayerConfig        = payload.DALayerConfig
+	ProofRequirements    = payload.ProofRequirements
+	PayloadAttributesV7  = payload.PayloadAttributesV7
+	ExecutionPayloadV7   = payload.ExecutionPayloadV7
+	GetPayloadV7Response = payload.GetPayloadV7Response
+)
 
 // EngineV7 provides the Engine API V7 methods.
 // Thread-safe: all state is protected by a mutex.

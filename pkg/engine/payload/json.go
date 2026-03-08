@@ -534,3 +534,172 @@ func (r *GetPayloadResponse) UnmarshalJSON(data []byte) error {
 	r.Override = j.Override
 	return nil
 }
+
+// ── ExecutionPayloadV7 ───────────────────────────────────────────────────────
+
+type executionPayloadV7JSON struct {
+	ParentHash       types.Hash    `json:"parentHash"`
+	FeeRecipient     types.Address `json:"feeRecipient"`
+	StateRoot        types.Hash    `json:"stateRoot"`
+	ReceiptsRoot     types.Hash    `json:"receiptsRoot"`
+	LogsBloom        types.Bloom   `json:"logsBloom"`
+	PrevRandao       types.Hash    `json:"prevRandao"`
+	BlockNumber      hexUint64     `json:"blockNumber"`
+	GasLimit         hexUint64     `json:"gasLimit"`
+	GasUsed          hexUint64     `json:"gasUsed"`
+	Timestamp        hexUint64     `json:"timestamp"`
+	ExtraData        hexBytes      `json:"extraData"`
+	BaseFeePerGas    *hexBig       `json:"baseFeePerGas"`
+	BlockHash        types.Hash    `json:"blockHash"`
+	Transactions     []hexBytes    `json:"transactions"`
+	Withdrawals      []*Withdrawal `json:"withdrawals"`
+	BlobGasUsed      hexUint64     `json:"blobGasUsed"`
+	ExcessBlobGas    hexUint64     `json:"excessBlobGas"`
+	BlobCommitments  []types.Hash  `json:"blobCommitments"`
+	ProofSubmissions []hexBytes    `json:"proofSubmissions"`
+	ShieldedResults  []types.Hash  `json:"shieldedResults"`
+}
+
+// MarshalJSON implements json.Marshaler for ExecutionPayloadV7.
+func (p ExecutionPayloadV7) MarshalJSON() ([]byte, error) {
+	withdrawals := p.Withdrawals
+	if withdrawals == nil {
+		withdrawals = []*Withdrawal{}
+	}
+	return json.Marshal(executionPayloadV7JSON{
+		ParentHash:       p.ParentHash,
+		FeeRecipient:     p.FeeRecipient,
+		StateRoot:        p.StateRoot,
+		ReceiptsRoot:     p.ReceiptsRoot,
+		LogsBloom:        p.LogsBloom,
+		PrevRandao:       p.PrevRandao,
+		BlockNumber:      hexUint64(p.BlockNumber),
+		GasLimit:         hexUint64(p.GasLimit),
+		GasUsed:          hexUint64(p.GasUsed),
+		Timestamp:        hexUint64(p.Timestamp),
+		ExtraData:        hexBytes(p.ExtraData),
+		BaseFeePerGas:    newHexBig(p.BaseFeePerGas),
+		BlockHash:        p.BlockHash,
+		Transactions:     toHexBytesSlice(p.Transactions),
+		Withdrawals:      withdrawals,
+		BlobGasUsed:      hexUint64(p.BlobGasUsed),
+		ExcessBlobGas:    hexUint64(p.ExcessBlobGas),
+		BlobCommitments:  p.BlobCommitments,
+		ProofSubmissions: toHexBytesSlice(p.ProofSubmissions),
+		ShieldedResults:  p.ShieldedResults,
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for ExecutionPayloadV7.
+func (p *ExecutionPayloadV7) UnmarshalJSON(data []byte) error {
+	var j executionPayloadV7JSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	p.ParentHash = j.ParentHash
+	p.FeeRecipient = j.FeeRecipient
+	p.StateRoot = j.StateRoot
+	p.ReceiptsRoot = j.ReceiptsRoot
+	p.LogsBloom = j.LogsBloom
+	p.PrevRandao = j.PrevRandao
+	p.BlockNumber = uint64(j.BlockNumber)
+	p.GasLimit = uint64(j.GasLimit)
+	p.GasUsed = uint64(j.GasUsed)
+	p.Timestamp = uint64(j.Timestamp)
+	p.ExtraData = []byte(j.ExtraData)
+	p.BaseFeePerGas = toBigInt(j.BaseFeePerGas)
+	p.BlockHash = j.BlockHash
+	p.Transactions = fromHexBytesSlice(j.Transactions)
+	p.Withdrawals = j.Withdrawals
+	p.BlobGasUsed = uint64(j.BlobGasUsed)
+	p.ExcessBlobGas = uint64(j.ExcessBlobGas)
+	p.BlobCommitments = j.BlobCommitments
+	p.ProofSubmissions = fromHexBytesSlice(j.ProofSubmissions)
+	p.ShieldedResults = j.ShieldedResults
+	return nil
+}
+
+// ── PayloadAttributesV7 ──────────────────────────────────────────────────────
+
+type payloadAttributesV7JSON struct {
+	Timestamp             hexUint64          `json:"timestamp"`
+	PrevRandao            types.Hash         `json:"prevRandao"`
+	SuggestedFeeRecipient types.Address      `json:"suggestedFeeRecipient"`
+	Withdrawals           []*Withdrawal      `json:"withdrawals"`
+	ParentBeaconBlockRoot types.Hash         `json:"parentBeaconBlockRoot"`
+	DALayerConfig         *DALayerConfig     `json:"daLayerConfig,omitempty"`
+	ProofRequirements     *ProofRequirements `json:"proofRequirements,omitempty"`
+	ShieldedTxs           []hexBytes         `json:"shieldedTxs,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler for PayloadAttributesV7.
+func (p PayloadAttributesV7) MarshalJSON() ([]byte, error) {
+	return json.Marshal(payloadAttributesV7JSON{
+		Timestamp:             hexUint64(p.Timestamp),
+		PrevRandao:            p.PrevRandao,
+		SuggestedFeeRecipient: p.SuggestedFeeRecipient,
+		Withdrawals:           p.Withdrawals,
+		ParentBeaconBlockRoot: p.ParentBeaconBlockRoot,
+		DALayerConfig:         p.DALayerConfig,
+		ProofRequirements:     p.ProofRequirements,
+		ShieldedTxs:           toHexBytesSlice(p.ShieldedTxs),
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for PayloadAttributesV7.
+func (p *PayloadAttributesV7) UnmarshalJSON(data []byte) error {
+	var j payloadAttributesV7JSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	p.Timestamp = uint64(j.Timestamp)
+	p.PrevRandao = j.PrevRandao
+	p.SuggestedFeeRecipient = j.SuggestedFeeRecipient
+	p.Withdrawals = j.Withdrawals
+	p.ParentBeaconBlockRoot = j.ParentBeaconBlockRoot
+	p.DALayerConfig = j.DALayerConfig
+	p.ProofRequirements = j.ProofRequirements
+	p.ShieldedTxs = fromHexBytesSlice(j.ShieldedTxs)
+	return nil
+}
+
+// ── GlamsterdamPayloadAttributes ─────────────────────────────────────────────
+
+type glamsterdamPayloadAttributesJSON struct {
+	Timestamp             hexUint64     `json:"timestamp"`
+	PrevRandao            types.Hash    `json:"prevRandao"`
+	SuggestedFeeRecipient types.Address `json:"suggestedFeeRecipient"`
+	Withdrawals           []*Withdrawal `json:"withdrawals"`
+	ParentBeaconBlockRoot types.Hash    `json:"parentBeaconBlockRoot"`
+	TargetBlobCount       hexUint64     `json:"targetBlobCount"`
+	SlotNumber            hexUint64     `json:"slotNumber"`
+}
+
+// MarshalJSON implements json.Marshaler for GlamsterdamPayloadAttributes.
+func (p GlamsterdamPayloadAttributes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(glamsterdamPayloadAttributesJSON{
+		Timestamp:             hexUint64(p.Timestamp),
+		PrevRandao:            p.PrevRandao,
+		SuggestedFeeRecipient: p.SuggestedFeeRecipient,
+		Withdrawals:           p.Withdrawals,
+		ParentBeaconBlockRoot: p.ParentBeaconBlockRoot,
+		TargetBlobCount:       hexUint64(p.TargetBlobCount),
+		SlotNumber:            hexUint64(p.SlotNumber),
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for GlamsterdamPayloadAttributes.
+func (p *GlamsterdamPayloadAttributes) UnmarshalJSON(data []byte) error {
+	var j glamsterdamPayloadAttributesJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	p.Timestamp = uint64(j.Timestamp)
+	p.PrevRandao = j.PrevRandao
+	p.SuggestedFeeRecipient = j.SuggestedFeeRecipient
+	p.Withdrawals = j.Withdrawals
+	p.ParentBeaconBlockRoot = j.ParentBeaconBlockRoot
+	p.TargetBlobCount = uint64(j.TargetBlobCount)
+	p.SlotNumber = uint64(j.SlotNumber)
+	return nil
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/engine/apierrors"
+	"github.com/eth2030/eth2030/engine/backendapi"
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -187,10 +188,8 @@ type pendingUncoupled struct {
 	status   string
 }
 
-// UncoupledBackend is the minimal backend interface for UncoupledPayloadHandler.
-// It is intentionally empty — the handler does not need to call the backend
-// for validation, only for forwarding validated payloads (future use).
-type UncoupledBackend interface{}
+// UncoupledBackend is a type alias — canonical definition in engine/backendapi.
+type UncoupledBackend = backendapi.UncoupledBackend
 
 // UncoupledPayloadHandler manages the receipt and validation of uncoupled
 // execution payloads per EIP-7898.

@@ -30,19 +30,27 @@ type (
 	BlobsBundleV1        = payload.BlobsBundleV1
 )
 
-// Re-exported type aliases from engine/api sub-package.
+// Re-exported type aliases — status/forkchoice/payload types from engine/payload;
+// handler types from engine/api.
 type (
-	// From api/glamsterdam.go (core types used widely in server.go/handler.go)
-	PayloadStatusV1         = engapi.PayloadStatusV1
-	ForkchoiceStateV1       = engapi.ForkchoiceStateV1
-	ForkchoiceUpdatedResult = engapi.ForkchoiceUpdatedResult
-	// From api/glamsterdam.go
-	BlobAndProofV2               = engapi.BlobAndProofV2
-	BlobsBundleV2                = engapi.BlobsBundleV2
-	GlamsterdamPayloadAttributes = engapi.GlamsterdamPayloadAttributes
-	GetPayloadV5Response         = engapi.GetPayloadV5Response
-	ClientVersionV2              = engapi.ClientVersionV2
-	EngineGlamsterdam            = engapi.EngineGlamsterdam
+	// Status/forkchoice — canonical in engine/payload.
+	PayloadStatusV1         = payload.PayloadStatusV1
+	ForkchoiceStateV1       = payload.ForkchoiceStateV1
+	ForkchoiceUpdatedResult = payload.ForkchoiceUpdatedResult
+	// Glamsterdam — canonical in engine/payload.
+	BlobAndProofV2               = payload.BlobAndProofV2
+	BlobsBundleV2                = payload.BlobsBundleV2
+	GlamsterdamPayloadAttributes = payload.GlamsterdamPayloadAttributes
+	GetPayloadV5Response         = payload.GetPayloadV5Response
+	// V7 — canonical in engine/payload.
+	DALayerConfig        = payload.DALayerConfig
+	ProofRequirements    = payload.ProofRequirements
+	PayloadAttributesV7  = payload.PayloadAttributesV7
+	ExecutionPayloadV7   = payload.ExecutionPayloadV7
+	GetPayloadV7Response = payload.GetPayloadV7Response
+	// Handler types from engine/api.
+	ClientVersionV2   = engapi.ClientVersionV2
+	EngineGlamsterdam = engapi.EngineGlamsterdam
 	// From api/v4.go
 	DepositRequest       = engapi.DepositRequest
 	WithdrawalRequest    = engapi.WithdrawalRequest
@@ -54,12 +62,6 @@ type (
 	InclusionProof           = engapi.InclusionProof
 	UncoupledPayloadEnvelope = engapi.UncoupledPayloadEnvelope
 	UncoupledPayloadHandler  = engapi.UncoupledPayloadHandler
-	// From api/v7.go
-	DALayerConfig        = engapi.DALayerConfig
-	ProofRequirements    = engapi.ProofRequirements
-	PayloadAttributesV7  = engapi.PayloadAttributesV7
-	ExecutionPayloadV7   = engapi.ExecutionPayloadV7
-	GetPayloadV7Response = engapi.GetPayloadV7Response
 	// Note: EngineV7 is NOT aliased here; engine_v7.go defines engineV7Wrapper
 	// which wraps engapi.EngineV7 and exposes backend for package-internal tests.
 	// From api/epbs.go

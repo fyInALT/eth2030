@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/backendapi"
 )
 
 // InclusionListV1 is the Engine API representation of an inclusion list.
@@ -91,14 +92,8 @@ func (api *EngineAPI) GetInclusionListV1() (*GetInclusionListResponseV1, error) 
 	}, nil
 }
 
-// InclusionListBackend extends the Backend interface with inclusion list support.
-type InclusionListBackend interface {
-	// ProcessInclusionList validates and stores a new inclusion list from the CL.
-	ProcessInclusionList(il *types.InclusionList) error
-
-	// GetInclusionList generates an inclusion list from the mempool.
-	GetInclusionList() *types.InclusionList
-}
+// InclusionListBackend is a type alias — canonical definition in engine/backendapi.
+type InclusionListBackend = backendapi.InclusionListBackend
 
 // handleNewInclusionListV1 processes an engine_newInclusionListV1 request.
 func (api *EngineAPI) handleNewInclusionListV1(params []json.RawMessage) (any, *jsonrpcError) {
