@@ -737,6 +737,28 @@ func FormatReceipt(receipt *types.Receipt, tx *types.Transaction) *RPCReceipt {
 	return rpcReceipt
 }
 
+// NewSuccessResponse creates a JSON-RPC 2.0 success response.
+// result may be nil, in which case it is serialized as JSON null.
+func NewSuccessResponse(id json.RawMessage, result interface{}) *Response {
+	if result == nil {
+		result = json.RawMessage("null")
+	}
+	return &Response{
+		JSONRPC: "2.0",
+		Result:  result,
+		ID:      id,
+	}
+}
+
+// NewErrorResponse creates a JSON-RPC 2.0 error response.
+func NewErrorResponse(id json.RawMessage, code int, message string) *Response {
+	return &Response{
+		JSONRPC: "2.0",
+		Error:   &RPCError{Code: code, Message: message},
+		ID:      id,
+	}
+}
+
 // FormatLog converts a log to its JSON-RPC representation.
 func FormatLog(log *types.Log) *RPCLog {
 	topics := make([]string, len(log.Topics))
