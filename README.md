@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml"><img src="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
   <a href="https://github.com/jiayaoqijia/eth2030/releases/latest"><img src="https://img.shields.io/github/v/release/jiayaoqijia/eth2030?label=Release&color=%234f46e5" alt="Release" /></a>
-  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go" alt="Go" />
+  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go" alt="Go" />
 </p>
 
 <p align="center">
@@ -42,8 +42,8 @@
 
 ## Features
 
-- **Full EVM execution** -- 164+ opcodes, 24 precompiles, EOF container support, go-ethereum v1.17.0 backend
-- **100% EF conformance** -- 36,126/36,126 Ethereum Foundation state tests passing via go-ethereum v1.17.0 backend
+- **Full EVM execution** -- 164+ opcodes, 24 precompiles, EOF container support, go-ethereum v1.17.1 backend
+- **100% EF conformance** -- 36,126/36,126 Ethereum Foundation state tests passing via go-ethereum v1.17.1 backend
 - **58+ EIPs supported** -- Covering Frontier through Prague and beyond (native + go-ethereum backend)
 - **Parallel execution** -- Block Access Lists (EIP-7928) for BAL-driven parallel transaction processing
 - **Post-quantum ready** -- ML-DSA-65 (FIPS 204), Dilithium3, Falcon512, SPHINCS+ signers with hybrid mode
@@ -107,7 +107,7 @@ ETH2030 includes Kurtosis devnet integration for multi-client consensus testing 
 kurtosis engine start
 cd pkg && docker build -t eth2030:local .
 
-# Run all 30 feature devnet tests
+# Run all 40 feature devnet tests
 cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh
 
 # Run specific features
@@ -117,19 +117,24 @@ cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh epbs focil native-aa
 cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh single-client
 ```
 
-**30 Feature Tests** — All passing consensus checks, covering all 65 roadmap items:
+**40 Feature Tests** — All passing consensus checks, covering all 65 roadmap items:
 
-**14 Roadmap Feature Tests:**
+**24 Roadmap Feature Tests:**
 
 | Feature | EIP(s) | Feature | EIP(s) |
 |---------|--------|---------|--------|
 | ePBS | EIP-7732 | PeerDAS | EIP-7594 |
 | FOCIL | EIP-7805 | 3SF/Quick Slots | — |
-| BALs | EIP-7928 | PQ Crypto | — |
+| BALs | EIP-7928 | BAL Feasibility | EIP-7928 |
+| BAL Retention | EIP-7928 | PQ Crypto | — |
 | Native AA | EIP-7702 | Encrypted Mempool | — |
 | Gas Repricing | 18 EIPs | Shielded Transfers | — |
 | Blobs | EIP-4844/8070 | SSZ | EIP-6404/7807 |
-| Multidim Gas | EIP-7706 | Native Rollups | EIP-8079 |
+| Multidim Gas | EIP-7706 | Multidim Fee Tx | EIP-7706 |
+| Native Rollups | EIP-8079 | Frame Mempool | EIP-8141 |
+| Gas Vectors 3D | EIP-7706 | IL Satisfaction | EIP-7805 |
+| Local Tx | — | Mixnet | — |
+| RISC-V Precompile | zkVM | STARK Frames | EIP-8141 |
 
 **16 Layer Group Tests** (CL/DL/EL feature groups covering remaining roadmap items):
 
@@ -146,7 +151,7 @@ cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh single-client
 
 **6 General Configs** — single-client, multi-client (cross-client consensus with upstream geth), stress-test, blob-test, eip7702-test, full-feature.
 
-See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full documentation.
+See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full documentation (40 feature tests, 6 configs, 10 tools).
 
 ## Architecture
 
@@ -194,7 +199,7 @@ See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full docu
 
 ## go-ethereum Integration
 
-ETH2030 imports go-ethereum v1.17.0 as a library for EVM execution, achieving 100% EF state test conformance:
+ETH2030 imports go-ethereum v1.17.1 as a library for EVM execution, achieving 100% EF state test conformance:
 
 | Component | Description |
 |-----------|-------------|
@@ -220,7 +225,7 @@ The `eth2030-geth` binary has been verified syncing with live Ethereum networks:
 
 ETH2030 combines native implementations with go-ethereum as a backend. This section clarifies what is built from scratch versus delegated:
 
-**go-ethereum delegated (~40 EIPs):** Core EVM opcodes, gas accounting, state root computation, trie operations, and standard precompile execution are handled by the `pkg/geth/` adapter importing go-ethereum v1.17.0 as a library. This includes all Frontier-through-Prague EVM semantics, EIP-158 empty account cleanup, and SSTORE gas metering (EIP-2200/2929/3529).
+**go-ethereum delegated (~40 EIPs):** Core EVM opcodes, gas accounting, state root computation, trie operations, and standard precompile execution are handled by the `pkg/geth/` adapter importing go-ethereum v1.17.1 as a library. This includes all Frontier-through-Prague EVM semantics, EIP-158 empty account cleanup, and SSTORE gas metering (EIP-2200/2929/3529).
 
 **Native ETH2030 (~25 features):** Consensus layer (3SF, quick slots, 1-epoch finality, PQ attestations, endgame finality), data availability (PeerDAS, blob streaming, custody proofs, variable-size blobs), proposer-builder separation (ePBS, FOCIL, distributed builder), encrypted mempool (commit-reveal, threshold decryption), BAL parallel execution (EIP-7928), native rollups (EIP-8079), SSZ encoding (EIP-6404/7807), 13 custom precompiles (NTT, NII, field arithmetic), and the Engine API V3-V7.
 
@@ -329,7 +334,7 @@ See [docs/EIP_SPEC_IMPL.md](docs/EIP_SPEC_IMPL.md) for full traceability: specs,
 | **Passing** | 36,126 (100%) |
 | **Failing** | 0 |
 | **Categories** | 57/57 at 100% |
-| **Backend** | go-ethereum v1.17.0 |
+| **Backend** | go-ethereum v1.17.1 |
 | **Runner** | `pkg/core/eftest/geth_runner.go` |
 
 ## Roadmap Coverage
@@ -373,7 +378,7 @@ All 65 strawmap items are COMPLETE with real cryptographic backends wired (BLS, 
 - [docs/DESIGN.md](docs/DESIGN.md) -- Architecture and implementation design
 - [docs/ROADMAP.md](docs/ROADMAP.md) -- L1 Strawmap timeline overview
 - [docs/ROADMAP-DEEP-DIVE.md](docs/ROADMAP-DEEP-DIVE.md) -- EIP research and analysis
-- [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) -- Kurtosis devnet testing (30 features, 6 configs, 10 tools)
+- [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) -- Kurtosis devnet testing (40 features, 6 configs, 10 tools)
 
 ## Development Stats
 
