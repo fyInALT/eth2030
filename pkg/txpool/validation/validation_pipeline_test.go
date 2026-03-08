@@ -1,4 +1,4 @@
-package txpool
+package validation
 
 import (
 	"math/big"

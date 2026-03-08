@@ -2,7 +2,7 @@
 // that performs syntax checks, signature verification (ECDSA, EIP-7702 SetCode,
 // PQ), state checks (balance, nonce), blob KZG verification, and per-peer
 // rate limiting before transactions are admitted to the pool.
-package txpool
+package validation
 
 import (
 	"errors"
