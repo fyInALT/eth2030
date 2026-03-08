@@ -1,4 +1,4 @@
-package txpool
+package queue
 
 import (
 	"math/big"
