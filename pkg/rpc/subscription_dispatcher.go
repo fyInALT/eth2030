@@ -1,8 +1,6 @@
-// subscription_dispatcher.go implements a subscription event dispatcher
-// for WebSocket connections. It provides multi-topic broadcast with
-// per-client rate limiting, stale subscription cleanup, and statistics
-// tracking. This complements the existing SubRegistry and WSSubscriptionManager
-// by adding a higher-level dispatch layer.
+// subscription_dispatcher.go implements SubscriptionDispatcher for multi-topic
+// broadcast with per-client rate limiting, stale subscription cleanup, and
+// statistics tracking.
 package rpc
 
 import (
@@ -86,8 +84,8 @@ func DefaultDispatcherConfig() DispatcherConfig {
 	}
 }
 
-// clientState tracks per-client rate limiting and subscription counts.
-type clientState struct {
+// dispatchClientState tracks per-client rate limiting and subscription counts.
+type dispatchClientState struct {
 	subCount    int
 	eventCount  int
 	windowStart time.Time
@@ -110,7 +108,7 @@ type SubscriptionDispatcher struct {
 	mu      sync.Mutex
 	config  DispatcherConfig
 	subs    map[string]*DispatchSubscription // Keyed by subscription ID.
-	clients map[string]*clientState          // Keyed by client ID.
+	clients map[string]*dispatchClientState  // Keyed by client ID.
 	nextSeq uint64
 	closed  bool
 }
@@ -129,7 +127,7 @@ func NewSubscriptionDispatcher(config DispatcherConfig) *SubscriptionDispatcher 
 	return &SubscriptionDispatcher{
 		config:  config,
 		subs:    make(map[string]*DispatchSubscription),
-		clients: make(map[string]*clientState),
+		clients: make(map[string]*dispatchClientState),
 	}
 }
 
@@ -148,7 +146,6 @@ func (d *SubscriptionDispatcher) generateID() string {
 }
 
 // Subscribe creates a new subscription for the given client and topic.
-// Returns the subscription or an error if limits are exceeded.
 func (d *SubscriptionDispatcher) Subscribe(clientID string, topic SubscriptionTopic, filter interface{}) (*DispatchSubscription, error) {
 	if !IsValidTopic(topic) {
 		return nil, fmt.Errorf("%w: %s", ErrDispatcherInvalidTopic, topic)
@@ -169,7 +166,7 @@ func (d *SubscriptionDispatcher) Subscribe(clientID string, topic SubscriptionTo
 	// Check per-client limit.
 	cs := d.clients[clientID]
 	if cs == nil {
-		cs = &clientState{windowStart: time.Now()}
+		cs = &dispatchClientState{windowStart: time.Now()}
 		d.clients[clientID] = cs
 	}
 	if cs.subCount >= d.config.MaxSubsPerClient {
@@ -214,8 +211,6 @@ func (d *SubscriptionDispatcher) Unsubscribe(subID string) error {
 }
 
 // Broadcast sends data to all subscriptions matching the given topic.
-// Events are dropped (not blocking) if a subscriber's buffer is full.
-// Per-client rate limiting is enforced.
 func (d *SubscriptionDispatcher) Broadcast(topic SubscriptionTopic, data interface{}) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -261,7 +256,6 @@ func (d *SubscriptionDispatcher) GetSubscriptions(clientID string) []*DispatchSu
 	var result []*DispatchSubscription
 	for _, sub := range d.subs {
 		if sub.ClientID == clientID {
-			// Return a shallow copy to avoid exposing the channel.
 			cp := &DispatchSubscription{
 				ID:        sub.ID,
 				ClientID:  sub.ClientID,
@@ -290,7 +284,7 @@ func (d *SubscriptionDispatcher) GetSubscription(subID string) *DispatchSubscrip
 }
 
 // CleanupStale removes subscriptions that have not received an event
-// within the given maxAge since their creation. Returns the count removed.
+// within the given maxAge. Returns the count removed.
 func (d *SubscriptionDispatcher) CleanupStale(maxAge time.Duration) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -298,8 +292,6 @@ func (d *SubscriptionDispatcher) CleanupStale(maxAge time.Duration) int {
 	now := time.Now()
 	removed := 0
 	for id, sub := range d.subs {
-		// Subscription is stale if it was created more than maxAge ago
-		// and has never received an event (or the last event was too old).
 		age := now.Sub(sub.Created)
 		if age < maxAge {
 			continue
@@ -324,7 +316,6 @@ func (d *SubscriptionDispatcher) CleanupStale(maxAge time.Duration) int {
 }
 
 // DisconnectClient removes all subscriptions for the given client ID.
-// Returns the number of subscriptions removed.
 func (d *SubscriptionDispatcher) DisconnectClient(clientID string) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -389,7 +380,7 @@ func (d *SubscriptionDispatcher) Close() {
 		close(sub.ch)
 		delete(d.subs, id)
 	}
-	d.clients = make(map[string]*clientState)
+	d.clients = make(map[string]*dispatchClientState)
 }
 
 // IsClosed returns whether the dispatcher has been closed.
@@ -399,8 +390,7 @@ func (d *SubscriptionDispatcher) IsClosed() bool {
 	return d.closed
 }
 
-// CheckClientRateLimit returns true if the client is within the event
-// rate limit, false if the client has exceeded it.
+// CheckClientRateLimit returns true if the client is within the event rate limit.
 func (d *SubscriptionDispatcher) CheckClientRateLimit(clientID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()

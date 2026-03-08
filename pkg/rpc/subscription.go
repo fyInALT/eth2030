@@ -1,3 +1,6 @@
+// subscription.go defines SubscriptionManager which tracks installed filters
+// and WebSocket subscriptions. FilterType and FilterQuery are re-exported
+// from rpc/filter for consistency.
 package rpc
 
 import (
@@ -7,33 +10,33 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	rpcfilter "github.com/eth2030/eth2030/rpc/filter"
 )
 
-// FilterType distinguishes the kind of installed filter.
-type FilterType int
+// Re-export filter types from rpc/filter.
+type (
+	FilterType  = rpcfilter.FilterType
+	FilterQuery = rpcfilter.FilterQuery
+)
 
+// Re-export FilterType constants.
 const (
-	// LogFilter watches for contract log events matching given criteria.
-	LogFilter FilterType = iota
-	// BlockFilter watches for new block hashes.
-	BlockFilter
-	// PendingTxFilter watches for new pending transaction hashes.
-	PendingTxFilter
+	LogFilter       = rpcfilter.LogFilter
+	BlockFilter     = rpcfilter.BlockFilter
+	PendingTxFilter = rpcfilter.PendingTxFilter
 )
+
+// MatchFilter re-exports rpcfilter.MatchFilter.
+var MatchFilter = rpcfilter.MatchFilter
+
+// bloomMatchesQuery is a package-level helper wrapping
+// rpcfilter.BloomMatchesFilterQuery for internal use.
+func bloomMatchesQuery(bloom types.Bloom, query FilterQuery) bool {
+	return rpcfilter.BloomMatchesFilterQuery(bloom, query)
+}
 
 // filterTimeout is how long a filter lives without being polled.
 const filterTimeout = 5 * time.Minute
-
-// FilterQuery specifies criteria for log matching. Addresses are OR-ed
-// (match any listed address). Topics follow the Ethereum convention: AND
-// across positions, OR within each position. An empty (or nil) position
-// is a wildcard that matches any topic value.
-type FilterQuery struct {
-	FromBlock *uint64
-	ToBlock   *uint64
-	Addresses []types.Address
-	Topics    [][]types.Hash
-}
 
 // installedFilter is a stateful filter installed via eth_newFilter and friends.
 type installedFilter struct {
@@ -71,7 +74,6 @@ func NewSubscriptionManager(backend Backend) *SubscriptionManager {
 func (sm *SubscriptionManager) generateID() string {
 	sm.nextSeq++
 	buf := make([]byte, 16)
-	// Pack sequence + time nanos to get entropy.
 	seq := sm.nextSeq
 	ts := uint64(time.Now().UnixNano())
 	for i := 0; i < 8; i++ {
@@ -89,7 +91,6 @@ func (sm *SubscriptionManager) NewLogFilter(query FilterQuery) string {
 
 	id := sm.generateID()
 
-	// Determine starting block so first poll only returns new logs.
 	lastBlock := uint64(0)
 	if query.FromBlock != nil {
 		if *query.FromBlock > 0 {
@@ -158,8 +159,6 @@ func (sm *SubscriptionManager) Uninstall(id string) bool {
 }
 
 // GetFilterChanges returns new results since the last poll for the given filter.
-// For log filters it returns []*types.Log; for block/pending-tx filters it returns
-// []types.Hash. Returns nil, false if the filter does not exist.
 func (sm *SubscriptionManager) GetFilterChanges(id string) (interface{}, bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -176,9 +175,6 @@ func (sm *SubscriptionManager) GetFilterChanges(id string) (interface{}, bool) {
 	case BlockFilter:
 		return sm.pollBlocks(f), true
 	case PendingTxFilter:
-		// Drain accumulated hashes (pending tx events would be pushed
-		// into f.hashes by a real mempool notifier; for now we return
-		// whatever has been accumulated).
 		result := f.hashes
 		f.hashes = nil
 		if result == nil {
@@ -189,9 +185,7 @@ func (sm *SubscriptionManager) GetFilterChanges(id string) (interface{}, bool) {
 	return nil, false
 }
 
-// GetFilterLogs returns all logs matching a log filter's criteria from
-// scratch (not incremental). Returns nil, false if filter doesn't exist
-// or is not a log filter.
+// GetFilterLogs returns all logs matching a log filter's criteria from scratch.
 func (sm *SubscriptionManager) GetFilterLogs(id string) ([]*types.Log, bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -205,16 +199,14 @@ func (sm *SubscriptionManager) GetFilterLogs(id string) ([]*types.Log, bool) {
 	return sm.queryLogs(f.query), true
 }
 
-// QueryLogs performs a one-shot log query (eth_getLogs) without installing
-// a filter.
+// QueryLogs performs a one-shot log query (eth_getLogs) without installing a filter.
 func (sm *SubscriptionManager) QueryLogs(query FilterQuery) []*types.Log {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return sm.queryLogs(query)
 }
 
-// NotifyNewBlock can be called when a new block is mined. It pushes the
-// block hash to all installed block filters.
+// NotifyNewBlock pushes the block hash to all installed block filters.
 func (sm *SubscriptionManager) NotifyNewBlock(hash types.Hash) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -226,7 +218,7 @@ func (sm *SubscriptionManager) NotifyNewBlock(hash types.Hash) {
 	}
 }
 
-// NotifyPendingTx can be called when a new pending transaction arrives.
+// NotifyPendingTx pushes a pending tx hash to all pending-tx filters.
 func (sm *SubscriptionManager) NotifyPendingTx(hash types.Hash) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -239,7 +231,6 @@ func (sm *SubscriptionManager) NotifyPendingTx(hash types.Hash) {
 }
 
 // CleanupStale removes filters that have not been polled within filterTimeout.
-// Returns the number of filters removed.
 func (sm *SubscriptionManager) CleanupStale() int {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -264,7 +255,6 @@ func (sm *SubscriptionManager) FilterCount() int {
 
 // ---------- internal helpers ----------
 
-// pollLogs scans blocks since the last poll and returns matching logs.
 func (sm *SubscriptionManager) pollLogs(f *installedFilter) []*types.Log {
 	header := sm.backend.CurrentHeader()
 	if header == nil {
@@ -275,7 +265,6 @@ func (sm *SubscriptionManager) pollLogs(f *installedFilter) []*types.Log {
 	startBlock := f.lastBlock + 1
 	endBlock := currentNum
 
-	// Respect the query's ToBlock cap if set.
 	if f.query.ToBlock != nil && *f.query.ToBlock < endBlock {
 		endBlock = *f.query.ToBlock
 	}
@@ -288,7 +277,6 @@ func (sm *SubscriptionManager) pollLogs(f *installedFilter) []*types.Log {
 		}
 		blockHash := h.Hash()
 
-		// Bloom filter optimization: skip block if bloom doesn't match.
 		if !bloomMatchesQuery(h.Bloom, f.query) {
 			continue
 		}
@@ -308,7 +296,6 @@ func (sm *SubscriptionManager) pollLogs(f *installedFilter) []*types.Log {
 	return result
 }
 
-// pollBlocks scans headers since the last poll and returns new block hashes.
 func (sm *SubscriptionManager) pollBlocks(f *installedFilter) []types.Hash {
 	header := sm.backend.CurrentHeader()
 	if header == nil {
@@ -316,11 +303,9 @@ func (sm *SubscriptionManager) pollBlocks(f *installedFilter) []types.Hash {
 	}
 	currentNum := header.Number.Uint64()
 
-	// Also drain any hashes pushed via NotifyNewBlock.
 	result := f.hashes
 	f.hashes = nil
 
-	// Scan headers since lastBlock for any we haven't reported yet.
 	for blockNum := f.lastBlock + 1; blockNum <= currentNum; blockNum++ {
 		h := sm.backend.HeaderByNumber(BlockNumber(blockNum))
 		if h == nil {
@@ -336,7 +321,6 @@ func (sm *SubscriptionManager) pollBlocks(f *installedFilter) []types.Hash {
 	return result
 }
 
-// queryLogs scans the full block range and returns all matching logs.
 func (sm *SubscriptionManager) queryLogs(query FilterQuery) []*types.Log {
 	header := sm.backend.CurrentHeader()
 	if header == nil {
@@ -378,84 +362,4 @@ func (sm *SubscriptionManager) queryLogs(query FilterQuery) []*types.Log {
 		result = []*types.Log{}
 	}
 	return result
-}
-
-// MatchFilter checks whether a single log matches the given filter query.
-// Address matching is OR (log must match any listed address, or all if
-// Addresses is empty). Topic matching is AND across positions, OR within
-// each position. A nil or empty position is a wildcard.
-func MatchFilter(log *types.Log, query FilterQuery) bool {
-	// Address filter: if addresses specified, log must match one.
-	if len(query.Addresses) > 0 {
-		found := false
-		for _, addr := range query.Addresses {
-			if log.Address == addr {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	// Topic filter: AND across positions, OR within each position.
-	for i, topicSet := range query.Topics {
-		if len(topicSet) == 0 {
-			continue // wildcard
-		}
-		if i >= len(log.Topics) {
-			return false
-		}
-		matched := false
-		for _, t := range topicSet {
-			if log.Topics[i] == t {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
-		}
-	}
-
-	return true
-}
-
-// bloomMatchesQuery uses the block bloom filter to quickly reject blocks
-// that cannot contain any matching logs. Returns true if the block MIGHT
-// contain matching logs (must still scan individual logs to confirm).
-func bloomMatchesQuery(bloom types.Bloom, query FilterQuery) bool {
-	// Check addresses: at least one address must be in the bloom.
-	if len(query.Addresses) > 0 {
-		anyAddr := false
-		for _, addr := range query.Addresses {
-			if types.BloomContains(bloom, addr.Bytes()) {
-				anyAddr = true
-				break
-			}
-		}
-		if !anyAddr {
-			return false
-		}
-	}
-
-	// Check topics: for each position, at least one listed topic must be in the bloom.
-	for _, topicSet := range query.Topics {
-		if len(topicSet) == 0 {
-			continue // wildcard
-		}
-		anyTopic := false
-		for _, t := range topicSet {
-			if types.BloomContains(bloom, t.Bytes()) {
-				anyTopic = true
-				break
-			}
-		}
-		if !anyTopic {
-			return false
-		}
-	}
-
-	return true
 }

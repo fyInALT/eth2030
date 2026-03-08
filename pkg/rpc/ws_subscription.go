@@ -1,3 +1,5 @@
+// ws_subscription.go implements WSSubscriptionManager for WebSocket-based
+// real-time event streaming.
 package rpc
 
 import (
@@ -95,8 +97,7 @@ func (m *WSSubscriptionManager) generateSubID() string {
 }
 
 // Subscribe creates a new subscription of the given type with optional
-// filter criteria. Returns the subscription ID or an error if the type
-// is unsupported or the maximum subscription count has been reached.
+// filter criteria. Returns the subscription ID or an error.
 func (m *WSSubscriptionManager) Subscribe(subType string, criteria map[string]interface{}) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -125,7 +126,6 @@ func (m *WSSubscriptionManager) Subscribe(subType string, criteria map[string]in
 }
 
 // Unsubscribe removes a subscription by ID and closes its channel.
-// Returns an error if the subscription does not exist.
 func (m *WSSubscriptionManager) Unsubscribe(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -168,7 +168,6 @@ func (m *WSSubscriptionManager) ActiveSubscriptions() []WSSubscription {
 }
 
 // PublishEvent sends an event to all subscriptions matching the given type.
-// Events are dropped (not blocking) if a subscriber's buffer is full.
 func (m *WSSubscriptionManager) PublishEvent(eventType string, data interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -185,8 +184,7 @@ func (m *WSSubscriptionManager) PublishEvent(eventType string, data interface{})
 	}
 }
 
-// SubscriberCount returns the number of active subscribers for the
-// given event type.
+// SubscriberCount returns the number of active subscribers for the given event type.
 func (m *WSSubscriptionManager) SubscriberCount(eventType string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -200,10 +198,7 @@ func (m *WSSubscriptionManager) SubscriberCount(eventType string) int {
 	return count
 }
 
-// Cleanup removes subscriptions that are no longer active. In a full
-// implementation this would also remove subscriptions whose WebSocket
-// connections have been closed. Currently marks inactive subscriptions
-// older than CleanupInterval seconds as dead and removes them.
+// Cleanup removes subscriptions that are no longer active or have stale buffers.
 func (m *WSSubscriptionManager) Cleanup() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -215,8 +210,6 @@ func (m *WSSubscriptionManager) Cleanup() {
 			delete(m.subs, id)
 			continue
 		}
-		// Remove subscriptions older than the cleanup interval that
-		// have a full buffer (likely dead consumers).
 		age := now - sub.CreatedAt
 		if age > m.config.CleanupInterval && len(sub.ch) == cap(sub.ch) {
 			sub.Active = false
@@ -226,8 +219,7 @@ func (m *WSSubscriptionManager) Cleanup() {
 	}
 }
 
-// Close shuts down all active subscriptions and prevents new ones
-// from being created.
+// Close shuts down all active subscriptions and prevents new ones.
 func (m *WSSubscriptionManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -6,164 +6,608 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	rpcfilter "github.com/eth2030/eth2030/rpc/filter"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
-// SubKind distinguishes the kind of WebSocket subscription.
+// ---------- SubKind / SubRegistry ----------
+
+// SubKind identifies the type of real-time subscription.
 type SubKind int
 
 const (
-	// SubKindNewHeads watches for new block headers.
-	SubKindNewHeads SubKind = iota
-	// SubKindLogs watches for matching log events.
-	SubKindLogs
-	// SubKindPendingTx watches for new pending transaction hashes.
-	SubKindPendingTx
-	// SubKindSyncStatus watches for sync status changes.
-	SubKindSyncStatus
+	SubKindNewHeads   SubKind = iota // New block header notifications.
+	SubKindLogs                      // Matching log event notifications.
+	SubKindPendingTx                 // Pending transaction notifications.
+	SubKindSyncStatus                // Sync progress notifications.
 )
 
-// SubRateLimitConfig configures per-subscription rate limiting.
-type SubRateLimitConfig struct {
-	// MaxNotificationsPerSecond limits notifications sent per second (0 = unlimited).
-	MaxNotificationsPerSecond int
-	// BurstSize is the allowed burst above the rate limit.
-	BurstSize int
+// subKindNames maps SubKind to its eth_subscribe parameter name.
+var subKindNames = map[string]SubKind{
+	"newHeads":               SubKindNewHeads,
+	"logs":                   SubKindLogs,
+	"newPendingTransactions": SubKindPendingTx,
+	"syncing":                SubKindSyncStatus,
 }
 
-// SubEntry represents an active WebSocket subscription in a registry.
+// Subscription manager errors.
+var (
+	ErrSubManagerClosed     = errors.New("subscription manager: closed")
+	ErrSubManagerCapacity   = errors.New("subscription manager: capacity reached")
+	ErrSubManagerNotFound   = errors.New("subscription manager: subscription not found")
+	ErrSubManagerRateLimit  = errors.New("subscription manager: rate limit exceeded")
+	ErrSubManagerInvalidTyp = errors.New("subscription manager: invalid subscription type")
+)
+
+// ParseSubKind converts a subscription type name to a SubKind.
+// Returns ErrSubManagerInvalidTyp if the name is not recognized.
+func ParseSubKind(name string) (SubKind, error) {
+	kind, ok := subKindNames[name]
+	if !ok {
+		return 0, ErrSubManagerInvalidTyp
+	}
+	return kind, nil
+}
+
+// SubEntry is a single registered subscription.
 type SubEntry struct {
 	ID        string
-	ConnID    string
 	Kind      SubKind
+	ConnID    string                // connection identifier for grouping
+	Query     rpcfilter.FilterQuery // only used for logs subscriptions
 	CreatedAt time.Time
-	LastRecv  time.Time
+	ch        chan interface{}
 }
 
-// SubRegistry manages WebSocket subscriptions across multiple connections.
+// Channel returns the notification channel.
+func (s *SubEntry) Channel() <-chan interface{} {
+	return s.ch
+}
+
+// SubRateLimitConfig configures per-connection subscription rate limiting.
+type SubRateLimitConfig struct {
+	MaxSubsPerConn  int           // max subscriptions per connection
+	WindowDuration  time.Duration // rate limit window
+	MaxEventsPerSec int           // max events per second per subscription
+}
+
+// DefaultSubRateLimitConfig returns sensible defaults.
+func DefaultSubRateLimitConfig() SubRateLimitConfig {
+	return SubRateLimitConfig{
+		MaxSubsPerConn:  32,
+		WindowDuration:  time.Second,
+		MaxEventsPerSec: 1000,
+	}
+}
+
+// connTracker tracks subscriptions per connection for rate limiting.
+type connTracker struct {
+	subCount    int
+	lastEventAt time.Time
+	eventCount  int
+}
+
+// SubRegistry manages active subscriptions across multiple connections.
 type SubRegistry struct {
-	mu   sync.RWMutex
-	subs map[string]*SubEntry // id → entry
-	seq  uint64
+	mu           sync.Mutex
+	subs         map[string]*SubEntry
+	connTrackers map[string]*connTracker
+	rateConfig   SubRateLimitConfig
+	bufferSize   int
+	nextSeq      uint64
+	closed       bool
 }
 
 // NewSubRegistry creates a new subscription registry.
-func NewSubRegistry() *SubRegistry {
-	return &SubRegistry{subs: make(map[string]*SubEntry)}
+func NewSubRegistry(rateConfig SubRateLimitConfig, bufferSize int) *SubRegistry {
+	if bufferSize <= 0 {
+		bufferSize = 128
+	}
+	return &SubRegistry{
+		subs:         make(map[string]*SubEntry),
+		connTrackers: make(map[string]*connTracker),
+		rateConfig:   rateConfig,
+		bufferSize:   bufferSize,
+	}
 }
 
-// generateID creates a unique subscription ID.
-func (r *SubRegistry) generateID() string {
-	r.seq++
-	var buf [16]byte
+// generateSubID creates a unique hex subscription ID.
+func (r *SubRegistry) generateSubID() string {
+	r.nextSeq++
+	buf := make([]byte, 16)
+	seq := r.nextSeq
+	ts := uint64(time.Now().UnixNano())
 	for i := 0; i < 8; i++ {
-		buf[i] = byte(r.seq >> (8 * i))
-		buf[8+i] = byte(uint64(time.Now().UnixNano()) >> (8 * i))
+		buf[i] = byte(seq >> (8 * i))
+		buf[8+i] = byte(ts >> (8 * i))
 	}
-	h := crypto.Keccak256(buf[:])
+	h := crypto.Keccak256(buf)
 	return "0x" + hex.EncodeToString(h[:16])
 }
 
-// HeadsSub registers a newHeads subscription for connID.
-func (r *SubRegistry) HeadsSub(connID string) (string, error) {
-	return r.addSub(connID, SubKindNewHeads)
+// NewHeadsSub creates a new heads subscription for the given connection.
+func (r *SubRegistry) NewHeadsSub(connID string) (string, error) {
+	return r.addSub(connID, SubKindNewHeads, rpcfilter.FilterQuery{})
 }
 
-// LogsSub registers a logs subscription for connID.
-func (r *SubRegistry) LogsSub(connID string) (string, error) {
-	return r.addSub(connID, SubKindLogs)
+// LogsSub creates a logs subscription with the given filter for a connection.
+func (r *SubRegistry) LogsSub(connID string, query rpcfilter.FilterQuery) (string, error) {
+	return r.addSub(connID, SubKindLogs, query)
 }
 
-// PendingTxSub registers a pendingTransactions subscription for connID.
+// PendingTxSub creates a pending transaction subscription for a connection.
 func (r *SubRegistry) PendingTxSub(connID string) (string, error) {
-	return r.addSub(connID, SubKindPendingTx)
+	return r.addSub(connID, SubKindPendingTx, rpcfilter.FilterQuery{})
 }
 
-// SyncSub registers a syncing subscription for connID.
-func (r *SubRegistry) SyncSub(connID string) (string, error) {
-	return r.addSub(connID, SubKindSyncStatus)
+// SyncStatusSub creates a sync status subscription for a connection.
+func (r *SubRegistry) SyncStatusSub(connID string) (string, error) {
+	return r.addSub(connID, SubKindSyncStatus, rpcfilter.FilterQuery{})
 }
 
-func (r *SubRegistry) addSub(connID string, kind SubKind) (string, error) {
+// addSub adds a subscription after checking rate limits.
+func (r *SubRegistry) addSub(connID string, kind SubKind, query rpcfilter.FilterQuery) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	id := r.generateID()
-	r.subs[id] = &SubEntry{
-		ID:        id,
-		ConnID:    connID,
-		Kind:      kind,
-		CreatedAt: time.Now(),
+
+	if r.closed {
+		return "", ErrSubManagerClosed
 	}
+
+	// Check per-connection limit.
+	tracker := r.connTrackers[connID]
+	if tracker == nil {
+		tracker = &connTracker{}
+		r.connTrackers[connID] = tracker
+	}
+	if tracker.subCount >= r.rateConfig.MaxSubsPerConn {
+		return "", ErrSubManagerRateLimit
+	}
+
+	id := r.generateSubID()
+	entry := &SubEntry{
+		ID:        id,
+		Kind:      kind,
+		ConnID:    connID,
+		Query:     query,
+		CreatedAt: time.Now(),
+		ch:        make(chan interface{}, r.bufferSize),
+	}
+	r.subs[id] = entry
+	tracker.subCount++
+
 	return id, nil
 }
 
-// Unsubscribe removes a subscription by ID. Returns true if it existed.
-func (r *SubRegistry) Unsubscribe(id string) bool {
+// Unsubscribe removes a subscription by ID.
+func (r *SubRegistry) Unsubscribe(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.subs[id]
-	if ok {
-		delete(r.subs, id)
-	}
-	return ok
-}
 
-// SubsForConn returns all subscription IDs for a given connection.
-func (r *SubRegistry) SubsForConn(connID string) []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var ids []string
-	for id, entry := range r.subs {
-		if entry.ConnID == connID {
-			ids = append(ids, id)
+	entry, ok := r.subs[id]
+	if !ok {
+		return ErrSubManagerNotFound
+	}
+
+	close(entry.ch)
+	delete(r.subs, id)
+
+	if tracker := r.connTrackers[entry.ConnID]; tracker != nil {
+		tracker.subCount--
+		if tracker.subCount <= 0 {
+			delete(r.connTrackers, entry.ConnID)
 		}
 	}
-	return ids
+	return nil
 }
 
-// RemoveConn removes all subscriptions for a connection.
-func (r *SubRegistry) RemoveConn(connID string) int {
+// GetSub returns a subscription by ID, or nil if not found.
+func (r *SubRegistry) GetSub(id string) *SubEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.subs[id]
+}
+
+// DisconnectConn removes all subscriptions for a given connection,
+// cleaning up channels and tracker state.
+func (r *SubRegistry) DisconnectConn(connID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	removed := 0
+	for id, entry := range r.subs {
+		if entry.ConnID == connID {
+			close(entry.ch)
+			delete(r.subs, id)
+			removed++
+		}
+	}
+	delete(r.connTrackers, connID)
+	return removed
+}
+
+// Count returns the total number of active subscriptions.
+func (r *SubRegistry) Count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.subs)
+}
+
+// CountByKind returns the number of subscriptions of a given kind.
+func (r *SubRegistry) CountByKind(kind SubKind) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	count := 0
-	for id, entry := range r.subs {
-		if entry.ConnID == connID {
-			delete(r.subs, id)
+	for _, entry := range r.subs {
+		if entry.Kind == kind {
 			count++
 		}
 	}
 	return count
 }
 
-// Count returns total subscription count.
-func (r *SubRegistry) Count() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return len(r.subs)
+// ConnSubCount returns the number of subscriptions for a connection.
+func (r *SubRegistry) ConnSubCount(connID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if tracker := r.connTrackers[connID]; tracker != nil {
+		return tracker.subCount
+	}
+	return 0
 }
 
-// SubscriptionConfig configures a WebSocket subscription manager.
+// NotifyNewHead sends a new header to all newHeads subscribers.
+// The header is formatted as *rpctypes.RPCBlock before sending.
+func (r *SubRegistry) NotifyNewHead(header *types.Header) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	formatted := rpctypes.FormatHeader(header)
+	for _, entry := range r.subs {
+		if entry.Kind == SubKindNewHeads {
+			select {
+			case entry.ch <- formatted:
+			default:
+				// Drop if full.
+			}
+		}
+	}
+}
+
+// NotifyLogEvents sends matching logs to all logs subscribers.
+// Logs are formatted as *rpctypes.RPCLog before sending.
+func (r *SubRegistry) NotifyLogEvents(logs []*types.Log) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, entry := range r.subs {
+		if entry.Kind != SubKindLogs {
+			continue
+		}
+		for _, log := range logs {
+			if rpcfilter.MatchFilter(log, entry.Query) {
+				formatted := rpctypes.FormatLog(log)
+				select {
+				case entry.ch <- formatted:
+				default:
+				}
+			}
+		}
+	}
+}
+
+// NotifyPendingTxHash sends a pending transaction hash to all pendingTx subs.
+func (r *SubRegistry) NotifyPendingTxHash(txHash types.Hash) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	hashStr := txHash.Hex()
+	for _, entry := range r.subs {
+		if entry.Kind == SubKindPendingTx {
+			select {
+			case entry.ch <- hashStr:
+			default:
+			}
+		}
+	}
+}
+
+// NotifySyncStatus sends sync status to all syncing subscribers.
+func (r *SubRegistry) NotifySyncStatus(syncing bool, currentBlock, highestBlock uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var result interface{}
+	if !syncing {
+		result = false
+	} else {
+		result = map[string]string{
+			"currentBlock": fmt.Sprintf("0x%x", currentBlock),
+			"highestBlock": fmt.Sprintf("0x%x", highestBlock),
+		}
+	}
+
+	for _, entry := range r.subs {
+		if entry.Kind == SubKindSyncStatus {
+			select {
+			case entry.ch <- result:
+			default:
+			}
+		}
+	}
+}
+
+// Close shuts down all subscriptions and prevents new ones.
+func (r *SubRegistry) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.closed = true
+	for id, entry := range r.subs {
+		close(entry.ch)
+		delete(r.subs, id)
+	}
+	r.connTrackers = make(map[string]*connTracker)
+}
+
+// IsClosed returns whether the registry is closed.
+func (r *SubRegistry) IsClosed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closed
+}
+
+// CheckRateLimit checks whether a connection has exceeded its event rate.
+// Returns true if the event should be allowed, false if rate limited.
+func (r *SubRegistry) CheckRateLimit(connID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tracker := r.connTrackers[connID]
+	if tracker == nil {
+		return true
+	}
+
+	now := time.Now()
+	if now.Sub(tracker.lastEventAt) >= r.rateConfig.WindowDuration {
+		tracker.eventCount = 0
+		tracker.lastEventAt = now
+	}
+	tracker.eventCount++
+	return tracker.eventCount <= r.rateConfig.MaxEventsPerSec
+}
+
+// ---------- SubscriptionConfig / WSSubscription / WSSubscriptionManager ----------
+
+// SubscriptionConfig configures the WebSocket subscription manager.
 type SubscriptionConfig struct {
 	// MaxSubscriptions is the maximum number of concurrent subscriptions.
 	MaxSubscriptions int
-	// TTL is the maximum lifetime for an idle subscription.
-	TTL time.Duration
-	// MaxNotifyBuffer is the notification channel buffer size.
-	MaxNotifyBuffer int
+	// BufferSize is the channel buffer size for each subscription.
+	BufferSize int
+	// CleanupInterval is the number of seconds between automatic cleanup runs.
+	CleanupInterval int64
 }
 
-// DefaultSubscriptionConfig returns sensible defaults.
+// DefaultSubscriptionConfig returns a SubscriptionConfig with sensible defaults.
 func DefaultSubscriptionConfig() SubscriptionConfig {
 	return SubscriptionConfig{
-		MaxSubscriptions: 1000,
-		TTL:              10 * time.Minute,
-		MaxNotifyBuffer:  256,
+		MaxSubscriptions: 256,
+		BufferSize:       128,
+		CleanupInterval:  300, // 5 minutes
 	}
 }
+
+// supportedSubTypes lists the valid subscription types.
+var supportedSubTypes = map[string]bool{
+	"newHeads":               true,
+	"logs":                   true,
+	"newPendingTransactions": true,
+	"syncing":                true,
+}
+
+// WSSubscription represents an active WebSocket subscription with
+// string-based type and flexible filter criteria.
+type WSSubscription struct {
+	ID             string
+	Type           string
+	FilterCriteria map[string]interface{}
+	CreatedAt      int64
+	Active         bool
+	ch             chan interface{}
+}
+
+// Channel returns the notification channel for this subscription.
+func (s *WSSubscription) Channel() <-chan interface{} {
+	return s.ch
+}
+
+// WSSubscriptionManager manages WebSocket subscriptions for real-time
+// event streaming. It is thread-safe.
+type WSSubscriptionManager struct {
+	mu      sync.Mutex
+	config  SubscriptionConfig
+	subs    map[string]*WSSubscription
+	nextSeq uint64
+	closed  bool
+}
+
+// NewWSSubscriptionManager creates a new subscription manager with
+// the given configuration.
+func NewWSSubscriptionManager(config SubscriptionConfig) *WSSubscriptionManager {
+	if config.MaxSubscriptions <= 0 {
+		config.MaxSubscriptions = 256
+	}
+	if config.BufferSize <= 0 {
+		config.BufferSize = 128
+	}
+	if config.CleanupInterval <= 0 {
+		config.CleanupInterval = 300
+	}
+	return &WSSubscriptionManager{
+		config: config,
+		subs:   make(map[string]*WSSubscription),
+	}
+}
+
+// generateSubID produces a unique hex subscription ID.
+func (m *WSSubscriptionManager) generateSubID() string {
+	m.nextSeq++
+	buf := make([]byte, 16)
+	seq := m.nextSeq
+	ts := uint64(time.Now().UnixNano())
+	for i := 0; i < 8; i++ {
+		buf[i] = byte(seq >> (8 * i))
+		buf[8+i] = byte(ts >> (8 * i))
+	}
+	h := crypto.Keccak256(buf)
+	return "0x" + hex.EncodeToString(h[:16])
+}
+
+// Subscribe creates a new subscription of the given type with optional
+// filter criteria. Returns the subscription ID or an error.
+func (m *WSSubscriptionManager) Subscribe(subType string, criteria map[string]interface{}) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return "", errors.New("subscription manager is closed")
+	}
+	if !supportedSubTypes[subType] {
+		return "", errors.New("unsupported subscription type: " + subType)
+	}
+	if len(m.subs) >= m.config.MaxSubscriptions {
+		return "", errors.New("maximum subscription count reached")
+	}
+
+	id := m.generateSubID()
+	sub := &WSSubscription{
+		ID:             id,
+		Type:           subType,
+		FilterCriteria: criteria,
+		CreatedAt:      time.Now().Unix(),
+		Active:         true,
+		ch:             make(chan interface{}, m.config.BufferSize),
+	}
+	m.subs[id] = sub
+	return id, nil
+}
+
+// Unsubscribe removes a subscription by ID and closes its channel.
+// Returns an error if the subscription does not exist.
+func (m *WSSubscriptionManager) Unsubscribe(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sub, ok := m.subs[id]
+	if !ok {
+		return errors.New("subscription not found: " + id)
+	}
+	sub.Active = false
+	close(sub.ch)
+	delete(m.subs, id)
+	return nil
+}
+
+// GetSubscription returns subscription details by ID, or nil if not found.
+func (m *WSSubscriptionManager) GetSubscription(id string) *WSSubscription {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.subs[id]
+}
+
+// ActiveSubscriptions returns a snapshot of all active subscriptions.
+func (m *WSSubscriptionManager) ActiveSubscriptions() []WSSubscription {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make([]WSSubscription, 0, len(m.subs))
+	for _, sub := range m.subs {
+		if sub.Active {
+			result = append(result, WSSubscription{
+				ID:             sub.ID,
+				Type:           sub.Type,
+				FilterCriteria: sub.FilterCriteria,
+				CreatedAt:      sub.CreatedAt,
+				Active:         sub.Active,
+			})
+		}
+	}
+	return result
+}
+
+// PublishEvent sends an event to all subscriptions matching the given type.
+func (m *WSSubscriptionManager) PublishEvent(eventType string, data interface{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, sub := range m.subs {
+		if !sub.Active || sub.Type != eventType {
+			continue
+		}
+		select {
+		case sub.ch <- data:
+		default:
+			// Drop if buffer is full; subscriber is too slow.
+		}
+	}
+}
+
+// SubscriberCount returns the number of active subscribers for the given event type.
+func (m *WSSubscriptionManager) SubscriberCount(eventType string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+	for _, sub := range m.subs {
+		if sub.Active && sub.Type == eventType {
+			count++
+		}
+	}
+	return count
+}
+
+// Cleanup removes subscriptions that are no longer active or have stale buffers.
+func (m *WSSubscriptionManager) Cleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now().Unix()
+	for id, sub := range m.subs {
+		if !sub.Active {
+			close(sub.ch)
+			delete(m.subs, id)
+			continue
+		}
+		age := now - sub.CreatedAt
+		if age > m.config.CleanupInterval && len(sub.ch) == cap(sub.ch) {
+			sub.Active = false
+			close(sub.ch)
+			delete(m.subs, id)
+		}
+	}
+}
+
+// Close shuts down all active subscriptions and prevents new ones.
+func (m *WSSubscriptionManager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.closed = true
+	for id, sub := range m.subs {
+		sub.Active = false
+		close(sub.ch)
+		delete(m.subs, id)
+	}
+}
+
+// ---------- WSNotification / WSSubscriptionResult ----------
 
 // WSNotification is a JSON-RPC 2.0 subscription notification sent over WebSocket.
 type WSNotification struct {
@@ -192,119 +636,208 @@ func FormatWSNotification(subID string, result interface{}) *WSNotification {
 	}
 }
 
+// ---------- SubscriptionDispatcher ----------
+
 // Dispatcher errors.
 var (
-	ErrDispatcherClosed    = errors.New("subscription dispatcher is closed")
-	ErrDispatcherFull      = errors.New("subscription dispatcher topic buffer full")
-	ErrDispatcherUnknown   = errors.New("unknown subscriber ID")
-	ErrDispatcherDuplicate = errors.New("duplicate subscriber ID")
+	ErrDispatcherClosed       = errors.New("dispatcher: closed")
+	ErrDispatcherClientLimit  = errors.New("dispatcher: client subscription limit exceeded")
+	ErrDispatcherEventLimit   = errors.New("dispatcher: event rate limit exceeded")
+	ErrDispatcherSubNotFound  = errors.New("dispatcher: subscription not found")
+	ErrDispatcherInvalidTopic = errors.New("dispatcher: invalid subscription topic")
+	ErrDispatcherDuplicate    = errors.New("dispatcher: duplicate subscription")
 )
 
-// SubDispatchKind categorizes the kind of subscription for dispatch.
-type SubDispatchKind int
+// SubscriptionTopic identifies a category of real-time events.
+type SubscriptionTopic string
 
 const (
-	SubDispatchNewHeads SubDispatchKind = iota
-	SubDispatchLogs
-	SubDispatchPendingTx
-	SubDispatchSyncStatus
+	TopicNewHeads   SubscriptionTopic = "newHeads"
+	TopicLogs       SubscriptionTopic = "logs"
+	TopicPendingTxs SubscriptionTopic = "newPendingTransactions"
+	TopicSyncing    SubscriptionTopic = "syncing"
 )
 
-// SubMessage holds a single notification payload for a subscriber.
-type SubMessage struct {
-	SubscriptionID string
-	Topic          SubDispatchKind
-	Data           interface{}
-	Timestamp      time.Time
+// validTopics is the set of recognized subscription topics.
+var validTopics = map[SubscriptionTopic]bool{
+	TopicNewHeads:   true,
+	TopicLogs:       true,
+	TopicPendingTxs: true,
+	TopicSyncing:    true,
 }
 
-// DispatchStats tracks dispatcher statistics.
-type DispatchStats struct {
-	TotalSent    uint64
-	TotalDropped uint64
-	ActiveSubs   int
+// IsValidTopic returns whether the topic is recognized.
+func IsValidTopic(topic SubscriptionTopic) bool {
+	return validTopics[topic]
 }
 
-// WSSubEntry is an entry in the WebSocket subscription manager.
-type WSSubEntry struct {
-	ID          string
-	Kind        SubKind
-	ConnID      string
-	CreatedAt   time.Time
-	LastNotify  time.Time
-	NotifyCount uint64
+// DispatchSubscription represents a single active subscription managed
+// by the dispatcher.
+type DispatchSubscription struct {
+	ID        string
+	ClientID  string
+	Topic     SubscriptionTopic
+	Filter    interface{} // Topic-specific filter (e.g., log filter criteria).
+	Created   time.Time
+	LastEvent time.Time
+	Events    uint64 // Total events delivered.
+	ch        chan interface{}
 }
 
-// SubscriptionDispatcher dispatches events to multiple subscribers.
-type SubscriptionDispatcher struct {
-	mu      sync.Mutex
-	subs    map[string]*subDispEntry
-	closed  bool
-	stats   DispatchStats
-	nextSeq uint64
+// Channel returns the read-only notification channel.
+func (ds *DispatchSubscription) Channel() <-chan interface{} {
+	return ds.ch
 }
 
-type subDispEntry struct {
-	id       string
-	kind     SubDispatchKind
-	ch       chan SubMessage
-	created  time.Time
-	lastRecv time.Time
+// DispatcherConfig configures the subscription dispatcher.
+type DispatcherConfig struct {
+	MaxSubsPerClient int           // Max subscriptions per client ID.
+	MaxEventsPerSec  int           // Max events per second per client.
+	RateWindow       time.Duration // Rate limit window duration.
+	BufferSize       int           // Channel buffer size per subscription.
+	MaxTotalSubs     int           // Global maximum subscriptions (0 = unlimited).
 }
 
-// NewSubscriptionDispatcher creates a new dispatcher.
-func NewSubscriptionDispatcher() *SubscriptionDispatcher {
-	return &SubscriptionDispatcher{
-		subs: make(map[string]*subDispEntry),
+// DefaultDispatcherConfig returns sensible defaults.
+func DefaultDispatcherConfig() DispatcherConfig {
+	return DispatcherConfig{
+		MaxSubsPerClient: 32,
+		MaxEventsPerSec:  1000,
+		RateWindow:       time.Second,
+		BufferSize:       128,
+		MaxTotalSubs:     4096,
 	}
 }
 
-// Subscribe registers a subscriber for the given topic and returns the subscription ID.
-func (d *SubscriptionDispatcher) Subscribe(kind SubDispatchKind, bufSize int) (string, error) {
+// clientState tracks per-client rate limiting and subscription counts.
+type clientState struct {
+	subCount    int
+	eventCount  int
+	windowStart time.Time
+}
+
+// SubStats holds per-topic counts and global totals.
+type SubStats struct {
+	NewHeads   int
+	Logs       int
+	PendingTxs int
+	Syncing    int
+	Total      int
+	Clients    int
+}
+
+// SubscriptionDispatcher manages active subscriptions across multiple
+// WebSocket clients with rate limiting and lifecycle tracking.
+// All methods are safe for concurrent use.
+type SubscriptionDispatcher struct {
+	mu      sync.Mutex
+	config  DispatcherConfig
+	subs    map[string]*DispatchSubscription // Keyed by subscription ID.
+	clients map[string]*clientState          // Keyed by client ID.
+	nextSeq uint64
+	closed  bool
+}
+
+// NewSubscriptionDispatcher creates a new dispatcher with the given config.
+func NewSubscriptionDispatcher(config DispatcherConfig) *SubscriptionDispatcher {
+	if config.BufferSize <= 0 {
+		config.BufferSize = 128
+	}
+	if config.MaxSubsPerClient <= 0 {
+		config.MaxSubsPerClient = 32
+	}
+	if config.RateWindow <= 0 {
+		config.RateWindow = time.Second
+	}
+	return &SubscriptionDispatcher{
+		config:  config,
+		subs:    make(map[string]*DispatchSubscription),
+		clients: make(map[string]*clientState),
+	}
+}
+
+// generateID produces a unique hex subscription ID.
+func (d *SubscriptionDispatcher) generateID() string {
+	d.nextSeq++
+	buf := make([]byte, 16)
+	seq := d.nextSeq
+	ts := uint64(time.Now().UnixNano())
+	for i := 0; i < 8; i++ {
+		buf[i] = byte(seq >> (8 * i))
+		buf[8+i] = byte(ts >> (8 * i))
+	}
+	h := crypto.Keccak256(buf)
+	return "0x" + hex.EncodeToString(h[:16])
+}
+
+// Subscribe creates a new subscription for the given client and topic.
+// Returns the subscription or an error if limits are exceeded.
+func (d *SubscriptionDispatcher) Subscribe(clientID string, topic SubscriptionTopic, filter interface{}) (*DispatchSubscription, error) {
+	if !IsValidTopic(topic) {
+		return nil, fmt.Errorf("%w: %s", ErrDispatcherInvalidTopic, topic)
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	if d.closed {
-		return "", ErrDispatcherClosed
+		return nil, ErrDispatcherClosed
 	}
-	d.nextSeq++
-	var buf [8]byte
-	for i := 0; i < 8; i++ {
-		buf[i] = byte(d.nextSeq >> (8 * i))
-	}
-	h := crypto.Keccak256(buf[:])
-	id := "0x" + hex.EncodeToString(h[:8])
 
-	if _, exists := d.subs[id]; exists {
-		return "", ErrDispatcherDuplicate
+	// Check global limit.
+	if d.config.MaxTotalSubs > 0 && len(d.subs) >= d.config.MaxTotalSubs {
+		return nil, ErrDispatcherClientLimit
 	}
-	d.subs[id] = &subDispEntry{
-		id:      id,
-		kind:    kind,
-		ch:      make(chan SubMessage, bufSize),
-		created: time.Now(),
+
+	// Check per-client limit.
+	cs := d.clients[clientID]
+	if cs == nil {
+		cs = &clientState{windowStart: time.Now()}
+		d.clients[clientID] = cs
 	}
-	d.stats.ActiveSubs++
-	return id, nil
+	if cs.subCount >= d.config.MaxSubsPerClient {
+		return nil, ErrDispatcherClientLimit
+	}
+
+	id := d.generateID()
+	sub := &DispatchSubscription{
+		ID:       id,
+		ClientID: clientID,
+		Topic:    topic,
+		Filter:   filter,
+		Created:  time.Now(),
+		ch:       make(chan interface{}, d.config.BufferSize),
+	}
+	d.subs[id] = sub
+	cs.subCount++
+
+	return sub, nil
 }
 
-// Unsubscribe removes a subscriber.
-func (d *SubscriptionDispatcher) Unsubscribe(id string) bool {
+// Unsubscribe removes a subscription by ID and closes its channel.
+func (d *SubscriptionDispatcher) Unsubscribe(subID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	entry, ok := d.subs[id]
+	sub, ok := d.subs[subID]
 	if !ok {
-		return false
+		return ErrDispatcherSubNotFound
 	}
-	close(entry.ch)
-	delete(d.subs, id)
-	d.stats.ActiveSubs--
-	return true
+
+	close(sub.ch)
+	delete(d.subs, subID)
+
+	if cs := d.clients[sub.ClientID]; cs != nil {
+		cs.subCount--
+		if cs.subCount <= 0 {
+			delete(d.clients, sub.ClientID)
+		}
+	}
+	return nil
 }
 
-// Dispatch sends a message to all subscribers of the given topic.
-func (d *SubscriptionDispatcher) Dispatch(kind SubDispatchKind, data interface{}) {
+// Broadcast sends data to all subscriptions matching the given topic.
+func (d *SubscriptionDispatcher) Broadcast(topic SubscriptionTopic, data interface{}) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -312,176 +845,191 @@ func (d *SubscriptionDispatcher) Dispatch(kind SubDispatchKind, data interface{}
 		return
 	}
 
-	msg := SubMessage{
-		Topic:     kind,
-		Data:      data,
-		Timestamp: time.Now(),
-	}
-
-	for _, entry := range d.subs {
-		if entry.kind != kind {
+	now := time.Now()
+	for _, sub := range d.subs {
+		if sub.Topic != topic {
 			continue
 		}
-		msg.SubscriptionID = entry.id
+
+		// Check client rate limit.
+		cs := d.clients[sub.ClientID]
+		if cs != nil && d.config.MaxEventsPerSec > 0 {
+			if now.Sub(cs.windowStart) >= d.config.RateWindow {
+				cs.eventCount = 0
+				cs.windowStart = now
+			}
+			cs.eventCount++
+			if cs.eventCount > d.config.MaxEventsPerSec {
+				continue // Rate limited; skip this event.
+			}
+		}
+
 		select {
-		case entry.ch <- msg:
-			d.stats.TotalSent++
-			entry.lastRecv = time.Now()
+		case sub.ch <- data:
+			sub.LastEvent = now
+			sub.Events++
 		default:
-			d.stats.TotalDropped++
+			// Buffer full; drop event.
 		}
 	}
 }
 
-// Channel returns the notification channel for the given subscription ID.
-func (d *SubscriptionDispatcher) Channel(id string) (<-chan SubMessage, error) {
+// GetSubscriptions returns all active subscriptions for the given client.
+func (d *SubscriptionDispatcher) GetSubscriptions(clientID string) []*DispatchSubscription {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	entry, ok := d.subs[id]
-	if !ok {
-		return nil, ErrDispatcherUnknown
+	var result []*DispatchSubscription
+	for _, sub := range d.subs {
+		if sub.ClientID == clientID {
+			cp := &DispatchSubscription{
+				ID:        sub.ID,
+				ClientID:  sub.ClientID,
+				Topic:     sub.Topic,
+				Filter:    sub.Filter,
+				Created:   sub.Created,
+				LastEvent: sub.LastEvent,
+				Events:    sub.Events,
+			}
+			result = append(result, cp)
+		}
 	}
-	return entry.ch, nil
+	return result
 }
 
-// Stats returns dispatcher statistics.
-func (d *SubscriptionDispatcher) Stats() DispatchStats {
+// GetSubscription returns a single subscription by ID, or nil.
+func (d *SubscriptionDispatcher) GetSubscription(subID string) *DispatchSubscription {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.stats
+
+	sub, ok := d.subs[subID]
+	if !ok {
+		return nil
+	}
+	return sub
 }
 
-// Close shuts down the dispatcher.
+// CleanupStale removes subscriptions that have not received an event
+// within the given maxAge since their creation. Returns the count removed.
+func (d *SubscriptionDispatcher) CleanupStale(maxAge time.Duration) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	now := time.Now()
+	removed := 0
+	for id, sub := range d.subs {
+		age := now.Sub(sub.Created)
+		if age < maxAge {
+			continue
+		}
+		lastActivity := sub.LastEvent
+		if lastActivity.IsZero() {
+			lastActivity = sub.Created
+		}
+		if now.Sub(lastActivity) >= maxAge {
+			close(sub.ch)
+			delete(d.subs, id)
+			if cs := d.clients[sub.ClientID]; cs != nil {
+				cs.subCount--
+				if cs.subCount <= 0 {
+					delete(d.clients, sub.ClientID)
+				}
+			}
+			removed++
+		}
+	}
+	return removed
+}
+
+// DisconnectClient removes all subscriptions for the given client ID.
+func (d *SubscriptionDispatcher) DisconnectClient(clientID string) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	removed := 0
+	for id, sub := range d.subs {
+		if sub.ClientID == clientID {
+			close(sub.ch)
+			delete(d.subs, id)
+			removed++
+		}
+	}
+	delete(d.clients, clientID)
+	return removed
+}
+
+// SubscriptionStats returns per-topic counts and overall statistics.
+func (d *SubscriptionDispatcher) SubscriptionStats() *SubStats {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	stats := &SubStats{
+		Total:   len(d.subs),
+		Clients: len(d.clients),
+	}
+	for _, sub := range d.subs {
+		switch sub.Topic {
+		case TopicNewHeads:
+			stats.NewHeads++
+		case TopicLogs:
+			stats.Logs++
+		case TopicPendingTxs:
+			stats.PendingTxs++
+		case TopicSyncing:
+			stats.Syncing++
+		}
+	}
+	return stats
+}
+
+// TotalSubscriptions returns the total number of active subscriptions.
+func (d *SubscriptionDispatcher) TotalSubscriptions() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.subs)
+}
+
+// ClientCount returns the number of distinct clients with subscriptions.
+func (d *SubscriptionDispatcher) ClientCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.clients)
+}
+
+// Close shuts down all subscriptions and prevents new ones.
 func (d *SubscriptionDispatcher) Close() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if d.closed {
-		return
-	}
 	d.closed = true
-	for _, entry := range d.subs {
-		close(entry.ch)
+	for id, sub := range d.subs {
+		close(sub.ch)
+		delete(d.subs, id)
 	}
-	d.subs = make(map[string]*subDispEntry)
+	d.clients = make(map[string]*clientState)
 }
 
-// WSSubscriptionManager manages active WebSocket subscriptions with TTL support.
-type WSSubscriptionManager struct {
-	mu     sync.RWMutex
-	subs   map[string]*WSSubEntry
-	config SubscriptionConfig
-	seq    uint64
+// IsClosed returns whether the dispatcher has been closed.
+func (d *SubscriptionDispatcher) IsClosed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.closed
 }
 
-// NewWSSubscriptionManager creates a new WebSocket subscription manager.
-func NewWSSubscriptionManager(config SubscriptionConfig) *WSSubscriptionManager {
-	return &WSSubscriptionManager{
-		subs:   make(map[string]*WSSubEntry),
-		config: config,
-	}
-}
+// CheckClientRateLimit returns true if the client is within the event rate limit.
+func (d *SubscriptionDispatcher) CheckClientRateLimit(clientID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-// Add creates a new subscription and returns its ID.
-func (m *WSSubscriptionManager) Add(connID string, kind SubKind) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.config.MaxSubscriptions > 0 && len(m.subs) >= m.config.MaxSubscriptions {
-		return "", errors.New("subscription limit reached")
+	cs := d.clients[clientID]
+	if cs == nil {
+		return true
 	}
 
-	m.seq++
-	var buf [8]byte
-	for i := 0; i < 8; i++ {
-		buf[i] = byte(m.seq >> (8 * i))
+	now := time.Now()
+	if now.Sub(cs.windowStart) >= d.config.RateWindow {
+		cs.eventCount = 0
+		cs.windowStart = now
 	}
-	h := crypto.Keccak256(buf[:])
-	id := "0x" + hex.EncodeToString(h[:8])
-
-	m.subs[id] = &WSSubEntry{
-		ID:        id,
-		Kind:      kind,
-		ConnID:    connID,
-		CreatedAt: time.Now(),
-	}
-	return id, nil
-}
-
-// Remove removes a subscription by ID.
-func (m *WSSubscriptionManager) Remove(id string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_, ok := m.subs[id]
-	if ok {
-		delete(m.subs, id)
-	}
-	return ok
-}
-
-// Get returns a subscription entry by ID.
-func (m *WSSubscriptionManager) Get(id string) (*WSSubEntry, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	e, ok := m.subs[id]
-	return e, ok
-}
-
-// Count returns the total subscription count.
-func (m *WSSubscriptionManager) Count() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.subs)
-}
-
-// PruneExpired removes subscriptions that have exceeded their TTL.
-func (m *WSSubscriptionManager) PruneExpired() int {
-	if m.config.TTL <= 0 {
-		return 0
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cutoff := time.Now().Add(-m.config.TTL)
-	count := 0
-	for id, entry := range m.subs {
-		if entry.LastNotify.Before(cutoff) && entry.CreatedAt.Before(cutoff) {
-			delete(m.subs, id)
-			count++
-		}
-	}
-	return count
-}
-
-// ConnsForKind returns all subscription IDs of the given kind.
-func (m *WSSubscriptionManager) ConnsForKind(kind SubKind) []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var ids []string
-	for id, entry := range m.subs {
-		if entry.Kind == kind {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
-// RecordNotify updates the LastNotify timestamp and increments count for a subscription.
-func (m *WSSubscriptionManager) RecordNotify(id string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if entry, ok := m.subs[id]; ok {
-		entry.LastNotify = time.Now()
-		entry.NotifyCount++
-	}
-}
-
-// GetConfig returns the subscription config.
-func (m *WSSubscriptionManager) GetConfig() SubscriptionConfig {
-	return m.config
-}
-
-// typesHashEncode encodes a Hash as hex string (for notifications).
-func typesHashEncode(h types.Hash) string {
-	return h.Hex()
+	return cs.eventCount < d.config.MaxEventsPerSec
 }

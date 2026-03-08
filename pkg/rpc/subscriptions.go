@@ -1,10 +1,23 @@
+// subscriptions.go adds WebSocket subscription support to SubscriptionManager.
+// SubType, Subscription, WSNotification, WSSubscriptionResult are defined here
+// for backward compatibility; re-exported aliases point to rpc/subscription.
 package rpc
 
 import (
 	"encoding/json"
 
 	"github.com/eth2030/eth2030/core/types"
+	rpcsub "github.com/eth2030/eth2030/rpc/subscription"
 )
+
+// Re-export WebSocket notification types from rpc/subscription.
+type (
+	WSNotification       = rpcsub.WSNotification
+	WSSubscriptionResult = rpcsub.WSSubscriptionResult
+)
+
+// Re-export notification helper.
+var FormatWSNotification = rpcsub.FormatWSNotification
 
 // SubType distinguishes the kind of WebSocket subscription.
 type SubType int
@@ -35,7 +48,6 @@ func (s *Subscription) Channel() <-chan interface{} {
 const subscriptionBufferSize = 128
 
 // Subscribe creates a new WebSocket subscription and returns its ID.
-// The SubscriptionManager tracks subscriptions separately from poll-based filters.
 func (sm *SubscriptionManager) Subscribe(subType SubType, query FilterQuery) string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -89,7 +101,7 @@ func (sm *SubscriptionManager) NotifyNewHead(header *types.Header) {
 			select {
 			case sub.ch <- formatted:
 			default:
-				// Drop if buffer is full; subscriber is too slow.
+				// Drop if buffer is full.
 			}
 		}
 	}
@@ -117,7 +129,7 @@ func (sm *SubscriptionManager) NotifyLogs(logs []*types.Log) {
 	}
 }
 
-// NotifyPendingTx broadcasts a pending transaction hash to all
+// NotifyPendingTxHash broadcasts a pending transaction hash to all
 // "newPendingTransactions" subscribers.
 func (sm *SubscriptionManager) NotifyPendingTxHash(txHash types.Hash) {
 	sm.mu.Lock()
@@ -135,21 +147,9 @@ func (sm *SubscriptionManager) NotifyPendingTxHash(txHash types.Hash) {
 	}
 }
 
-// WSNotification is a JSON-RPC 2.0 subscription notification sent over WebSocket.
-type WSNotification struct {
-	JSONRPC string          `json:"jsonrpc"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-}
-
-// WSSubscriptionResult wraps the subscription ID and result for notifications.
-type WSSubscriptionResult struct {
-	Subscription string      `json:"subscription"`
-	Result       interface{} `json:"result"`
-}
-
-// FormatWSNotification creates a JSON-RPC subscription notification message.
-func FormatWSNotification(subID string, result interface{}) *WSNotification {
+// formatWSNotificationLocal creates a JSON-RPC subscription notification.
+// Used internally; FormatWSNotification is the exported version.
+func formatWSNotificationLocal(subID string, result interface{}) *WSNotification {
 	params := WSSubscriptionResult{
 		Subscription: subID,
 		Result:       result,
