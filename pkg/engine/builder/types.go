@@ -1,15 +1,16 @@
-// Package engine implements ePBS (EIP-7732) builder types.
+// Package builder implements ePBS (EIP-7732) builder types.
 //
 // EIP-7732 introduces Enshrined Proposer-Builder Separation, where builders
 // submit bids with execution payload commitments, and proposers select the
 // winning bid. The builder later reveals the full payload.
-package engine
+package builder
 
 import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // BLS public key and signature sizes (BLS12-381).
@@ -75,12 +76,12 @@ type SignedExecutionPayloadBid struct {
 // Per EIP-7732, the builder reveals the full payload after the proposer
 // has committed to the bid.
 type ExecutionPayloadEnvelope struct {
-	Payload           *ExecutionPayloadV4 `json:"payload"`
-	ExecutionRequests [][]byte            `json:"executionRequests"`
-	BuilderIndex      BuilderIndex        `json:"builderIndex"`
-	BeaconBlockRoot   types.Hash          `json:"beaconBlockRoot"`
-	Slot              uint64              `json:"slot"`
-	StateRoot         types.Hash          `json:"stateRoot"`
+	Payload           *payload.ExecutionPayloadV4 `json:"payload"`
+	ExecutionRequests [][]byte                    `json:"executionRequests"`
+	BuilderIndex      BuilderIndex                `json:"builderIndex"`
+	BeaconBlockRoot   types.Hash                  `json:"beaconBlockRoot"`
+	Slot              uint64                      `json:"slot"`
+	StateRoot         types.Hash                  `json:"stateRoot"`
 }
 
 // SignedExecutionPayloadEnvelope wraps an ExecutionPayloadEnvelope with a BLS signature.

@@ -1,4 +1,4 @@
-package engine
+package blobsbundle
 
 import (
 	"crypto/sha256"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // testBlob returns a zero-filled blob of BlobSize bytes.
@@ -133,7 +134,7 @@ func TestValidateBundle(t *testing.T) {
 	})
 
 	t.Run("valid bundle", func(t *testing.T) {
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Blobs:       [][]byte{testBlob()},
 			Commitments: [][]byte{testCommitment()},
 			Proofs:      [][]byte{testProof()},
@@ -144,7 +145,7 @@ func TestValidateBundle(t *testing.T) {
 	})
 
 	t.Run("length mismatch", func(t *testing.T) {
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Blobs:       [][]byte{testBlob()},
 			Commitments: [][]byte{testCommitment(), testCommitment()},
 			Proofs:      [][]byte{testProof()},
@@ -156,7 +157,7 @@ func TestValidateBundle(t *testing.T) {
 
 	t.Run("too many blobs", func(t *testing.T) {
 		n := MaxBlobsPerBundle + 1
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Blobs:       make([][]byte, n),
 			Commitments: make([][]byte, n),
 			Proofs:      make([][]byte, n),
@@ -172,7 +173,7 @@ func TestValidateBundle(t *testing.T) {
 	})
 
 	t.Run("invalid blob size", func(t *testing.T) {
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Blobs:       [][]byte{make([]byte, 100)},
 			Commitments: [][]byte{testCommitment()},
 			Proofs:      [][]byte{testProof()},
@@ -183,7 +184,7 @@ func TestValidateBundle(t *testing.T) {
 	})
 
 	t.Run("invalid commitment size", func(t *testing.T) {
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Blobs:       [][]byte{testBlob()},
 			Commitments: [][]byte{make([]byte, 10)},
 			Proofs:      [][]byte{testProof()},
@@ -194,7 +195,7 @@ func TestValidateBundle(t *testing.T) {
 	})
 
 	t.Run("invalid proof size", func(t *testing.T) {
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Blobs:       [][]byte{testBlob()},
 			Commitments: [][]byte{testCommitment()},
 			Proofs:      [][]byte{make([]byte, 10)},
@@ -229,7 +230,7 @@ func TestDeriveVersionedHashes(t *testing.T) {
 	})
 
 	t.Run("empty commitments", func(t *testing.T) {
-		bundle := &BlobsBundleV1{}
+		bundle := &payload.BlobsBundleV1{}
 		if got := DeriveVersionedHashes(bundle); got != nil {
 			t.Errorf("expected nil, got %v", got)
 		}
@@ -240,7 +241,7 @@ func TestDeriveVersionedHashes(t *testing.T) {
 		c1[0] = 0xAA
 		c2 := make([]byte, KZGCommitmentSize)
 		c2[0] = 0xBB
-		bundle := &BlobsBundleV1{
+		bundle := &payload.BlobsBundleV1{
 			Commitments: [][]byte{c1, c2},
 		}
 		hashes := DeriveVersionedHashes(bundle)
@@ -259,7 +260,7 @@ func TestDeriveVersionedHashes(t *testing.T) {
 func TestValidateVersionedHashes(t *testing.T) {
 	c1 := make([]byte, KZGCommitmentSize)
 	c1[0] = 0x01
-	bundle := &BlobsBundleV1{
+	bundle := &payload.BlobsBundleV1{
 		Commitments: [][]byte{c1},
 	}
 	expected := DeriveVersionedHashes(bundle)
@@ -285,7 +286,7 @@ func TestValidateVersionedHashes(t *testing.T) {
 }
 
 func TestPrepareSidecars(t *testing.T) {
-	bundle := &BlobsBundleV1{
+	bundle := &payload.BlobsBundleV1{
 		Blobs:       [][]byte{testBlob()},
 		Commitments: [][]byte{testCommitment()},
 		Proofs:      [][]byte{testProof()},
@@ -308,7 +309,7 @@ func TestPrepareSidecars(t *testing.T) {
 }
 
 func TestGetSidecar(t *testing.T) {
-	bundle := &BlobsBundleV1{
+	bundle := &payload.BlobsBundleV1{
 		Blobs:       [][]byte{testBlob(), testBlob()},
 		Commitments: [][]byte{testCommitment(), testCommitment()},
 		Proofs:      [][]byte{testProof(), testProof()},

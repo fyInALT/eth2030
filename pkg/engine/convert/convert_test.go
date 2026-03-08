@@ -1,14 +1,16 @@
-package engine
+package convert
 
 import (
 	"math/big"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	engblobs "github.com/eth2030/eth2030/engine/blobsbundle"
+	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
-func makeV1Payload() *ExecutionPayloadV1 {
-	return &ExecutionPayloadV1{
+func makeV1Payload() *engpayload.ExecutionPayloadV1 {
+	return &engpayload.ExecutionPayloadV1{
 		ParentHash:    types.HexToHash("0x1111"),
 		FeeRecipient:  types.HexToAddress("0x2222"),
 		StateRoot:     types.HexToHash("0x3333"),
@@ -64,7 +66,7 @@ func TestPayloadToHeaderV1(t *testing.T) {
 
 func TestPayloadToHeaderV2(t *testing.T) {
 	v1 := makeV1Payload()
-	p := &ExecutionPayloadV2{ExecutionPayloadV1: *v1}
+	p := &engpayload.ExecutionPayloadV2{ExecutionPayloadV1: *v1}
 	h := PayloadToHeaderV2(p)
 	if h.Number.Uint64() != v1.BlockNumber {
 		t.Errorf("BlockNumber = %d, want %d", h.Number.Uint64(), v1.BlockNumber)
@@ -75,8 +77,8 @@ func TestPayloadToHeaderV3(t *testing.T) {
 	v1 := makeV1Payload()
 	blobGasUsed := uint64(131072)
 	excessBlobGas := uint64(65536)
-	p := &ExecutionPayloadV3{
-		ExecutionPayloadV2: ExecutionPayloadV2{ExecutionPayloadV1: *v1},
+	p := &engpayload.ExecutionPayloadV3{
+		ExecutionPayloadV2: engpayload.ExecutionPayloadV2{ExecutionPayloadV1: *v1},
 		BlobGasUsed:        blobGasUsed,
 		ExcessBlobGas:      excessBlobGas,
 	}
@@ -91,10 +93,10 @@ func TestPayloadToHeaderV3(t *testing.T) {
 
 func TestPayloadToHeaderV5(t *testing.T) {
 	v1 := makeV1Payload()
-	p := &ExecutionPayloadV5{
-		ExecutionPayloadV4: ExecutionPayloadV4{
-			ExecutionPayloadV3: ExecutionPayloadV3{
-				ExecutionPayloadV2: ExecutionPayloadV2{ExecutionPayloadV1: *v1},
+	p := &engpayload.ExecutionPayloadV5{
+		ExecutionPayloadV4: engpayload.ExecutionPayloadV4{
+			ExecutionPayloadV3: engpayload.ExecutionPayloadV3{
+				ExecutionPayloadV2: engpayload.ExecutionPayloadV2{ExecutionPayloadV1: *v1},
 				BlobGasUsed:        256,
 				ExcessBlobGas:      512,
 			},
@@ -120,7 +122,7 @@ func TestHeaderToPayloadV2(t *testing.T) {
 		Time:       1_600_000_000,
 		BaseFee:    big.NewInt(500_000_000),
 	}
-	ws := []*Withdrawal{
+	ws := []*engpayload.Withdrawal{
 		{Index: 1, ValidatorIndex: 10, Address: types.HexToAddress("0xaaaa"), Amount: 1000},
 	}
 	v2 := HeaderToPayloadV2(header, ws)
@@ -296,7 +298,7 @@ func TestSummarizeWithdrawals(t *testing.T) {
 	})
 
 	t.Run("single withdrawal", func(t *testing.T) {
-		ws := []*Withdrawal{
+		ws := []*engpayload.Withdrawal{
 			{ValidatorIndex: 1, Address: types.HexToAddress("0x1111"), Amount: 500},
 		}
 		s := SummarizeWithdrawals(ws)
@@ -316,7 +318,7 @@ func TestSummarizeWithdrawals(t *testing.T) {
 
 	t.Run("multiple with duplicates", func(t *testing.T) {
 		addr := types.HexToAddress("0xaaaa")
-		ws := []*Withdrawal{
+		ws := []*engpayload.Withdrawal{
 			{ValidatorIndex: 10, Address: addr, Amount: 1000},
 			{ValidatorIndex: 10, Address: addr, Amount: 2000},
 			{ValidatorIndex: 20, Address: types.HexToAddress("0xbbbb"), Amount: 3000},
@@ -338,7 +340,7 @@ func TestSummarizeWithdrawals(t *testing.T) {
 }
 
 func TestProcessWithdrawalsExt(t *testing.T) {
-	ws := []*Withdrawal{
+	ws := []*engpayload.Withdrawal{
 		{ValidatorIndex: 1, Amount: 100},
 		{ValidatorIndex: 2, Amount: 200},
 		{ValidatorIndex: 1, Amount: 50},
@@ -364,8 +366,8 @@ func TestCoreWithdrawalsFromPayload(t *testing.T) {
 	})
 
 	t.Run("payload with withdrawals", func(t *testing.T) {
-		p := &ExecutionPayloadV2{
-			Withdrawals: []*Withdrawal{
+		p := &engpayload.ExecutionPayloadV2{
+			Withdrawals: []*engpayload.Withdrawal{
 				{Index: 1, ValidatorIndex: 10, Address: types.HexToAddress("0xaaaa"), Amount: 500},
 			},
 		}
@@ -385,8 +387,8 @@ func TestVersionedHashFromCommitment(t *testing.T) {
 		commitment[i] = byte(i)
 	}
 	h := VersionedHashFromCommitment(commitment)
-	if h[0] != VersionedHashVersion {
-		t.Errorf("first byte = 0x%02x, want 0x%02x", h[0], VersionedHashVersion)
+	if h[0] != engblobs.VersionedHashVersion {
+		t.Errorf("first byte = 0x%02x, want 0x%02x", h[0], engblobs.VersionedHashVersion)
 	}
 	// Deterministic: same input gives same output.
 	h2 := VersionedHashFromCommitment(commitment)
@@ -396,12 +398,12 @@ func TestVersionedHashFromCommitment(t *testing.T) {
 }
 
 func TestBlobSidecarFromBundle(t *testing.T) {
-	blob := make([]byte, BlobSize)
-	commitment := make([]byte, KZGCommitmentSize)
-	proof := make([]byte, KZGProofSize)
+	blob := make([]byte, engblobs.BlobSize)
+	commitment := make([]byte, engblobs.KZGCommitmentSize)
+	proof := make([]byte, engblobs.KZGProofSize)
 	blockHash := types.HexToHash("0xdeadbeef")
 
-	bundle := &BlobsBundleV1{
+	bundle := &engpayload.BlobsBundleV1{
 		Blobs:       [][]byte{blob},
 		Commitments: [][]byte{commitment},
 		Proofs:      [][]byte{proof},
@@ -422,21 +424,21 @@ func TestBlobSidecarFromBundle(t *testing.T) {
 
 	t.Run("nil bundle", func(t *testing.T) {
 		_, err := BlobSidecarFromBundle(nil, 0, blockHash)
-		if err != ErrBlobBundleEmpty {
+		if err != engblobs.ErrBlobBundleEmpty {
 			t.Errorf("expected ErrBlobBundleEmpty, got %v", err)
 		}
 	})
 
 	t.Run("out of range index", func(t *testing.T) {
 		_, err := BlobSidecarFromBundle(bundle, 5, blockHash)
-		if err != ErrBlobBundleSidecarIndex {
+		if err != engblobs.ErrBlobBundleSidecarIndex {
 			t.Errorf("expected ErrBlobBundleSidecarIndex, got %v", err)
 		}
 	})
 
 	t.Run("negative index", func(t *testing.T) {
 		_, err := BlobSidecarFromBundle(bundle, -1, blockHash)
-		if err != ErrBlobBundleSidecarIndex {
+		if err != engblobs.ErrBlobBundleSidecarIndex {
 			t.Errorf("expected ErrBlobBundleSidecarIndex, got %v", err)
 		}
 	})

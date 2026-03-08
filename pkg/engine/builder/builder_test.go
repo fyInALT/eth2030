@@ -1,4 +1,4 @@
-package engine
+package builder
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 func TestBuilderTypes(t *testing.T) {
@@ -544,10 +545,10 @@ func TestValidateBidPayloadMatch(t *testing.T) {
 		FeeRecipient:    feeAddr,
 	}
 
-	payload := &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+	p := &payload.ExecutionPayloadV4{
+		ExecutionPayloadV3: payload.ExecutionPayloadV3{
+			ExecutionPayloadV2: payload.ExecutionPayloadV2{
+				ExecutionPayloadV1: payload.ExecutionPayloadV1{
 					ParentHash:   parentHash,
 					BlockHash:    blockHash,
 					GasLimit:     30_000_000,
@@ -557,7 +558,7 @@ func TestValidateBidPayloadMatch(t *testing.T) {
 		},
 	}
 
-	if err := reg.ValidateBidPayload(bid, payload); err != nil {
+	if err := reg.ValidateBidPayload(bid, p); err != nil {
 		t.Errorf("valid payload: %v", err)
 	}
 }
@@ -577,10 +578,10 @@ func TestValidateBidPayloadBlockHashMismatch(t *testing.T) {
 		FeeRecipient:    feeAddr,
 	}
 
-	payload := &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+	p := &payload.ExecutionPayloadV4{
+		ExecutionPayloadV3: payload.ExecutionPayloadV3{
+			ExecutionPayloadV2: payload.ExecutionPayloadV2{
+				ExecutionPayloadV1: payload.ExecutionPayloadV1{
 					ParentHash:   parentHash,
 					BlockHash:    wrongHash,
 					GasLimit:     30_000_000,
@@ -590,7 +591,7 @@ func TestValidateBidPayloadBlockHashMismatch(t *testing.T) {
 		},
 	}
 
-	err := reg.ValidateBidPayload(bid, payload)
+	err := reg.ValidateBidPayload(bid, p)
 	if err == nil {
 		t.Error("expected error for block hash mismatch")
 	}
@@ -611,10 +612,10 @@ func TestValidateBidPayloadParentHashMismatch(t *testing.T) {
 		FeeRecipient:    feeAddr,
 	}
 
-	payload := &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+	p := &payload.ExecutionPayloadV4{
+		ExecutionPayloadV3: payload.ExecutionPayloadV3{
+			ExecutionPayloadV2: payload.ExecutionPayloadV2{
+				ExecutionPayloadV1: payload.ExecutionPayloadV1{
 					ParentHash:   wrongHash,
 					BlockHash:    blockHash,
 					GasLimit:     30_000_000,
@@ -624,7 +625,7 @@ func TestValidateBidPayloadParentHashMismatch(t *testing.T) {
 		},
 	}
 
-	err := reg.ValidateBidPayload(bid, payload)
+	err := reg.ValidateBidPayload(bid, p)
 	if err == nil {
 		t.Error("expected error for parent hash mismatch")
 	}
@@ -644,10 +645,10 @@ func TestValidateBidPayloadGasLimitMismatch(t *testing.T) {
 		FeeRecipient:    feeAddr,
 	}
 
-	payload := &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+	p := &payload.ExecutionPayloadV4{
+		ExecutionPayloadV3: payload.ExecutionPayloadV3{
+			ExecutionPayloadV2: payload.ExecutionPayloadV2{
+				ExecutionPayloadV1: payload.ExecutionPayloadV1{
 					ParentHash:   parentHash,
 					BlockHash:    blockHash,
 					GasLimit:     60_000_000,
@@ -657,7 +658,7 @@ func TestValidateBidPayloadGasLimitMismatch(t *testing.T) {
 		},
 	}
 
-	err := reg.ValidateBidPayload(bid, payload)
+	err := reg.ValidateBidPayload(bid, p)
 	if err == nil {
 		t.Error("expected error for gas limit mismatch")
 	}
@@ -678,10 +679,10 @@ func TestValidateBidPayloadFeeRecipientMismatch(t *testing.T) {
 		FeeRecipient:    feeAddr,
 	}
 
-	payload := &ExecutionPayloadV4{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+	p := &payload.ExecutionPayloadV4{
+		ExecutionPayloadV3: payload.ExecutionPayloadV3{
+			ExecutionPayloadV2: payload.ExecutionPayloadV2{
+				ExecutionPayloadV1: payload.ExecutionPayloadV1{
 					ParentHash:   parentHash,
 					BlockHash:    blockHash,
 					GasLimit:     30_000_000,
@@ -691,7 +692,7 @@ func TestValidateBidPayloadFeeRecipientMismatch(t *testing.T) {
 		},
 	}
 
-	err := reg.ValidateBidPayload(bid, payload)
+	err := reg.ValidateBidPayload(bid, p)
 	if err == nil {
 		t.Error("expected error for fee recipient mismatch")
 	}

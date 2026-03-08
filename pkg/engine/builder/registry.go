@@ -1,4 +1,4 @@
-package engine
+package builder
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // Builder registry errors.
@@ -212,27 +213,27 @@ func (r *BuilderRegistry) GetBidsForSlot(slot uint64) []*SignedExecutionPayloadB
 // ValidateBidPayload checks that a revealed payload matches the committed bid.
 // This is the reveal phase: the builder reveals the full execution payload
 // and we verify that the block hash matches what was committed in the bid.
-func (r *BuilderRegistry) ValidateBidPayload(bid *ExecutionPayloadBid, payload *ExecutionPayloadV4) error {
+func (r *BuilderRegistry) ValidateBidPayload(bid *ExecutionPayloadBid, p *payload.ExecutionPayloadV4) error {
 	// The payload's block hash must match the committed block hash in the bid.
-	if payload.BlockHash != bid.BlockHash {
+	if p.BlockHash != bid.BlockHash {
 		return fmt.Errorf("%w: committed %s, revealed %s",
-			ErrInvalidPayloadReveal, bid.BlockHash.Hex(), payload.BlockHash.Hex())
+			ErrInvalidPayloadReveal, bid.BlockHash.Hex(), p.BlockHash.Hex())
 	}
 
 	// Verify parent hash consistency.
-	if payload.ParentHash != bid.ParentBlockHash {
+	if p.ParentHash != bid.ParentBlockHash {
 		return fmt.Errorf("%w: parent hash mismatch: bid %s, payload %s",
-			ErrInvalidPayloadReveal, bid.ParentBlockHash.Hex(), payload.ParentHash.Hex())
+			ErrInvalidPayloadReveal, bid.ParentBlockHash.Hex(), p.ParentHash.Hex())
 	}
 
 	// Verify gas limit consistency.
-	if payload.GasLimit != bid.GasLimit {
+	if p.GasLimit != bid.GasLimit {
 		return fmt.Errorf("%w: gas limit mismatch: bid %d, payload %d",
-			ErrInvalidPayloadReveal, bid.GasLimit, payload.GasLimit)
+			ErrInvalidPayloadReveal, bid.GasLimit, p.GasLimit)
 	}
 
 	// Verify fee recipient consistency.
-	if payload.FeeRecipient != bid.FeeRecipient {
+	if p.FeeRecipient != bid.FeeRecipient {
 		return fmt.Errorf("%w: fee recipient mismatch",
 			ErrInvalidPayloadReveal)
 	}

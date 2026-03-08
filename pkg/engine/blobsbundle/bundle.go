@@ -1,4 +1,4 @@
-// blobs_bundle.go implements blob bundle management for the Engine API,
+// Package blobsbundle implements blob bundle management for the Engine API,
 // including BlobsBundle construction, versioned hash derivation, blob
 // sidecar preparation, and KZG commitment verification.
 //
@@ -11,7 +11,7 @@
 // Per EIP-4895 (Deneb), blob sidecars are prepared for gossip propagation
 // by pairing each blob with its commitment and proof, along with inclusion
 // proofs against the beacon block body.
-package engine
+package blobsbundle
 
 import (
 	"crypto/sha256"
@@ -22,6 +22,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	engapi "github.com/eth2030/eth2030/engine/api"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // Blob bundle constants.
@@ -78,7 +79,7 @@ type BlobSidecar struct {
 	CommitmentInclusionProof []types.Hash `json:"kzgCommitmentInclusionProof"`
 }
 
-// BlobsBundleBuilder constructs a BlobsBundleV1 incrementally, validating
+// BlobsBundleBuilder constructs a payload.BlobsBundleV1 incrementally, validating
 // each blob/commitment/proof triple as it is added. Thread-safe.
 type BlobsBundleBuilder struct {
 	mu          sync.Mutex
@@ -141,9 +142,9 @@ func (b *BlobsBundleBuilder) AddBlob(blob, commitment, proof []byte) error {
 	return nil
 }
 
-// Build constructs the final BlobsBundleV1. Returns an error if the
+// Build constructs the final payload.BlobsBundleV1. Returns an error if the
 // bundle is empty.
-func (b *BlobsBundleBuilder) Build() (*BlobsBundleV1, error) {
+func (b *BlobsBundleBuilder) Build() (*payload.BlobsBundleV1, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -151,7 +152,7 @@ func (b *BlobsBundleBuilder) Build() (*BlobsBundleV1, error) {
 		return nil, ErrBlobBundleEmpty
 	}
 
-	bundle := &BlobsBundleV1{
+	bundle := &payload.BlobsBundleV1{
 		Commitments: make([][]byte, len(b.commitments)),
 		Proofs:      make([][]byte, len(b.proofs)),
 		Blobs:       make([][]byte, len(b.blobs)),
@@ -179,10 +180,10 @@ func (b *BlobsBundleBuilder) Reset() {
 	b.blobs = nil
 }
 
-// ValidateBundle checks a BlobsBundleV1 for structural correctness:
+// ValidateBundle checks a payload.BlobsBundleV1 for structural correctness:
 // parallel arrays must have equal length, sizes must be correct, and
 // the number of blobs must not exceed the maximum.
-func ValidateBundle(bundle *BlobsBundleV1) error {
+func ValidateBundle(bundle *payload.BlobsBundleV1) error {
 	if bundle == nil {
 		return ErrBlobBundleEmpty
 	}
@@ -227,8 +228,8 @@ func VersionedHash(commitment []byte) types.Hash {
 }
 
 // DeriveVersionedHashes computes versioned hashes for all commitments in
-// a BlobsBundleV1. Returns hashes in the same order as the commitments.
-func DeriveVersionedHashes(bundle *BlobsBundleV1) []types.Hash {
+// a payload.BlobsBundleV1. Returns hashes in the same order as the commitments.
+func DeriveVersionedHashes(bundle *payload.BlobsBundleV1) []types.Hash {
 	if bundle == nil || len(bundle.Commitments) == 0 {
 		return nil
 	}
@@ -242,7 +243,7 @@ func DeriveVersionedHashes(bundle *BlobsBundleV1) []types.Hash {
 // ValidateVersionedHashes checks that the versioned hashes derived from
 // the bundle's commitments match the expected hashes exactly (same order
 // and count). This implements the CL-side validation per EIP-4844.
-func ValidateVersionedHashes(bundle *BlobsBundleV1, expected []types.Hash) error {
+func ValidateVersionedHashes(bundle *payload.BlobsBundleV1, expected []types.Hash) error {
 	derived := DeriveVersionedHashes(bundle)
 	if len(derived) != len(expected) {
 		return fmt.Errorf("%w: expected %d hashes, got %d",
@@ -257,10 +258,10 @@ func ValidateVersionedHashes(bundle *BlobsBundleV1, expected []types.Hash) error
 	return nil
 }
 
-// PrepareSidecars extracts individual BlobSidecars from a BlobsBundleV1,
+// PrepareSidecars extracts individual BlobSidecars from a payload.BlobsBundleV1,
 // suitable for gossip propagation on the beacon network. The blockHash
 // is included in each sidecar for block association.
-func PrepareSidecars(bundle *BlobsBundleV1, blockHash types.Hash) ([]*BlobSidecar, error) {
+func PrepareSidecars(bundle *payload.BlobsBundleV1, blockHash types.Hash) ([]*BlobSidecar, error) {
 	if err := ValidateBundle(bundle); err != nil {
 		return nil, err
 	}
@@ -286,7 +287,7 @@ func PrepareSidecars(bundle *BlobsBundleV1, blockHash types.Hash) ([]*BlobSideca
 }
 
 // GetSidecar retrieves a single blob sidecar by index from a bundle.
-func GetSidecar(bundle *BlobsBundleV1, index uint64, blockHash types.Hash) (*BlobSidecar, error) {
+func GetSidecar(bundle *payload.BlobsBundleV1, index uint64, blockHash types.Hash) (*BlobSidecar, error) {
 	if bundle == nil || int(index) >= len(bundle.Blobs) {
 		return nil, fmt.Errorf("%w: index %d, bundle has %d blobs",
 			ErrBlobBundleSidecarIndex, index, len(bundle.Blobs))
@@ -310,7 +311,6 @@ func deriveInclusionProof(commitment []byte, blockHash types.Hash, index uint64)
 	// Build a set of leaf hashes representing the blob commitments
 	// field in the beacon block body. We construct MaxBlobsPerBundle
 	// leaves, where the target is at the given index.
-	const maxCommitments = 4096 // MAX_BLOB_COMMITMENTS_PER_BLOCK
 
 	// Create deterministic leaf hashes for the commitment list.
 	// The target leaf is the versioned hash of the actual commitment.
