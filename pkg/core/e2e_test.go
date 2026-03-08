@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -1137,8 +1138,8 @@ func TestE2E_BaseFeeAdjustment(t *testing.T) {
 
 	// All base fees should be >= 1 (minimum).
 	for i, bf := range baseFees {
-		if bf.Cmp(big.NewInt(MinBaseFee)) < 0 {
-			t.Errorf("base fee at block %d = %s, below minimum %d", i, bf, MinBaseFee)
+		if bf.Cmp(big.NewInt(gas.MinBaseFee)) < 0 {
+			t.Errorf("base fee at block %d = %s, below minimum %d", i, bf, gas.MinBaseFee)
 		}
 	}
 }

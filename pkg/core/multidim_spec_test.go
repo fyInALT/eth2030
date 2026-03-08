@@ -4,9 +4,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/core/config"
 )
 
 // --- SPEC-6.2: GetCalldataGas ---
@@ -21,7 +22,7 @@ func TestGetCalldataGas_Zero(t *testing.T) {
 		GasPrice: big.NewInt(1),
 		Data:     nil,
 	})
-	if got := GetCalldataGas(tx); got != 0 {
+	if got := gas.GetCalldataGas(tx); got != 0 {
 		t.Errorf("GetCalldataGas(empty data) = %d, want 0", got)
 	}
 }
@@ -37,7 +38,7 @@ func TestGetCalldataGas_NonZeroData(t *testing.T) {
 		GasPrice: big.NewInt(1),
 		Data:     data,
 	})
-	got := GetCalldataGas(tx)
+	got := gas.GetCalldataGas(tx)
 	// tokens = 2 zero * 1 + 2 nonzero * 4 = 10; gas = 10 * 4 = 40
 	want := uint64(40)
 	if got != want {
@@ -48,7 +49,7 @@ func TestGetCalldataGas_NonZeroData(t *testing.T) {
 // --- SPEC-6.4: CalcCalldataBaseFee ---
 
 func TestCalcCalldataBaseFee_ZeroExcess(t *testing.T) {
-	fee := CalcCalldataBaseFee(0, 1_000_000)
+	fee := gas.CalcCalldataBaseFee(0, 1_000_000)
 	if fee == nil || fee.Sign() <= 0 {
 		t.Errorf("CalcCalldataBaseFee(0, 1M): expected positive fee, got %v", fee)
 	}
@@ -60,7 +61,7 @@ func TestCalcCalldataBaseFee_FromHeader(t *testing.T) {
 		GasLimit:          30_000_000,
 		CalldataExcessGas: &excess,
 	}
-	fee := CalcCalldataBaseFeeFromHeader(h)
+	fee := gas.CalcCalldataBaseFeeFromHeader(h)
 	if fee == nil || fee.Sign() <= 0 {
 		t.Errorf("CalcCalldataBaseFeeFromHeader: expected positive fee, got %v", fee)
 	}
@@ -90,8 +91,8 @@ func TestHeader3DGasVectorFields(t *testing.T) {
 
 func TestCalcCalldataBaseFee_HigherExcessMeansHigherFee(t *testing.T) {
 	// Use large excess to ensure fee difference is visible.
-	fee1 := CalcCalldataBaseFee(0, 1_000_000)
-	fee2 := CalcCalldataBaseFee(100_000_000, 1_000_000)
+	fee1 := gas.CalcCalldataBaseFee(0, 1_000_000)
+	fee2 := gas.CalcCalldataBaseFee(100_000_000, 1_000_000)
 	if fee2.Cmp(fee1) <= 0 {
 		t.Errorf("higher excess gas should produce higher base fee: fee1=%v fee2=%v", fee1, fee2)
 	}
@@ -141,7 +142,7 @@ func TestBuildBlock_3DGasVectors_Set(t *testing.T) {
 	}
 
 	// Dimension 2 = calldata gas; limit must equal CalcCalldataGasLimit(GasLimit).
-	wantCalldataLimit := CalcCalldataGasLimit(h.GasLimit)
+	wantCalldataLimit := gas.CalcCalldataGasLimit(h.GasLimit)
 	if h.GasLimitVec[2] != wantCalldataLimit {
 		t.Errorf("GasLimitVec[2] = %d, want CalcCalldataGasLimit(%d) = %d",
 			h.GasLimitVec[2], h.GasLimit, wantCalldataLimit)

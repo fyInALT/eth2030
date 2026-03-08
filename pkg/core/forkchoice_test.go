@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/bal"
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/core/config"
 )
 
 // testForkChoice creates a blockchain and ForkChoice for testing.
@@ -38,7 +39,7 @@ func makeForkBlock(parent *types.Block, timeOffset uint64) *types.Block {
 		GasUsed:             0,
 		Time:                parentHeader.Time + timeOffset,
 		Difficulty:          new(big.Int),
-		BaseFee:             CalcBaseFee(parentHeader),
+		BaseFee:             gas.CalcBaseFee(parentHeader),
 		UncleHash:           EmptyUncleHash,
 		BlockAccessListHash: &emptyBALHash,
 	}
@@ -755,7 +756,7 @@ func TestForkChoice_StateRollbackOnReorg(t *testing.T) {
 			GasUsed:             0,
 			Time:                genesis.Time() + 6,
 			Difficulty:          new(big.Int),
-			BaseFee:             CalcBaseFee(genesis.Header()),
+			BaseFee:             gas.CalcBaseFee(genesis.Header()),
 			UncleHash:           EmptyUncleHash,
 			BlockAccessListHash: &emptyBALHash,
 		}

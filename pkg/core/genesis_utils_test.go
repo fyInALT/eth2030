@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 func TestDefaultGenesis(t *testing.T) {

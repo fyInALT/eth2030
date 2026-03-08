@@ -11,6 +11,7 @@ import (
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
@@ -323,7 +324,7 @@ func restoreCalldataGasFields(block *types.Block, parent *types.Block, payloadBl
 			parentUsed = *parent.Header().CalldataGasUsed
 		}
 	}
-	calldataExcessGas := core.CalcCalldataExcessGas(parentExcess, parentUsed, block.Header().GasLimit)
+	calldataExcessGas := gas.CalcCalldataExcessGas(parentExcess, parentUsed, block.Header().GasLimit)
 
 	// Rebuild the block with the calldata gas fields injected into the header.
 	hdr := block.Header()

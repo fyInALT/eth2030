@@ -8,7 +8,7 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/consensus"
-	"github.com/eth2030/eth2030/core"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
@@ -217,7 +217,7 @@ func MakeBuilderNetwork(numBuilders int) *distbuilder.BuilderNetwork {
 // ---------------------------------------------------------------------------
 
 // MakeGasFuture creates a gas future in the market and returns the future ID.
-func MakeGasFuture(market *core.GasFuturesMarket, expiryBlock uint64, strikePrice int64, volume uint64) *core.GasFuture {
+func MakeGasFuture(market *gas.GasFuturesMarket, expiryBlock uint64, strikePrice int64, volume uint64) *gas.GasFuture {
 	long := DeterministicAddress(0x01)
 	short := DeterministicAddress(0x02)
 	return market.CreateGasFuture(expiryBlock, big.NewInt(strikePrice), volume, long, short)

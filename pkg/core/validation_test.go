@@ -4,8 +4,9 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 // --- Header Validation Tests ---
@@ -161,9 +162,9 @@ func TestCalcBaseFee_MinimumFloorAt7Wei(t *testing.T) {
 		GasUsed:  0,
 		BaseFee:  big.NewInt(8), // just above minimum
 	}
-	got := CalcBaseFee(parent)
-	if got.Cmp(big.NewInt(MinBaseFee)) < 0 {
-		t.Errorf("base fee %s below minimum %d wei", got, MinBaseFee)
+	got := gas.CalcBaseFee(parent)
+	if got.Cmp(big.NewInt(gas.MinBaseFee)) < 0 {
+		t.Errorf("base fee %s below minimum %d wei", got, gas.MinBaseFee)
 	}
 }
 
@@ -172,11 +173,11 @@ func TestCalcBaseFee_MinimumFloorEnforced(t *testing.T) {
 	parent := &types.Header{
 		GasLimit: 30_000_000,
 		GasUsed:  0,
-		BaseFee:  big.NewInt(MinBaseFee),
+		BaseFee:  big.NewInt(gas.MinBaseFee),
 	}
-	got := CalcBaseFee(parent)
-	if got.Cmp(big.NewInt(MinBaseFee)) < 0 {
-		t.Errorf("base fee %s below minimum %d wei", got, MinBaseFee)
+	got := gas.CalcBaseFee(parent)
+	if got.Cmp(big.NewInt(gas.MinBaseFee)) < 0 {
+		t.Errorf("base fee %s below minimum %d wei", got, gas.MinBaseFee)
 	}
 }
 
@@ -187,7 +188,7 @@ func TestCalcBaseFee_FullBlock(t *testing.T) {
 		GasUsed:  30_000_000,
 		BaseFee:  big.NewInt(1_000_000_000),
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	// Expected increase: baseFee * (gasUsed - target) / target / 8
 	// = 1e9 * 15000000 / 15000000 / 8 = 1e9 / 8 = 125000000
 	// New fee = 1e9 + 125000000 = 1125000000
@@ -204,7 +205,7 @@ func TestCalcBaseFee_EmptyBlock(t *testing.T) {
 		GasUsed:  0,
 		BaseFee:  big.NewInt(1_000_000_000),
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	// Expected decrease: baseFee * target / target / 8 = 1e9 / 8 = 125000000
 	// New fee = 1e9 - 125000000 = 875000000
 	expected := big.NewInt(875_000_000)
@@ -219,28 +220,28 @@ func TestCalcBaseFee_MultiBlockSequence(t *testing.T) {
 
 	// Block 1: full -> increase
 	header1 := &types.Header{GasLimit: 30_000_000, GasUsed: 30_000_000, BaseFee: baseFee}
-	baseFee2 := CalcBaseFee(header1)
+	baseFee2 := gas.CalcBaseFee(header1)
 	if baseFee2.Cmp(baseFee) <= 0 {
 		t.Fatalf("full block should increase base fee: %v -> %v", baseFee, baseFee2)
 	}
 
 	// Block 2: still full -> increase more
 	header2 := &types.Header{GasLimit: 30_000_000, GasUsed: 30_000_000, BaseFee: baseFee2}
-	baseFee3 := CalcBaseFee(header2)
+	baseFee3 := gas.CalcBaseFee(header2)
 	if baseFee3.Cmp(baseFee2) <= 0 {
 		t.Fatalf("consecutive full blocks should keep increasing: %v -> %v", baseFee2, baseFee3)
 	}
 
 	// Block 3: empty -> decrease
 	header3 := &types.Header{GasLimit: 30_000_000, GasUsed: 0, BaseFee: baseFee3}
-	baseFee4 := CalcBaseFee(header3)
+	baseFee4 := gas.CalcBaseFee(header3)
 	if baseFee4.Cmp(baseFee3) >= 0 {
 		t.Fatalf("empty block should decrease base fee: %v -> %v", baseFee3, baseFee4)
 	}
 
 	// Block 4: at target -> unchanged
 	header4 := &types.Header{GasLimit: 30_000_000, GasUsed: 15_000_000, BaseFee: baseFee4}
-	baseFee5 := CalcBaseFee(header4)
+	baseFee5 := gas.CalcBaseFee(header4)
 	if baseFee5.Cmp(baseFee4) != 0 {
 		t.Fatalf("at-target block should keep base fee unchanged: %v -> %v", baseFee4, baseFee5)
 	}
@@ -253,7 +254,7 @@ func TestCalcBaseFee_VeryHighBaseFee(t *testing.T) {
 		GasUsed:  30_000_000,
 		BaseFee:  new(big.Int).SetUint64(1e18), // 1 ETH
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	if got.Cmp(parent.BaseFee) <= 0 {
 		t.Errorf("full block with high base fee should still increase: %v", got)
 	}

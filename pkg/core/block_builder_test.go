@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -214,7 +215,7 @@ func TestCalcBaseFee(t *testing.T) {
 				BaseFee:  big.NewInt(tt.baseFee),
 			}
 
-			newBaseFee := CalcBaseFee(parent)
+			newBaseFee := gas.CalcBaseFee(parent)
 
 			switch tt.expect {
 			case "increase":
@@ -459,7 +460,7 @@ func TestCalcBaseFee_Stable(t *testing.T) {
 		GasUsed:  15_000_000, // exactly at target (limit/2)
 		BaseFee:  big.NewInt(1000),
 	}
-	newBaseFee := CalcBaseFee(parent)
+	newBaseFee := gas.CalcBaseFee(parent)
 	if newBaseFee.Cmp(big.NewInt(1000)) != 0 {
 		t.Errorf("expected base fee 1000 (unchanged), got %s", newBaseFee)
 	}
@@ -472,7 +473,7 @@ func TestCalcBaseFee_Increase(t *testing.T) {
 		GasUsed:  25_000_000, // over target
 		BaseFee:  big.NewInt(1000),
 	}
-	newBaseFee := CalcBaseFee(parent)
+	newBaseFee := gas.CalcBaseFee(parent)
 	if newBaseFee.Cmp(big.NewInt(1000)) <= 0 {
 		t.Errorf("expected base fee increase, got %s (was 1000)", newBaseFee)
 	}
@@ -490,13 +491,13 @@ func TestCalcBaseFee_Decrease(t *testing.T) {
 		GasUsed:  5_000_000, // under target
 		BaseFee:  big.NewInt(1000),
 	}
-	newBaseFee := CalcBaseFee(parent)
+	newBaseFee := gas.CalcBaseFee(parent)
 	if newBaseFee.Cmp(big.NewInt(1000)) >= 0 {
 		t.Errorf("expected base fee decrease, got %s (was 1000)", newBaseFee)
 	}
 	// Must not go below minimum of 1 wei.
-	if newBaseFee.Cmp(big.NewInt(MinBaseFee)) < 0 {
-		t.Errorf("base fee %s below minimum %d", newBaseFee, MinBaseFee)
+	if newBaseFee.Cmp(big.NewInt(gas.MinBaseFee)) < 0 {
+		t.Errorf("base fee %s below minimum %d", newBaseFee, gas.MinBaseFee)
 	}
 }
 
@@ -509,7 +510,7 @@ func TestCalcBaseFee_MinimumFloor(t *testing.T) {
 		GasUsed:  0, // empty block, maximum decrease
 		BaseFee:  big.NewInt(1),
 	}
-	newBaseFee := CalcBaseFee(parent)
+	newBaseFee := gas.CalcBaseFee(parent)
 	if newBaseFee.Cmp(big.NewInt(1)) < 0 {
 		t.Errorf("base fee %s below minimum 1 wei", newBaseFee)
 	}
@@ -553,7 +554,7 @@ func TestReorg_Simple(t *testing.T) {
 		GasLimit:   genesis.GasLimit(),
 		Time:       genesis.Time() + 6, // different timestamp -> different hash
 		Difficulty: new(big.Int),
-		BaseFee:    CalcBaseFee(genesis.Header()),
+		BaseFee:    gas.CalcBaseFee(genesis.Header()),
 		UncleHash:  EmptyUncleHash,
 	}
 	// Process B1 through the state processor to get correct state root, etc.
@@ -567,7 +568,7 @@ func TestReorg_Simple(t *testing.T) {
 	if genesis.Header().BlobGasUsed != nil {
 		pUsed = *genesis.Header().BlobGasUsed
 	}
-	b1ExcessBlobGas := CalcExcessBlobGas(pExcess, pUsed)
+	b1ExcessBlobGas := gas.CalcExcessBlobGas(pExcess, pUsed)
 	b1Header.BlobGasUsed = &zeroBlobGas
 	b1Header.ExcessBlobGas = &b1ExcessBlobGas
 	b1BeaconRoot := types.EmptyRootHash
@@ -583,7 +584,7 @@ func TestReorg_Simple(t *testing.T) {
 	if genesis.Header().CalldataGasUsed != nil {
 		pCalldataUsed = *genesis.Header().CalldataGasUsed
 	}
-	b1CalldataExcessGas := CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, genesis.Header().GasLimit)
+	b1CalldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, genesis.Header().GasLimit)
 	b1Header.CalldataGasUsed = &b1CalldataGasUsed
 	b1Header.CalldataExcessGas = &b1CalldataExcessGas
 	b1Body := &types.Body{Withdrawals: []*types.Withdrawal{}}
@@ -697,7 +698,7 @@ func TestBuildBlock_MixedTransactionTypes(t *testing.T) {
 
 	// EIP-4844 blob tx from sender3 with valid versioned hash.
 	blobHash := types.Hash{}
-	blobHash[0] = BlobTxHashVersion // 0x01 version byte
+	blobHash[0] = gas.BlobTxHashVersion // 0x01 version byte
 	blobTx := types.NewTransaction(&types.BlobTx{
 		Nonce:      0,
 		GasTipCap:  big.NewInt(10),
@@ -758,7 +759,7 @@ func TestBuildBlock_BlobGasLimitEnforcement(t *testing.T) {
 		// Create blob hashes with valid version byte.
 		blobHashes := make([]types.Hash, 3) // 3 blobs per tx
 		for j := range blobHashes {
-			blobHashes[j][0] = BlobTxHashVersion
+			blobHashes[j][0] = gas.BlobTxHashVersion
 			blobHashes[j][1] = byte(i)
 			blobHashes[j][2] = byte(j)
 		}
@@ -807,8 +808,8 @@ func TestBuildBlock_BlobGasLimitEnforcement(t *testing.T) {
 		}
 	}
 
-	if totalBlobGas > MaxBlobGasPerBlock {
-		t.Errorf("total blob gas %d exceeds max %d", totalBlobGas, MaxBlobGasPerBlock)
+	if totalBlobGas > gas.MaxBlobGasPerBlock {
+		t.Errorf("total blob gas %d exceeds max %d", totalBlobGas, gas.MaxBlobGasPerBlock)
 	}
 	if blobTxCount > 2 {
 		t.Errorf("expected at most 2 blob txs (6 blobs), got %d", blobTxCount)
@@ -891,7 +892,7 @@ func TestBuildBlock_ExcessBlobGasCalculation(t *testing.T) {
 	if h.ExcessBlobGas == nil {
 		t.Fatal("ExcessBlobGas should be set on Cancun block")
 	}
-	expectedExcess := CalcExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed)
+	expectedExcess := gas.CalcExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed)
 	if *h.ExcessBlobGas != expectedExcess {
 		t.Errorf("ExcessBlobGas = %d, want %d", *h.ExcessBlobGas, expectedExcess)
 	}
@@ -941,7 +942,7 @@ func TestBuildBlock_BaseFeeCalculation(t *testing.T) {
 				GasUsed:  tt.parentGasUsed,
 				BaseFee:  big.NewInt(tt.parentBaseFee),
 			}
-			result := CalcBaseFee(parent)
+			result := gas.CalcBaseFee(parent)
 			if result.Int64() != tt.wantBaseFee {
 				t.Errorf("CalcBaseFee = %d, want %d", result.Int64(), tt.wantBaseFee)
 			}
@@ -1131,7 +1132,7 @@ func TestBuildBlock_TransactionOrdering_EffectiveGasPrice(t *testing.T) {
 	// Expected order by effective gas price (descending): B(60), C(40), A(20).
 	prices := make([]*big.Int, len(block.Transactions()))
 	for i, tx := range block.Transactions() {
-		prices[i] = effectiveGasPrice(tx, CalcBaseFee(parent))
+		prices[i] = effectiveGasPrice(tx, gas.CalcBaseFee(parent))
 	}
 
 	for i := 0; i < len(prices)-1; i++ {
@@ -1165,7 +1166,7 @@ func TestBuildBlock_BlobTxsSeparateFromRegular(t *testing.T) {
 
 	// Blob tx with a very high tip (but should still come after regular txs).
 	blobHash := types.Hash{}
-	blobHash[0] = BlobTxHashVersion
+	blobHash[0] = gas.BlobTxHashVersion
 	blobTx := types.NewTransaction(&types.BlobTx{
 		Nonce:      0,
 		GasTipCap:  big.NewInt(1000), // very high tip
@@ -1262,10 +1263,10 @@ func TestBuildBlock_BlobGasHeaderFields(t *testing.T) {
 
 	// Create a valid blob tx with 2 blobs.
 	blobHash1 := types.Hash{}
-	blobHash1[0] = BlobTxHashVersion
+	blobHash1[0] = gas.BlobTxHashVersion
 	blobHash1[1] = 0x01
 	blobHash2 := types.Hash{}
-	blobHash2[0] = BlobTxHashVersion
+	blobHash2[0] = gas.BlobTxHashVersion
 	blobHash2[1] = 0x02
 
 	blobTx := types.NewTransaction(&types.BlobTx{
@@ -1292,7 +1293,7 @@ func TestBuildBlock_BlobGasHeaderFields(t *testing.T) {
 		t.Fatal("BlobGasUsed should be set")
 	}
 	// 2 blobs * 131072 gas each = 262144.
-	expectedBlobGas := uint64(2 * GasPerBlob)
+	expectedBlobGas := uint64(2 * gas.GasPerBlob)
 	if *h.BlobGasUsed != expectedBlobGas {
 		t.Errorf("BlobGasUsed = %d, want %d", *h.BlobGasUsed, expectedBlobGas)
 	}
@@ -1370,7 +1371,7 @@ func TestCalcExcessBlobGas_FromParent(t *testing.T) {
 			name:           "zero_excess_full_blobs",
 			parentExcess:   0,
 			parentUsed:     786432, // 6 blobs
-			expectedExcess: 786432 - TargetBlobGasPerBlock,
+			expectedExcess: 786432 - gas.TargetBlobGasPerBlock,
 		},
 		{
 			name:           "below_target_stays_zero",
@@ -1382,15 +1383,15 @@ func TestCalcExcessBlobGas_FromParent(t *testing.T) {
 			name:           "accumulating_excess",
 			parentExcess:   200000,
 			parentUsed:     786432,
-			expectedExcess: 200000 + 786432 - TargetBlobGasPerBlock,
+			expectedExcess: 200000 + 786432 - gas.TargetBlobGasPerBlock,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalcExcessBlobGas(tt.parentExcess, tt.parentUsed)
+			result := gas.CalcExcessBlobGas(tt.parentExcess, tt.parentUsed)
 			if result != tt.expectedExcess {
-				t.Errorf("CalcExcessBlobGas(%d, %d) = %d, want %d",
+				t.Errorf("gas.CalcExcessBlobGas(%d, %d) = %d, want %d",
 					tt.parentExcess, tt.parentUsed, result, tt.expectedExcess)
 			}
 		})
@@ -1476,7 +1477,7 @@ func TestSortedTxLists(t *testing.T) {
 	})
 
 	blobHash := types.Hash{}
-	blobHash[0] = BlobTxHashVersion
+	blobHash[0] = gas.BlobTxHashVersion
 	blobTx := types.NewTransaction(&types.BlobTx{
 		Nonce: 0, GasTipCap: big.NewInt(20), GasFeeCap: big.NewInt(100),
 		Gas: 21000, To: blobReceiver, Value: big.NewInt(1),
@@ -1602,7 +1603,7 @@ func TestBuildBlock_BaseFeeFiltersTxs(t *testing.T) {
 		GasUsed:  30_000_000, // full block -> maximum increase
 		BaseFee:  big.NewInt(1000),
 	}
-	expectedBaseFee := CalcBaseFee(parent)
+	expectedBaseFee := gas.CalcBaseFee(parent)
 
 	// Create a tx with gasFeeCap below the expected base fee.
 	lowCapTx := types.NewTransaction(&types.DynamicFeeTx{

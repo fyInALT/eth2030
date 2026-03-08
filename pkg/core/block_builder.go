@@ -8,6 +8,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -84,9 +85,9 @@ func sortedTxLists(pending []*types.Transaction, baseFee *big.Int) (regular, blo
 // validateBlobHashes checks that every versioned hash starts with 0x01.
 func validateBlobHashes(hashes []types.Hash) error {
 	for i, h := range hashes {
-		if h[0] != BlobTxHashVersion {
+		if h[0] != gas.BlobTxHashVersion {
 			return fmt.Errorf("%w: hash %d version 0x%02x, want 0x%02x",
-				ErrInvalidBlobHash, i, h[0], BlobTxHashVersion)
+				ErrInvalidBlobHash, i, h[0], gas.BlobTxHashVersion)
 		}
 	}
 	return nil
@@ -103,7 +104,7 @@ func calcExcessBlobGasFromParent(parent *types.Header) uint64 {
 	if parent.BlobGasUsed != nil {
 		parentUsed = *parent.BlobGasUsed
 	}
-	return CalcExcessBlobGas(parentExcess, parentUsed)
+	return gas.CalcExcessBlobGas(parentExcess, parentUsed)
 }
 
 // calldataFloorDelta computes the additional gas to charge under EIP-7623
@@ -139,7 +140,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		Coinbase:   attrs.FeeRecipient,
 		Difficulty: new(big.Int), // always 0 post-merge
 		MixDigest:  attrs.Random,
-		BaseFee:    CalcBaseFee(parent),
+		BaseFee:    gas.CalcBaseFee(parent),
 		UncleHash:  EmptyUncleHash,
 	}
 
@@ -170,7 +171,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		if parent.CalldataGasUsed != nil {
 			pCalldataUsed = *parent.CalldataGasUsed
 		}
-		calldataExcessGas := CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
+		calldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
 		header.CalldataExcessGas = &calldataExcessGas
 		header.CalldataGasUsed = &calldataGasUsed // updated later
 	}
@@ -375,7 +376,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		// EIP-4844: validate blob transactions and enforce blob gas limit.
 		if tx.Type() == types.BlobTxType && cancunActive {
 			txBlobGas := tx.BlobGas()
-			if blobGasUsed+txBlobGas > MaxBlobGasPerBlock {
+			if blobGasUsed+txBlobGas > gas.MaxBlobGasPerBlock {
 				continue // would exceed block blob gas limit
 			}
 			// Validate versioned hashes.
@@ -455,7 +456,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		}
 		header.CalldataGasUsed = &calldataGasUsed
 		// Populate the 3D gas vector for calldata dimension (dim index 2).
-		calldataGasLimit := CalcCalldataGasLimit(header.GasLimit)
+		calldataGasLimit := gas.CalcCalldataGasLimit(header.GasLimit)
 		calldataExcessGas := uint64(0)
 		if header.CalldataExcessGas != nil {
 			calldataExcessGas = *header.CalldataExcessGas
@@ -557,7 +558,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		Coinbase:   coinbase,
 		Difficulty: new(big.Int),
 		Extra:      extra,
-		BaseFee:    CalcBaseFee(parent),
+		BaseFee:    gas.CalcBaseFee(parent),
 		UncleHash:  EmptyUncleHash,
 	}
 
@@ -655,7 +656,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		if parent.CalldataGasUsed != nil {
 			pCalldataUsed = *parent.CalldataGasUsed
 		}
-		calldataExcessGas := CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
+		calldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
 		header.CalldataExcessGas = &calldataExcessGas
 		header.CalldataGasUsed = &calldataGasUsedLegacy
 	}
@@ -689,7 +690,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		// EIP-4844: enforce blob gas limit.
 		if tx.Type() == types.BlobTxType && cancunActive {
 			txBlobGas := tx.BlobGas()
-			if blobGasUsed+txBlobGas > MaxBlobGasPerBlock {
+			if blobGasUsed+txBlobGas > gas.MaxBlobGasPerBlock {
 				continue
 			}
 			if err := validateBlobHashes(tx.BlobHashes()); err != nil {

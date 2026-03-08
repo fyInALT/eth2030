@@ -4,8 +4,9 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 func TestNewStateTransition(t *testing.T) {
@@ -235,7 +236,7 @@ func TestNextBlockBaseFee(t *testing.T) {
 		BaseFee:  big.NewInt(1000),
 	}
 	got := NextBlockBaseFee(parent)
-	expected := CalcBaseFee(parent)
+	expected := gas.CalcBaseFee(parent)
 	if got.Cmp(expected) != 0 {
 		t.Errorf("NextBlockBaseFee = %s, want %s", got, expected)
 	}

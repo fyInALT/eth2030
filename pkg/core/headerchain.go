@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 var (

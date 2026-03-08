@@ -6,10 +6,11 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/bal"
+	corconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
-	corconfig "github.com/eth2030/eth2030/core/config"
 )
 
 // balTrackerOrNil converts a typed *bal.AccessTracker to the vm.BALTracker
@@ -180,7 +181,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	calldataGasActive := p.config != nil && p.config.IsGlamsterdan(header.Time) && header.CalldataExcessGas != nil
 	var calldataGasLimit uint64
 	if calldataGasActive {
-		calldataGasLimit = CalcCalldataGasLimit(header.GasLimit)
+		calldataGasLimit = gas.CalcCalldataGasLimit(header.GasLimit)
 	}
 
 	for i, tx := range block.Transactions() {
@@ -650,7 +651,7 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 	// Set EIP-7706 calldata gas fields.
 	if calldataGas := tx.CalldataGas(); calldataGas > 0 && header.CalldataExcessGas != nil {
 		receipt.CalldataGasUsed = calldataGas
-		receipt.CalldataGasPrice = CalcCalldataBaseFeeFromHeader(header)
+		receipt.CalldataGasPrice = gas.CalcCalldataBaseFeeFromHeader(header)
 	}
 
 	// GAP-2.2: propagate DimStorage gas to receipt for block-level cap enforcement.
@@ -915,9 +916,9 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	// EIP-7706: compute calldata gas cost separately.
 	var calldataGasCost *big.Int
 	if config != nil && config.IsGlamsterdan(header.Time) && header.CalldataExcessGas != nil {
-		calldataBaseFee := CalcCalldataBaseFeeFromHeader(header)
+		calldataBaseFee := gas.CalcCalldataBaseFeeFromHeader(header)
 		calldataGas := types.CalldataTokenGas(msg.Data)
-		calldataGasCost = CalldataGasCost(calldataGas, calldataBaseFee)
+		calldataGasCost = gas.CalldataGasCost(calldataGas, calldataBaseFee)
 	} else {
 		calldataGasCost = new(big.Int)
 	}

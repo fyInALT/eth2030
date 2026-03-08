@@ -8,6 +8,7 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -58,9 +59,9 @@ func TestE2E_3DGasVectors_PersistThroughChain(t *testing.T) {
 	if h.GasLimitVec[0] != h.GasLimit {
 		t.Errorf("GasLimitVec[0]=%d != GasLimit=%d", h.GasLimitVec[0], h.GasLimit)
 	}
-	wantCalldataLimit := CalcCalldataGasLimit(h.GasLimit)
+	wantCalldataLimit := gas.CalcCalldataGasLimit(h.GasLimit)
 	if h.GasLimitVec[2] != wantCalldataLimit {
-		t.Errorf("GasLimitVec[2]=%d, want CalcCalldataGasLimit(%d)=%d",
+		t.Errorf("GasLimitVec[2]=%d, want gas.CalcCalldataGasLimit(%d)=%d",
 			h.GasLimitVec[2], h.GasLimit, wantCalldataLimit)
 	}
 

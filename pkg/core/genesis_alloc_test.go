@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 // Local copies of unexported addresses from config package (for testing).

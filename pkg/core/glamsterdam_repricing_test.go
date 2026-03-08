@@ -4,11 +4,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 )
 
 func TestDefaultGlamsterdamGasTable(t *testing.T) {
-	table := DefaultGlamsterdamGasTable()
+	table := gas.DefaultGlamsterdamGasTable()
 
 	checks := []struct {
 		name string
@@ -41,7 +42,7 @@ func TestDefaultGlamsterdamGasTable(t *testing.T) {
 
 func TestApplyGlamsterdamRepricing(t *testing.T) {
 	// Start with a table that has pre-Glamsterdam values.
-	table := &GlamsterdamGasTable{
+	table := &gas.GlamsterdamGasTable{
 		SloadCold:   2100,
 		SstoreSet:   20000,
 		CallCold:    2600,
@@ -53,7 +54,7 @@ func TestApplyGlamsterdamRepricing(t *testing.T) {
 		Keccak256:   30,
 	}
 
-	result := ApplyGlamsterdamRepricing(table)
+	result := gas.ApplyGlamsterdamRepricing(table)
 
 	// Should return the same pointer.
 	if result != table {
@@ -82,13 +83,13 @@ func TestApplyGlamsterdamRepricing(t *testing.T) {
 }
 
 func TestGlamsterdamRepricingEntries(t *testing.T) {
-	entries := GlamsterdamRepricingEntries()
+	entries := gas.GlamsterdamRepricingEntries()
 	if len(entries) == 0 {
 		t.Fatal("expected at least one repricing entry")
 	}
 
 	// Verify some known entries.
-	found := make(map[byte]GasTableEntry)
+	found := make(map[byte]gas.GasTableEntry)
 	for _, e := range entries {
 		found[e.Opcode] = e
 	}
@@ -170,7 +171,7 @@ func TestComputeCalldataGas(t *testing.T) {
 			// pure non-zero data. Let's test large zero-heavy data instead.
 			// standard = z*4, floor = 4500 + z*16
 			// standard > floor when z*4 > 4500 + z*16 -> -12z > 4500 -> impossible.
-			// The floor always wins with GlamsterdamTxBase = 4500.
+			// The floor always wins with gas.GlamsterdamTxBase = 4500.
 			// So we test that the floor is correctly applied.
 			data: make([]byte, 1000),
 			// standard: 1000 * 4 = 4000
@@ -181,9 +182,9 @@ func TestComputeCalldataGas(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ComputeCalldataGas(tt.data)
+			got := gas.ComputeCalldataGas(tt.data)
 			if got != tt.want {
-				t.Errorf("ComputeCalldataGas(%x) = %d, want %d", tt.data, got, tt.want)
+				t.Errorf("gas.ComputeCalldataGas(%x) = %d, want %d", tt.data, got, tt.want)
 			}
 		})
 	}
@@ -198,7 +199,7 @@ func TestComputeCalldataGasFloorAlwaysHigher(t *testing.T) {
 			for i := z; i < z+nz; i++ {
 				data[i] = 0xFF
 			}
-			gas := ComputeCalldataGas(data)
+			calldataGas := gas.ComputeCalldataGas(data)
 			if len(data) > 0 {
 				standardGas := uint64(z)*4 + uint64(nz)*16
 				floorTokens := uint64(z) + uint64(nz)*4
@@ -207,8 +208,8 @@ func TestComputeCalldataGasFloorAlwaysHigher(t *testing.T) {
 				if standardGas > floorGas {
 					expected = standardGas
 				}
-				if gas != expected {
-					t.Errorf("data(z=%d,nz=%d): got %d, want %d", z, nz, gas, expected)
+				if calldataGas != expected {
+					t.Errorf("data(z=%d,nz=%d): got %d, want %d", z, nz, calldataGas, expected)
 				}
 			}
 		}
@@ -227,20 +228,20 @@ func TestIntrinsicGasGlamsterdam(t *testing.T) {
 			name:     "empty transaction",
 			data:     nil,
 			isCreate: false,
-			wantMin:  GlamsterdamTxBase,
+			wantMin:  gas.GlamsterdamTxBase,
 		},
 		{
 			name:     "contract creation",
 			data:     nil,
 			isCreate: true,
-			wantMin:  GlamsterdamTxBase + TxCreateGas,
+			wantMin:  gas.GlamsterdamTxBase + gas.TxCreateGas,
 		},
 		{
 			name:     "with calldata",
 			data:     []byte{0xFF, 0x00},
 			isCreate: false,
 			// base: 4500, calldata floor will dominate
-			wantMin: GlamsterdamTxBase,
+			wantMin: gas.GlamsterdamTxBase,
 		},
 		{
 			name:     "with access list",
@@ -250,15 +251,15 @@ func TestIntrinsicGasGlamsterdam(t *testing.T) {
 				{Address: types.HexToAddress("0x1234"), StorageKeys: []types.Hash{{}, {}}},
 			},
 			// base + 1 address + 2 keys
-			wantMin: GlamsterdamTxBase + TxAccessListAddressGas + 2*TxAccessListStorageKeyGas,
+			wantMin: gas.GlamsterdamTxBase + gas.TxAccessListAddressGas + 2*gas.TxAccessListStorageKeyGas,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IntrinsicGasGlamsterdam(tt.data, tt.isCreate, tt.accessList)
+			got := gas.IntrinsicGasGlamsterdam(tt.data, tt.isCreate, tt.accessList)
 			if got < tt.wantMin {
-				t.Errorf("IntrinsicGasGlamsterdam() = %d, want >= %d", got, tt.wantMin)
+				t.Errorf("gas.IntrinsicGasGlamsterdam() = %d, want >= %d", got, tt.wantMin)
 			}
 		})
 	}
@@ -267,8 +268,8 @@ func TestIntrinsicGasGlamsterdam(t *testing.T) {
 func TestIntrinsicGasGlamsterdamLowerThanLegacy(t *testing.T) {
 	// The Glamsterdam base is 4500 vs legacy 21000.
 	// For an empty transaction, Glamsterdam should be cheaper.
-	glamst := IntrinsicGasGlamsterdam(nil, false, nil)
-	legacy, _ := IntrinsicGas(nil, false, false)
+	glamst := gas.IntrinsicGasGlamsterdam(nil, false, nil)
+	legacy, _ := gas.IntrinsicGas(nil, false, false)
 
 	if glamst >= legacy {
 		t.Errorf("Glamsterdam intrinsic (%d) should be < legacy (%d) for empty tx",
@@ -329,9 +330,9 @@ func TestIsGlamsterdamActive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsGlamsterdamActive(tt.blockNum, tt.forkBlock)
+			got := gas.IsGlamsterdamActive(tt.blockNum, tt.forkBlock)
 			if got != tt.want {
-				t.Errorf("IsGlamsterdamActive(%v, %v) = %v, want %v",
+				t.Errorf("gas.IsGlamsterdamActive(%v, %v) = %v, want %v",
 					tt.blockNum, tt.forkBlock, got, tt.want)
 			}
 		})
@@ -359,16 +360,16 @@ func TestGlamsterdamCalldataFloorDelta(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalldataFloorDelta(tt.data)
+			got := gas.CalldataFloorDelta(tt.data)
 			if got != tt.want {
-				t.Errorf("CalldataFloorDelta() = %d, want %d", got, tt.want)
+				t.Errorf("gas.CalldataFloorDelta() = %d, want %d", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestGlamsterdamSavings(t *testing.T) {
-	savings := GlamsterdamSavings()
+	savings := gas.GlamsterdamSavings()
 
 	// SLOAD: 2100 - 800 = 1300
 	if s, ok := savings[0x54]; !ok {
@@ -391,22 +392,22 @@ func TestGlamsterdamSavings(t *testing.T) {
 }
 
 func TestGlamsterdamConstants(t *testing.T) {
-	if GlamsterdamFloorTokenCost != 16 {
-		t.Errorf("GlamsterdamFloorTokenCost = %d, want 16", GlamsterdamFloorTokenCost)
+	if gas.GlamsterdamFloorTokenCost != 16 {
+		t.Errorf("gas.GlamsterdamFloorTokenCost = %d, want 16", gas.GlamsterdamFloorTokenCost)
 	}
-	if GlamsterdamTxBase != 4500 {
-		t.Errorf("GlamsterdamTxBase = %d, want 4500", GlamsterdamTxBase)
+	if gas.GlamsterdamTxBase != 4500 {
+		t.Errorf("gas.GlamsterdamTxBase = %d, want 4500", gas.GlamsterdamTxBase)
 	}
-	if GlamsterdamCalldataZeroGas != 4 {
-		t.Errorf("GlamsterdamCalldataZeroGas = %d, want 4", GlamsterdamCalldataZeroGas)
+	if gas.GlamsterdamCalldataZeroGas != 4 {
+		t.Errorf("gas.GlamsterdamCalldataZeroGas = %d, want 4", gas.GlamsterdamCalldataZeroGas)
 	}
-	if GlamsterdamCalldataNonZeroGas != 16 {
-		t.Errorf("GlamsterdamCalldataNonZeroGas = %d, want 16", GlamsterdamCalldataNonZeroGas)
+	if gas.GlamsterdamCalldataNonZeroGas != 16 {
+		t.Errorf("gas.GlamsterdamCalldataNonZeroGas = %d, want 16", gas.GlamsterdamCalldataNonZeroGas)
 	}
 }
 
 func TestGasTableEntryOpcodesUnique(t *testing.T) {
-	entries := GlamsterdamRepricingEntries()
+	entries := gas.GlamsterdamRepricingEntries()
 	seen := make(map[byte]bool)
 	for _, e := range entries {
 		if seen[e.Opcode] {
@@ -418,7 +419,7 @@ func TestGasTableEntryOpcodesUnique(t *testing.T) {
 
 func TestGasTableAllReductions(t *testing.T) {
 	// All repriced opcodes should have OldCost != NewCost.
-	entries := GlamsterdamRepricingEntries()
+	entries := gas.GlamsterdamRepricingEntries()
 	for _, e := range entries {
 		if e.OldCost == e.NewCost {
 			t.Errorf("opcode 0x%02X has no price change: %d -> %d",
@@ -435,7 +436,7 @@ func TestGlamsterdamSSTORE(t *testing.T) {
 	// Pre-Glamsterdam: standard EIP-2200 SSTORE set cost.
 	const preGlamsterdamSstoreSet uint64 = 20000
 	// Glamsterdam: increased to discourage state growth without reservoir.
-	table := DefaultGlamsterdamGasTable()
+	table := gas.DefaultGlamsterdamGasTable()
 	if table.SstoreSet != 60000 {
 		t.Errorf("Glamsterdam SstoreSet = %d, want 60000", table.SstoreSet)
 	}

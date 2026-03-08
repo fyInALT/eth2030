@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -41,7 +42,7 @@ func makeValidChild(parent *types.Header) *types.Header {
 	if parent.BlobGasUsed != nil {
 		parentUsed = *parent.BlobGasUsed
 	}
-	excessBlobGas := CalcExcessBlobGas(parentExcess, parentUsed)
+	excessBlobGas := gas.CalcExcessBlobGas(parentExcess, parentUsed)
 
 	// EIP-7706: calldata gas fields.
 	calldataGasUsed := uint64(0)
@@ -52,7 +53,7 @@ func makeValidChild(parent *types.Header) *types.Header {
 	if parent.CalldataGasUsed != nil {
 		pCalldataUsed = *parent.CalldataGasUsed
 	}
-	calldataExcessGas := CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
+	calldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
 
 	emptyBeaconRoot := types.EmptyRootHash
 	emptyRequestsHash := types.EmptyRootHash
@@ -64,7 +65,7 @@ func makeValidChild(parent *types.Header) *types.Header {
 		GasUsed:           10000000,
 		Time:              parent.Time + 12,
 		Difficulty:        new(big.Int),
-		BaseFee:           CalcBaseFee(parent),
+		BaseFee:           gas.CalcBaseFee(parent),
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
 		ParentBeaconRoot:  &emptyBeaconRoot,
@@ -198,7 +199,7 @@ func TestCalcBaseFee_ExactTarget(t *testing.T) {
 		GasUsed:  15000000, // exactly at target
 		BaseFee:  big.NewInt(1000000000),
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	if got.Cmp(parent.BaseFee) != 0 {
 		t.Fatalf("at target: want %v, got %v", parent.BaseFee, got)
 	}
@@ -210,7 +211,7 @@ func TestCalcBaseFee_AboveTarget(t *testing.T) {
 		GasUsed:  25000000, // above target
 		BaseFee:  big.NewInt(1000000000),
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	if got.Cmp(parent.BaseFee) <= 0 {
 		t.Fatalf("above target: base fee should increase, got %v", got)
 	}
@@ -222,7 +223,7 @@ func TestCalcBaseFee_BelowTarget(t *testing.T) {
 		GasUsed:  5000000, // below target
 		BaseFee:  big.NewInt(1000000000),
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	if got.Cmp(parent.BaseFee) >= 0 {
 		t.Fatalf("below target: base fee should decrease, got %v", got)
 	}
@@ -234,7 +235,7 @@ func TestCalcBaseFee_NilParent(t *testing.T) {
 		GasUsed:  0,
 		BaseFee:  nil,
 	}
-	got := CalcBaseFee(parent)
+	got := gas.CalcBaseFee(parent)
 	if got.Cmp(big.NewInt(1000000000)) != 0 {
 		t.Fatalf("nil parent: want 1 Gwei default, got %v", got)
 	}

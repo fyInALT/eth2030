@@ -10,9 +10,10 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/core/config"
 )
 
 // State transition errors.
@@ -343,13 +344,13 @@ func ValidatePostBlock(header *types.Header, result *TransitionResult) error {
 // NextBlockBaseFee computes the EIP-1559 base fee for the next block given
 // the parent header. This is a convenience wrapper around CalcBaseFee.
 func NextBlockBaseFee(parent *types.Header) *big.Int {
-	return CalcBaseFee(parent)
+	return gas.CalcBaseFee(parent)
 }
 
 // NextExcessBlobGas computes the excess blob gas for the next block based
 // on the parent's fields, per EIP-4844.
 func NextExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed uint64) uint64 {
-	return CalcExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed)
+	return gas.CalcExcessBlobGas(parentExcessBlobGas, parentBlobGasUsed)
 }
 
 // BlockReward computes the static block reward for the given block number.

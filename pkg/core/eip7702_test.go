@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
-	"github.com/eth2030/eth2030/core/config"
 )
 
 // --- IsDelegated tests ---

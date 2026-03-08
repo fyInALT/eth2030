@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -49,7 +50,7 @@ type WithdrawalRequestQueue struct {
 // CalcWithdrawalFee computes the current withdrawal request fee using the
 // EIP-1559-style fake exponential: fee = MIN_FEE * e^(excess / UPDATE_FRACTION).
 func CalcWithdrawalFee(excessRequests uint64) *big.Int {
-	return fakeExponentialV2(
+	return gas.FakeExponentialV2(
 		big.NewInt(MinWithdrawalRequestFee),
 		new(big.Int).SetUint64(excessRequests),
 		big.NewInt(WithdrawalRequestFeeUpdateFraction),

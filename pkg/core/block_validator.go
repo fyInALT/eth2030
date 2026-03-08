@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/rlp"
 	"github.com/eth2030/eth2030/trie"
@@ -116,7 +117,7 @@ func (v *BlockValidator) ValidateHeader(header, parent *types.Header) error {
 
 	// EIP-1559: verify base fee.
 	if header.BaseFee != nil {
-		expectedBaseFee := CalcBaseFee(parent)
+		expectedBaseFee := gas.CalcBaseFee(parent)
 		if header.BaseFee.Cmp(expectedBaseFee) != 0 {
 			return fmt.Errorf("%w: want %v, got %v", ErrInvalidBaseFee, expectedBaseFee, header.BaseFee)
 		}
@@ -124,7 +125,7 @@ func (v *BlockValidator) ValidateHeader(header, parent *types.Header) error {
 
 	// EIP-4844: verify blob gas fields for Cancun+ blocks.
 	if v.config != nil && v.config.IsCancun(header.Time) {
-		if err := ValidateBlockBlobGas(header, parent); err != nil {
+		if err := gas.ValidateBlockBlobGas(header, parent); err != nil {
 			return err
 		}
 	}
@@ -160,7 +161,7 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if v.config != nil && v.config.IsCancun(header.Time) {
 		var totalBlobGas uint64
 		for _, tx := range block.Transactions() {
-			totalBlobGas += CountBlobGas(tx)
+			totalBlobGas += gas.CountBlobGas(tx)
 		}
 		if header.BlobGasUsed != nil && *header.BlobGasUsed != totalBlobGas {
 			return fmt.Errorf("blob gas used mismatch: header %d, computed %d", *header.BlobGasUsed, totalBlobGas)
@@ -323,7 +324,7 @@ func ValidateCalldataGas(header, parent *types.Header) error {
 	}
 
 	// Verify calldata gas used does not exceed the calldata gas limit.
-	calldataGasLimit := CalcCalldataGasLimit(header.GasLimit)
+	calldataGasLimit := gas.CalcCalldataGasLimit(header.GasLimit)
 	if *header.CalldataGasUsed > calldataGasLimit {
 		return fmt.Errorf("%w: used %d > limit %d", ErrInvalidCalldataGas,
 			*header.CalldataGasUsed, calldataGasLimit)
@@ -337,7 +338,7 @@ func ValidateCalldataGas(header, parent *types.Header) error {
 	if parent.CalldataGasUsed != nil {
 		parentUsed = *parent.CalldataGasUsed
 	}
-	expectedExcess := CalcCalldataExcessGas(parentExcess, parentUsed, parent.GasLimit)
+	expectedExcess := gas.CalcCalldataExcessGas(parentExcess, parentUsed, parent.GasLimit)
 	if *header.CalldataExcessGas != expectedExcess {
 		return fmt.Errorf("%w: excess gas want %d, got %d", ErrInvalidCalldataGas,
 			expectedExcess, *header.CalldataExcessGas)

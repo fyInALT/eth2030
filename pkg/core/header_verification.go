@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 // Header chain verification errors.
@@ -165,11 +166,11 @@ func verifyExtraDataLimit(header *types.Header) error {
 func verifyGasLimitBounds(header, parent *types.Header) error {
 	if header.GasLimit < MinGasLimit {
 		return fmt.Errorf("%w: %d < %d",
-			ErrGasLimitTooLow, header.GasLimit, MinGasLimit)
+			gas.ErrGasLimitTooLow, header.GasLimit, MinGasLimit)
 	}
 	if header.GasLimit > MaxGasLimit {
 		return fmt.Errorf("%w: %d > %d",
-			ErrGasLimitTooHigh, header.GasLimit, MaxGasLimit)
+			gas.ErrGasLimitTooHigh, header.GasLimit, MaxGasLimit)
 	}
 
 	// The gas limit may change by at most 1/GasLimitBoundDivisor per block.
@@ -235,7 +236,7 @@ func (v *HeaderVerifier) verifyBaseFee(header, parent *types.Header) error {
 		return nil
 	}
 
-	expected := CalcBaseFee(parent)
+	expected := gas.CalcBaseFee(parent)
 	if header.BaseFee.Cmp(expected) != 0 {
 		return fmt.Errorf("%w: have=%v, want=%v",
 			ErrBaseFeeComputation, header.BaseFee, expected)
@@ -267,11 +268,11 @@ func (v *HeaderVerifier) verifyBlobGas(header, parent *types.Header) error {
 
 	// Use fork-aware validation when Prague+ is active (supports BPO schedules).
 	if v.config.IsPrague(header.Time) {
-		return ValidateBlockBlobGasWithConfig(v.config, header, parent)
+		return gas.ValidateBlockBlobGasWithConfig(v.config, header, parent)
 	}
 
 	// Cancun-era validation (original EIP-4844 parameters).
-	return ValidateBlockBlobGas(header, parent)
+	return gas.ValidateBlockBlobGas(header, parent)
 }
 
 // verifyCalldataGas validates the EIP-7706 calldata gas fields for
@@ -287,7 +288,7 @@ func (v *HeaderVerifier) verifyCalldataGas(header, parent *types.Header) error {
 			ErrCalldataFieldsMissing, header.CalldataGasUsed, header.CalldataExcessGas)
 	}
 
-	return ValidateCalldataGas(header, parent)
+	return gas.ValidateCalldataGasFields(header, parent)
 }
 
 // VerifyTimestampWindow checks that a header's timestamp is not too far
@@ -346,7 +347,7 @@ func VerifyBaseFeeFromScratch(header, parent *types.Header) error {
 		return fmt.Errorf("%w: parent has base fee but child does not", ErrBaseFeeNil)
 	}
 
-	expected := CalcBaseFee(parent)
+	expected := gas.CalcBaseFee(parent)
 	if header.BaseFee.Cmp(expected) != 0 {
 		return fmt.Errorf("%w: have=%v, want=%v",
 			ErrBaseFeeComputation, header.BaseFee, expected)

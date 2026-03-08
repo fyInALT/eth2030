@@ -4,9 +4,9 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/core/config"
 )
 
 // TestWithdrawalProcessing verifies that EIP-4895 beacon chain withdrawals

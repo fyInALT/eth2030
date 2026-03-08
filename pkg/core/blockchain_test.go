@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -60,7 +61,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 	if parentHeader.BlobGasUsed != nil {
 		pUsed = *parentHeader.BlobGasUsed
 	}
-	excessBlobGas := CalcExcessBlobGas(pExcess, pUsed)
+	excessBlobGas := gas.CalcExcessBlobGas(pExcess, pUsed)
 
 	// EIP-7706: compute calldata gas fields.
 	calldataGasUsed := uint64(0)
@@ -71,7 +72,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 	if parentHeader.CalldataGasUsed != nil {
 		pCalldataUsed = *parentHeader.CalldataGasUsed
 	}
-	calldataExcessGas := CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parentHeader.GasLimit)
+	calldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parentHeader.GasLimit)
 
 	emptyWHash := types.EmptyRootHash
 	emptyBeaconRoot := types.EmptyRootHash
@@ -82,7 +83,7 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 		GasLimit:          parentHeader.GasLimit,
 		Time:              parentHeader.Time + 12,
 		Difficulty:        new(big.Int),
-		BaseFee:           CalcBaseFee(parentHeader),
+		BaseFee:           gas.CalcBaseFee(parentHeader),
 		UncleHash:         EmptyUncleHash,
 		WithdrawalsHash:   &emptyWHash,
 		BlobGasUsed:       &blobGasUsed,
@@ -362,7 +363,7 @@ func TestBlockchain_InvalidBlock(t *testing.T) {
 		GasLimit:        gen.GasLimit(),
 		Time:            gen.Time() + 12,
 		Difficulty:      new(big.Int),
-		BaseFee:         CalcBaseFee(gen.Header()),
+		BaseFee:         gas.CalcBaseFee(gen.Header()),
 		UncleHash:       EmptyUncleHash,
 		WithdrawalsHash: &badWHash1,
 		BlobGasUsed:     &badBlobGas1,
@@ -384,7 +385,7 @@ func TestBlockchain_InvalidBlock(t *testing.T) {
 		GasLimit:        gen.GasLimit(),
 		Time:            gen.Time() + 12,
 		Difficulty:      new(big.Int),
-		BaseFee:         CalcBaseFee(gen.Header()),
+		BaseFee:         gas.CalcBaseFee(gen.Header()),
 		UncleHash:       EmptyUncleHash,
 		WithdrawalsHash: &badWHash2,
 		BlobGasUsed:     &badBlobGas2,
@@ -406,7 +407,7 @@ func TestBlockchain_InvalidBlock(t *testing.T) {
 		GasLimit:        gen.GasLimit(),
 		Time:            0, // same as genesis
 		Difficulty:      new(big.Int),
-		BaseFee:         CalcBaseFee(gen.Header()),
+		BaseFee:         gas.CalcBaseFee(gen.Header()),
 		UncleHash:       EmptyUncleHash,
 		WithdrawalsHash: &badWHash3,
 		BlobGasUsed:     &badBlobGas3,

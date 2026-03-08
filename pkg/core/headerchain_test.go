@@ -4,8 +4,9 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/types"
 )
 
 func genesisHeader() *types.Header {
@@ -42,7 +43,7 @@ func nextHeader(parent *types.Header) *types.Header {
 	if parent.BlobGasUsed != nil {
 		parentUsed = *parent.BlobGasUsed
 	}
-	excessBlobGas := CalcExcessBlobGas(parentExcess, parentUsed)
+	excessBlobGas := gas.CalcExcessBlobGas(parentExcess, parentUsed)
 	emptyWHash := types.EmptyRootHash
 
 	// EIP-7706: compute calldata gas fields.
@@ -54,7 +55,7 @@ func nextHeader(parent *types.Header) *types.Header {
 	if parent.CalldataGasUsed != nil {
 		parentCalldataUsed = *parent.CalldataGasUsed
 	}
-	calldataExcessGas := CalcCalldataExcessGas(parentCalldataExcess, parentCalldataUsed, parent.GasLimit)
+	calldataExcessGas := gas.CalcCalldataExcessGas(parentCalldataExcess, parentCalldataUsed, parent.GasLimit)
 
 	emptyBeaconRoot := types.EmptyRootHash
 	emptyRequestsHash := types.EmptyRootHash
@@ -66,7 +67,7 @@ func nextHeader(parent *types.Header) *types.Header {
 		GasUsed:           parent.GasLimit / 2, // exactly at target
 		Time:              parent.Time + 12,
 		Difficulty:        new(big.Int),
-		BaseFee:           CalcBaseFee(parent),
+		BaseFee:           gas.CalcBaseFee(parent),
 		WithdrawalsHash:   &emptyWHash,
 		BlobGasUsed:       &blobGasUsed,
 		ExcessBlobGas:     &excessBlobGas,
@@ -202,7 +203,7 @@ func TestHeaderChain_InvalidHeader(t *testing.T) {
 		GasLimit:        genesis.GasLimit,
 		Time:            genesis.Time + 12,
 		Difficulty:      new(big.Int),
-		BaseFee:         CalcBaseFee(genesis),
+		BaseFee:         gas.CalcBaseFee(genesis),
 		WithdrawalsHash: &badWHash,
 		BlobGasUsed:     &badBlobGas,
 		ExcessBlobGas:   &badExcess,
