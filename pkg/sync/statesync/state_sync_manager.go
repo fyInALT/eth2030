@@ -2,7 +2,7 @@
 // synchronization manager for downloading and verifying state trie data.
 // It coordinates batched requests, proof validation, pause/resume control,
 // and progress reporting.
-package sync
+package statesync
 
 import (
 	"crypto/sha256"

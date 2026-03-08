@@ -1,7 +1,7 @@
 // state_sync.go implements StateSyncScheduler, a state machine orchestrating
 // snap-sync state download: account range scheduling, storage trie sync, code
 // download, healing pass, and progress reporting.
-package sync
+package statesync
 
 import (
 	"errors"

@@ -2,7 +2,7 @@
 // It manages the full state download pipeline: account iteration in hash order,
 // storage download batching, code deduplication, trie healing, state root
 // verification, resumable checkpoints, and bandwidth-aware scheduling.
-package sync
+package statesync
 
 import (
 	"encoding/binary"
