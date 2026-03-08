@@ -90,19 +90,19 @@ func NewGossipMeshScoreManager(params MeshScoreParams, decay MeshDecayConfig, ba
 
 // GossipManager types.
 type (
-	GossipConfig        = gossip.GossipConfig
-	GossipMessage       = gossip.GossipMessage
-	GossipSubscription  = gossip.GossipSubscription
-	GossipManager       = gossip.GossipManager
-	GossipScoreWeights  = gossip.GossipScoreWeights
-	GossipScoreConfig   = gossip.GossipScoreConfig
+	GossipConfig         = gossip.GossipConfig
+	GossipMessage        = gossip.GossipMessage
+	GossipSubscription   = gossip.GossipSubscription
+	GossipManager        = gossip.GossipManager
+	GossipScoreWeights   = gossip.GossipScoreWeights
+	GossipScoreConfig    = gossip.GossipScoreConfig
 	GossipScorerSnapshot = gossip.GossipScorerSnapshot
-	GossipScoreManager  = gossip.GossipScoreManager
-	MsgValidatorConfig  = gossip.MsgValidatorConfig
-	GossipMsgEnvelope   = gossip.GossipMsgEnvelope
-	ValidationResult    = gossip.ValidationResult
-	MsgValidator        = gossip.MsgValidator
-	MsgValidatorStats   = gossip.MsgValidatorStats
+	GossipScoreManager   = gossip.GossipScoreManager
+	MsgValidatorConfig   = gossip.MsgValidatorConfig
+	GossipMsgEnvelope    = gossip.GossipMsgEnvelope
+	ValidationResult     = gossip.ValidationResult
+	MsgValidator         = gossip.MsgValidator
+	MsgValidatorStats    = gossip.MsgValidatorStats
 )
 
 // GossipManager errors.
@@ -135,11 +135,11 @@ var (
 )
 
 // GossipManager constructors.
-func DefaultGossipConfig() GossipConfig             { return gossip.DefaultGossipConfig() }
+func DefaultGossipConfig() GossipConfig                { return gossip.DefaultGossipConfig() }
 func NewGossipManager(cfg GossipConfig) *GossipManager { return gossip.NewGossipManager(cfg) }
-func DefaultGossipScoreConfig() GossipScoreConfig   { return gossip.DefaultGossipScoreConfig() }
+func DefaultGossipScoreConfig() GossipScoreConfig      { return gossip.DefaultGossipScoreConfig() }
 func NewGossipScoreManager(cfg GossipScoreConfig, scorer *PeerScorer) *GossipScoreManager {
 	return gossip.NewGossipScoreManager(cfg, scorer)
 }
-func DefaultMsgValidatorConfig() MsgValidatorConfig  { return gossip.DefaultMsgValidatorConfig() }
+func DefaultMsgValidatorConfig() MsgValidatorConfig        { return gossip.DefaultMsgValidatorConfig() }
 func NewMsgValidator(cfg MsgValidatorConfig) *MsgValidator { return gossip.NewMsgValidator(cfg) }

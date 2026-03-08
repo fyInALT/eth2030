@@ -11,71 +11,71 @@ import (
 
 // Broadcast types.
 type (
-	BlockGossipConfig    = broadcast.BlockGossipConfig
-	BlockAnnouncement    = broadcast.BlockAnnouncement
-	GossipStats          = broadcast.GossipStats
-	BlockGossipHandler   = broadcast.BlockGossipHandler
-	BlockPieceMessage    = broadcast.BlockPieceMessage
-	BlockAssembly        = broadcast.BlockAssembly
-	BlockAssemblyConfig  = broadcast.BlockAssemblyConfig
-	BlockAssemblyManager = broadcast.BlockAssemblyManager
-	SetCodeMessage       = broadcast.SetCodeMessage
-	SetCodeGossipHandler = broadcast.SetCodeGossipHandler
+	BlockGossipConfig        = broadcast.BlockGossipConfig
+	BlockAnnouncement        = broadcast.BlockAnnouncement
+	GossipStats              = broadcast.GossipStats
+	BlockGossipHandler       = broadcast.BlockGossipHandler
+	BlockPieceMessage        = broadcast.BlockPieceMessage
+	BlockAssembly            = broadcast.BlockAssembly
+	BlockAssemblyConfig      = broadcast.BlockAssemblyConfig
+	BlockAssemblyManager     = broadcast.BlockAssemblyManager
+	SetCodeMessage           = broadcast.SetCodeMessage
+	SetCodeGossipHandler     = broadcast.SetCodeGossipHandler
 	SetCodeGossipHandlerFunc = broadcast.SetCodeGossipHandlerFunc
-	SetCodeBroadcaster   = broadcast.SetCodeBroadcaster
-	BroadcastResult      = broadcast.BroadcastResult
-	BroadcastStats       = broadcast.BroadcastStats
-	TopicFilter          = broadcast.TopicFilter
-	Subscription         = broadcast.Subscription
-	BroadcastMessage     = broadcast.BroadcastMessage
-	PeerSender           = broadcast.PeerSender
-	EIP2PBroadcaster     = broadcast.EIP2PBroadcaster
-	MempoolBroadcaster   = broadcast.MempoolBroadcaster
+	SetCodeBroadcaster       = broadcast.SetCodeBroadcaster
+	BroadcastResult          = broadcast.BroadcastResult
+	BroadcastStats           = broadcast.BroadcastStats
+	TopicFilter              = broadcast.TopicFilter
+	Subscription             = broadcast.Subscription
+	BroadcastMessage         = broadcast.BroadcastMessage
+	PeerSender               = broadcast.PeerSender
+	EIP2PBroadcaster         = broadcast.EIP2PBroadcaster
+	MempoolBroadcaster       = broadcast.MempoolBroadcaster
 )
 
 // Broadcast constants.
 const (
-	SetCodeTopicPrefix         = broadcast.SetCodeTopicPrefix
-	DefaultSetCodeRateLimit    = broadcast.DefaultSetCodeRateLimit
+	SetCodeTopicPrefix          = broadcast.SetCodeTopicPrefix
+	DefaultSetCodeRateLimit     = broadcast.DefaultSetCodeRateLimit
 	DefaultSetCodeEpochDuration = broadcast.DefaultSetCodeEpochDuration
-	DefaultFanout              = broadcast.DefaultFanout
-	MinFanout                  = broadcast.MinFanout
-	MaxFanout                  = broadcast.MaxFanout
-	DefaultMaxMessageSize      = broadcast.DefaultMaxMessageSize
-	DefaultSubscriptionBuffer  = broadcast.DefaultSubscriptionBuffer
+	DefaultFanout               = broadcast.DefaultFanout
+	MinFanout                   = broadcast.MinFanout
+	MaxFanout                   = broadcast.MaxFanout
+	DefaultMaxMessageSize       = broadcast.DefaultMaxMessageSize
+	DefaultSubscriptionBuffer   = broadcast.DefaultSubscriptionBuffer
 )
 
 // Broadcast errors.
 var (
-	ErrBlockGossipNilHash    = broadcast.ErrBlockGossipNilHash
-	ErrBlockGossipNoPeers    = broadcast.ErrBlockGossipNoPeers
-	ErrBlockGossipDuplicate  = broadcast.ErrBlockGossipDuplicate
-	ErrBlockGossipEmptyPeer  = broadcast.ErrBlockGossipEmptyPeer
-	ErrBlockGossipPeerExists = broadcast.ErrBlockGossipPeerExists
-	ErrPieceGossipNilPiece   = broadcast.ErrPieceGossipNilPiece
-	ErrPieceGossipDuplicate  = broadcast.ErrPieceGossipDuplicate
-	ErrPieceGossipExpired    = broadcast.ErrPieceGossipExpired
-	ErrPieceGossipNoPeers    = broadcast.ErrPieceGossipNoPeers
-	ErrPieceGossipComplete   = broadcast.ErrPieceGossipComplete
-	ErrSetCodeNilMessage     = broadcast.ErrSetCodeNilMessage
-	ErrSetCodeEmptyAuthority = broadcast.ErrSetCodeEmptyAuthority
-	ErrSetCodeInvalidChainID = broadcast.ErrSetCodeInvalidChainID
-	ErrSetCodeInvalidSig     = broadcast.ErrSetCodeInvalidSig
-	ErrSetCodeDuplicate      = broadcast.ErrSetCodeDuplicate
-	ErrSetCodeRateLimited    = broadcast.ErrSetCodeRateLimited
+	ErrBlockGossipNilHash     = broadcast.ErrBlockGossipNilHash
+	ErrBlockGossipNoPeers     = broadcast.ErrBlockGossipNoPeers
+	ErrBlockGossipDuplicate   = broadcast.ErrBlockGossipDuplicate
+	ErrBlockGossipEmptyPeer   = broadcast.ErrBlockGossipEmptyPeer
+	ErrBlockGossipPeerExists  = broadcast.ErrBlockGossipPeerExists
+	ErrPieceGossipNilPiece    = broadcast.ErrPieceGossipNilPiece
+	ErrPieceGossipDuplicate   = broadcast.ErrPieceGossipDuplicate
+	ErrPieceGossipExpired     = broadcast.ErrPieceGossipExpired
+	ErrPieceGossipNoPeers     = broadcast.ErrPieceGossipNoPeers
+	ErrPieceGossipComplete    = broadcast.ErrPieceGossipComplete
+	ErrSetCodeNilMessage      = broadcast.ErrSetCodeNilMessage
+	ErrSetCodeEmptyAuthority  = broadcast.ErrSetCodeEmptyAuthority
+	ErrSetCodeInvalidChainID  = broadcast.ErrSetCodeInvalidChainID
+	ErrSetCodeInvalidSig      = broadcast.ErrSetCodeInvalidSig
+	ErrSetCodeDuplicate       = broadcast.ErrSetCodeDuplicate
+	ErrSetCodeRateLimited     = broadcast.ErrSetCodeRateLimited
 	ErrSetCodeBroadcasterStop = broadcast.ErrSetCodeBroadcasterStop
-	ErrBroadcastClosed       = broadcast.ErrBroadcastClosed
-	ErrBroadcastNilData      = broadcast.ErrBroadcastNilData
-	ErrBroadcastEmptyType    = broadcast.ErrBroadcastEmptyType
-	ErrBroadcastNoPeers      = broadcast.ErrBroadcastNoPeers
-	ErrBroadcastTooLarge     = broadcast.ErrBroadcastTooLarge
-	ErrBroadcastTopicEmpty   = broadcast.ErrBroadcastTopicEmpty
-	ErrBroadcastNotSub       = broadcast.ErrBroadcastNotSub
-	ErrBroadcastFanoutRange  = broadcast.ErrBroadcastFanoutRange
+	ErrBroadcastClosed        = broadcast.ErrBroadcastClosed
+	ErrBroadcastNilData       = broadcast.ErrBroadcastNilData
+	ErrBroadcastEmptyType     = broadcast.ErrBroadcastEmptyType
+	ErrBroadcastNoPeers       = broadcast.ErrBroadcastNoPeers
+	ErrBroadcastTooLarge      = broadcast.ErrBroadcastTooLarge
+	ErrBroadcastTopicEmpty    = broadcast.ErrBroadcastTopicEmpty
+	ErrBroadcastNotSub        = broadcast.ErrBroadcastNotSub
+	ErrBroadcastFanoutRange   = broadcast.ErrBroadcastFanoutRange
 )
 
 // Broadcast constructors.
-func DefaultBlockGossipConfig() BlockGossipConfig     { return broadcast.DefaultBlockGossipConfig() }
+func DefaultBlockGossipConfig() BlockGossipConfig { return broadcast.DefaultBlockGossipConfig() }
 func NewBlockGossipHandler(cfg BlockGossipConfig) *BlockGossipHandler {
 	return broadcast.NewBlockGossipHandler(cfg)
 }

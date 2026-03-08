@@ -7,27 +7,27 @@ import "github.com/eth2030/eth2030/p2p/reqresp"
 
 // ReqResp codec types.
 type (
-	RequestID   = reqresp.RequestID
-	Request     = reqresp.Request
-	Response    = reqresp.Response
-	ReqRespCodec = reqresp.ReqRespCodec
+	RequestID     = reqresp.RequestID
+	Request       = reqresp.Request
+	Response      = reqresp.Response
+	ReqRespCodec  = reqresp.ReqRespCodec
 	ReqRespConfig = reqresp.ReqRespConfig
 )
 
 // Protocol types.
 type (
-	MethodID               = reqresp.MethodID
-	ResponseCode           = reqresp.ResponseCode
-	StatusMessage          = reqresp.StatusMessage
-	GoodbyeReason          = reqresp.GoodbyeReason
-	ProtocolRequest        = reqresp.ProtocolRequest
-	ProtocolResponse       = reqresp.ProtocolResponse
-	ResponseChunk          = reqresp.ResponseChunk
-	StreamedResponse       = reqresp.StreamedResponse
-	ReqHandler             = reqresp.ReqHandler
+	MethodID                = reqresp.MethodID
+	ResponseCode            = reqresp.ResponseCode
+	StatusMessage           = reqresp.StatusMessage
+	GoodbyeReason           = reqresp.GoodbyeReason
+	ProtocolRequest         = reqresp.ProtocolRequest
+	ProtocolResponse        = reqresp.ProtocolResponse
+	ResponseChunk           = reqresp.ResponseChunk
+	StreamedResponse        = reqresp.StreamedResponse
+	ReqHandler              = reqresp.ReqHandler
 	StreamingRequestHandler = reqresp.StreamingRequestHandler
-	ProtocolConfig         = reqresp.ProtocolConfig
-	ReqRespProtocol        = reqresp.ReqRespProtocol
+	ProtocolConfig          = reqresp.ProtocolConfig
+	ReqRespProtocol         = reqresp.ReqRespProtocol
 )
 
 // Beacon message types.
@@ -99,8 +99,8 @@ var (
 
 // Constants.
 const (
-	DefaultHandlerTimeout             = reqresp.DefaultHandlerTimeout
-	MaxConcurrentRequestsPerProtocol  = reqresp.MaxConcurrentRequestsPerProtocol
+	DefaultHandlerTimeout            = reqresp.DefaultHandlerTimeout
+	MaxConcurrentRequestsPerProtocol = reqresp.MaxConcurrentRequestsPerProtocol
 )
 
 // Constructors.
@@ -113,17 +113,17 @@ func DefaultProtocolConfig() ProtocolConfig { return reqresp.DefaultProtocolConf
 func NewReqRespManager(protocol *ReqRespProtocol, retry RetryConfig) *ReqRespManager {
 	return reqresp.NewReqRespManager(protocol, retry)
 }
-func DefaultRetryConfig() RetryConfig              { return reqresp.DefaultRetryConfig() }
+func DefaultRetryConfig() RetryConfig { return reqresp.DefaultRetryConfig() }
 func NewRequestManager(cfg RequestManagerConfig) *RequestManager {
 	return reqresp.NewRequestManager(cfg)
 }
 func DefaultRequestManagerConfig() RequestManagerConfig { return reqresp.DefaultRequestManagerConfig() }
-func NewRequestHandler() *RequestHandler               { return reqresp.NewRequestHandler() }
+func NewRequestHandler() *RequestHandler                { return reqresp.NewRequestHandler() }
 
 // SSZ encoding helpers.
-func EncodeSSZChunk(chunk SSZChunk) []byte             { return reqresp.EncodeSSZChunk(chunk) }
+func EncodeSSZChunk(chunk SSZChunk) []byte               { return reqresp.EncodeSSZChunk(chunk) }
 func DecodeSSZChunk(data []byte) (*SSZChunk, int, error) { return reqresp.DecodeSSZChunk(data) }
-func DecodeSSZStream(data []byte) ([]SSZChunk, error)  { return reqresp.DecodeSSZStream(data) }
+func DecodeSSZStream(data []byte) ([]SSZChunk, error)    { return reqresp.DecodeSSZStream(data) }
 
 // Beacon request helpers.
 func DecodeBeaconBlocksByRange(data []byte) (*BeaconBlocksByRangeRequest, error) {

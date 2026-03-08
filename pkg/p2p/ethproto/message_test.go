@@ -1,8 +1,8 @@
 package ethproto
 
 import (
-	"testing"
 	"github.com/eth2030/eth2030/p2p/wire"
+	"testing"
 )
 
 func TestForkID(t *testing.T) {

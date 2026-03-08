@@ -52,30 +52,30 @@ type ForkID = ethproto.ForkID
 
 // Protocol message types.
 type (
-	StatusData                        = ethproto.StatusData
-	NewBlockHashesEntry               = ethproto.NewBlockHashesEntry
-	HashOrNumber                      = ethproto.HashOrNumber
-	GetBlockHeadersRequest            = ethproto.GetBlockHeadersRequest
-	GetBlockHeadersPacket             = ethproto.GetBlockHeadersPacket
-	BlockHeadersPacket                = ethproto.BlockHeadersPacket
-	GetBlockBodiesRequest             = ethproto.GetBlockBodiesRequest
-	GetBlockBodiesPacket              = ethproto.GetBlockBodiesPacket
-	BlockBody                         = ethproto.BlockBody
-	BlockBodiesPacket                 = ethproto.BlockBodiesPacket
-	NewBlockData                      = ethproto.NewBlockData
-	GetReceiptsRequest                = ethproto.GetReceiptsRequest
-	GetReceiptsPacket                 = ethproto.GetReceiptsPacket
-	ReceiptsPacket                    = ethproto.ReceiptsPacket
+	StatusData                         = ethproto.StatusData
+	NewBlockHashesEntry                = ethproto.NewBlockHashesEntry
+	HashOrNumber                       = ethproto.HashOrNumber
+	GetBlockHeadersRequest             = ethproto.GetBlockHeadersRequest
+	GetBlockHeadersPacket              = ethproto.GetBlockHeadersPacket
+	BlockHeadersPacket                 = ethproto.BlockHeadersPacket
+	GetBlockBodiesRequest              = ethproto.GetBlockBodiesRequest
+	GetBlockBodiesPacket               = ethproto.GetBlockBodiesPacket
+	BlockBody                          = ethproto.BlockBody
+	BlockBodiesPacket                  = ethproto.BlockBodiesPacket
+	NewBlockData                       = ethproto.NewBlockData
+	GetReceiptsRequest                 = ethproto.GetReceiptsRequest
+	GetReceiptsPacket                  = ethproto.GetReceiptsPacket
+	ReceiptsPacket                     = ethproto.ReceiptsPacket
 	NewPooledTransactionHashesPacket68 = ethproto.NewPooledTransactionHashesPacket68
-	GetPooledTransactionsRequest      = ethproto.GetPooledTransactionsRequest
-	GetPooledTransactionsPacket       = ethproto.GetPooledTransactionsPacket
-	PooledTransactionsPacket          = ethproto.PooledTransactionsPacket
-	GetPartialReceiptsPacket          = ethproto.GetPartialReceiptsPacket
-	PartialReceiptsPacket             = ethproto.PartialReceiptsPacket
-	GetBlockAccessListsPacket         = ethproto.GetBlockAccessListsPacket
-	BlockAccessListData               = ethproto.BlockAccessListData
-	AccessEntryData                   = ethproto.AccessEntryData
-	BlockAccessListsPacket            = ethproto.BlockAccessListsPacket
+	GetPooledTransactionsRequest       = ethproto.GetPooledTransactionsRequest
+	GetPooledTransactionsPacket        = ethproto.GetPooledTransactionsPacket
+	PooledTransactionsPacket           = ethproto.PooledTransactionsPacket
+	GetPartialReceiptsPacket           = ethproto.GetPartialReceiptsPacket
+	PartialReceiptsPacket              = ethproto.PartialReceiptsPacket
+	GetBlockAccessListsPacket          = ethproto.GetBlockAccessListsPacket
+	BlockAccessListData                = ethproto.BlockAccessListData
+	AccessEntryData                    = ethproto.AccessEntryData
+	BlockAccessListsPacket             = ethproto.BlockAccessListsPacket
 )
 
 // Handler types.
@@ -97,7 +97,7 @@ var (
 )
 
 // Constructors.
-func NewHandlerRegistry() *HandlerRegistry              { return ethproto.NewHandlerRegistry() }
+func NewHandlerRegistry() *HandlerRegistry { return ethproto.NewHandlerRegistry() }
 func NewRequestTracker(timeout time.Duration) *RequestTracker {
 	return ethproto.NewRequestTracker(timeout)
 }
