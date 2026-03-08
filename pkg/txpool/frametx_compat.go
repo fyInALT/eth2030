@@ -14,6 +14,7 @@ type (
 	AggressiveFrameRules   = frametx.AggressiveFrameRules
 	PaymasterApprover      = frametx.PaymasterApprover
 	FrameTxMetrics         = frametx.FrameTxMetrics
+	FrameStateReader       = frametx.FrameStateReader
 )
 
 // Frametx constants.
@@ -33,3 +34,6 @@ func ValidateFrameTxAggressive(tx *types.FrameTx, registry PaymasterApprover) er
 	return frametx.ValidateFrameTxAggressive(tx, registry)
 }
 func NewFrameTxMetrics() *FrameTxMetrics { return frametx.NewFrameTxMetrics() }
+func SimulateVerifyFrame(tx *types.FrameTx, reader FrameStateReader) error {
+	return frametx.SimulateVerifyFrame(tx, reader)
+}

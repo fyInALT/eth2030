@@ -1,15 +1,17 @@
-package txpool
+package frametx
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
 )
 
-// FrameStateReader extends StateReader with code-size lookup needed for
-// VERIFY frame pre-flight simulation (US-AA-3).
+// FrameStateReader extends the basic state reader with code-size lookup needed
+// for VERIFY frame pre-flight simulation (US-AA-3).
 type FrameStateReader interface {
-	StateReader
+	GetNonce(addr types.Address) uint64
+	GetBalance(addr types.Address) *big.Int
 	// GetCodeSize returns the byte length of the code at addr.
 	// Returns 0 for EOAs and non-existent accounts.
 	GetCodeSize(addr types.Address) int
