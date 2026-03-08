@@ -1,38 +1,26 @@
 // net_api.go provides a standalone Net namespace API with its own backend
-// interface for network information. This complements the net_ methods
-// already dispatched through EthAPI (in api.go) by providing a separate,
-// composable API struct with richer network info access.
+// interface for network information. The dispatch layer lives here (top-level
+// rpc package) so it can access successResponse/errorResponse helpers.
+// Core logic is in rpc/netapi.
 package rpc
 
 import (
-	"errors"
 	"fmt"
+
+	"github.com/eth2030/eth2030/rpc/netapi"
 )
 
-// NetBackend provides access to network status information.
-type NetBackend interface {
-	// NetworkID returns the network identifier (e.g. 1 for mainnet).
-	NetworkID() uint64
-
-	// IsListening returns whether the node is currently accepting
-	// inbound connections.
-	IsListening() bool
-
-	// PeerCount returns the number of currently connected peers.
-	PeerCount() int
-
-	// MaxPeers returns the configured maximum number of peers.
-	MaxPeers() int
-}
+// NetBackend re-exports the net Backend interface.
+type NetBackend = netapi.Backend
 
 // NetAPI implements the net_ namespace JSON-RPC methods.
 type NetAPI struct {
-	backend NetBackend
+	inner *netapi.API
 }
 
 // NewNetAPI creates a new net API service.
 func NewNetAPI(backend NetBackend) *NetAPI {
-	return &NetAPI{backend: backend}
+	return &NetAPI{inner: netapi.NewAPI(backend)}
 }
 
 // HandleNetRequest dispatches a net_ namespace JSON-RPC request.
@@ -54,64 +42,61 @@ func (n *NetAPI) HandleNetRequest(req *Request) *Response {
 
 // netVersionFull returns the network ID as a decimal string.
 func (n *NetAPI) netVersionFull(req *Request) *Response {
-	if n.backend == nil {
-		return errorResponse(req.ID, ErrCodeInternal, "net backend not available")
+	v, err := n.inner.Version()
+	if err != nil {
+		return errorResponse(req.ID, ErrCodeInternal, err.Error())
 	}
-	id := n.backend.NetworkID()
-	return successResponse(req.ID, fmt.Sprintf("%d", id))
+	return successResponse(req.ID, v)
 }
 
 // netListeningFull returns whether the node is listening for connections.
 func (n *NetAPI) netListeningFull(req *Request) *Response {
-	if n.backend == nil {
-		return errorResponse(req.ID, ErrCodeInternal, "net backend not available")
+	l, err := n.inner.Listening()
+	if err != nil {
+		return errorResponse(req.ID, ErrCodeInternal, err.Error())
 	}
-	return successResponse(req.ID, n.backend.IsListening())
+	return successResponse(req.ID, l)
 }
 
 // netPeerCountFull returns the connected peer count as a hex string.
 func (n *NetAPI) netPeerCountFull(req *Request) *Response {
-	if n.backend == nil {
-		return errorResponse(req.ID, ErrCodeInternal, "net backend not available")
+	count, err := n.inner.PeerCount()
+	if err != nil {
+		return errorResponse(req.ID, ErrCodeInternal, err.Error())
 	}
-	count := n.backend.PeerCount()
 	return successResponse(req.ID, encodeUint64(uint64(count)))
 }
 
 // netMaxPeers returns the max peer count as a hex string.
 func (n *NetAPI) netMaxPeers(req *Request) *Response {
-	if n.backend == nil {
-		return errorResponse(req.ID, ErrCodeInternal, "net backend not available")
+	max, err := n.inner.MaxPeers()
+	if err != nil {
+		return errorResponse(req.ID, ErrCodeInternal, err.Error())
 	}
-	max := n.backend.MaxPeers()
 	return successResponse(req.ID, encodeUint64(uint64(max)))
 }
 
 // --- Direct Go-typed API methods (for programmatic / internal use) ---
 
 // ErrNetBackendNil is returned when the net backend is nil.
-var ErrNetBackendNil = errors.New("net backend not available")
+var ErrNetBackendNil = netapi.ErrBackendNil
 
 // Version returns the network ID as a decimal string.
 func (n *NetAPI) Version() (string, error) {
-	if n.backend == nil {
-		return "", ErrNetBackendNil
-	}
-	return fmt.Sprintf("%d", n.backend.NetworkID()), nil
+	return n.inner.Version()
 }
 
 // Listening returns whether the node is accepting connections.
 func (n *NetAPI) Listening() (bool, error) {
-	if n.backend == nil {
-		return false, ErrNetBackendNil
-	}
-	return n.backend.IsListening(), nil
+	return n.inner.Listening()
 }
 
 // PeerCount returns the connected peer count.
 func (n *NetAPI) PeerCount() (int, error) {
-	if n.backend == nil {
-		return 0, ErrNetBackendNil
-	}
-	return n.backend.PeerCount(), nil
+	return n.inner.PeerCount()
+}
+
+// GetBackend returns the underlying backend for testing/inspection.
+func (n *NetAPI) GetBackend() NetBackend {
+	return n.inner.GetBackend()
 }

@@ -399,7 +399,7 @@ func TestNewAdminAPI(t *testing.T) {
 	if api == nil {
 		t.Fatal("expected non-nil API")
 	}
-	if api.backend != mb {
+	if api.GetBackend() != mb {
 		t.Fatal("backend not set correctly")
 	}
 }
