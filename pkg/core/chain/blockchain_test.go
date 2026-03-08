@@ -6,38 +6,37 @@ import (
 
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
-	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/internal/testutil"
 )
 
 // makeGenesis creates a genesis block with the given gas limit and base fee.
 func makeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
-	blobGasUsed := uint64(0)
-	excessBlobGas := uint64(0)
-	calldataGasUsed := uint64(0)
-	calldataExcessGas := uint64(0)
-	emptyWithdrawalsHash := types.EmptyRootHash
-	emptyRoot := types.EmptyRootHash
-	header := &types.Header{
-		Number:            big.NewInt(0),
-		GasLimit:          gasLimit,
-		GasUsed:           0,
-		Time:              0,
-		Difficulty:        new(big.Int),
-		BaseFee:           baseFee,
-		UncleHash:         block.EmptyUncleHash,
-		WithdrawalsHash:   &emptyWithdrawalsHash,
-		BlobGasUsed:       &blobGasUsed,
-		ExcessBlobGas:     &excessBlobGas,
-		ParentBeaconRoot:  &emptyRoot,
-		RequestsHash:      &emptyRoot,
-		CalldataGasUsed:   &calldataGasUsed,
-		CalldataExcessGas: &calldataExcessGas,
+	return testutil.MakeGenesis(gasLimit, baseFee)
+}
+
+// makeBlock builds a valid child block of parent with the given transactions.
+func makeBlock(parent *types.Block, txs []*types.Transaction) *types.Block {
+	return testutil.MakeBlock(parent, txs)
+}
+
+// makeBlockWithState builds a valid child block executing txs against statedb.
+func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *state.MemoryStateDB) *types.Block {
+	return testutil.MakeBlockWithState(parent, txs, statedb)
+}
+
+// makeChainBlocks builds a chain of empty blocks from the given parent using
+// the provided state (which is mutated in place).
+func makeChainBlocks(parent *types.Block, count int, statedb *state.MemoryStateDB) []*types.Block {
+	blocks := make([]*types.Block, count)
+	for i := 0; i < count; i++ {
+		blocks[i] = makeBlockWithState(parent, nil, statedb)
+		parent = blocks[i]
 	}
-	return types.NewBlock(header, &types.Body{Withdrawals: []*types.Withdrawal{}})
+	return blocks
 }
 
 // testChain is a helper that creates a blockchain with a genesis block.
@@ -51,125 +50,6 @@ func testChain(t *testing.T) (*Blockchain, *state.MemoryStateDB) {
 		t.Fatalf("NewBlockchain: %v", err)
 	}
 	return bc, statedb
-}
-
-// makeBlock builds a valid child block of parent with the given transactions.
-// It uses an empty state to compute all consensus-critical header fields.
-// This is suitable only for the FIRST block after a genesis with empty state.
-// For chains of blocks, use makeBlockWithState with a shared state that
-// accumulates changes across blocks.
-func makeBlock(parent *types.Block, txs []*types.Transaction) *types.Block {
-	return makeBlockWithState(parent, txs, state.NewMemoryStateDB())
-}
-
-// makeChainBlocks builds a chain of empty blocks from the given parent using
-// the provided state (which is mutated in place). The state should be a copy
-// of the genesis state at the point of the parent block.
-func makeChainBlocks(parent *types.Block, count int, statedb *state.MemoryStateDB) []*types.Block {
-	blocks := make([]*types.Block, count)
-	for i := 0; i < count; i++ {
-		blocks[i] = makeBlockWithState(parent, nil, statedb)
-		parent = blocks[i]
-	}
-	return blocks
-}
-
-// makeBlockWithState builds a valid child block and computes the correct header
-// fields by executing the transactions against the provided state. The state is
-// mutated in place so callers can chain multiple blocks: each call advances the
-// state to the post-execution state of the new block.
-// All consensus-critical fields are computed: state root, transaction root,
-// receipt root, bloom, gas used, and the BAL hash (EIP-7928).
-func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *state.MemoryStateDB) *types.Block {
-	parentHeader := parent.Header()
-	blobGasUsed := uint64(0)
-	var pExcess, pUsed uint64
-	if parentHeader.ExcessBlobGas != nil {
-		pExcess = *parentHeader.ExcessBlobGas
-	}
-	if parentHeader.BlobGasUsed != nil {
-		pUsed = *parentHeader.BlobGasUsed
-	}
-	excessBlobGas := gas.CalcExcessBlobGas(pExcess, pUsed)
-
-	// EIP-7706: compute calldata gas fields.
-	calldataGasUsed := uint64(0)
-	var pCalldataExcess, pCalldataUsed uint64
-	if parentHeader.CalldataExcessGas != nil {
-		pCalldataExcess = *parentHeader.CalldataExcessGas
-	}
-	if parentHeader.CalldataGasUsed != nil {
-		pCalldataUsed = *parentHeader.CalldataGasUsed
-	}
-	calldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parentHeader.GasLimit)
-
-	emptyWHash := types.EmptyRootHash
-	emptyBeaconRoot := types.EmptyRootHash
-	emptyRequestsHash := types.EmptyRootHash
-	header := &types.Header{
-		ParentHash:        parent.Hash(),
-		Number:            new(big.Int).Add(parentHeader.Number, big.NewInt(1)),
-		GasLimit:          parentHeader.GasLimit,
-		Time:              parentHeader.Time + 12,
-		Difficulty:        new(big.Int),
-		BaseFee:           gas.CalcBaseFee(parentHeader),
-		UncleHash:         block.EmptyUncleHash,
-		WithdrawalsHash:   &emptyWHash,
-		BlobGasUsed:       &blobGasUsed,
-		ExcessBlobGas:     &excessBlobGas,
-		ParentBeaconRoot:  &emptyBeaconRoot,
-		RequestsHash:      &emptyRequestsHash,
-		CalldataGasUsed:   &calldataGasUsed,
-		CalldataExcessGas: &calldataExcessGas,
-	}
-
-	body := &types.Body{
-		Transactions: txs,
-		Withdrawals:  []*types.Withdrawal{}, // Shanghai+ requires withdrawals (may be empty)
-	}
-
-	blk := types.NewBlock(header, body)
-
-	// Execute transactions directly on the provided state to compute gas used,
-	// bloom, BAL hash, state root, transaction root, and receipt root.
-	// The state is advanced in place so that callers can chain multiple blocks.
-	proc := execution.NewStateProcessor(config.TestConfig)
-	result, err := proc.ProcessWithBAL(blk, statedb)
-	if err == nil {
-		// Compute gas used from receipts.
-		var gasUsed uint64
-		for _, r := range result.Receipts {
-			gasUsed += r.GasUsed
-		}
-		header.GasUsed = gasUsed
-
-		// Compute calldata gas used from transactions.
-		var cdGasUsed uint64
-		for _, tx := range txs {
-			cdGasUsed += tx.CalldataGas()
-		}
-		*header.CalldataGasUsed = cdGasUsed
-
-		// Set BAL hash.
-		if result.BlockAccessList != nil {
-			h := result.BlockAccessList.Hash()
-			header.BlockAccessListHash = &h
-		}
-
-		// Set bloom from receipts.
-		header.Bloom = types.CreateBloom(result.Receipts)
-
-		// Set receipt root from the computed receipts.
-		header.ReceiptHash = block.DeriveReceiptsRoot(result.Receipts)
-
-		// Set state root from the post-execution state.
-		header.Root = statedb.GetRoot()
-	}
-
-	// Set transaction trie root.
-	header.TxHash = block.DeriveTxsRoot(txs)
-
-	return types.NewBlock(header, body)
 }
 
 func TestBlockchain_Genesis(t *testing.T) {
