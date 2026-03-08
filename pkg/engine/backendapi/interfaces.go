@@ -95,6 +95,18 @@ type EngineV7Backend interface {
 	GetPayloadV7(id payload.PayloadID) (*payload.ExecutionPayloadV7, error)
 }
 
+// PayloadBodiesBackend exposes block body retrieval for engine_getPayloadBodies*.
+// Backends that support payload body queries implement this interface.
+type PayloadBodiesBackend interface {
+	// GetPayloadBodiesByHash returns payload bodies for the given block hashes.
+	// Entries for unknown or out-of-retention-window blocks are nil.
+	GetPayloadBodiesByHash(hashes []types.Hash) ([]*payload.ExecutionPayloadBodyV2, error)
+
+	// GetPayloadBodiesByRange returns payload bodies for a range of block numbers
+	// starting at start for count blocks. Entries outside the retention window are nil.
+	GetPayloadBodiesByRange(start, count uint64) ([]*payload.ExecutionPayloadBodyV2, error)
+}
+
 // UncoupledBackend is the backend interface for EIP-7898 uncoupled execution payloads.
 // Implementations provide uncoupled payload handling; left minimal for extensibility.
 type UncoupledBackend interface{} //nolint:revive

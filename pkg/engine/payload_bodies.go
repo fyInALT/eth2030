@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/backendapi"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 )
 
@@ -16,79 +16,24 @@ type ExecutionPayloadBodyV2 = enginepayload.ExecutionPayloadBodyV2
 // GetPayloadBodiesByHashV2 returns payload bodies for the given block hashes,
 // including the Block Access List per EIP-7928 §engine-api.
 func (api *EngineAPI) GetPayloadBodiesByHashV2(hashes []types.Hash) ([]*ExecutionPayloadBodyV2, error) {
-	backend, ok := api.backend.(*EngineBackend)
+	pb, ok := api.backend.(backendapi.PayloadBodiesBackend)
 	if !ok {
 		return nil, fmt.Errorf("payload bodies not supported by this backend")
 	}
-	backend.mu.RLock()
-	defer backend.mu.RUnlock()
-
-	// SPEC-5.5: determine head block number for retention window check.
-	headNum := uint64(0)
-	if head, ok := backend.blocks[backend.headHash]; ok {
-		headNum = head.NumberU64()
-	}
-
-	results := make([]*ExecutionPayloadBodyV2, len(hashes))
-	for i, h := range hashes {
-		block, found := backend.blocks[h]
-		if !found || !rawdb.IsBALRetained(headNum, block.NumberU64()) {
-			results[i] = nil
-			continue
-		}
-		body := enginepayload.BlockToPayloadBodyV2(block)
-		// Attach stored BAL if available.
-		if bal, ok := backend.bals[h]; ok {
-			balBytes, _ := json.Marshal(bal)
-			body.BlockAccessList = balBytes
-		}
-		results[i] = body
-	}
-	return results, nil
+	return pb.GetPayloadBodiesByHash(hashes)
 }
 
 // GetPayloadBodiesByRangeV2 returns payload bodies for a range of block numbers,
 // including the Block Access List per EIP-7928 §engine-api.
 func (api *EngineAPI) GetPayloadBodiesByRangeV2(start, count uint64) ([]*ExecutionPayloadBodyV2, error) {
-	backend, ok := api.backend.(*EngineBackend)
-	if !ok {
-		return nil, fmt.Errorf("payload bodies not supported by this backend")
-	}
 	if count == 0 || count > 1024 {
 		return nil, fmt.Errorf("count must be in [1, 1024], got %d", count)
 	}
-	backend.mu.RLock()
-	defer backend.mu.RUnlock()
-
-	// SPEC-5.5: determine head block number for retention window check.
-	headNum := uint64(0)
-	if head, ok := backend.blocks[backend.headHash]; ok {
-		headNum = head.NumberU64()
+	pb, ok := api.backend.(backendapi.PayloadBodiesBackend)
+	if !ok {
+		return nil, fmt.Errorf("payload bodies not supported by this backend")
 	}
-
-	results := make([]*ExecutionPayloadBodyV2, count)
-	for i := uint64(0); i < count; i++ {
-		num := start + i
-		// Find block by number in stored blocks.
-		var found *types.Block
-		for _, b := range backend.blocks {
-			if b.NumberU64() == num {
-				found = b
-				break
-			}
-		}
-		if found == nil || !rawdb.IsBALRetained(headNum, num) {
-			results[i] = nil
-			continue
-		}
-		body := enginepayload.BlockToPayloadBodyV2(found)
-		if bal, ok := backend.bals[found.Hash()]; ok {
-			balBytes, _ := json.Marshal(bal)
-			body.BlockAccessList = balBytes
-		}
-		results[i] = body
-	}
-	return results, nil
+	return pb.GetPayloadBodiesByRange(start, count)
 }
 
 // blockToPayloadBodyV2 is a package-level wrapper for tests that access this
