@@ -21,6 +21,7 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	engapi "github.com/eth2030/eth2030/engine/api"
 )
 
 // Blob bundle constants.
@@ -324,7 +325,7 @@ func deriveInclusionProof(commitment []byte, blockHash types.Hash, index uint64)
 	}
 
 	// Use the real binary Merkle proof builder.
-	inclusionProof, err := BuildInclusionProof(
+	inclusionProof, err := engapi.BuildInclusionProof(
 		VersionedHash(commitment),
 		leaves,
 		int(index),
