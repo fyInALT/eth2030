@@ -38,14 +38,14 @@ func TestNewEventHub_DefaultsApplied(t *testing.T) {
 	if hub == nil {
 		t.Fatal("expected non-nil EventHub")
 	}
-	if hub.config.MaxListeners != 256 {
-		t.Fatalf("want 256, got %d", hub.config.MaxListeners)
+	if hub.Config().MaxListeners != 256 {
+		t.Fatalf("want 256, got %d", hub.Config().MaxListeners)
 	}
-	if hub.config.ListenerBuffer != 64 {
-		t.Fatalf("want 64, got %d", hub.config.ListenerBuffer)
+	if hub.Config().ListenerBuffer != 64 {
+		t.Fatalf("want 64, got %d", hub.Config().ListenerBuffer)
 	}
-	if hub.config.MaxReplayDepth != 128 {
-		t.Fatalf("want 128, got %d", hub.config.MaxReplayDepth)
+	if hub.Config().MaxReplayDepth != 128 {
+		t.Fatalf("want 128, got %d", hub.Config().MaxReplayDepth)
 	}
 }
 
@@ -728,7 +728,7 @@ func TestExtFilterManager_StartPruner_Stop(t *testing.T) {
 	// Should not hang.
 }
 
-// matchesExtFilter is tested indirectly via DistributeLog.
+// MatchesExtFilter is tested indirectly via DistributeLog.
 // Direct tests for topic matching:
 func TestMatchesExtFilter_TopicMatch(t *testing.T) {
 	topic := types.HexToHash("0x1111")
@@ -737,7 +737,7 @@ func TestMatchesExtFilter_TopicMatch(t *testing.T) {
 		Topics: [][]types.Hash{{topic}},
 	}
 	log := &types.Log{Topics: []types.Hash{topic}}
-	if !matchesExtFilter(log, f) {
+	if !MatchesExtFilter(log, f) {
 		t.Fatal("should match matching topic")
 	}
 }
@@ -750,7 +750,7 @@ func TestMatchesExtFilter_TopicMismatch(t *testing.T) {
 		Topics: [][]types.Hash{{topic}},
 	}
 	log := &types.Log{Topics: []types.Hash{other}}
-	if matchesExtFilter(log, f) {
+	if MatchesExtFilter(log, f) {
 		t.Fatal("should not match mismatched topic")
 	}
 }
@@ -762,11 +762,11 @@ func TestMatchesExtFilter_BlockRangeExcluded(t *testing.T) {
 		ToBlock:   200,
 	}
 	log := &types.Log{BlockNumber: 50}
-	if matchesExtFilter(log, f) {
+	if MatchesExtFilter(log, f) {
 		t.Fatal("log before FromBlock should not match")
 	}
 	log2 := &types.Log{BlockNumber: 300}
-	if matchesExtFilter(log2, f) {
+	if MatchesExtFilter(log2, f) {
 		t.Fatal("log after ToBlock should not match")
 	}
 }
@@ -1136,11 +1136,11 @@ func TestFilterLogsByBloom_NoMatch(t *testing.T) {
 	}
 }
 
-// sysLogMatches is tested through DistributeLog; add explicit sub-tests.
+// SysLogMatches is tested through DistributeLog; add explicit sub-tests.
 func TestSysLogMatches_BlockRangeLow(t *testing.T) {
 	q := &SysLogQuery{FromBlock: 100}
 	log := &types.Log{BlockNumber: 50}
-	if sysLogMatches(log, q) {
+	if SysLogMatches(log, q) {
 		t.Fatal("log before FromBlock should not match")
 	}
 }
@@ -1148,7 +1148,7 @@ func TestSysLogMatches_BlockRangeLow(t *testing.T) {
 func TestSysLogMatches_BlockRangeHigh(t *testing.T) {
 	q := &SysLogQuery{ToBlock: 100}
 	log := &types.Log{BlockNumber: 200}
-	if sysLogMatches(log, q) {
+	if SysLogMatches(log, q) {
 		t.Fatal("log after ToBlock should not match")
 	}
 }
@@ -1158,12 +1158,12 @@ func TestSysLogMatches_AddressList(t *testing.T) {
 	q := &SysLogQuery{Addresses: []types.Address{addr}}
 
 	log1 := &types.Log{Address: addr}
-	if !sysLogMatches(log1, q) {
+	if !SysLogMatches(log1, q) {
 		t.Fatal("should match address in list")
 	}
 
 	log2 := &types.Log{Address: types.HexToAddress("0xbbbb")}
-	if sysLogMatches(log2, q) {
+	if SysLogMatches(log2, q) {
 		t.Fatal("should not match address not in list")
 	}
 }
@@ -1174,7 +1174,7 @@ func TestSysLogMatches_TopicShortLog(t *testing.T) {
 
 	// Log has only 1 topic but query requires 2 positions.
 	log := &types.Log{Topics: []types.Hash{topic}}
-	if sysLogMatches(log, q) {
+	if SysLogMatches(log, q) {
 		t.Fatal("should not match when log has fewer topics than required positions")
 	}
 }

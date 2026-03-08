@@ -198,9 +198,7 @@ func TestPruneExpired(t *testing.T) {
 	id2, _ := fs.NewFSBlockFilter()
 
 	// Manually set the first filter's lastPoll to be expired.
-	fs.mu.Lock()
-	fs.filters[id1].lastPoll = time.Now().Add(-100 * time.Millisecond)
-	fs.mu.Unlock()
+	fs.SetFilterLastPoll(id1, time.Now().Add(-100*time.Millisecond))
 
 	fs.PruneExpired()
 
