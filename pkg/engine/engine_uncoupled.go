@@ -36,29 +36,3 @@ func ValidateInclusionProof(proof *InclusionProof, beaconBlockRoot types.Hash) e
 func BuildInclusionProof(payloadHash types.Hash, bodyFieldHashes []types.Hash, payloadIndex int) (*InclusionProof, error) {
 	return engapi.BuildInclusionProof(payloadHash, bodyFieldHashes, payloadIndex)
 }
-
-// hashPair wraps the exported HashPair for package-internal test use.
-func hashPair(left, right types.Hash) types.Hash {
-	return engapi.HashPair(left, right)
-}
-
-// padToPowerOfTwo wraps the exported PadToPowerOfTwo for package-internal test use.
-func padToPowerOfTwo(hashes []types.Hash) []types.Hash {
-	return engapi.PadToPowerOfTwo(hashes)
-}
-
-// computeMerkleRoot is an unexported wrapper for package-internal test use.
-func computeMerkleRoot(leaf types.Hash, branch []types.Hash, index uint64) types.Hash {
-	// Replicate the logic from engapi.computeMerkleRoot (unexported there).
-	current := leaf
-	idx := index
-	for _, sibling := range branch {
-		if idx%2 == 0 {
-			current = hashPair(current, sibling)
-		} else {
-			current = hashPair(sibling, current)
-		}
-		idx /= 2
-	}
-	return current
-}

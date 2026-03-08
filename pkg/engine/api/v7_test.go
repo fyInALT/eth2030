@@ -1,4 +1,4 @@
-package engine
+package api
 
 import (
 	"math/big"
@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/apierrors"
+	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
 // mockV7Backend implements EngineV7Backend for testing.
@@ -22,7 +24,7 @@ type mockV7Backend struct {
 	lastPayload *ExecutionPayloadV7
 	lastFCState *ForkchoiceStateV1
 	lastAttrs   *PayloadAttributesV7
-	lastID      PayloadID
+	lastID      engpayload.PayloadID
 }
 
 func (m *mockV7Backend) NewPayloadV7(payload *ExecutionPayloadV7) (*PayloadStatusV1, error) {
@@ -37,7 +39,7 @@ func (m *mockV7Backend) NewPayloadV7(payload *ExecutionPayloadV7) (*PayloadStatu
 	}
 	hash := payload.BlockHash
 	return &PayloadStatusV1{
-		Status:          StatusValid,
+		Status:          apierrors.StatusValid,
 		LatestValidHash: &hash,
 	}, nil
 }
@@ -56,13 +58,13 @@ func (m *mockV7Backend) ForkchoiceUpdatedV7(state *ForkchoiceStateV1, attrs *Pay
 	hash := state.HeadBlockHash
 	return &ForkchoiceUpdatedResult{
 		PayloadStatus: PayloadStatusV1{
-			Status:          StatusValid,
+			Status:          apierrors.StatusValid,
 			LatestValidHash: &hash,
 		},
 	}, nil
 }
 
-func (m *mockV7Backend) GetPayloadV7(id PayloadID) (*ExecutionPayloadV7, error) {
+func (m *mockV7Backend) GetPayloadV7(id engpayload.PayloadID) (*ExecutionPayloadV7, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastID = id
@@ -72,14 +74,14 @@ func (m *mockV7Backend) GetPayloadV7(id PayloadID) (*ExecutionPayloadV7, error) 
 	if m.getPayloadResp != nil {
 		return m.getPayloadResp, nil
 	}
-	return nil, ErrUnknownPayload
+	return nil, apierrors.ErrUnknownPayload
 }
 
 func makeTestPayloadV7() *ExecutionPayloadV7 {
 	return &ExecutionPayloadV7{
-		ExecutionPayloadV3: ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+		ExecutionPayloadV3: engpayload.ExecutionPayloadV3{
+			ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
+				ExecutionPayloadV1: engpayload.ExecutionPayloadV1{
 					ParentHash:    types.HexToHash("0x01"),
 					FeeRecipient:  types.HexToAddress("0xdead"),
 					StateRoot:     types.HexToHash("0x02"),
@@ -92,7 +94,7 @@ func makeTestPayloadV7() *ExecutionPayloadV7 {
 					BlockHash:     types.HexToHash("0xaa"),
 					Transactions:  [][]byte{},
 				},
-				Withdrawals: []*Withdrawal{},
+				Withdrawals: []*engpayload.Withdrawal{},
 			},
 			BlobGasUsed:   131072,
 			ExcessBlobGas: 0,
@@ -104,69 +106,69 @@ func makeTestPayloadV7() *ExecutionPayloadV7 {
 }
 
 func TestNewEngineV7(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 	if e == nil {
 		t.Fatal("NewEngineV7 returned nil")
 	}
-	if e.backend != backend {
+	if e.backend != b {
 		t.Fatal("backend not set correctly")
 	}
 }
 
 func TestHandleNewPayloadV7_Valid(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	status, err := e.HandleNewPayloadV7(payload)
+	p := makeTestPayloadV7()
+	status, err := e.HandleNewPayloadV7(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != StatusValid {
+	if status.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 	if status.LatestValidHash == nil {
 		t.Fatal("expected LatestValidHash to be set")
 	}
-	if *status.LatestValidHash != payload.BlockHash {
-		t.Fatalf("hash mismatch: %s != %s", status.LatestValidHash, payload.BlockHash)
+	if *status.LatestValidHash != p.BlockHash {
+		t.Fatalf("hash mismatch: %s != %s", status.LatestValidHash, p.BlockHash)
 	}
 }
 
 func TestHandleNewPayloadV7_NilPayload(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	_, err := e.HandleNewPayloadV7(nil)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestHandleNewPayloadV7_NilProofSubmissions(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	payload.ProofSubmissions = nil
-	_, err := e.HandleNewPayloadV7(payload)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	p := makeTestPayloadV7()
+	p.ProofSubmissions = nil
+	_, err := e.HandleNewPayloadV7(p)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestHandleNewPayloadV7_EmptyProofEntry(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	payload.ProofSubmissions = [][]byte{{0x01}, {}} // second entry is empty
-	status, err := e.HandleNewPayloadV7(payload)
+	p := makeTestPayloadV7()
+	p.ProofSubmissions = [][]byte{{0x01}, {}} // second entry is empty
+	status, err := e.HandleNewPayloadV7(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != StatusInvalid {
+	if status.Status != apierrors.StatusInvalid {
 		t.Fatalf("expected INVALID, got %s", status.Status)
 	}
 	if status.ValidationError == nil {
@@ -175,54 +177,54 @@ func TestHandleNewPayloadV7_EmptyProofEntry(t *testing.T) {
 }
 
 func TestHandleNewPayloadV7_BlobGasWithoutCommitments(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	payload.BlobGasUsed = 131072
-	payload.BlobCommitments = nil // no commitments
-	status, err := e.HandleNewPayloadV7(payload)
+	p := makeTestPayloadV7()
+	p.BlobGasUsed = 131072
+	p.BlobCommitments = nil // no commitments
+	status, err := e.HandleNewPayloadV7(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != StatusInvalid {
+	if status.Status != apierrors.StatusInvalid {
 		t.Fatalf("expected INVALID, got %s", status.Status)
 	}
 }
 
 func TestHandleNewPayloadV7_NoBlobGasNoCommitmentsOK(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	payload.BlobGasUsed = 0
-	payload.BlobCommitments = nil
-	payload.ProofSubmissions = [][]byte{{0x01}}
-	status, err := e.HandleNewPayloadV7(payload)
+	p := makeTestPayloadV7()
+	p.BlobGasUsed = 0
+	p.BlobCommitments = nil
+	p.ProofSubmissions = [][]byte{{0x01}}
+	status, err := e.HandleNewPayloadV7(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != StatusValid {
+	if status.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 }
 
 func TestHandleNewPayloadV7_BackendError(t *testing.T) {
-	backend := &mockV7Backend{
-		newPayloadErr: ErrUnsupportedFork,
+	b := &mockV7Backend{
+		newPayloadErr: apierrors.ErrUnsupportedFork,
 	}
-	e := NewEngineV7(backend)
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	_, err := e.HandleNewPayloadV7(payload)
-	if err != ErrUnsupportedFork {
-		t.Fatalf("expected ErrUnsupportedFork, got %v", err)
+	p := makeTestPayloadV7()
+	_, err := e.HandleNewPayloadV7(p)
+	if err != apierrors.ErrUnsupportedFork {
+		t.Fatalf("expected apierrors.ErrUnsupportedFork, got %v", err)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_Valid(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
@@ -230,9 +232,9 @@ func TestHandleForkchoiceUpdatedV7_Valid(t *testing.T) {
 		FinalizedBlockHash: types.HexToHash("0xcc"),
 	}
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp:             1700000000,
 					PrevRandao:            types.HexToHash("0xdd"),
 					SuggestedFeeRecipient: types.HexToAddress("0xdead"),
@@ -246,35 +248,35 @@ func TestHandleForkchoiceUpdatedV7_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_NilState(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	_, err := e.HandleForkchoiceUpdatedV7(nil, nil)
-	if err != ErrInvalidForkchoiceState {
-		t.Fatalf("expected ErrInvalidForkchoiceState, got %v", err)
+	if err != apierrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_ZeroHead(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{}
 	_, err := e.HandleForkchoiceUpdatedV7(state, nil)
-	if err != ErrInvalidForkchoiceState {
-		t.Fatalf("expected ErrInvalidForkchoiceState, got %v", err)
+	if err != apierrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_NilAttrs(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
@@ -283,36 +285,36 @@ func TestHandleForkchoiceUpdatedV7_NilAttrs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_ZeroTimestamp(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp: 0,
 				},
 			},
 		},
 	}
 	_, err := e.HandleForkchoiceUpdatedV7(state, attrs)
-	if err != ErrInvalidPayloadAttributes {
-		t.Fatalf("expected ErrInvalidPayloadAttributes, got %v", err)
+	if err != apierrors.ErrInvalidPayloadAttributes {
+		t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_InvalidProofRequirements(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
@@ -339,9 +341,9 @@ func TestHandleForkchoiceUpdatedV7_InvalidProofRequirements(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attrs := &PayloadAttributesV7{
-				PayloadAttributesV3: PayloadAttributesV3{
-					PayloadAttributesV2: PayloadAttributesV2{
-						PayloadAttributesV1: PayloadAttributesV1{
+				PayloadAttributesV3: engpayload.PayloadAttributesV3{
+					PayloadAttributesV2: engpayload.PayloadAttributesV2{
+						PayloadAttributesV1: engpayload.PayloadAttributesV1{
 							Timestamp: 1700000000,
 						},
 					},
@@ -349,24 +351,24 @@ func TestHandleForkchoiceUpdatedV7_InvalidProofRequirements(t *testing.T) {
 				ProofRequirements: tt.pr,
 			}
 			_, err := e.HandleForkchoiceUpdatedV7(state, attrs)
-			if err != ErrInvalidPayloadAttributes {
-				t.Fatalf("expected ErrInvalidPayloadAttributes, got %v", err)
+			if err != apierrors.ErrInvalidPayloadAttributes {
+				t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
 			}
 		})
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_ValidProofRequirements(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp: 1700000000,
 				},
 			},
@@ -382,14 +384,14 @@ func TestHandleForkchoiceUpdatedV7_ValidProofRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_InvalidDAConfig(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
@@ -412,9 +414,9 @@ func TestHandleForkchoiceUpdatedV7_InvalidDAConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attrs := &PayloadAttributesV7{
-				PayloadAttributesV3: PayloadAttributesV3{
-					PayloadAttributesV2: PayloadAttributesV2{
-						PayloadAttributesV1: PayloadAttributesV1{
+				PayloadAttributesV3: engpayload.PayloadAttributesV3{
+					PayloadAttributesV2: engpayload.PayloadAttributesV2{
+						PayloadAttributesV1: engpayload.PayloadAttributesV1{
 							Timestamp: 1700000000,
 						},
 					},
@@ -422,24 +424,24 @@ func TestHandleForkchoiceUpdatedV7_InvalidDAConfig(t *testing.T) {
 				DALayerConfig: tt.da,
 			}
 			_, err := e.HandleForkchoiceUpdatedV7(state, attrs)
-			if err != ErrInvalidPayloadAttributes {
-				t.Fatalf("expected ErrInvalidPayloadAttributes, got %v", err)
+			if err != apierrors.ErrInvalidPayloadAttributes {
+				t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
 			}
 		})
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_WithShieldedTxs(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp: 1700000000,
 				},
 			},
@@ -454,29 +456,29 @@ func TestHandleForkchoiceUpdatedV7_WithShieldedTxs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 
 	// Verify the backend received the shielded txs.
-	backend.mu.Lock()
-	if backend.lastAttrs == nil {
+	b.mu.Lock()
+	if b.lastAttrs == nil {
 		t.Fatal("backend did not receive attrs")
 	}
-	if len(backend.lastAttrs.ShieldedTxs) != 2 {
-		t.Fatalf("expected 2 shielded txs, got %d", len(backend.lastAttrs.ShieldedTxs))
+	if len(b.lastAttrs.ShieldedTxs) != 2 {
+		t.Fatalf("expected 2 shielded txs, got %d", len(b.lastAttrs.ShieldedTxs))
 	}
-	backend.mu.Unlock()
+	b.mu.Unlock()
 }
 
 func TestHandleGetPayloadV7_Valid(t *testing.T) {
 	expected := makeTestPayloadV7()
-	backend := &mockV7Backend{
+	b := &mockV7Backend{
 		getPayloadResp: expected,
 	}
-	e := NewEngineV7(backend)
+	e := NewEngineV7(b)
 
-	id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	result, err := e.HandleGetPayloadV7(id)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -487,29 +489,29 @@ func TestHandleGetPayloadV7_Valid(t *testing.T) {
 }
 
 func TestHandleGetPayloadV7_ZeroID(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	_, err := e.HandleGetPayloadV7(PayloadID{})
-	if err != ErrUnknownPayload {
-		t.Fatalf("expected ErrUnknownPayload, got %v", err)
+	_, err := e.HandleGetPayloadV7(engpayload.PayloadID{})
+	if err != apierrors.ErrUnknownPayload {
+		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
 func TestHandleGetPayloadV7_NotFound(t *testing.T) {
-	backend := &mockV7Backend{} // no getPayloadResp set, returns ErrUnknownPayload
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{} // no getPayloadResp set, returns apierrors.ErrUnknownPayload
+	e := NewEngineV7(b)
 
-	id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	_, err := e.HandleGetPayloadV7(id)
-	if err != ErrUnknownPayload {
-		t.Fatalf("expected ErrUnknownPayload, got %v", err)
+	if err != apierrors.ErrUnknownPayload {
+		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
 func TestEngineV7_Concurrency(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 30)
@@ -519,8 +521,8 @@ func TestEngineV7_Concurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			payload := makeTestPayloadV7()
-			_, err := e.HandleNewPayloadV7(payload)
+			p := makeTestPayloadV7()
+			_, err := e.HandleNewPayloadV7(p)
 			if err != nil {
 				errCh <- err
 			}
@@ -547,8 +549,8 @@ func TestEngineV7_Concurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-			// This will return ErrUnknownPayload, which is expected.
+			id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+			// This will return apierrors.ErrUnknownPayload, which is expected.
 			e.HandleGetPayloadV7(id)
 		}()
 	}
@@ -613,8 +615,8 @@ func TestGenerateV7PayloadID(t *testing.T) {
 	parentHash := types.HexToHash("0xabcdef")
 	ts := uint64(1700000000)
 
-	id1 := generateV7PayloadID(parentHash, ts)
-	id2 := generateV7PayloadID(parentHash, ts)
+	id1 := GenerateV7PayloadID(parentHash, ts)
+	id2 := GenerateV7PayloadID(parentHash, ts)
 
 	// Same inputs produce the same ID.
 	if id1 != id2 {
@@ -622,13 +624,13 @@ func TestGenerateV7PayloadID(t *testing.T) {
 	}
 
 	// Different timestamp produces a different ID.
-	id3 := generateV7PayloadID(parentHash, ts+1)
+	id3 := GenerateV7PayloadID(parentHash, ts+1)
 	if id1 == id3 {
 		t.Fatal("expected different IDs for different timestamps")
 	}
 
 	// Different parent hash produces a different ID.
-	id4 := generateV7PayloadID(types.HexToHash("0x123456"), ts)
+	id4 := GenerateV7PayloadID(types.HexToHash("0x123456"), ts)
 	if id1 == id4 {
 		t.Fatal("expected different IDs for different parent hashes")
 	}
@@ -662,14 +664,14 @@ func TestExecutionPayloadV7_FieldAccess(t *testing.T) {
 
 func TestPayloadAttributesV7_FieldAccess(t *testing.T) {
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp:             1700000000,
 					PrevRandao:            types.HexToHash("0xdd"),
 					SuggestedFeeRecipient: types.HexToAddress("0xdead"),
 				},
-				Withdrawals: []*Withdrawal{
+				Withdrawals: []*engpayload.Withdrawal{
 					{Index: 1, ValidatorIndex: 100, Amount: 1000},
 				},
 			},
@@ -709,54 +711,54 @@ func TestPayloadAttributesV7_FieldAccess(t *testing.T) {
 }
 
 func TestHandleNewPayloadV7_EmptyProofSubmissionsOK(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
-	payload := makeTestPayloadV7()
-	payload.BlobGasUsed = 0
-	payload.BlobCommitments = nil
-	payload.ProofSubmissions = [][]byte{} // empty but non-nil
-	status, err := e.HandleNewPayloadV7(payload)
+	p := makeTestPayloadV7()
+	p.BlobGasUsed = 0
+	p.BlobCommitments = nil
+	p.ProofSubmissions = [][]byte{} // empty but non-nil
+	status, err := e.HandleNewPayloadV7(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != StatusValid {
+	if status.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_BackendError(t *testing.T) {
-	backend := &mockV7Backend{
-		fcuErr: ErrInvalidForkchoiceState,
+	b := &mockV7Backend{
+		fcuErr: apierrors.ErrInvalidForkchoiceState,
 	}
-	e := NewEngineV7(backend)
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	_, err := e.HandleForkchoiceUpdatedV7(state, nil)
-	if err != ErrInvalidForkchoiceState {
-		t.Fatalf("expected ErrInvalidForkchoiceState, got %v", err)
+	if err != apierrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
 func TestHandleForkchoiceUpdatedV7_WithPayloadID(t *testing.T) {
-	pid := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	backend := &mockV7Backend{
+	pid := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	b := &mockV7Backend{
 		fcuResult: &ForkchoiceUpdatedResult{
-			PayloadStatus: PayloadStatusV1{Status: StatusValid},
+			PayloadStatus: PayloadStatusV1{Status: apierrors.StatusValid},
 			PayloadID:     &pid,
 		},
 	}
-	e := NewEngineV7(backend)
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp: 1700000000,
 				},
 			},
@@ -776,16 +778,16 @@ func TestHandleForkchoiceUpdatedV7_WithPayloadID(t *testing.T) {
 }
 
 func TestHandleForkchoiceUpdatedV7_ValidDAConfig(t *testing.T) {
-	backend := &mockV7Backend{}
-	e := NewEngineV7(backend)
+	b := &mockV7Backend{}
+	e := NewEngineV7(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash: types.HexToHash("0xaa"),
 	}
 	attrs := &PayloadAttributesV7{
-		PayloadAttributesV3: PayloadAttributesV3{
-			PayloadAttributesV2: PayloadAttributesV2{
-				PayloadAttributesV1: PayloadAttributesV1{
+		PayloadAttributesV3: engpayload.PayloadAttributesV3{
+			PayloadAttributesV2: engpayload.PayloadAttributesV2{
+				PayloadAttributesV1: engpayload.PayloadAttributesV1{
 					Timestamp: 1700000000,
 				},
 			},
@@ -801,7 +803,7 @@ func TestHandleForkchoiceUpdatedV7_ValidDAConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }

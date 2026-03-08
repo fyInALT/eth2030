@@ -1,10 +1,12 @@
-package engine
+package api
 
 import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/engine/apierrors"
+	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
 // --- Inclusion Proof Tests ---
@@ -19,9 +21,9 @@ func TestComputeMerkleRoot_SimpleTree(t *testing.T) {
 	}
 
 	// Compute expected root manually.
-	h01 := hashPair(leaves[0], leaves[1])
-	h23 := hashPair(leaves[2], leaves[3])
-	expectedRoot := hashPair(h01, h23)
+	h01 := HashPair(leaves[0], leaves[1])
+	h23 := HashPair(leaves[2], leaves[3])
+	expectedRoot := HashPair(h01, h23)
 
 	// Build proof for leaf at index 0: branch = [leaf1, h23].
 	proof := &InclusionProof{
@@ -44,9 +46,9 @@ func TestComputeMerkleRoot_RightChild(t *testing.T) {
 		crypto.Keccak256Hash([]byte("d")),
 	}
 
-	h01 := hashPair(leaves[0], leaves[1])
-	h23 := hashPair(leaves[2], leaves[3])
-	expectedRoot := hashPair(h01, h23)
+	h01 := HashPair(leaves[0], leaves[1])
+	h23 := HashPair(leaves[2], leaves[3])
+	expectedRoot := HashPair(h01, h23)
 
 	// Proof for leaf at index 1: branch = [leaf0, h23].
 	proof := &InclusionProof{
@@ -69,9 +71,9 @@ func TestComputeMerkleRoot_Index3(t *testing.T) {
 		crypto.Keccak256Hash([]byte("d")),
 	}
 
-	h01 := hashPair(leaves[0], leaves[1])
-	h23 := hashPair(leaves[2], leaves[3])
-	expectedRoot := hashPair(h01, h23)
+	h01 := HashPair(leaves[0], leaves[1])
+	h23 := HashPair(leaves[2], leaves[3])
+	expectedRoot := HashPair(h01, h23)
 
 	// Proof for leaf at index 3: branch = [leaf2, h01].
 	proof := &InclusionProof{
@@ -94,9 +96,9 @@ func TestValidateInclusionProof_Valid(t *testing.T) {
 		crypto.Keccak256Hash([]byte("field3")),
 	}
 
-	h01 := hashPair(leaves[0], leaves[1])
-	h23 := hashPair(leaves[2], leaves[3])
-	root := hashPair(h01, h23)
+	h01 := HashPair(leaves[0], leaves[1])
+	h23 := HashPair(leaves[2], leaves[3])
+	root := HashPair(h01, h23)
 
 	proof := &InclusionProof{
 		Leaf:   leaves[2],
@@ -169,9 +171,9 @@ func TestBuildInclusionProof(t *testing.T) {
 	}
 
 	// Compute the expected root.
-	h01 := hashPair(fields[0], fields[1])
-	h23 := hashPair(fields[2], fields[3])
-	expectedRoot := hashPair(h01, h23)
+	h01 := HashPair(fields[0], fields[1])
+	h23 := HashPair(fields[2], fields[3])
+	expectedRoot := HashPair(h01, h23)
 
 	// Verify the proof against the computed root.
 	if err := ValidateInclusionProof(proof, expectedRoot); err != nil {
@@ -188,9 +190,9 @@ func TestBuildInclusionProof_AllIndices(t *testing.T) {
 	}
 
 	// Compute root.
-	h01 := hashPair(fields[0], fields[1])
-	h23 := hashPair(fields[2], fields[3])
-	root := hashPair(h01, h23)
+	h01 := HashPair(fields[0], fields[1])
+	h23 := HashPair(fields[2], fields[3])
+	root := HashPair(h01, h23)
 
 	for i := 0; i < 4; i++ {
 		proof, err := BuildInclusionProof(fields[i], fields, i)
@@ -212,10 +214,10 @@ func TestBuildInclusionProof_NonPowerOfTwo(t *testing.T) {
 	}
 
 	// Padded: fields[3] = Hash{}
-	padded := padToPowerOfTwo(fields)
-	h01 := hashPair(padded[0], padded[1])
-	h23 := hashPair(padded[2], padded[3])
-	root := hashPair(h01, h23)
+	padded := PadToPowerOfTwo(fields)
+	h01 := HashPair(padded[0], padded[1])
+	h23 := HashPair(padded[2], padded[3])
+	root := HashPair(h01, h23)
 
 	proof, err := BuildInclusionProof(fields[2], fields, 2)
 	if err != nil {
@@ -243,18 +245,22 @@ func TestBuildInclusionProof_EmptyFields(t *testing.T) {
 
 // --- UncoupledPayloadEnvelope Tests ---
 
-func TestUncoupledPayloadEnvelope_Validate(t *testing.T) {
-	validPayload := &ExecutionPayloadV5{
-		ExecutionPayloadV4: ExecutionPayloadV4{
-			ExecutionPayloadV3: ExecutionPayloadV3{
-				ExecutionPayloadV2: ExecutionPayloadV2{
-					ExecutionPayloadV1: ExecutionPayloadV1{
-						BlockHash: types.Hash{0x01},
+func makeUncoupledPayloadV5(blockHash types.Hash) *engpayload.ExecutionPayloadV5 {
+	return &engpayload.ExecutionPayloadV5{
+		ExecutionPayloadV4: engpayload.ExecutionPayloadV4{
+			ExecutionPayloadV3: engpayload.ExecutionPayloadV3{
+				ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
+					ExecutionPayloadV1: engpayload.ExecutionPayloadV1{
+						BlockHash: blockHash,
 					},
 				},
 			},
 		},
 	}
+}
+
+func TestUncoupledPayloadEnvelope_Validate(t *testing.T) {
+	validPayload := makeUncoupledPayloadV5(types.Hash{0x01})
 
 	proof := &InclusionProof{
 		Leaf:   types.Hash{0x01},
@@ -294,7 +300,7 @@ func TestUncoupledPayloadEnvelope_Validate(t *testing.T) {
 				Payload:         validPayload,
 				Proof:           proof,
 			},
-			wantErr: ErrInvalidParams,
+			wantErr: apierrors.ErrInvalidParams,
 		},
 		{
 			name: "nil payload",
@@ -303,7 +309,7 @@ func TestUncoupledPayloadEnvelope_Validate(t *testing.T) {
 				Slot:            100,
 				Proof:           proof,
 			},
-			wantErr: ErrInvalidPayloadAttributes,
+			wantErr: apierrors.ErrInvalidPayloadAttributes,
 		},
 		{
 			name: "nil proof",
@@ -338,9 +344,9 @@ func TestUncoupledPayloadHandler_SubmitAndGet(t *testing.T) {
 		crypto.Keccak256Hash([]byte("payload")),
 		crypto.Keccak256Hash([]byte("f3")),
 	}
-	h01 := hashPair(fields[0], fields[1])
-	h23 := hashPair(fields[2], fields[3])
-	beaconRoot := hashPair(h01, h23)
+	h01 := HashPair(fields[0], fields[1])
+	h23 := HashPair(fields[2], fields[3])
+	beaconRoot := HashPair(h01, h23)
 
 	proof, err := BuildInclusionProof(fields[2], fields, 2)
 	if err != nil {
@@ -350,18 +356,8 @@ func TestUncoupledPayloadHandler_SubmitAndGet(t *testing.T) {
 	envelope := &UncoupledPayloadEnvelope{
 		BeaconBlockRoot: beaconRoot,
 		Slot:            42,
-		Payload: &ExecutionPayloadV5{
-			ExecutionPayloadV4: ExecutionPayloadV4{
-				ExecutionPayloadV3: ExecutionPayloadV3{
-					ExecutionPayloadV2: ExecutionPayloadV2{
-						ExecutionPayloadV1: ExecutionPayloadV1{
-							BlockHash: types.Hash{0x01},
-						},
-					},
-				},
-			},
-		},
-		Proof: proof,
+		Payload:         makeUncoupledPayloadV5(types.Hash{0x01}),
+		Proof:           proof,
 	}
 
 	status, err := handler.SubmitUncoupledPayload(envelope)
@@ -397,26 +393,16 @@ func TestUncoupledPayloadHandler_DuplicateSubmit(t *testing.T) {
 		crypto.Keccak256Hash([]byte("f0")),
 		crypto.Keccak256Hash([]byte("payload")),
 	}
-	padded := padToPowerOfTwo(fields)
-	root := hashPair(padded[0], padded[1])
+	padded := PadToPowerOfTwo(fields)
+	root := HashPair(padded[0], padded[1])
 
 	proof, _ := BuildInclusionProof(fields[1], fields, 1)
 
 	envelope := &UncoupledPayloadEnvelope{
 		BeaconBlockRoot: root,
 		Slot:            10,
-		Payload: &ExecutionPayloadV5{
-			ExecutionPayloadV4: ExecutionPayloadV4{
-				ExecutionPayloadV3: ExecutionPayloadV3{
-					ExecutionPayloadV2: ExecutionPayloadV2{
-						ExecutionPayloadV1: ExecutionPayloadV1{
-							BlockHash: types.Hash{0x01},
-						},
-					},
-				},
-			},
-		},
-		Proof: proof,
+		Payload:         makeUncoupledPayloadV5(types.Hash{0x01}),
+		Proof:           proof,
 	}
 
 	// First submit.
@@ -443,17 +429,7 @@ func TestUncoupledPayloadHandler_InvalidProof(t *testing.T) {
 	envelope := &UncoupledPayloadEnvelope{
 		BeaconBlockRoot: types.Hash{0xaa},
 		Slot:            10,
-		Payload: &ExecutionPayloadV5{
-			ExecutionPayloadV4: ExecutionPayloadV4{
-				ExecutionPayloadV3: ExecutionPayloadV3{
-					ExecutionPayloadV2: ExecutionPayloadV2{
-						ExecutionPayloadV1: ExecutionPayloadV1{
-							BlockHash: types.Hash{0x01},
-						},
-					},
-				},
-			},
-		},
+		Payload:         makeUncoupledPayloadV5(types.Hash{0x01}),
 		Proof: &InclusionProof{
 			Leaf:   types.Hash{0xff},
 			Branch: []types.Hash{{0x01}},
@@ -487,26 +463,16 @@ func TestUncoupledPayloadHandler_RemovePending(t *testing.T) {
 		crypto.Keccak256Hash([]byte("f0")),
 		crypto.Keccak256Hash([]byte("payload")),
 	}
-	padded := padToPowerOfTwo(fields)
-	root := hashPair(padded[0], padded[1])
+	padded := PadToPowerOfTwo(fields)
+	root := HashPair(padded[0], padded[1])
 
 	proof, _ := BuildInclusionProof(fields[1], fields, 1)
 
 	envelope := &UncoupledPayloadEnvelope{
 		BeaconBlockRoot: root,
 		Slot:            10,
-		Payload: &ExecutionPayloadV5{
-			ExecutionPayloadV4: ExecutionPayloadV4{
-				ExecutionPayloadV3: ExecutionPayloadV3{
-					ExecutionPayloadV2: ExecutionPayloadV2{
-						ExecutionPayloadV1: ExecutionPayloadV1{
-							BlockHash: types.Hash{0x01},
-						},
-					},
-				},
-			},
-		},
-		Proof: proof,
+		Payload:         makeUncoupledPayloadV5(types.Hash{0x01}),
+		Proof:           proof,
 	}
 
 	handler.SubmitUncoupledPayload(envelope)
@@ -529,27 +495,17 @@ func TestUncoupledPayloadHandler_VerifyInclusion(t *testing.T) {
 		crypto.Keccak256Hash([]byte("payload")),
 		crypto.Keccak256Hash([]byte("f3")),
 	}
-	h01 := hashPair(fields[0], fields[1])
-	h23 := hashPair(fields[2], fields[3])
-	root := hashPair(h01, h23)
+	h01 := HashPair(fields[0], fields[1])
+	h23 := HashPair(fields[2], fields[3])
+	root := HashPair(h01, h23)
 
 	proof, _ := BuildInclusionProof(fields[2], fields, 2)
 
 	envelope := &UncoupledPayloadEnvelope{
 		BeaconBlockRoot: root,
 		Slot:            5,
-		Payload: &ExecutionPayloadV5{
-			ExecutionPayloadV4: ExecutionPayloadV4{
-				ExecutionPayloadV3: ExecutionPayloadV3{
-					ExecutionPayloadV2: ExecutionPayloadV2{
-						ExecutionPayloadV1: ExecutionPayloadV1{
-							BlockHash: types.Hash{0x01},
-						},
-					},
-				},
-			},
-		},
-		Proof: proof,
+		Payload:         makeUncoupledPayloadV5(types.Hash{0x01}),
+		Proof:           proof,
 	}
 
 	if err := handler.VerifyInclusion(envelope); err != nil {
@@ -563,17 +519,7 @@ func TestUncoupledPayloadHandler_VerifyInclusion_Invalid(t *testing.T) {
 	envelope := &UncoupledPayloadEnvelope{
 		BeaconBlockRoot: types.Hash{0xaa},
 		Slot:            5,
-		Payload: &ExecutionPayloadV5{
-			ExecutionPayloadV4: ExecutionPayloadV4{
-				ExecutionPayloadV3: ExecutionPayloadV3{
-					ExecutionPayloadV2: ExecutionPayloadV2{
-						ExecutionPayloadV1: ExecutionPayloadV1{
-							BlockHash: types.Hash{0x01},
-						},
-					},
-				},
-			},
-		},
+		Payload:         makeUncoupledPayloadV5(types.Hash{0x01}),
 		Proof: &InclusionProof{
 			Leaf:   types.Hash{0xff},
 			Branch: []types.Hash{{0x01}},
@@ -602,9 +548,9 @@ func TestPadToPowerOfTwo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		hashes := make([]types.Hash, tt.input)
-		padded := padToPowerOfTwo(hashes)
+		padded := PadToPowerOfTwo(hashes)
 		if len(padded) != tt.want {
-			t.Errorf("padToPowerOfTwo(%d) = %d, want %d", tt.input, len(padded), tt.want)
+			t.Errorf("PadToPowerOfTwo(%d) = %d, want %d", tt.input, len(padded), tt.want)
 		}
 	}
 }
@@ -613,16 +559,16 @@ func TestHashPair_Deterministic(t *testing.T) {
 	a := types.Hash{0x01}
 	b := types.Hash{0x02}
 
-	h1 := hashPair(a, b)
-	h2 := hashPair(a, b)
+	h1 := HashPair(a, b)
+	h2 := HashPair(a, b)
 	if h1 != h2 {
-		t.Fatal("hashPair should be deterministic")
+		t.Fatal("HashPair should be deterministic")
 	}
 
 	// Order matters.
-	h3 := hashPair(b, a)
+	h3 := HashPair(b, a)
 	if h1 == h3 {
-		t.Fatal("hashPair(a,b) should differ from hashPair(b,a)")
+		t.Fatal("HashPair(a,b) should differ from HashPair(b,a)")
 	}
 }
 
@@ -639,7 +585,7 @@ func TestBuildInclusionProof_EightLeaves(t *testing.T) {
 	for len(layer) > 1 {
 		next := make([]types.Hash, len(layer)/2)
 		for i := 0; i < len(layer); i += 2 {
-			next[i/2] = hashPair(layer[i], layer[i+1])
+			next[i/2] = HashPair(layer[i], layer[i+1])
 		}
 		layer = next
 	}

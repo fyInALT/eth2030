@@ -1,4 +1,4 @@
-package engine
+package api
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/apierrors"
+	engpayload "github.com/eth2030/eth2030/engine/payload"
 )
 
 // mockGlamsterdamBackend implements GlamsterdamBackend for testing.
@@ -23,25 +25,25 @@ type mockGlamsterdamBackend struct {
 	getBlobsErr    error
 
 	// Track calls for assertions.
-	lastPayload    *ExecutionPayloadV5
+	lastPayload    *engpayload.ExecutionPayloadV5
 	lastBlobHashes []types.Hash
 	lastBeaconRoot types.Hash
 	lastRequests   [][]byte
 	lastFCState    *ForkchoiceStateV1
 	lastAttrs      *GlamsterdamPayloadAttributes
-	lastPayloadID  PayloadID
+	lastPayloadID  engpayload.PayloadID
 	lastBlobQuery  []types.Hash
 }
 
 func (m *mockGlamsterdamBackend) NewPayloadV5(
-	payload *ExecutionPayloadV5,
+	p *engpayload.ExecutionPayloadV5,
 	hashes []types.Hash,
 	root types.Hash,
 	requests [][]byte,
 ) (*PayloadStatusV1, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.lastPayload = payload
+	m.lastPayload = p
 	m.lastBlobHashes = hashes
 	m.lastBeaconRoot = root
 	m.lastRequests = requests
@@ -51,9 +53,9 @@ func (m *mockGlamsterdamBackend) NewPayloadV5(
 	if m.newPayloadResp != nil {
 		return m.newPayloadResp, nil
 	}
-	hash := payload.BlockHash
+	hash := p.BlockHash
 	return &PayloadStatusV1{
-		Status:          StatusValid,
+		Status:          apierrors.StatusValid,
 		LatestValidHash: &hash,
 	}, nil
 }
@@ -75,13 +77,13 @@ func (m *mockGlamsterdamBackend) ForkchoiceUpdatedV4G(
 	hash := state.HeadBlockHash
 	return &ForkchoiceUpdatedResult{
 		PayloadStatus: PayloadStatusV1{
-			Status:          StatusValid,
+			Status:          apierrors.StatusValid,
 			LatestValidHash: &hash,
 		},
 	}, nil
 }
 
-func (m *mockGlamsterdamBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error) {
+func (m *mockGlamsterdamBackend) GetPayloadV5(id engpayload.PayloadID) (*GetPayloadV5Response, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastPayloadID = id
@@ -91,7 +93,7 @@ func (m *mockGlamsterdamBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Respon
 	if m.getPayloadResp != nil {
 		return m.getPayloadResp, nil
 	}
-	return nil, ErrUnknownPayload
+	return nil, apierrors.ErrUnknownPayload
 }
 
 func (m *mockGlamsterdamBackend) GetBlobsV2(hashes []types.Hash) ([]*BlobAndProofV2, error) {
@@ -104,12 +106,12 @@ func (m *mockGlamsterdamBackend) GetBlobsV2(hashes []types.Hash) ([]*BlobAndProo
 	return m.getBlobsResp, nil
 }
 
-func makeGlamsterdamPayload() *ExecutionPayloadV5 {
-	return &ExecutionPayloadV5{
-		ExecutionPayloadV4: ExecutionPayloadV4{
-			ExecutionPayloadV3: ExecutionPayloadV3{
-				ExecutionPayloadV2: ExecutionPayloadV2{
-					ExecutionPayloadV1: ExecutionPayloadV1{
+func makeGlamsterdamPayload() *engpayload.ExecutionPayloadV5 {
+	return &engpayload.ExecutionPayloadV5{
+		ExecutionPayloadV4: engpayload.ExecutionPayloadV4{
+			ExecutionPayloadV3: engpayload.ExecutionPayloadV3{
+				ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
+					ExecutionPayloadV1: engpayload.ExecutionPayloadV1{
 						ParentHash:    types.HexToHash("0x01"),
 						FeeRecipient:  types.HexToAddress("0xdead"),
 						StateRoot:     types.HexToHash("0x02"),
@@ -122,7 +124,7 @@ func makeGlamsterdamPayload() *ExecutionPayloadV5 {
 						BlockHash:     types.HexToHash("0xbb"),
 						Transactions:  [][]byte{},
 					},
-					Withdrawals: []*Withdrawal{},
+					Withdrawals: []*engpayload.Withdrawal{},
 				},
 				BlobGasUsed:   0,
 				ExcessBlobGas: 0,
@@ -134,130 +136,130 @@ func makeGlamsterdamPayload() *ExecutionPayloadV5 {
 }
 
 func TestNewEngineGlamsterdam(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 	if e == nil {
 		t.Fatal("NewEngineGlamsterdam returned nil")
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_Valid(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
+	p := makeGlamsterdamPayload()
 	root := types.HexToHash("0xbeef")
 	requests := [][]byte{{0x01, 0xaa}, {0x02, 0xbb}}
 
-	status, err := e.HandleNewPayloadV5(payload, nil, root, requests)
+	status, err := e.HandleNewPayloadV5(p, nil, root, requests)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.Status != StatusValid {
+	if status.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
-	if status.LatestValidHash == nil || *status.LatestValidHash != payload.BlockHash {
+	if status.LatestValidHash == nil || *status.LatestValidHash != p.BlockHash {
 		t.Fatal("LatestValidHash mismatch")
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_NilPayload(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleNewPayloadV5(nil, nil, types.HexToHash("0xbeef"), [][]byte{})
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_ZeroBeaconRoot(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
-	_, err := e.HandleNewPayloadV5(payload, nil, types.Hash{}, [][]byte{})
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	p := makeGlamsterdamPayload()
+	_, err := e.HandleNewPayloadV5(p, nil, types.Hash{}, [][]byte{})
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_NilRequests(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
-	_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), nil)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	p := makeGlamsterdamPayload()
+	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), nil)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_NilBlockAccessList(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
-	payload.BlockAccessList = nil
-	_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), [][]byte{})
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	p := makeGlamsterdamPayload()
+	p.BlockAccessList = nil
+	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), [][]byte{})
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_BadRequestOrder(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
+	p := makeGlamsterdamPayload()
 	// Request types not ascending (0x02 before 0x01).
 	requests := [][]byte{{0x02, 0xaa}, {0x01, 0xbb}}
-	_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), requests)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), requests)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_ShortRequest(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
+	p := makeGlamsterdamPayload()
 	// Request with only 1 byte (too short per EIP-7685).
 	requests := [][]byte{{0x01}}
-	_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), requests)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), requests)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_DuplicateRequestType(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
+	p := makeGlamsterdamPayload()
 	// Duplicate request type 0x01.
 	requests := [][]byte{{0x01, 0xaa}, {0x01, 0xbb}}
-	_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), requests)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), requests)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_NewPayloadV5_BackendError(t *testing.T) {
-	backend := &mockGlamsterdamBackend{newPayloadErr: ErrUnsupportedFork}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{newPayloadErr: apierrors.ErrUnsupportedFork}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
-	_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), [][]byte{})
-	if err != ErrUnsupportedFork {
-		t.Fatalf("expected ErrUnsupportedFork, got %v", err)
+	p := makeGlamsterdamPayload()
+	_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), [][]byte{})
+	if err != apierrors.ErrUnsupportedFork {
+		t.Fatalf("expected apierrors.ErrUnsupportedFork, got %v", err)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_Valid(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
@@ -277,48 +279,48 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_NilState(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleForkchoiceUpdatedV4(nil, nil)
-	if err != ErrInvalidForkchoiceState {
-		t.Fatalf("expected ErrInvalidForkchoiceState, got %v", err)
+	if err != apierrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroHead(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleForkchoiceUpdatedV4(&ForkchoiceStateV1{}, nil)
-	if err != ErrInvalidForkchoiceState {
-		t.Fatalf("expected ErrInvalidForkchoiceState, got %v", err)
+	if err != apierrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_NilAttrs(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	result, err := e.HandleForkchoiceUpdatedV4(state, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.PayloadStatus.Status != StatusValid {
+	if result.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", result.PayloadStatus.Status)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroTimestamp(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	attrs := &GlamsterdamPayloadAttributes{
@@ -326,14 +328,14 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroTimestamp(t *testing.T) {
 		ParentBeaconBlockRoot: types.HexToHash("0xee"),
 	}
 	_, err := e.HandleForkchoiceUpdatedV4(state, attrs)
-	if err != ErrInvalidPayloadAttributes {
-		t.Fatalf("expected ErrInvalidPayloadAttributes, got %v", err)
+	if err != apierrors.ErrInvalidPayloadAttributes {
+		t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroBeaconRoot(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	attrs := &GlamsterdamPayloadAttributes{
@@ -341,20 +343,20 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_ZeroBeaconRoot(t *testing.T) {
 		ParentBeaconBlockRoot: types.Hash{}, // zero
 	}
 	_, err := e.HandleForkchoiceUpdatedV4(state, attrs)
-	if err != ErrInvalidPayloadAttributes {
-		t.Fatalf("expected ErrInvalidPayloadAttributes, got %v", err)
+	if err != apierrors.ErrInvalidPayloadAttributes {
+		t.Fatalf("expected apierrors.ErrInvalidPayloadAttributes, got %v", err)
 	}
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_WithPayloadID(t *testing.T) {
-	pid := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	backend := &mockGlamsterdamBackend{
+	pid := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	b := &mockGlamsterdamBackend{
 		fcuResult: &ForkchoiceUpdatedResult{
-			PayloadStatus: PayloadStatusV1{Status: StatusValid},
+			PayloadStatus: PayloadStatusV1{Status: apierrors.StatusValid},
 			PayloadID:     &pid,
 		},
 	}
-	e := NewEngineGlamsterdam(backend)
+	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	attrs := &GlamsterdamPayloadAttributes{
@@ -372,21 +374,21 @@ func TestGlamsterdam_ForkchoiceUpdatedV4_WithPayloadID(t *testing.T) {
 }
 
 func TestGlamsterdam_ForkchoiceUpdatedV4_BackendError(t *testing.T) {
-	backend := &mockGlamsterdamBackend{fcuErr: ErrInvalidForkchoiceState}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{fcuErr: apierrors.ErrInvalidForkchoiceState}
+	e := NewEngineGlamsterdam(b)
 
 	state := &ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	_, err := e.HandleForkchoiceUpdatedV4(state, nil)
-	if err != ErrInvalidForkchoiceState {
-		t.Fatalf("expected ErrInvalidForkchoiceState, got %v", err)
+	if err != apierrors.ErrInvalidForkchoiceState {
+		t.Fatalf("expected apierrors.ErrInvalidForkchoiceState, got %v", err)
 	}
 }
 
 func TestGlamsterdam_GetPayloadV5_Valid(t *testing.T) {
 	expected := &GetPayloadV5Response{
-		ExecutionPayload: &ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{
+		ExecutionPayload: &engpayload.ExecutionPayloadV3{
+			ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
+				ExecutionPayloadV1: engpayload.ExecutionPayloadV1{
 					BlockHash:   types.HexToHash("0xcc"),
 					BlockNumber: 200,
 				},
@@ -395,10 +397,10 @@ func TestGlamsterdam_GetPayloadV5_Valid(t *testing.T) {
 		BlobsBundle:       &BlobsBundleV2{},
 		ExecutionRequests: [][]byte{},
 	}
-	backend := &mockGlamsterdamBackend{getPayloadResp: expected}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{getPayloadResp: expected}
+	e := NewEngineGlamsterdam(b)
 
-	id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	result, err := e.HandleGetPayloadV5(id)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -409,23 +411,23 @@ func TestGlamsterdam_GetPayloadV5_Valid(t *testing.T) {
 }
 
 func TestGlamsterdam_GetPayloadV5_ZeroID(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	_, err := e.HandleGetPayloadV5(PayloadID{})
-	if err != ErrUnknownPayload {
-		t.Fatalf("expected ErrUnknownPayload, got %v", err)
+	_, err := e.HandleGetPayloadV5(engpayload.PayloadID{})
+	if err != apierrors.ErrUnknownPayload {
+		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
 func TestGlamsterdam_GetPayloadV5_NotFound(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	_, err := e.HandleGetPayloadV5(id)
-	if err != ErrUnknownPayload {
-		t.Fatalf("expected ErrUnknownPayload, got %v", err)
+	if err != apierrors.ErrUnknownPayload {
+		t.Fatalf("expected apierrors.ErrUnknownPayload, got %v", err)
 	}
 }
 
@@ -433,8 +435,8 @@ func TestGlamsterdam_GetBlobsV2_Valid(t *testing.T) {
 	expectedBlobs := []*BlobAndProofV2{
 		{Blob: make([]byte, 131072), Proofs: [][]byte{{0x01}}},
 	}
-	backend := &mockGlamsterdamBackend{getBlobsResp: expectedBlobs}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{getBlobsResp: expectedBlobs}
+	e := NewEngineGlamsterdam(b)
 
 	hashes := []types.Hash{types.HexToHash("0xaa")}
 	result, err := e.HandleGetBlobsV2(hashes)
@@ -447,29 +449,29 @@ func TestGlamsterdam_GetBlobsV2_Valid(t *testing.T) {
 }
 
 func TestGlamsterdam_GetBlobsV2_NilHashes(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	_, err := e.HandleGetBlobsV2(nil)
-	if err != ErrInvalidParams {
-		t.Fatalf("expected ErrInvalidParams, got %v", err)
+	if err != apierrors.ErrInvalidParams {
+		t.Fatalf("expected apierrors.ErrInvalidParams, got %v", err)
 	}
 }
 
 func TestGlamsterdam_GetBlobsV2_TooMany(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	hashes := make([]types.Hash, 129) // exceeds 128
 	_, err := e.HandleGetBlobsV2(hashes)
-	if err != ErrTooLargeRequest {
-		t.Fatalf("expected ErrTooLargeRequest, got %v", err)
+	if err != apierrors.ErrTooLargeRequest {
+		t.Fatalf("expected apierrors.ErrTooLargeRequest, got %v", err)
 	}
 }
 
 func TestGlamsterdam_GetBlobsV2_ExactLimit(t *testing.T) {
-	backend := &mockGlamsterdamBackend{getBlobsResp: make([]*BlobAndProofV2, 128)}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{getBlobsResp: make([]*BlobAndProofV2, 128)}
+	e := NewEngineGlamsterdam(b)
 
 	hashes := make([]types.Hash, 128) // exactly 128 is OK
 	_, err := e.HandleGetBlobsV2(hashes)
@@ -480,8 +482,8 @@ func TestGlamsterdam_GetBlobsV2_ExactLimit(t *testing.T) {
 
 func TestGlamsterdam_GetBlobsV2_MissingBlob(t *testing.T) {
 	// Backend returns nil (all-or-nothing when any blob missing).
-	backend := &mockGlamsterdamBackend{getBlobsResp: nil}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{getBlobsResp: nil}
+	e := NewEngineGlamsterdam(b)
 
 	hashes := []types.Hash{types.HexToHash("0xaa")}
 	result, err := e.HandleGetBlobsV2(hashes)
@@ -494,8 +496,8 @@ func TestGlamsterdam_GetBlobsV2_MissingBlob(t *testing.T) {
 }
 
 func TestGlamsterdam_GetClientVersionV2(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	versions := e.HandleGetClientVersionV2(nil)
 	if len(versions) != 1 {
@@ -520,10 +522,10 @@ func TestGlamsterdam_GetClientVersionV2(t *testing.T) {
 }
 
 func TestGlamsterdam_Concurrency(t *testing.T) {
-	backend := &mockGlamsterdamBackend{
+	b := &mockGlamsterdamBackend{
 		getBlobsResp: []*BlobAndProofV2{{Blob: []byte{0x01}, Proofs: [][]byte{}}},
 	}
-	e := NewEngineGlamsterdam(backend)
+	e := NewEngineGlamsterdam(b)
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 40)
@@ -533,8 +535,8 @@ func TestGlamsterdam_Concurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			payload := makeGlamsterdamPayload()
-			_, err := e.HandleNewPayloadV5(payload, nil, types.HexToHash("0xbeef"), [][]byte{})
+			p := makeGlamsterdamPayload()
+			_, err := e.HandleNewPayloadV5(p, nil, types.HexToHash("0xbeef"), [][]byte{})
 			if err != nil {
 				errCh <- err
 			}
@@ -567,13 +569,13 @@ func TestGlamsterdam_Concurrency(t *testing.T) {
 		}()
 	}
 
-	// Concurrent HandleGetPayloadV5 (expected to fail with ErrUnknownPayload).
+	// Concurrent HandleGetPayloadV5 (expected to fail with apierrors.ErrUnknownPayload).
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-			e.HandleGetPayloadV5(id) // Will return ErrUnknownPayload, which is expected.
+			id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+			e.HandleGetPayloadV5(id) // Will return apierrors.ErrUnknownPayload, which is expected.
 		}()
 	}
 
@@ -586,11 +588,11 @@ func TestGlamsterdam_Concurrency(t *testing.T) {
 }
 
 func TestGlamsterdam_JSONRPC_NewPayloadV5(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
-	payload := makeGlamsterdamPayload()
-	payloadJSON, _ := json.Marshal(payload)
+	p := makeGlamsterdamPayload()
+	payloadJSON, _ := json.Marshal(p)
 	hashesJSON, _ := json.Marshal([]types.Hash{})
 	rootJSON, _ := json.Marshal(types.HexToHash("0xbeef"))
 	requestsJSON, _ := json.Marshal([][]byte{})
@@ -604,14 +606,14 @@ func TestGlamsterdam_JSONRPC_NewPayloadV5(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *PayloadStatusV1, got %T", result)
 	}
-	if status.Status != StatusValid {
+	if status.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", status.Status)
 	}
 }
 
 func TestGlamsterdam_JSONRPC_ForkchoiceUpdatedV4(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	state := ForkchoiceStateV1{HeadBlockHash: types.HexToHash("0xaa")}
 	stateJSON, _ := json.Marshal(state)
@@ -625,23 +627,23 @@ func TestGlamsterdam_JSONRPC_ForkchoiceUpdatedV4(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *ForkchoiceUpdatedResult, got %T", result)
 	}
-	if fcu.PayloadStatus.Status != StatusValid {
+	if fcu.PayloadStatus.Status != apierrors.StatusValid {
 		t.Fatalf("expected VALID, got %s", fcu.PayloadStatus.Status)
 	}
 }
 
 func TestGlamsterdam_JSONRPC_GetPayloadV5(t *testing.T) {
 	expected := &GetPayloadV5Response{
-		ExecutionPayload: &ExecutionPayloadV3{
-			ExecutionPayloadV2: ExecutionPayloadV2{
-				ExecutionPayloadV1: ExecutionPayloadV1{BlockHash: types.HexToHash("0xcc")},
+		ExecutionPayload: &engpayload.ExecutionPayloadV3{
+			ExecutionPayloadV2: engpayload.ExecutionPayloadV2{
+				ExecutionPayloadV1: engpayload.ExecutionPayloadV1{BlockHash: types.HexToHash("0xcc")},
 			},
 		},
 	}
-	backend := &mockGlamsterdamBackend{getPayloadResp: expected}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{getPayloadResp: expected}
+	e := NewEngineGlamsterdam(b)
 
-	id := PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	id := engpayload.PayloadID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	idJSON, _ := json.Marshal(id)
 
 	_, rpcErr := e.HandleJSONRPC("engine_getPayloadV5", []json.RawMessage{idJSON})
@@ -651,10 +653,10 @@ func TestGlamsterdam_JSONRPC_GetPayloadV5(t *testing.T) {
 }
 
 func TestGlamsterdam_JSONRPC_GetBlobsV2(t *testing.T) {
-	backend := &mockGlamsterdamBackend{
+	b := &mockGlamsterdamBackend{
 		getBlobsResp: []*BlobAndProofV2{{Blob: []byte{0x01}, Proofs: [][]byte{}}},
 	}
-	e := NewEngineGlamsterdam(backend)
+	e := NewEngineGlamsterdam(b)
 
 	hashesJSON, _ := json.Marshal([]types.Hash{types.HexToHash("0xaa")})
 	_, rpcErr := e.HandleJSONRPC("engine_getBlobsV2", []json.RawMessage{hashesJSON})
@@ -664,8 +666,8 @@ func TestGlamsterdam_JSONRPC_GetBlobsV2(t *testing.T) {
 }
 
 func TestGlamsterdam_JSONRPC_GetClientVersionV2(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	result, rpcErr := e.HandleJSONRPC("engine_getClientVersionV2", nil)
 	if rpcErr != nil {
@@ -681,33 +683,33 @@ func TestGlamsterdam_JSONRPC_GetClientVersionV2(t *testing.T) {
 }
 
 func TestGlamsterdam_JSONRPC_MethodNotFound(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	_, rpcErr := e.HandleJSONRPC("engine_nonexistent", nil)
 	if rpcErr == nil {
 		t.Fatal("expected RPC error for unknown method")
 	}
-	if rpcErr.Code != MethodNotFoundCode {
-		t.Fatalf("expected code %d, got %d", MethodNotFoundCode, rpcErr.Code)
+	if rpcErr.Code != apierrors.MethodNotFoundCode {
+		t.Fatalf("expected code %d, got %d", apierrors.MethodNotFoundCode, rpcErr.Code)
 	}
 }
 
 func TestGlamsterdam_JSONRPC_InvalidParamCount(t *testing.T) {
-	backend := &mockGlamsterdamBackend{}
-	e := NewEngineGlamsterdam(backend)
+	b := &mockGlamsterdamBackend{}
+	e := NewEngineGlamsterdam(b)
 
 	// engine_newPayloadV5 expects 4 params.
 	_, rpcErr := e.HandleJSONRPC("engine_newPayloadV5", []json.RawMessage{json.RawMessage(`{}`)})
 	if rpcErr == nil {
 		t.Fatal("expected RPC error for wrong param count")
 	}
-	if rpcErr.Code != InvalidParamsCode {
-		t.Fatalf("expected code %d, got %d", InvalidParamsCode, rpcErr.Code)
+	if rpcErr.Code != apierrors.InvalidParamsCode {
+		t.Fatalf("expected code %d, got %d", apierrors.InvalidParamsCode, rpcErr.Code)
 	}
 }
 
-func TestValidateExecutionRequests(t *testing.T) {
+func TestValidateExecutionRequestsGlamsterdam(t *testing.T) {
 	tests := []struct {
 		name    string
 		reqs    [][]byte
@@ -724,9 +726,9 @@ func TestValidateExecutionRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateExecutionRequests(tt.reqs)
+			err := validateExecutionRequestsGlamsterdam(tt.reqs)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateExecutionRequests() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("validateExecutionRequestsGlamsterdam() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -737,12 +739,12 @@ func TestGlamsterdam_ErrorMapping(t *testing.T) {
 		err      error
 		wantCode int
 	}{
-		{ErrUnknownPayload, UnknownPayloadCode},
-		{ErrInvalidForkchoiceState, InvalidForkchoiceStateCode},
-		{ErrInvalidPayloadAttributes, InvalidPayloadAttributeCode},
-		{ErrInvalidParams, InvalidParamsCode},
-		{ErrTooLargeRequest, TooLargeRequestCode},
-		{ErrUnsupportedFork, UnsupportedForkCode},
+		{apierrors.ErrUnknownPayload, apierrors.UnknownPayloadCode},
+		{apierrors.ErrInvalidForkchoiceState, apierrors.InvalidForkchoiceStateCode},
+		{apierrors.ErrInvalidPayloadAttributes, apierrors.InvalidPayloadAttributeCode},
+		{apierrors.ErrInvalidParams, apierrors.InvalidParamsCode},
+		{apierrors.ErrTooLargeRequest, apierrors.TooLargeRequestCode},
+		{apierrors.ErrUnsupportedFork, apierrors.UnsupportedForkCode},
 	}
 
 	for _, tt := range tests {

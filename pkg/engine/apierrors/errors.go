@@ -35,6 +35,15 @@ var (
 	ErrMissingBeaconRoot = errors.New("missing parent beacon block root")
 )
 
+// Payload status strings per the execution-apis spec.
+const (
+	StatusValid            = "VALID"
+	StatusInvalid          = "INVALID"
+	StatusSyncing          = "SYNCING"
+	StatusAccepted         = "ACCEPTED"
+	StatusInvalidBlockHash = "INVALID_BLOCK_HASH"
+)
+
 // Standard JSON-RPC 2.0 error codes.
 const (
 	ParseErrorCode     = -32700

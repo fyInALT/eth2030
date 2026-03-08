@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"github.com/eth2030/eth2030/core/types"
 	engapi "github.com/eth2030/eth2030/engine/api"
 )
 
@@ -63,9 +62,4 @@ func (b *engineV7Bridge) ForkchoiceUpdatedV7(state *ForkchoiceStateV1, attrs *Pa
 
 func (b *engineV7Bridge) GetPayloadV7(id PayloadID) (*ExecutionPayloadV7, error) {
 	return b.inner.GetPayloadV7(id)
-}
-
-// generateV7PayloadID wraps the exported GenerateV7PayloadID for package-internal test use.
-func generateV7PayloadID(parentHash types.Hash, timestamp uint64) PayloadID {
-	return engapi.GenerateV7PayloadID(parentHash, timestamp)
 }
