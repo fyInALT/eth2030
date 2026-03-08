@@ -188,6 +188,11 @@ func (b *mockBackend) HistoryOldestBlock() uint64 {
 	return b.historyOldest
 }
 
+// apiSubs extracts the *SubscriptionManager from an EthAPI for direct test access.
+func apiSubs(api *EthAPI) *SubscriptionManager {
+	return api.Subs().(*SubscriptionManager)
+}
+
 func callRPC(t *testing.T, api *EthAPI, method string, params ...interface{}) *Response {
 	t.Helper()
 	var rawParams []json.RawMessage

@@ -1,14 +1,15 @@
-package rpc
+package ethapi
 
 import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	testutil "github.com/eth2030/eth2030/rpc/internal/testutil"
 )
 
 func TestEthExtendedAPI_New(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthExtendedAPI(mb)
 	if api == nil {
 		t.Fatal("expected non-nil API")
@@ -16,7 +17,7 @@ func TestEthExtendedAPI_New(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetUncleByBlockHashAndIndex(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 	h := types.HexToHash("0xabcd")
 
 	uncle := api.GetUncleByBlockHashAndIndex(h, 0)
@@ -26,7 +27,7 @@ func TestEthExtendedAPI_GetUncleByBlockHashAndIndex(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetUncleByBlockNumberAndIndex(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	uncle := api.GetUncleByBlockNumberAndIndex(42, 0)
 	if uncle != nil {
@@ -35,7 +36,7 @@ func TestEthExtendedAPI_GetUncleByBlockNumberAndIndex(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetUncleCountByBlockHash(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 	h := types.HexToHash("0xabcd")
 
 	count := api.GetUncleCountByBlockHash(h)
@@ -45,7 +46,7 @@ func TestEthExtendedAPI_GetUncleCountByBlockHash(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetUncleCountByBlockNumber(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	count := api.GetUncleCountByBlockNumber(42)
 	if count != 0 {
@@ -54,7 +55,7 @@ func TestEthExtendedAPI_GetUncleCountByBlockNumber(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetWork(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	work := api.GetWork()
 	zeroHash := "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -67,7 +68,7 @@ func TestEthExtendedAPI_GetWork(t *testing.T) {
 }
 
 func TestEthExtendedAPI_Accounts_Empty(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	accounts := api.Accounts()
 	if len(accounts) != 0 {
@@ -76,7 +77,7 @@ func TestEthExtendedAPI_Accounts_Empty(t *testing.T) {
 }
 
 func TestEthExtendedAPI_AddAccountAndAccounts(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -98,7 +99,7 @@ func TestEthExtendedAPI_AddAccountAndAccounts(t *testing.T) {
 }
 
 func TestEthExtendedAPI_AddMultipleAccounts(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	key1, _ := crypto.GenerateKey()
 	key2, _ := crypto.GenerateKey()
@@ -117,7 +118,7 @@ func TestEthExtendedAPI_AddMultipleAccounts(t *testing.T) {
 }
 
 func TestEthExtendedAPI_Sign(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -149,7 +150,7 @@ func TestEthExtendedAPI_Sign(t *testing.T) {
 }
 
 func TestEthExtendedAPI_Sign_UnknownAccount(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	unknownAddr := types.HexToAddress("0xdeadbeef")
 	_, err := api.Sign(unknownAddr, []byte("data"))
@@ -159,7 +160,7 @@ func TestEthExtendedAPI_Sign_UnknownAccount(t *testing.T) {
 }
 
 func TestEthExtendedAPI_Sign_EmptyData(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	key, _ := crypto.GenerateKey()
 	addr := api.AddAccount(key)
@@ -174,13 +175,13 @@ func TestEthExtendedAPI_Sign_EmptyData(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetStorageAt(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 
 	// Set a storage value in the mock state.
 	addr := types.HexToAddress("0xaaaa")
 	key := types.HexToHash("0x01")
 	val := types.HexToHash("0x42")
-	mb.statedb.SetState(addr, key, val)
+	mb.Statedb.SetState(addr, key, val)
 
 	api := NewEthExtendedAPI(mb)
 
@@ -191,7 +192,7 @@ func TestEthExtendedAPI_GetStorageAt(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetStorageAt_Empty(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	api := NewEthExtendedAPI(mb)
 
 	addr := types.HexToAddress("0xbbbb")
@@ -204,9 +205,9 @@ func TestEthExtendedAPI_GetStorageAt_Empty(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetStorageAt_NoHeader(t *testing.T) {
-	mb := newMockBackend()
+	mb := testutil.NewMockBackend()
 	// Remove the current header.
-	delete(mb.headers, 42)
+	delete(mb.Headers, 42)
 
 	api := NewEthExtendedAPI(mb)
 	result := api.GetStorageAt(types.Address{}, types.Hash{})
@@ -216,7 +217,7 @@ func TestEthExtendedAPI_GetStorageAt_NoHeader(t *testing.T) {
 }
 
 func TestEthExtendedAPI_GetCompilers(t *testing.T) {
-	api := NewEthExtendedAPI(newMockBackend())
+	api := NewEthExtendedAPI(testutil.NewMockBackend())
 
 	compilers := api.GetCompilers()
 	if compilers == nil {
@@ -228,10 +229,9 @@ func TestEthExtendedAPI_GetCompilers(t *testing.T) {
 }
 
 func TestEthExtendedAPI_CreateAccessList(t *testing.T) {
-	mb := newMockBackend()
-	// Ensure the mock EVM call succeeds.
-	mb.callResult = []byte{0x01}
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0x01}
+	mb.CallGasUsed = 21000
 
 	api := NewEthExtendedAPI(mb)
 
@@ -250,8 +250,8 @@ func TestEthExtendedAPI_CreateAccessList(t *testing.T) {
 }
 
 func TestEthExtendedAPI_CreateAccessList_DefaultGas(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = []byte{0x01}
+	mb := testutil.NewMockBackend()
+	mb.CallResult = []byte{0x01}
 
 	api := NewEthExtendedAPI(mb)
 
@@ -264,8 +264,8 @@ func TestEthExtendedAPI_CreateAccessList_DefaultGas(t *testing.T) {
 }
 
 func TestEthExtendedAPI_CreateAccessList_CallFails(t *testing.T) {
-	mb := newMockBackend()
-	mb.callErr = errCallFailed
+	mb := testutil.NewMockBackend()
+	mb.CallErr = errCallFailed
 
 	api := NewEthExtendedAPI(mb)
 
@@ -279,9 +279,9 @@ func TestEthExtendedAPI_CreateAccessList_CallFails(t *testing.T) {
 }
 
 func TestEthExtendedAPI_CreateAccessList_EmptyData(t *testing.T) {
-	mb := newMockBackend()
-	mb.callResult = nil
-	mb.callGasUsed = 21000
+	mb := testutil.NewMockBackend()
+	mb.CallResult = nil
+	mb.CallGasUsed = 21000
 
 	api := NewEthExtendedAPI(mb)
 

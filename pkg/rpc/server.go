@@ -6,28 +6,6 @@ import (
 	rpcserver "github.com/eth2030/eth2030/rpc/server"
 )
 
-// Re-export server types.
-type (
-	ServerConfig   = rpcserver.ServerConfig
-	RateLimiter    = rpcserver.RateLimiter
-	MiddlewareFunc = rpcserver.MiddlewareFunc
-)
-
-// Re-export server errors.
-var (
-	ErrServerClosed    = rpcserver.ErrServerClosed
-	ErrServerStarted   = rpcserver.ErrServerStarted
-	ErrAuthFailed      = rpcserver.ErrAuthFailed
-	ErrRateLimited     = rpcserver.ErrRateLimited
-	ErrRequestTooLarge = rpcserver.ErrRequestTooLarge
-)
-
-// Re-export constructors.
-var (
-	DefaultServerConfig = rpcserver.DefaultServerConfig
-	NewRateLimiter      = rpcserver.NewRateLimiter
-)
-
 // Server is a JSON-RPC HTTP server that dispatches requests to the EthAPI.
 // It wraps rpcserver.Server and adds AdminBackend convenience wiring.
 type Server struct {

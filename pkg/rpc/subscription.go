@@ -29,6 +29,12 @@ const (
 // MatchFilter re-exports rpcfilter.MatchFilter.
 var MatchFilter = rpcfilter.MatchFilter
 
+// FilterLogs re-exports rpcfilter.FilterLogs.
+var FilterLogs = rpcfilter.FilterLogs
+
+// FilterLogsWithBloom re-exports rpcfilter.FilterLogsWithBloom.
+var FilterLogsWithBloom = rpcfilter.FilterLogsWithBloom
+
 // bloomMatchesQuery is a package-level helper wrapping
 // rpcfilter.BloomMatchesFilterQuery for internal use.
 func bloomMatchesQuery(bloom types.Bloom, query FilterQuery) bool {

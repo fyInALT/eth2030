@@ -1,4 +1,4 @@
-package rpc
+package rpcsub
 
 import (
 	"errors"
@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	rpcfilter "github.com/eth2030/eth2030/rpc/filter"
+	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
 
-// TestSubRegistry_NewHeadsSub tests creating a newHeads subscription.
 func TestSubRegistry_NewHeadsSub(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, err := r.NewHeadsSub("conn-1")
@@ -24,10 +25,9 @@ func TestSubRegistry_NewHeadsSub(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_LogsSub tests creating a logs subscription with filter.
 func TestSubRegistry_LogsSub(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
-	query := FilterQuery{
+	query := rpcfilter.FilterQuery{
 		Addresses: []types.Address{types.HexToAddress("0xaaaa")},
 	}
 	id, err := r.LogsSub("conn-1", query)
@@ -49,7 +49,6 @@ func TestSubRegistry_LogsSub(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_PendingTxSub tests creating a pending tx subscription.
 func TestSubRegistry_PendingTxSub(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, err := r.PendingTxSub("conn-1")
@@ -62,7 +61,6 @@ func TestSubRegistry_PendingTxSub(t *testing.T) {
 	_ = id
 }
 
-// TestSubRegistry_SyncStatusSub tests creating a sync status subscription.
 func TestSubRegistry_SyncStatusSub(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, err := r.SyncStatusSub("conn-1")
@@ -75,7 +73,6 @@ func TestSubRegistry_SyncStatusSub(t *testing.T) {
 	_ = id
 }
 
-// TestSubRegistry_Unsubscribe tests removing a subscription.
 func TestSubRegistry_Unsubscribe(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, _ := r.NewHeadsSub("conn-1")
@@ -89,7 +86,6 @@ func TestSubRegistry_Unsubscribe(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_Unsubscribe_NotFound tests removing a non-existent sub.
 func TestSubRegistry_Unsubscribe_NotFound(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	err := r.Unsubscribe("0xdeadbeef")
@@ -98,11 +94,10 @@ func TestSubRegistry_Unsubscribe_NotFound(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_DisconnectConn tests cleanup on connection close.
 func TestSubRegistry_DisconnectConn(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	r.NewHeadsSub("conn-1")
-	r.LogsSub("conn-1", FilterQuery{})
+	r.LogsSub("conn-1", rpcfilter.FilterQuery{})
 	r.NewHeadsSub("conn-2")
 
 	removed := r.DisconnectConn("conn-1")
@@ -117,7 +112,6 @@ func TestSubRegistry_DisconnectConn(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_RateLimit tests per-connection subscription rate limiting.
 func TestSubRegistry_RateLimit(t *testing.T) {
 	config := SubRateLimitConfig{
 		MaxSubsPerConn:  2,
@@ -126,12 +120,11 @@ func TestSubRegistry_RateLimit(t *testing.T) {
 	}
 	r := NewSubRegistry(config, 128)
 
-	// First two should succeed.
 	_, err := r.NewHeadsSub("conn-1")
 	if err != nil {
 		t.Fatalf("first sub should succeed: %v", err)
 	}
-	_, err = r.LogsSub("conn-1", FilterQuery{})
+	_, err = r.LogsSub("conn-1", rpcfilter.FilterQuery{})
 	if err != nil {
 		t.Fatalf("second sub should succeed: %v", err)
 	}
@@ -149,7 +142,6 @@ func TestSubRegistry_RateLimit(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_NotifyNewHead tests head notifications reach subscribers.
 func TestSubRegistry_NotifyNewHead(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, _ := r.NewHeadsSub("conn-1")
@@ -164,7 +156,7 @@ func TestSubRegistry_NotifyNewHead(t *testing.T) {
 	entry := r.GetSub(id)
 	select {
 	case msg := <-entry.Channel():
-		block, ok := msg.(*RPCBlock)
+		block, ok := msg.(*rpctypes.RPCBlock)
 		if !ok {
 			t.Fatalf("expected *RPCBlock, got %T", msg)
 		}
@@ -176,11 +168,10 @@ func TestSubRegistry_NotifyNewHead(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_NotifyLogEvents tests log notifications with filtering.
 func TestSubRegistry_NotifyLogEvents(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	contractAddr := types.HexToAddress("0xcccc")
-	query := FilterQuery{
+	query := rpcfilter.FilterQuery{
 		Addresses: []types.Address{contractAddr},
 	}
 	id, _ := r.LogsSub("conn-1", query)
@@ -192,7 +183,6 @@ func TestSubRegistry_NotifyLogEvents(t *testing.T) {
 	r.NotifyLogEvents(logs)
 
 	entry := r.GetSub(id)
-	// Should receive exactly one log (matching address).
 	select {
 	case <-entry.Channel():
 		// Good.
@@ -200,7 +190,6 @@ func TestSubRegistry_NotifyLogEvents(t *testing.T) {
 		t.Fatal("expected log notification")
 	}
 
-	// Should not have a second notification.
 	select {
 	case <-entry.Channel():
 		t.Fatal("should not receive non-matching log")
@@ -209,7 +198,6 @@ func TestSubRegistry_NotifyLogEvents(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_NotifyPendingTxHash tests pending tx notifications.
 func TestSubRegistry_NotifyPendingTxHash(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, _ := r.PendingTxSub("conn-1")
@@ -232,7 +220,6 @@ func TestSubRegistry_NotifyPendingTxHash(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_NotifySyncStatus tests sync notifications.
 func TestSubRegistry_NotifySyncStatus(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	id, _ := r.SyncStatusSub("conn-1")
@@ -252,7 +239,6 @@ func TestSubRegistry_NotifySyncStatus(t *testing.T) {
 		t.Fatal("expected sync notification")
 	}
 
-	// Test synced (false) notification.
 	r.NotifySyncStatus(false, 200, 200)
 	select {
 	case msg := <-entry.Channel():
@@ -264,11 +250,10 @@ func TestSubRegistry_NotifySyncStatus(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_Close tests closing the registry.
 func TestSubRegistry_Close(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	r.NewHeadsSub("conn-1")
-	r.LogsSub("conn-2", FilterQuery{})
+	r.LogsSub("conn-2", rpcfilter.FilterQuery{})
 
 	r.Close()
 
@@ -279,18 +264,16 @@ func TestSubRegistry_Close(t *testing.T) {
 		t.Fatalf("want 0 subs after close, got %d", r.Count())
 	}
 
-	// New subscriptions should fail.
 	_, err := r.NewHeadsSub("conn-3")
 	if !errors.Is(err, ErrSubManagerClosed) {
 		t.Fatalf("want ErrSubManagerClosed, got %v", err)
 	}
 }
 
-// TestSubRegistry_ConnSubCount tests per-connection counting.
 func TestSubRegistry_ConnSubCount(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	r.NewHeadsSub("conn-1")
-	r.LogsSub("conn-1", FilterQuery{})
+	r.LogsSub("conn-1", rpcfilter.FilterQuery{})
 	r.NewHeadsSub("conn-2")
 
 	if r.ConnSubCount("conn-1") != 2 {
@@ -304,7 +287,6 @@ func TestSubRegistry_ConnSubCount(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_ParseSubKind tests subscription type parsing.
 func TestSubRegistry_ParseSubKind(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -336,35 +318,31 @@ func TestSubRegistry_ParseSubKind(t *testing.T) {
 	}
 }
 
-// TestSubRegistry_CheckRateLimit tests event rate limiting.
 func TestSubRegistry_CheckRateLimit(t *testing.T) {
 	config := SubRateLimitConfig{
 		MaxSubsPerConn:  10,
-		WindowDuration:  time.Hour, // large window so it never resets
+		WindowDuration:  time.Hour,
 		MaxEventsPerSec: 2,
 	}
 	r := NewSubRegistry(config, 128)
 	r.NewHeadsSub("conn-1")
 
-	// First two events should pass.
 	if !r.CheckRateLimit("conn-1") {
 		t.Fatal("first event should pass")
 	}
 	if !r.CheckRateLimit("conn-1") {
 		t.Fatal("second event should pass")
 	}
-	// Third should be rate limited (within same window).
 	if r.CheckRateLimit("conn-1") {
 		t.Fatal("third event should be rate limited")
 	}
 }
 
-// TestSubRegistry_CountByKind tests counting by subscription kind.
 func TestSubRegistry_CountByKind(t *testing.T) {
 	r := NewSubRegistry(DefaultSubRateLimitConfig(), 128)
 	r.NewHeadsSub("conn-1")
 	r.NewHeadsSub("conn-2")
-	r.LogsSub("conn-1", FilterQuery{})
+	r.LogsSub("conn-1", rpcfilter.FilterQuery{})
 	r.PendingTxSub("conn-3")
 
 	if r.CountByKind(SubKindNewHeads) != 2 {
