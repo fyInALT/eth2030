@@ -130,6 +130,88 @@ func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *
 	return types.NewBlock(header, body)
 }
 
+// mockTxPool implements block.TxPoolReader for testing.
+type mockTxPool struct {
+	txs []*types.Transaction
+}
+
+func (p *mockTxPool) Pending() []*types.Transaction {
+	return p.txs
+}
+
+// newLegacyBuilder creates a block builder for testing using the legacy interface.
+func newLegacyBuilder(cfg *config.ChainConfig, statedb state.StateDB) *blkpkg.BlockBuilder {
+	b := blkpkg.NewBlockBuilder(cfg, nil, nil)
+	b.SetState(statedb)
+	return b
+}
+
+// makeValidParent creates a valid parent header for block validation tests.
+func makeValidParent() *types.Header {
+	blobGasUsed := uint64(0)
+	excessBlobGas := uint64(0)
+	calldataGasUsed := uint64(0)
+	calldataExcessGas := uint64(0)
+	emptyBeaconRoot := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRootHash
+	return &types.Header{
+		Number:            big.NewInt(100),
+		GasLimit:          30000000,
+		GasUsed:           15000000,
+		Time:              1000,
+		Difficulty:        new(big.Int),
+		BaseFee:           big.NewInt(1000000000), // 1 Gwei
+		BlobGasUsed:       &blobGasUsed,
+		ExcessBlobGas:     &excessBlobGas,
+		ParentBeaconRoot:  &emptyBeaconRoot,
+		RequestsHash:      &emptyRequestsHash,
+		CalldataGasUsed:   &calldataGasUsed,
+		CalldataExcessGas: &calldataExcessGas,
+	}
+}
+
+// makeValidChild creates a valid child header for the given parent.
+func makeValidChild(parent *types.Header) *types.Header {
+	blobGasUsed := uint64(0)
+	var parentExcess, parentUsed uint64
+	if parent.ExcessBlobGas != nil {
+		parentExcess = *parent.ExcessBlobGas
+	}
+	if parent.BlobGasUsed != nil {
+		parentUsed = *parent.BlobGasUsed
+	}
+	excessBlobGas := gas.CalcExcessBlobGas(parentExcess, parentUsed)
+
+	calldataGasUsed := uint64(0)
+	var pCalldataExcess, pCalldataUsed uint64
+	if parent.CalldataExcessGas != nil {
+		pCalldataExcess = *parent.CalldataExcessGas
+	}
+	if parent.CalldataGasUsed != nil {
+		pCalldataUsed = *parent.CalldataGasUsed
+	}
+	calldataExcessGas := gas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, parent.GasLimit)
+
+	emptyBeaconRoot := types.EmptyRootHash
+	emptyRequestsHash := types.EmptyRootHash
+
+	return &types.Header{
+		ParentHash:        parent.Hash(),
+		Number:            new(big.Int).Add(parent.Number, big.NewInt(1)),
+		GasLimit:          parent.GasLimit,
+		GasUsed:           10000000,
+		Time:              parent.Time + 12,
+		Difficulty:        new(big.Int),
+		BaseFee:           gas.CalcBaseFee(parent),
+		BlobGasUsed:       &blobGasUsed,
+		ExcessBlobGas:     &excessBlobGas,
+		ParentBeaconRoot:  &emptyBeaconRoot,
+		RequestsHash:      &emptyRequestsHash,
+		CalldataGasUsed:   &calldataGasUsed,
+		CalldataExcessGas: &calldataExcessGas,
+	}
+}
+
 // makeGenesis creates a genesis block with the given gas limit and base fee.
 func makeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
 	blobGasUsed := uint64(0)
