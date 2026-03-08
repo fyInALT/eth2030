@@ -1,11 +1,10 @@
-package core
+package execution
 
 import (
 	"math/big"
 	"sync"
 	"testing"
 
-	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -35,7 +34,7 @@ func newRPTestReceiptWithLogs(status uint64, gasUsed uint64) *types.Receipt {
 }
 
 func TestNewReceiptProcessor(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	if rp == nil {
 		t.Fatal("expected non-nil processor")
 	}
@@ -48,7 +47,7 @@ func TestNewReceiptProcessor(t *testing.T) {
 }
 
 func TestAddAndGetReceipt(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	receipt := newRPTestReceipt(types.ReceiptStatusSuccessful, 21000, 21000)
 
 	err := rp.AddReceipt(1, 0, receipt)
@@ -69,16 +68,16 @@ func TestAddAndGetReceipt(t *testing.T) {
 }
 
 func TestAddReceiptNil(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	err := rp.AddReceipt(1, 0, nil)
-	if err != execution.ErrNilReceipt {
-		t.Fatalf("expected execution.ErrNilReceipt, got %v", err)
+	if err != ErrNilReceipt {
+		t.Fatalf("expected ErrNilReceipt, got %v", err)
 	}
 }
 
 func TestAddReceiptMaxExceeded(t *testing.T) {
-	config := execution.ReceiptProcessorConfig{MaxReceipts: 2}
-	rp := execution.NewReceiptProcessor(config)
+	cfg := ReceiptProcessorConfig{MaxReceipts: 2}
+	rp := NewReceiptProcessor(cfg)
 
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 21000, 42000))
@@ -90,8 +89,8 @@ func TestAddReceiptMaxExceeded(t *testing.T) {
 }
 
 func TestAddReceiptReplace(t *testing.T) {
-	config := execution.ReceiptProcessorConfig{MaxReceipts: 1}
-	rp := execution.NewReceiptProcessor(config)
+	cfg := ReceiptProcessorConfig{MaxReceipts: 1}
+	rp := NewReceiptProcessor(cfg)
 
 	r1 := newRPTestReceipt(types.ReceiptStatusSuccessful, 21000, 21000)
 	rp.AddReceipt(1, 0, r1)
@@ -113,7 +112,7 @@ func TestAddReceiptReplace(t *testing.T) {
 }
 
 func TestGetReceiptNotFound(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	got := rp.GetReceipt(999, 0)
 	if got != nil {
 		t.Fatal("expected nil for nonexistent receipt")
@@ -121,7 +120,7 @@ func TestGetReceiptNotFound(t *testing.T) {
 }
 
 func TestGetBlockReceipts(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	// Add receipts in non-sequential order.
 	rp.AddReceipt(1, 2, newRPTestReceipt(1, 30000, 72000))
@@ -133,7 +132,6 @@ func TestGetBlockReceipts(t *testing.T) {
 		t.Fatalf("expected 3 receipts, got %d", len(receipts))
 	}
 
-	// Verify they are sorted by tx index (ascending gas used).
 	if receipts[0].CumulativeGasUsed != 21000 {
 		t.Fatalf("expected first receipt cumgas 21000, got %d", receipts[0].CumulativeGasUsed)
 	}
@@ -146,7 +144,7 @@ func TestGetBlockReceipts(t *testing.T) {
 }
 
 func TestGetBlockReceiptsEmpty(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	receipts := rp.GetBlockReceipts(1)
 	if receipts != nil {
 		t.Fatalf("expected nil, got %v", receipts)
@@ -154,7 +152,7 @@ func TestGetBlockReceiptsEmpty(t *testing.T) {
 }
 
 func TestComputeReceiptsRoot(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	// Empty block should return EmptyRootHash.
 	root := rp.ComputeReceiptsRoot(1)
@@ -162,7 +160,6 @@ func TestComputeReceiptsRoot(t *testing.T) {
 		t.Fatalf("expected empty root hash, got %s", root.Hex())
 	}
 
-	// Add receipts and compute root.
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 30000, 51000))
 
@@ -176,7 +173,7 @@ func TestComputeReceiptsRoot(t *testing.T) {
 }
 
 func TestComputeReceiptsRootDeterministic(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 30000, 51000))
@@ -189,7 +186,7 @@ func TestComputeReceiptsRootDeterministic(t *testing.T) {
 }
 
 func TestBlockReceiptCount(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	if rp.BlockReceiptCount(1) != 0 {
 		t.Fatal("expected 0 for empty block")
 	}
@@ -210,7 +207,7 @@ func TestBlockReceiptCount(t *testing.T) {
 }
 
 func TestTotalReceipts(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 21000, 42000))
@@ -222,7 +219,7 @@ func TestTotalReceipts(t *testing.T) {
 }
 
 func TestPruneBlock(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 21000, 42000))
@@ -244,7 +241,7 @@ func TestPruneBlock(t *testing.T) {
 }
 
 func TestPruneBlockNotFound(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	pruned := rp.PruneBlock(999)
 	if pruned != 0 {
 		t.Fatalf("expected 0 pruned for nonexistent block, got %d", pruned)
@@ -252,7 +249,7 @@ func TestPruneBlockNotFound(t *testing.T) {
 }
 
 func TestPruneBlockUpdatesLatest(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(5, 0, newRPTestReceipt(1, 21000, 21000))
@@ -279,7 +276,7 @@ func TestPruneBlockUpdatesLatest(t *testing.T) {
 }
 
 func TestLatestBlock(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	if rp.LatestBlock() != 0 {
 		t.Fatal("expected 0 with no receipts")
@@ -302,14 +299,13 @@ func TestLatestBlock(t *testing.T) {
 }
 
 func TestComputeBloomOnAdd(t *testing.T) {
-	config := execution.ReceiptProcessorConfig{ComputeBloom: true}
-	rp := execution.NewReceiptProcessor(config)
+	cfg := ReceiptProcessorConfig{ComputeBloom: true}
+	rp := NewReceiptProcessor(cfg)
 
 	receipt := newRPTestReceiptWithLogs(types.ReceiptStatusSuccessful, 21000)
 	rp.AddReceipt(1, 0, receipt)
 
 	got := rp.GetReceipt(1, 0)
-	// Bloom should be computed automatically.
 	allZero := true
 	for _, b := range got.Bloom {
 		if b != 0 {
@@ -323,14 +319,13 @@ func TestComputeBloomOnAdd(t *testing.T) {
 }
 
 func TestNoBloomOnAdd(t *testing.T) {
-	config := execution.ReceiptProcessorConfig{ComputeBloom: false}
-	rp := execution.NewReceiptProcessor(config)
+	cfg := ReceiptProcessorConfig{ComputeBloom: false}
+	rp := NewReceiptProcessor(cfg)
 
 	receipt := newRPTestReceiptWithLogs(types.ReceiptStatusSuccessful, 21000)
 	rp.AddReceipt(1, 0, receipt)
 
 	got := rp.GetReceipt(1, 0)
-	// Bloom should NOT be computed since ComputeBloom is false.
 	allZero := true
 	for _, b := range got.Bloom {
 		if b != 0 {
@@ -344,9 +339,8 @@ func TestNoBloomOnAdd(t *testing.T) {
 }
 
 func TestMultipleBlocks(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
-	// Add receipts across several blocks.
 	for block := uint64(1); block <= 5; block++ {
 		for tx := uint64(0); tx < 3; tx++ {
 			cumGas := (tx + 1) * 21000
@@ -363,25 +357,21 @@ func TestMultipleBlocks(t *testing.T) {
 		t.Fatalf("expected latest 5, got %d", rp.LatestBlock())
 	}
 
-	// Each block should have 3 receipts.
 	for block := uint64(1); block <= 5; block++ {
 		if rp.BlockReceiptCount(block) != 3 {
 			t.Fatalf("block %d: expected 3 receipts, got %d", block, rp.BlockReceiptCount(block))
 		}
 	}
 
-	// Receipts root should differ between blocks (different cumulative gas patterns
-	// are the same here, but block context can differ).
 	root1 := rp.ComputeReceiptsRoot(1)
 	root2 := rp.ComputeReceiptsRoot(2)
-	// Both blocks have identical receipt data so roots should be equal.
 	if root1 != root2 {
 		t.Log("roots differ between identical blocks, which is fine if block context differs")
 	}
 }
 
 func TestReceiptProcessorConcurrentAccess(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 	var wg sync.WaitGroup
 	const goroutines = 10
 	const receiptsPerGoroutine = 5
@@ -404,7 +394,6 @@ func TestReceiptProcessorConcurrentAccess(t *testing.T) {
 		t.Fatalf("expected %d total receipts, got %d", expected, total)
 	}
 
-	// Read concurrently.
 	for g := 0; g < goroutines; g++ {
 		wg.Add(1)
 		go func(block uint64) {
@@ -421,7 +410,7 @@ func TestReceiptProcessorConcurrentAccess(t *testing.T) {
 }
 
 func TestPruneAndReaddReceipts(t *testing.T) {
-	rp := execution.NewReceiptProcessor(execution.DefaultReceiptProcessorConfig())
+	rp := NewReceiptProcessor(DefaultReceiptProcessorConfig())
 
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 21000, 42000))
@@ -433,7 +422,6 @@ func TestPruneAndReaddReceipts(t *testing.T) {
 		t.Fatalf("expected 0 after prune, got %d", rp.TotalReceipts())
 	}
 
-	// Re-add same receipts.
 	rp.AddReceipt(1, 0, newRPTestReceipt(1, 21000, 21000))
 	rp.AddReceipt(1, 1, newRPTestReceipt(1, 21000, 42000))
 

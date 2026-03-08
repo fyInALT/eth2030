@@ -1,11 +1,10 @@
-package core
+package execution
 
 import (
 	"math/big"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/config"
-	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -51,8 +50,8 @@ func setupSender(statedb *state.MemoryStateDB) types.Address {
 }
 
 // applyTx is a helper that creates a message from a transaction, sets the
-// sender, and calls applyMessage, returning the result and receipt status.
-func applyTx(t *testing.T, statedb *state.MemoryStateDB, sender types.Address, tx *types.Transaction) (*execution.ExecutionResult, *types.Receipt) {
+// sender, and calls ApplyMessage, returning the result and receipt status.
+func applyTx(t *testing.T, statedb *state.MemoryStateDB, sender types.Address, tx *types.Transaction) (*ExecutionResult, *types.Receipt) {
 	t.Helper()
 	msg := config.TransactionToMessage(tx)
 	msg.From = sender
@@ -60,11 +59,9 @@ func applyTx(t *testing.T, statedb *state.MemoryStateDB, sender types.Address, t
 	header := newTestHeader()
 	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
 
-	result, err := execution.ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
+	result, err := ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp)
 	if err != nil {
-		// Pre-execution validation error (intrinsic gas, nonce, balance).
-		// Return a failed result. State is not modified by applyMessage on error.
-		result = &execution.ExecutionResult{
+		result = &ExecutionResult{
 			UsedGas: msg.GasLimit,
 			Err:     err,
 		}
@@ -90,8 +87,6 @@ func TestProcessorContractCreation(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	sender := setupSender(statedb)
 
-	// Runtime code: PUSH1 0x42, PUSH1 0x00, SSTORE, STOP
-	// Stores value 0x42 at storage slot 0.
 	runtimeCode := []byte{
 		0x60, 0x42, // PUSH1 0x42
 		0x60, 0x00, // PUSH1 0x00
@@ -104,28 +99,21 @@ func TestProcessorContractCreation(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(1),
 		Gas:      200000,
-		To:       nil, // contract creation
+		To:       nil,
 		Value:    big.NewInt(0),
 		Data:     initCode,
 	})
 
 	result, receipt := applyTx(t, statedb, sender, tx)
 
-	// Receipt should be successful.
 	if receipt.Status != types.ReceiptStatusSuccessful {
 		t.Fatalf("receipt status: want successful, got failed (err=%v)", result.Err)
 	}
 
-	// Nonce should be incremented (EVM.Create increments nonce for creates).
 	if statedb.GetNonce(sender) != 1 {
 		t.Fatalf("sender nonce: want 1, got %d", statedb.GetNonce(sender))
 	}
 
-	// Find the deployed contract: iterate over possible addresses.
-	// The contract address is created from (sender, nonce=0) by EVM.Create.
-	// We verify that at least one non-sender address has code deployed.
-	// Since we can't easily predict the address from our simplified createAddress,
-	// we verify via the return data of the creation (which is the runtime code).
 	if len(result.ReturnData) == 0 {
 		t.Fatal("expected non-empty return data (deployed runtime code)")
 	}
@@ -133,9 +121,8 @@ func TestProcessorContractCreation(t *testing.T) {
 		t.Fatalf("return data length: want %d, got %d", len(runtimeCode), len(result.ReturnData))
 	}
 
-	// Gas used should be more than simple transfer (21000 + create overhead).
-	if result.UsedGas <= execution.TxGas+execution.TxCreateGas {
-		t.Fatalf("gas used %d should exceed base create cost %d", result.UsedGas, execution.TxGas+execution.TxCreateGas)
+	if result.UsedGas <= TxGas+TxCreateGas {
+		t.Fatalf("gas used %d should exceed base create cost %d", result.UsedGas, TxGas+TxCreateGas)
 	}
 }
 
@@ -145,8 +132,6 @@ func TestProcessorContractCall(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	sender := setupSender(statedb)
 
-	// Deploy a contract at a known address with code that returns 0x42.
-	// Runtime code: PUSH1 0x42, PUSH1 0x00, MSTORE, PUSH1 0x20, PUSH1 0x00, RETURN
 	contractAddr := types.HexToAddress("0xc0de")
 	contractCode := []byte{
 		0x60, 0x42, // PUSH1 0x42
@@ -174,7 +159,6 @@ func TestProcessorContractCall(t *testing.T) {
 		t.Fatalf("receipt status: want successful, got failed (err=%v)", result.Err)
 	}
 
-	// Return data should be 32 bytes with 0x42 in the last byte.
 	if len(result.ReturnData) != 32 {
 		t.Fatalf("return data length: want 32, got %d", len(result.ReturnData))
 	}
@@ -182,9 +166,8 @@ func TestProcessorContractCall(t *testing.T) {
 		t.Fatalf("return data[31]: want 0x42, got 0x%02x", result.ReturnData[31])
 	}
 
-	// Gas should be more than simple transfer due to EVM execution.
-	if result.UsedGas <= execution.TxGas {
-		t.Fatalf("gas used %d should exceed base transfer gas %d", result.UsedGas, execution.TxGas)
+	if result.UsedGas <= TxGas {
+		t.Fatalf("gas used %d should exceed base transfer gas %d", result.UsedGas, TxGas)
 	}
 }
 
@@ -194,7 +177,6 @@ func TestProcessorOutOfGas(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	sender := setupSender(statedb)
 
-	// Runtime code that does SSTORE (expensive).
 	runtimeCode := []byte{
 		0x60, 0x42, // PUSH1 0x42
 		0x60, 0x00, // PUSH1 0x00
@@ -203,20 +185,17 @@ func TestProcessorOutOfGas(t *testing.T) {
 	}
 	initCode := makeCreationCode(runtimeCode)
 
-	// Gas limit just barely above intrinsic gas but not enough for EVM execution.
-	// Intrinsic for create: 21000 + 32000 + data gas + initcode word gas (EIP-3860)
 	dataGas := uint64(0)
 	for _, b := range initCode {
 		if b == 0 {
-			dataGas += execution.TxDataZeroGas
+			dataGas += TxDataZeroGas
 		} else {
-			dataGas += execution.TxDataNonZeroGas
+			dataGas += TxDataNonZeroGas
 		}
 	}
 	words := (uint64(len(initCode)) + 31) / 32
 	initCodeWordGas := words * vm.InitCodeWordGas
-	intrinsic := execution.TxGas + execution.TxCreateGas + dataGas + initCodeWordGas
-	// Give just enough for intrinsic + a tiny bit for EVM, but not enough for SSTORE.
+	intrinsic := TxGas + TxCreateGas + dataGas + initCodeWordGas
 	gasLimit := intrinsic + 100
 
 	initialBalance := statedb.GetBalance(sender)
@@ -232,17 +211,14 @@ func TestProcessorOutOfGas(t *testing.T) {
 
 	result, receipt := applyTx(t, statedb, sender, tx)
 
-	// Receipt should be failed.
 	if receipt.Status != types.ReceiptStatusFailed {
 		t.Fatalf("receipt status: want failed, got successful")
 	}
 
-	// Gas should be consumed (result.UsedGas > 0).
 	if result.UsedGas == 0 {
 		t.Fatal("expected non-zero gas usage on OOG")
 	}
 
-	// Sender balance should have decreased by at least the gas cost.
 	finalBalance := statedb.GetBalance(sender)
 	if finalBalance.Cmp(initialBalance) >= 0 {
 		t.Fatal("sender balance should decrease on OOG")
@@ -255,7 +231,6 @@ func TestProcessorValueTransferToContract(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	sender := setupSender(statedb)
 
-	// Deploy a contract that accepts value (just STOP - no revert).
 	contractAddr := types.HexToAddress("0xc0de")
 	contractCode := []byte{0x00} // STOP
 	statedb.CreateAccount(contractAddr)
@@ -277,7 +252,6 @@ func TestProcessorValueTransferToContract(t *testing.T) {
 		t.Fatalf("receipt status: want successful, got failed (err=%v)", result.Err)
 	}
 
-	// Contract should have received 1 ETH.
 	contractBal := statedb.GetBalance(contractAddr)
 	if contractBal.Cmp(oneETH) != 0 {
 		t.Fatalf("contract balance: want %v, got %v", oneETH, contractBal)
@@ -289,8 +263,6 @@ func TestProcessorRevert(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 	sender := setupSender(statedb)
 
-	// Contract code: PUSH1 0x00, PUSH1 0x00, REVERT
-	// Immediately reverts with empty data.
 	contractAddr := types.HexToAddress("0xc0de")
 	contractCode := []byte{
 		0x60, 0x00, // PUSH1 0x00 (return data size)
@@ -300,7 +272,6 @@ func TestProcessorRevert(t *testing.T) {
 	statedb.CreateAccount(contractAddr)
 	statedb.SetCode(contractAddr, contractCode)
 
-	// Send some value so we can verify state reverts.
 	oneETH := new(big.Int).SetUint64(1e18)
 	tx := types.NewTransaction(&types.LegacyTx{
 		Nonce:    0,
@@ -313,23 +284,19 @@ func TestProcessorRevert(t *testing.T) {
 
 	result, receipt := applyTx(t, statedb, sender, tx)
 
-	// Receipt should be failed.
 	if receipt.Status != types.ReceiptStatusFailed {
 		t.Fatalf("receipt status: want failed, got successful")
 	}
 
-	// Error should be ErrExecutionReverted.
 	if result.Err == nil {
 		t.Fatal("expected non-nil error for REVERT")
 	}
 
-	// Contract balance should be zero (value transfer reverted).
 	contractBal := statedb.GetBalance(contractAddr)
 	if contractBal.Sign() != 0 {
 		t.Fatalf("contract balance should be 0 after revert, got %v", contractBal)
 	}
 
-	// Gas should not be fully consumed on REVERT (unlike OOG).
 	if result.UsedGas >= 100000 {
 		t.Fatalf("REVERT should not consume all gas, used %d of 100000", result.UsedGas)
 	}

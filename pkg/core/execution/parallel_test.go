@@ -1,4 +1,4 @@
-package core
+package execution
 
 import (
 	"errors"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
-	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 )
@@ -38,7 +37,6 @@ func setupState(accounts map[types.Address]*big.Int) *state.MemoryStateDB {
 func buildBALForIndependentTransfers(senders, recipients []types.Address) *bal.BlockAccessList {
 	b := bal.NewBlockAccessList()
 	for i := range senders {
-		// Sender entry: balance change + nonce change (AccessIndex = i+1 for tx i).
 		b.AddEntry(bal.AccessEntry{
 			Address:     senders[i],
 			AccessIndex: uint64(i + 1),
@@ -51,7 +49,6 @@ func buildBALForIndependentTransfers(senders, recipients []types.Address) *bal.B
 				NewValue: 1,
 			},
 		})
-		// Recipient entry: balance change.
 		b.AddEntry(bal.AccessEntry{
 			Address:     recipients[i],
 			AccessIndex: uint64(i + 1),
@@ -69,7 +66,6 @@ func buildBALForIndependentTransfers(senders, recipients []types.Address) *bal.B
 func buildBALForConflictingTransfers(senders []types.Address, sharedRecipient types.Address, n int) *bal.BlockAccessList {
 	b := bal.NewBlockAccessList()
 	for i := 0; i < n; i++ {
-		// Sender entry.
 		b.AddEntry(bal.AccessEntry{
 			Address:     senders[i],
 			AccessIndex: uint64(i + 1),
@@ -82,7 +78,6 @@ func buildBALForConflictingTransfers(senders []types.Address, sharedRecipient ty
 				NewValue: 1,
 			},
 		})
-		// Shared recipient entry: all txs write to this address, creating conflicts.
 		b.AddEntry(bal.AccessEntry{
 			Address:     sharedRecipient,
 			AccessIndex: uint64(i + 1),
@@ -96,7 +91,6 @@ func buildBALForConflictingTransfers(senders []types.Address, sharedRecipient ty
 }
 
 func TestParallelProcessIndependentTransactions(t *testing.T) {
-	// Set up 3 completely independent transfers: A->B, C->D, E->F.
 	senders := []types.Address{
 		types.HexToAddress("0xA1"),
 		types.HexToAddress("0xC1"),
@@ -131,7 +125,7 @@ func TestParallelProcessIndependentTransactions(t *testing.T) {
 
 	accessList := buildBALForIndependentTransfers(senders, recipients)
 
-	proc := execution.NewParallelProcessor(config.TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -140,7 +134,6 @@ func TestParallelProcessIndependentTransactions(t *testing.T) {
 		t.Fatalf("expected 3 receipts, got %d", len(receipts))
 	}
 
-	// Verify all receipts are successful and in correct order.
 	for i, r := range receipts {
 		if r == nil {
 			t.Fatalf("receipt %d is nil", i)
@@ -153,17 +146,15 @@ func TestParallelProcessIndependentTransactions(t *testing.T) {
 		}
 	}
 
-	// Verify recipients received funds.
 	for i, r := range recipients {
-		bal := statedb.GetBalance(r)
-		if bal.Cmp(transferAmt) != 0 {
-			t.Fatalf("recipient %d balance: want %v, got %v", i, transferAmt, bal)
+		b := statedb.GetBalance(r)
+		if b.Cmp(transferAmt) != 0 {
+			t.Fatalf("recipient %d balance: want %v, got %v", i, transferAmt, b)
 		}
 	}
 }
 
 func TestParallelProcessFallbackSequential(t *testing.T) {
-	// When BAL is nil, should fall back to sequential processing.
 	sender := types.HexToAddress("0xA1")
 	recipient := types.HexToAddress("0xB1")
 
@@ -180,7 +171,7 @@ func TestParallelProcessFallbackSequential(t *testing.T) {
 	header := newTestHeader()
 	block := types.NewBlock(header, &types.Body{Transactions: []*types.Transaction{tx}})
 
-	proc := execution.NewParallelProcessor(config.TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -192,7 +183,6 @@ func TestParallelProcessFallbackSequential(t *testing.T) {
 		t.Fatalf("expected successful receipt, got status %d", receipts[0].Status)
 	}
 
-	// Verify transfer happened.
 	recipientBal := statedb.GetBalance(recipient)
 	if recipientBal.Cmp(transferAmt) != 0 {
 		t.Fatalf("recipient balance: want %v, got %v", transferAmt, recipientBal)
@@ -204,7 +194,7 @@ func TestParallelProcessEmptyBlock(t *testing.T) {
 	header := newTestHeader()
 	block := types.NewBlock(header, &types.Body{})
 
-	proc := execution.NewParallelProcessor(config.TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -215,7 +205,6 @@ func TestParallelProcessEmptyBlock(t *testing.T) {
 }
 
 func TestValidateBAL(t *testing.T) {
-	// Build a BAL and compute its hash.
 	senders := []types.Address{types.HexToAddress("0xA1")}
 	recipients := []types.Address{types.HexToAddress("0xB1")}
 	accessList := buildBALForIndependentTransfers(senders, recipients)
@@ -227,7 +216,7 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: &correctHash,
 		}
-		if err := execution.ValidateBAL(header, accessList); err != nil {
+		if err := ValidateBAL(header, accessList); err != nil {
 			t.Fatalf("expected valid BAL, got error: %v", err)
 		}
 	})
@@ -238,12 +227,12 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: &wrongHash,
 		}
-		err := execution.ValidateBAL(header, accessList)
+		err := ValidateBAL(header, accessList)
 		if err == nil {
 			t.Fatal("expected hash mismatch error")
 		}
-		if !errors.Is(err, execution.ErrBALHashMismatch) {
-			t.Fatalf("expected execution.ErrBALHashMismatch, got: %v", err)
+		if !errors.Is(err, ErrBALHashMismatch) {
+			t.Fatalf("expected ErrBALHashMismatch, got: %v", err)
 		}
 	})
 
@@ -252,7 +241,7 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: nil,
 		}
-		err := execution.ValidateBAL(header, accessList)
+		err := ValidateBAL(header, accessList)
 		if err == nil {
 			t.Fatal("expected error for nil header hash")
 		}
@@ -263,7 +252,7 @@ func TestValidateBAL(t *testing.T) {
 			Number:              big.NewInt(1),
 			BlockAccessListHash: &correctHash,
 		}
-		err := execution.ValidateBAL(header, nil)
+		err := ValidateBAL(header, nil)
 		if err == nil {
 			t.Fatal("expected error for nil access list")
 		}
@@ -271,8 +260,6 @@ func TestValidateBAL(t *testing.T) {
 }
 
 func TestParallelProcessReceiptOrdering(t *testing.T) {
-	// Create 5 independent transactions and verify receipts maintain
-	// original transaction ordering regardless of parallel execution.
 	n := 5
 	senders := make([]types.Address, n)
 	recipients := make([]types.Address, n)
@@ -294,7 +281,6 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 
 	txs := make([]*types.Transaction, n)
 	for i := 0; i < n; i++ {
-		// Each tx transfers a different amount so we can verify ordering.
 		amount := new(big.Int).Mul(big.NewInt(int64(i+1)), new(big.Int).SetUint64(1e17))
 		tx := makeTransferTx(0, recipients[i], amount, gasLimit, gasPrice)
 		tx.SetSender(senders[i])
@@ -306,7 +292,7 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 
 	accessList := buildBALForIndependentTransfers(senders, recipients)
 
-	proc := execution.NewParallelProcessor(config.TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -315,7 +301,6 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 		t.Fatalf("expected %d receipts, got %d", n, len(receipts))
 	}
 
-	// Verify ordering: TransactionIndex must match the original tx position.
 	for i, r := range receipts {
 		if r == nil {
 			t.Fatalf("receipt %d is nil", i)
@@ -328,7 +313,6 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 		}
 	}
 
-	// Verify each recipient got the correct amount.
 	for i, r := range recipients {
 		expected := new(big.Int).Mul(big.NewInt(int64(i+1)), new(big.Int).SetUint64(1e17))
 		actual := statedb.GetBalance(r)
@@ -339,9 +323,6 @@ func TestParallelProcessReceiptOrdering(t *testing.T) {
 }
 
 func TestParallelProcessConflictingTransactions(t *testing.T) {
-	// Create transactions that all send to the same recipient.
-	// The BAL should detect conflicts and put each in its own group,
-	// effectively serializing them.
 	n := 3
 	senders := make([]types.Address, n)
 	for i := 0; i < n; i++ {
@@ -372,7 +353,7 @@ func TestParallelProcessConflictingTransactions(t *testing.T) {
 
 	accessList := buildBALForConflictingTransfers(senders, sharedRecipient, n)
 
-	proc := execution.NewParallelProcessor(config.TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, accessList)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -390,7 +371,6 @@ func TestParallelProcessConflictingTransactions(t *testing.T) {
 		}
 	}
 
-	// Shared recipient should have received n * transferAmt.
 	expectedBal := new(big.Int).Mul(transferAmt, big.NewInt(int64(n)))
 	actualBal := statedb.GetBalance(sharedRecipient)
 	if actualBal.Cmp(expectedBal) != 0 {
@@ -399,7 +379,6 @@ func TestParallelProcessConflictingTransactions(t *testing.T) {
 }
 
 func TestParallelProcessWithEmptyBAL(t *testing.T) {
-	// An empty BAL (no entries) should fall back to sequential.
 	sender := types.HexToAddress("0xA1")
 	recipient := types.HexToAddress("0xB1")
 
@@ -418,7 +397,7 @@ func TestParallelProcessWithEmptyBAL(t *testing.T) {
 
 	emptyBAL := bal.NewBlockAccessList()
 
-	proc := execution.NewParallelProcessor(config.TestConfig)
+	proc := NewParallelProcessor(config.TestConfig)
 	receipts, err := proc.ProcessParallel(statedb, block, emptyBAL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -432,7 +411,6 @@ func TestParallelProcessWithEmptyBAL(t *testing.T) {
 }
 
 func TestMemoryStateDBCopy(t *testing.T) {
-	// Verify that Copy produces an independent state.
 	original := state.NewMemoryStateDB()
 	addr := types.HexToAddress("0x1234")
 	original.AddBalance(addr, big.NewInt(1000))
@@ -440,11 +418,9 @@ func TestMemoryStateDBCopy(t *testing.T) {
 
 	copied := original.Copy()
 
-	// Modify the copy.
 	copied.AddBalance(addr, big.NewInt(500))
 	copied.SetNonce(addr, 10)
 
-	// Original should be unchanged.
 	if original.GetBalance(addr).Cmp(big.NewInt(1000)) != 0 {
 		t.Fatalf("original balance changed after copy modification: %v", original.GetBalance(addr))
 	}
@@ -452,7 +428,6 @@ func TestMemoryStateDBCopy(t *testing.T) {
 		t.Fatalf("original nonce changed after copy modification: %d", original.GetNonce(addr))
 	}
 
-	// Copy should reflect changes.
 	if copied.GetBalance(addr).Cmp(big.NewInt(1500)) != 0 {
 		t.Fatalf("copy balance: want 1500, got %v", copied.GetBalance(addr))
 	}
@@ -462,7 +437,6 @@ func TestMemoryStateDBCopy(t *testing.T) {
 }
 
 func TestMemoryStateDBMerge(t *testing.T) {
-	// Verify that Merge applies state from src to dst.
 	dst := state.NewMemoryStateDB()
 	addr := types.HexToAddress("0x1234")
 	dst.AddBalance(addr, big.NewInt(1000))
@@ -473,7 +447,6 @@ func TestMemoryStateDBMerge(t *testing.T) {
 
 	dst.Merge(src)
 
-	// dst should now have src's values.
 	if dst.GetBalance(addr).Cmp(big.NewInt(2000)) != 0 {
 		t.Fatalf("merged balance: want 2000, got %v", dst.GetBalance(addr))
 	}

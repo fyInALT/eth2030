@@ -189,7 +189,7 @@ func TestFrameTx_NonceGuard(t *testing.T) {
 
 	gp := gaspool.GasPool(30_000_000)
 
-	// Run applyMessage. The call will likely fail during EVM execution
+	// Run ApplyMessage. The call will likely fail during EVM execution
 	// since we have no real EVM setup, but the nonce guard happens before
 	// EVM execution. We just need to confirm the nonce was NOT incremented
 	// immediately after the nonce-increment guard line.
