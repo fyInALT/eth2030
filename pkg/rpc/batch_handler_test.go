@@ -13,8 +13,8 @@ func TestNewBatchHandler(t *testing.T) {
 	if bh == nil {
 		t.Fatal("NewBatchHandler returned nil")
 	}
-	if bh.parallelism != DefaultParallelism {
-		t.Fatalf("expected parallelism %d, got %d", DefaultParallelism, bh.parallelism)
+	if bh.Parallelism() != DefaultParallelism {
+		t.Fatalf("expected parallelism %d, got %d", DefaultParallelism, bh.Parallelism())
 	}
 }
 
@@ -22,13 +22,13 @@ func TestBatchHandler_SetParallelism(t *testing.T) {
 	api := NewEthAPI(newMockBackend())
 	bh := NewBatchHandler(api)
 	bh.SetParallelism(4)
-	if bh.parallelism != 4 {
-		t.Fatalf("expected parallelism 4, got %d", bh.parallelism)
+	if bh.Parallelism() != 4 {
+		t.Fatalf("expected parallelism 4, got %d", bh.Parallelism())
 	}
 	// Minimum is 1.
 	bh.SetParallelism(0)
-	if bh.parallelism != 1 {
-		t.Fatalf("expected parallelism 1, got %d", bh.parallelism)
+	if bh.Parallelism() != 1 {
+		t.Fatalf("expected parallelism 1, got %d", bh.Parallelism())
 	}
 }
 

@@ -9,15 +9,15 @@ import (
 
 func TestNewBatchValidator(t *testing.T) {
 	v := NewBatchValidator(50)
-	if v.maxSize != 50 {
-		t.Fatalf("want maxSize 50, got %d", v.maxSize)
+	if v.MaxSize() != 50 {
+		t.Fatalf("want maxSize 50, got %d", v.MaxSize())
 	}
 }
 
 func TestNewBatchValidator_DefaultSize(t *testing.T) {
 	v := NewBatchValidator(0)
-	if v.maxSize != MaxBatchSize {
-		t.Fatalf("want default maxSize %d, got %d", MaxBatchSize, v.maxSize)
+	if v.MaxSize() != MaxBatchSize {
+		t.Fatalf("want default maxSize %d, got %d", MaxBatchSize, v.MaxSize())
 	}
 }
 
@@ -234,12 +234,12 @@ func TestExtendedBatchHandler_SetParallelism(t *testing.T) {
 	bh := NewExtendedBatchHandler(api)
 
 	bh.SetParallelism(4)
-	if bh.parallelism != 4 {
-		t.Fatalf("want parallelism 4, got %d", bh.parallelism)
+	if bh.Parallelism() != 4 {
+		t.Fatalf("want parallelism 4, got %d", bh.Parallelism())
 	}
 	bh.SetParallelism(0)
-	if bh.parallelism != 1 {
-		t.Fatalf("want minimum parallelism 1, got %d", bh.parallelism)
+	if bh.Parallelism() != 1 {
+		t.Fatalf("want minimum parallelism 1, got %d", bh.Parallelism())
 	}
 }
 
@@ -335,8 +335,8 @@ func TestNotificationBatch_FlushEmpty(t *testing.T) {
 
 func TestNotificationBatch_DefaultLimit(t *testing.T) {
 	nb := NewNotificationBatch(0)
-	if nb.limit != MaxNotificationBatchSize {
-		t.Fatalf("want default limit %d, got %d", MaxNotificationBatchSize, nb.limit)
+	if nb.Limit() != MaxNotificationBatchSize {
+		t.Fatalf("want default limit %d, got %d", MaxNotificationBatchSize, nb.Limit())
 	}
 }
 

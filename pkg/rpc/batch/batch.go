@@ -124,6 +124,11 @@ func NewBatchValidator(maxSize int) *BatchValidator {
 	return &BatchValidator{maxSize: maxSize}
 }
 
+// MaxSize returns the configured maximum batch size.
+func (v *BatchValidator) MaxSize() int {
+	return v.maxSize
+}
+
 // Validate checks the structural validity of a parsed batch. Returns a
 // slice of per-item validation errors (nil entries mean the item is valid).
 func (v *BatchValidator) Validate(requests []BatchRequest) []error {
@@ -240,6 +245,11 @@ func (nb *NotificationBatch) flushLocked() []byte {
 	data, _ := json.Marshal(nb.items)
 	nb.items = nb.items[:0]
 	return data
+}
+
+// Limit returns the flush limit configured for this batch.
+func (nb *NotificationBatch) Limit() int {
+	return nb.limit
 }
 
 // Len returns the number of buffered notifications.

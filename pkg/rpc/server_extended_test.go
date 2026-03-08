@@ -85,10 +85,8 @@ func TestRateLimiter_Allow_RefillsAfterTime(t *testing.T) {
 	for range 5 {
 		rl.Allow()
 	}
-	// Simulate time passing: manually adjust lastRefill to 2s ago.
-	rl.mu.Lock()
-	rl.lastRefill = rl.lastRefill.Add(-2 * time.Second)
-	rl.mu.Unlock()
+	// Simulate time passing: advance lastRefill 2s into the past.
+	rl.AdvanceLastRefill(2 * time.Second)
 
 	// After 2 seconds elapsed, should have refilled 2*5=10 tokens (capped at maxTokens=5).
 	if !rl.Allow() {
@@ -106,8 +104,8 @@ func TestNewExtServer_DefaultsApplied(t *testing.T) {
 	if srv == nil {
 		t.Fatal("expected non-nil ExtServer")
 	}
-	if srv.config.MaxRequestSize != DefaultServerConfig().MaxRequestSize {
-		t.Fatalf("want default MaxRequestSize, got %d", srv.config.MaxRequestSize)
+	if srv.Config().MaxRequestSize != DefaultServerConfig().MaxRequestSize {
+		t.Fatalf("want default MaxRequestSize, got %d", srv.Config().MaxRequestSize)
 	}
 }
 
@@ -116,8 +114,8 @@ func TestNewExtServer_NegativeRPSDefaults(t *testing.T) {
 		RateLimitPerSec: -1,
 	}
 	srv := NewExtServer(newMockBackend(), cfg)
-	if srv.config.RateLimitPerSec != DefaultServerConfig().RateLimitPerSec {
-		t.Fatalf("negative RPS should be replaced with default, got %d", srv.config.RateLimitPerSec)
+	if srv.Config().RateLimitPerSec != DefaultServerConfig().RateLimitPerSec {
+		t.Fatalf("negative RPS should be replaced with default, got %d", srv.Config().RateLimitPerSec)
 	}
 }
 
@@ -126,7 +124,7 @@ func TestNewExtServer_ZeroRPS_NoRateLimiter(t *testing.T) {
 		RateLimitPerSec: 0,
 	}
 	srv := NewExtServer(newMockBackend(), cfg)
-	if srv.rateLimiter != nil {
+	if srv.GetRateLimiter() != nil {
 		t.Fatal("zero RPS should result in nil rateLimiter")
 	}
 }
@@ -426,7 +424,7 @@ func TestExtServer_Start_AlreadyStarted(t *testing.T) {
 	started := make(chan struct{})
 	go func() {
 		// We mark started=true before blocking, so we signal after the flag is set.
-		srv.started.Store(true)
+		srv.MarkStarted()
 		close(started)
 	}()
 	<-started
