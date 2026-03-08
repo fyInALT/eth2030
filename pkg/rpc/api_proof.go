@@ -8,6 +8,15 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/rlp"
+	"github.com/eth2030/eth2030/rpc/debugapi"
+)
+
+// Re-export trace types from rpc/debugapi.
+type (
+	// StructLog is re-exported from rpc/debugapi.
+	StructLog = debugapi.StructLog
+	// TraceResult is re-exported from rpc/debugapi.
+	TraceResult = debugapi.TraceResult
 )
 
 // AccountProof is the response for eth_getProof.
@@ -119,26 +128,6 @@ func encodeProofNodes(nodes [][]byte) []string {
 		result[i] = "0x" + hex.EncodeToString(node)
 	}
 	return result
-}
-
-// StructLog is a single step in an EVM execution trace.
-type StructLog struct {
-	PC      uint64            `json:"pc"`
-	Op      string            `json:"op"`
-	Gas     uint64            `json:"gas"`
-	GasCost uint64            `json:"gasCost"`
-	Depth   int               `json:"depth"`
-	Stack   []string          `json:"stack"`
-	Memory  []string          `json:"memory,omitempty"`
-	Storage map[string]string `json:"storage,omitempty"`
-}
-
-// TraceResult is the response for debug_traceTransaction.
-type TraceResult struct {
-	Gas         uint64      `json:"gas"`
-	Failed      bool        `json:"failed"`
-	ReturnValue string      `json:"returnValue"`
-	StructLogs  []StructLog `json:"structLogs"`
 }
 
 // debugTraceTransaction implements debug_traceTransaction.

@@ -5,13 +5,11 @@ import (
 	"math/big"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rpc/debugapi"
 )
 
-// BlockTraceResult is a single transaction trace within a block trace.
-type BlockTraceResult struct {
-	TxHash string       `json:"txHash"`
-	Result *TraceResult `json:"result"`
-}
+// BlockTraceResult is re-exported from rpc/debugapi.
+type BlockTraceResult = debugapi.BlockTraceResult
 
 // debugTraceBlockByNumber implements debug_traceBlockByNumber.
 // Returns an array of trace results for each transaction in the block.

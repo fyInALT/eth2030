@@ -331,7 +331,9 @@ func TestNewDebugExtAPI(t *testing.T) {
 	if api == nil {
 		t.Fatal("expected non-nil API")
 	}
-	if api.backend != mb {
-		t.Fatal("backend not set correctly")
+	// Verify the backend is wired correctly by exercising a method that uses it.
+	resp := callDebugExt(t, api, "debug_dumpBlock", "0x2a")
+	if resp.Error != nil {
+		t.Fatalf("backend not set correctly: %v", resp.Error.Message)
 	}
 }
