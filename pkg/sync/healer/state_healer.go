@@ -2,7 +2,7 @@
 // state download (accounts, storage, bytecodes), the trie may have missing
 // interior nodes. The healer detects these gaps, schedules healing tasks,
 // and tracks progress until the state trie is complete.
-package sync
+package healer
 
 import (
 	"errors"

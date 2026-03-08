@@ -1,7 +1,7 @@
 // trie_heal.go implements concurrent trie healing with gap detection,
 // access-pattern prioritization, node verification, parallel work
 // distribution, and progress tracking with ETA estimation.
-package sync
+package healer
 
 import (
 	"errors"

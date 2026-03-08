@@ -2,7 +2,7 @@
 // It builds on the base StateHealer with a priority queue that processes
 // shallowest trie nodes first, per-account storage trie healing, progress
 // checkpointing for resume after restart, and robust completion detection.
-package sync
+package healer
 
 import (
 	"errors"
