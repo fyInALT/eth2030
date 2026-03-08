@@ -2,7 +2,7 @@
 // executes blocks, validates state roots, receipt roots, logs blooms,
 // and gas used, then commits state. It tracks insertion metrics including
 // blocks/sec and tx/sec, and supports batch insertion optimization.
-package sync
+package inserter
 
 import (
 	"errors"
@@ -14,6 +14,12 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/metrics"
 )
+
+// BlockInserter writes blocks to the local chain and exposes the current head.
+type BlockInserter interface {
+	InsertChain(blocks []*types.Block) (int, error)
+	CurrentBlock() *types.Block
+}
 
 // Chain inserter errors.
 var (

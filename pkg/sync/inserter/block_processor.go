@@ -2,7 +2,7 @@
 // downloaded blocks, orders them by number, validates parent hash linkage,
 // uncle headers, receipt roots, and state roots after execution, then
 // imports them into the chain. Import metrics are tracked throughout.
-package sync
+package inserter
 
 import (
 	"errors"
