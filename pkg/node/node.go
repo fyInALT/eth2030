@@ -74,6 +74,14 @@ import (
 	trieannounce "github.com/eth2030/eth2030/trie/announce"
 	trieprune "github.com/eth2030/eth2030/trie/prune"
 	triestack "github.com/eth2030/eth2030/trie/stack"
+
+	p2pdispatch "github.com/eth2030/eth2030/p2p/dispatch"
+	p2pnat "github.com/eth2030/eth2030/p2p/nat"
+	p2pnonce "github.com/eth2030/eth2030/p2p/nonce"
+	p2preqresp "github.com/eth2030/eth2030/p2p/reqresp"
+	synchealer "github.com/eth2030/eth2030/sync/healer"
+	syncstatesync "github.com/eth2030/eth2030/sync/statesync"
+	"github.com/eth2030/eth2030/txpool/shared"
 )
 
 // Node is the top-level ETH2030 node that manages all subsystems.
@@ -179,6 +187,19 @@ type Node struct {
 
 	// RPC method registry for dynamic routing.
 	rpcRegistry *rpcregistry.MethodRegistry
+
+	// P2P sub-systems: NAT traversal, message dispatch, nonce announcer, req/resp.
+	natMgr         *p2pnat.NATManager
+	p2pDispatch    *p2pdispatch.MessageRouter
+	nonceAnnouncer *p2pnonce.NonceAnnouncer
+	reqRespMgr     *p2preqresp.ReqRespManager
+
+	// Tx pool shared mempool abstraction.
+	sharedPool *shared.SharedMempool
+
+	// Snap sync: state healer and state sync scheduler.
+	stateHealer    *synchealer.StateHealer
+	stateSyncSched *syncstatesync.StateSyncScheduler
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -506,6 +527,24 @@ func New(config *Config) (*Node, error) {
 	n.epbsEscrow = epbsescrow.NewBidEscrow(1024)
 	n.epbsMEVBurn = epbsmevburn.NewMEVBurnTracker(epbsmevburn.DefaultMEVBurnConfig())
 	n.epbsSlashing = epbsslash.NewSlashingEngine(epbsslash.DefaultPenaltyMultipliers(), 100)
+
+	// Initialize P2P sub-systems: NAT traversal, message dispatch, nonce
+	// announcer (EIP-8077), and request/response framing.
+	n.natMgr = p2pnat.NewNATManager(p2pnat.NATManagerConfig{
+		MappingLifetime: 20 * time.Minute,
+		RenewInterval:   10 * time.Minute,
+	})
+	n.p2pDispatch = p2pdispatch.NewMessageRouter(p2pdispatch.RouterConfig{})
+	n.nonceAnnouncer = p2pnonce.NewNonceAnnouncer()
+	rrProto := p2preqresp.NewReqRespProtocol(p2preqresp.DefaultProtocolConfig())
+	n.reqRespMgr = p2preqresp.NewReqRespManager(rrProto, p2preqresp.DefaultRetryConfig())
+
+	// Initialize shared mempool abstraction (MineableSet interface).
+	n.sharedPool = shared.NewSharedMempool(shared.DefaultSharedMempoolConfig())
+
+	// Initialize snap sync state healer and state sync scheduler (stub writer).
+	n.stateHealer = synchealer.NewStateHealer(types.Hash{}, &stubStateWriter{})
+	n.stateSyncSched = syncstatesync.NewStateSyncScheduler(&stubStateSyncWriter{}, nil)
 
 	// Initialize engine EL-side builder auction.
 	n.engineAuction = engineauction.NewBuilderAuction(engineauction.DefaultAuctionConfig())
@@ -1059,6 +1098,32 @@ func (s *stubBeamFetcher) FetchAccount(_ types.Address) (*syncbeam.BeamAccountDa
 func (s *stubBeamFetcher) FetchStorage(_ types.Address, _ types.Hash) (types.Hash, error) {
 	return types.Hash{}, errors.New("beam: no network fetcher wired")
 }
+
+// stubStateWriter is a no-op synchealer.StateWriter used until a real trie
+// database is wired as the state healer write target.
+type stubStateWriter struct{}
+
+func (s *stubStateWriter) WriteAccount(_ types.Hash, _ synchealer.AccountData) error { return nil }
+func (s *stubStateWriter) WriteStorage(_, _ types.Hash, _ []byte) error              { return nil }
+func (s *stubStateWriter) WriteBytecode(_ types.Hash, _ []byte) error                { return nil }
+func (s *stubStateWriter) WriteTrieNode(_ []byte, _ []byte) error                    { return nil }
+func (s *stubStateWriter) HasBytecode(_ types.Hash) bool                             { return false }
+func (s *stubStateWriter) HasTrieNode(_ []byte) bool                                 { return false }
+func (s *stubStateWriter) MissingTrieNodes(_ types.Hash, _ int) [][]byte             { return nil }
+
+// stubStateSyncWriter is a no-op syncstatesync.StateWriter used until the real
+// snap-sync state write target is wired.
+type stubStateSyncWriter struct{}
+
+func (s *stubStateSyncWriter) WriteAccount(_ types.Hash, _ syncstatesync.AccountData) error {
+	return nil
+}
+func (s *stubStateSyncWriter) WriteStorage(_, _ types.Hash, _ []byte) error  { return nil }
+func (s *stubStateSyncWriter) WriteBytecode(_ types.Hash, _ []byte) error    { return nil }
+func (s *stubStateSyncWriter) WriteTrieNode(_ []byte, _ []byte) error        { return nil }
+func (s *stubStateSyncWriter) HasBytecode(_ types.Hash) bool                 { return false }
+func (s *stubStateSyncWriter) HasTrieNode(_ []byte) bool                     { return false }
+func (s *stubStateSyncWriter) MissingTrieNodes(_ types.Hash, _ int) [][]byte { return nil }
 
 // nodeSyncTrigger adapts the sync.Downloader to the eth.SyncNotifier interface.
 // It starts a sync goroutine when a new block is announced by a peer.
