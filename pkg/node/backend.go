@@ -209,13 +209,12 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 
 func (b *nodeBackend) GetTransaction(hash types.Hash) (*types.Transaction, uint64, uint64) {
 	// Check the blockchain's tx lookup index first.
-	blockHash, blockNum, txIndex, found := b.node.blockchain.GetTransactionLookup(hash)
-	if found {
-		block := b.node.blockchain.GetBlock(blockHash)
+	if entry, found := b.node.blockchain.GetTxLookupEntry(hash); found {
+		block := b.node.blockchain.GetBlock(entry.BlockHash)
 		if block != nil {
 			txs := block.Transactions()
-			if int(txIndex) < len(txs) {
-				return txs[txIndex], blockNum, txIndex
+			if int(entry.TxIndex) < len(txs) {
+				return txs[entry.TxIndex], entry.BlockNumber, entry.TxIndex
 			}
 		}
 	}
@@ -348,19 +347,19 @@ func (b *nodeBackend) TraceTransaction(txHash types.Hash) (*vm.StructLogTracer, 
 	bc := b.node.blockchain
 
 	// Look up the transaction in the chain index.
-	blockHash, _, txIndex, found := bc.GetTransactionLookup(txHash)
+	entry, found := bc.GetTxLookupEntry(txHash)
 	if !found {
 		return nil, fmt.Errorf("transaction %v not found", txHash)
 	}
 
-	block := bc.GetBlock(blockHash)
+	block := bc.GetBlock(entry.BlockHash)
 	if block == nil {
-		return nil, fmt.Errorf("block %v not found", blockHash)
+		return nil, fmt.Errorf("block %v not found", entry.BlockHash)
 	}
 
 	txs := block.Transactions()
-	if int(txIndex) >= len(txs) {
-		return nil, fmt.Errorf("transaction index %d out of range", txIndex)
+	if int(entry.TxIndex) >= len(txs) {
+		return nil, fmt.Errorf("transaction index %d out of range", entry.TxIndex)
 	}
 
 	// Get state at the parent block.
@@ -383,7 +382,7 @@ func (b *nodeBackend) TraceTransaction(txHash types.Hash) (*vm.StructLogTracer, 
 	}
 
 	// Re-execute all transactions before the target to build up state.
-	for i := uint64(0); i < txIndex; i++ {
+	for i := uint64(0); i < entry.TxIndex; i++ {
 		tx := txs[i]
 		from := types.Address{}
 		if sender := tx.Sender(); sender != nil {
@@ -403,7 +402,7 @@ func (b *nodeBackend) TraceTransaction(txHash types.Hash) (*vm.StructLogTracer, 
 	}
 
 	// Now execute the target transaction with tracing enabled.
-	targetTx := txs[txIndex]
+	targetTx := txs[entry.TxIndex]
 	from := types.Address{}
 	if sender := targetTx.Sender(); sender != nil {
 		from = *sender

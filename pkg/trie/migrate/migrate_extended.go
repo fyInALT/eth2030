@@ -34,6 +34,13 @@ type MigrationProgress struct {
 	MPTRoot      types.Hash
 	BinaryRoot   types.Hash
 	State        MigrationState
+	// HashFuncFinalized is true when the EIP-7864 final-hash fork (BLAKE3) is
+	// active at the migration timestamp, meaning the binary trie hash function
+	// will not change again. Callers can use this to decide whether to commit
+	// the migrated trie root as permanent.
+	HashFuncFinalized bool
+	// HashFunc is the hash function selected for this migration batch.
+	HashFunc string
 }
 
 // MigrationSnapshot captures a point-in-time state for rollback.
@@ -172,9 +179,13 @@ func (m *IncrementalMigrator) MigrateBatch() (int, bool) {
 	m.mu.Unlock()
 
 	// Select hash function based on chain config and block timestamp.
+	var hashFunc string
+	var hashFuncFinalized bool
 	if m.config.ChainConfig != nil {
-		hashFunc := m.config.ChainConfig.BinaryTrieHashFuncAt(m.config.Timestamp)
-		slog.Debug("migration: binary trie hash function", "func", hashFunc)
+		hashFunc = m.config.ChainConfig.BinaryTrieHashFuncAt(m.config.Timestamp)
+		hashFuncFinalized = m.config.ChainConfig.IsEIP7864FinalHash(m.config.Timestamp)
+		slog.Debug("migration: binary trie hash function",
+			"func", hashFunc, "finalized", hashFuncFinalized)
 	}
 
 	// Collect all key-value pairs from MPT.
@@ -194,6 +205,8 @@ func (m *IncrementalMigrator) MigrateBatch() (int, bool) {
 		m.mu.Lock()
 		m.progress.State = MigrationComplete
 		m.progress.BinaryRoot = m.dest.Hash()
+		m.progress.HashFunc = hashFunc
+		m.progress.HashFuncFinalized = hashFuncFinalized
 		m.rootMap[m.progress.MPTRoot] = m.progress.BinaryRoot
 		m.mu.Unlock()
 		return 0, true
@@ -212,6 +225,8 @@ func (m *IncrementalMigrator) MigrateBatch() (int, bool) {
 	complete := int(m.progress.KeysMigrated) >= len(pairs)
 	if complete {
 		m.progress.State = MigrationComplete
+		m.progress.HashFunc = hashFunc
+		m.progress.HashFuncFinalized = hashFuncFinalized
 	}
 	m.mu.Unlock()
 
@@ -236,6 +251,16 @@ func (m *IncrementalMigrator) MigrateParallel() {
 	m.progress.MPTRoot = m.source.Hash()
 	m.mu.Unlock()
 
+	// Determine hash function finalization status.
+	var hashFunc string
+	var hashFuncFinalized bool
+	if m.config.ChainConfig != nil {
+		hashFunc = m.config.ChainConfig.BinaryTrieHashFuncAt(m.config.Timestamp)
+		hashFuncFinalized = m.config.ChainConfig.IsEIP7864FinalHash(m.config.Timestamp)
+		slog.Debug("migration parallel: binary trie hash function",
+			"func", hashFunc, "finalized", hashFuncFinalized)
+	}
+
 	pairs := m.collectPairs()
 
 	m.mu.Lock()
@@ -246,6 +271,8 @@ func (m *IncrementalMigrator) MigrateParallel() {
 		m.mu.Lock()
 		m.progress.State = MigrationComplete
 		m.progress.BinaryRoot = m.dest.Hash()
+		m.progress.HashFunc = hashFunc
+		m.progress.HashFuncFinalized = hashFuncFinalized
 		m.rootMap[m.progress.MPTRoot] = m.progress.BinaryRoot
 		m.mu.Unlock()
 		return
@@ -290,6 +317,8 @@ func (m *IncrementalMigrator) MigrateParallel() {
 	m.progress.KeysMigrated = uint64(counter.Load())
 	m.progress.State = MigrationComplete
 	m.progress.BinaryRoot = m.dest.Hash()
+	m.progress.HashFunc = hashFunc
+	m.progress.HashFuncFinalized = hashFuncFinalized
 	m.rootMap[m.progress.MPTRoot] = m.progress.BinaryRoot
 	if len(pairs) > 0 {
 		m.progress.LastKey = pairs[len(pairs)-1].key[:]

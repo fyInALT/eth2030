@@ -739,9 +739,9 @@ log format is not applied.
 | `core/eips` | `IncrementSmartNonce`, `PaymasterValidator` | `eips/aa_entrypoint.go:197,247` | 🔴 UNCALLED | Call post-AA-tx-execution in `core/execution` |
 | `core/chain` | `VerifyTimestampWindow` | `chain/header_verification.go:302` | 🟢 COVERED — called in `engine/payload/builder.go:92` to enforce ≤15 s timestamp drift before block building | No action needed |
 | `core/chain` | `CalcGasLimitRange` | `chain/header_verification.go:313` | 🟢 COVERED — called in `engine/payload/builder.go:85` to range-check gas limit before block building | No action needed |
-| `core/chain` | `TxLookupEntry` | `chain/blockchain.go:28` | 🟡 INTERNAL — used as private map value inside `chain.Blockchain`; not exposed via any public method | Expose via `TxByHash(hash)` RPC method |
+| `core/chain` | `TxLookupEntry` | `chain/blockchain.go:28` | 🟢 COVERED — `GetTxLookupEntry()` exposes the struct directly; `node/backend.go` uses it in `GetTransaction` and `TraceTransaction` | No action needed |
 | `core/chain` | `VerifyAgainstParent` | `chain/header_verification.go:67` | 🟢 INTERNAL — called by `VerifyChain()` within the same package; correctly scoped | No action needed |
-| `core/config` | `IsEIP7864FinalHash` | `config/chain_config.go:164` | 🟡 INTERNAL — called only by `BinaryTrieHashFuncAt` in the same file; nothing external calls either | Wire into `trie/migrate` completion check |
+| `core/config` | `IsEIP7864FinalHash` | `config/chain_config.go:164` | 🟢 COVERED — wired into `trie/migrate/migrate_extended.go`; `MigrationProgress.HashFuncFinalized` is set from `IsEIP7864FinalHash` on completion in `MigrateBatch` and `MigrateParallel` | No action needed |
 | `core/config` | `BinaryTrieHashFuncAt` | `config/chain_config.go:171` | 🟢 COVERED — called in `trie/migrate/migrate_extended.go:176` (`MigrateBatch`) to select sha256/blake3 per fork | No action needed |
 | `geth` | `NewGethBlockProcessorWithEth2028` | `geth/processor.go:38` | 🟢 COVERED — called in `core/eftest/geth_runner.go:237`; `MakeEVM()` injects custom precompiles for EF state tests | No action needed |
 | `geth` | `Eth2028PrecompileInfo` | `geth/extensions.go:311` | 🟢 COVERED — `ListCustomPrecompiles()` returns `[]Eth2028PrecompileInfo`; called from `cmd/eth2030-geth/precompiles.go:77` | Already wired |

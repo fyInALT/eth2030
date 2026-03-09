@@ -903,6 +903,17 @@ func (bc *Blockchain) GetLogs(blockHash types.Hash) []*types.Log {
 	return logs
 }
 
+// GetTxLookupEntry returns the TxLookupEntry for a transaction hash,
+// giving callers structured access to all three location fields as a unit.
+// Returns (entry, false) if the transaction is not found.
+func (bc *Blockchain) GetTxLookupEntry(txHash types.Hash) (TxLookupEntry, bool) {
+	blockHash, blockNumber, txIndex, found := bc.GetTransactionLookup(txHash)
+	if !found {
+		return TxLookupEntry{}, false
+	}
+	return TxLookupEntry{BlockHash: blockHash, BlockNumber: blockNumber, TxIndex: txIndex}, true
+}
+
 // GetTransactionLookup returns the block location for a transaction hash.
 func (bc *Blockchain) GetTransactionLookup(txHash types.Hash) (blockHash types.Hash, blockNumber uint64, txIndex uint64, found bool) {
 	bc.mu.RLock()
