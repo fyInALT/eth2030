@@ -170,11 +170,92 @@ targets modern forks, this is low priority.
 
 ---
 
+### 5. eth/codec.go — Transaction double-wrapping (CRITICAL BUG)
+
+**File:** `pkg/eth/codec.go` (lines 17–27, 44–49)
+
+Same double-wrapping bug as Block (finding #2), in the P2P tx encoding path:
+- `encodeTransactions`: always wraps all txs with `rlp.EncodeToBytes(txEnc)` — legacy txs become byte strings instead of lists.
+- `decodeTransactions`: uses `s.Bytes()` for all txs — can only decode byte strings, fails on legacy list txs.
+
+**Fix:** Same pattern as block_rlp.go: check `tx.Type() == LegacyTxType` before wrapping; use `s.Kind()` in decoder.
+
+---
+
+### 6. eth/messages.go — Transactions/Headers use reflection (CRITICAL BUG)
+
+**File:** `pkg/eth/messages.go`
+
+`EncodeMsg`/`DecodeMsg` used `rlp.EncodeToBytes(tm.Transactions)` and `rlp.EncodeToBytes(bm.Headers)`.
+eth2030's rlp encoder uses pure reflection and only encodes exported fields. Both `Transaction`
+and `Header` have no exported fields (all state is in unexported `inner`/`hash`/etc.) so:
+- Each transaction encodes as `0xc0` (empty struct).
+- Each header encodes as `0xc0` (empty struct).
+
+Same broken pattern for `MsgPooledTransactions` and `MsgBlockBodies`.
+
+**Fix:** Use proper `tx.EncodeRLP()` / `h.EncodeRLP()` with same legacy/typed dispatch.
+Added `encodeTxsToRLP`, `decodeTxsFromRLP`, `encodeHeadersToRLP`, `decodeHeadersFromRLP`,
+`encodeBodyListToRLP`, `decodeBodyListFromRLP` helpers.
+
+---
+
+### 7. eth/messages.go — BlockBodyData missing Withdrawals (MODERATE BUG)
+
+**File:** `pkg/eth/messages.go` (BlockBodyData struct)
+
+```go
+type BlockBodyData struct {
+    Transactions []*types.Transaction
+    Uncles       []*types.Header
+    // Withdrawals missing!
+}
+```
+
+Post-Shanghai block bodies include `[txs, uncles, withdrawals]`. Without the Withdrawals field,
+any post-Shanghai block body received or sent over P2P truncates the withdrawals list.
+
+**Fix:** Added `Withdrawals []*types.Withdrawal` field; `encodeBodyListToRLP` / `decodeBodyListFromRLP`
+handle optional withdrawals encoding matching geth's `extblock` pattern.
+
+---
+
+### 8. core/rawdb/chaindb.go — tx double-wrapping + missing withdrawals (CRITICAL)
+
+**File:** `pkg/core/rawdb/chaindb.go` (`encodeBlockBody` / `decodeBlockBody`)
+
+Same double-wrapping bug: `rlp.EncodeToBytes(txEnc)` for all txs regardless of type, and
+`s.Bytes()` in decoder for all txs. Additionally, `encodeBlockBody` never wrote the
+withdrawals list, and `decodeBlockBody` didn't check for it — post-Shanghai blocks stored
+in the chain DB would silently lose their withdrawals.
+
+**Fix:** Same tx type dispatch as block_rlp.go; added withdrawals encoding/decoding matching
+the block_rlp.go pattern.
+
+---
+
+### 9. core/chain/blockchain.go — tx double-wrapping (CRITICAL)
+
+**File:** `pkg/core/chain/blockchain.go` (`encodeBlockBody` / `decodeBlockBody`)
+
+Another copy of the same double-wrapping bug. The decoder (`s.Bytes()`) was the mirror of
+the broken encoder so the local roundtrip worked, but blocks stored here wouldn't be
+P2P-compatible and couldn't be decoded by the now-fixed `block_rlp.go` decoder.
+
+**Fix:** Same tx type dispatch.
+
+---
+
 ## Summary
 
-| # | Severity | Bug | Fix Required |
-|---|----------|-----|--------------|
+| # | Severity | Bug | Fixed |
+|---|----------|-----|-------|
 | 1 | CRITICAL | Block missing Withdrawals in RLP | Yes |
 | 2 | CRITICAL | Block legacy tx double-wrapping | Yes |
-| 3 | MODERATE | Header nil-gap in optional fields | Yes (esp. for CalldataGas* fields) |
-| 4 | LOW | Receipt no pre-Byzantium PostState support | No (modern forks only) |
+| 3 | MODERATE | Header nil-gap in optional fields | Yes |
+| 4 | LOW | Receipt no pre-Byzantium PostState support | N/A (modern forks) |
+| 5 | CRITICAL | eth/codec.go tx double-wrapping + wrong decoder | Yes |
+| 6 | CRITICAL | eth/messages.go tx/header reflection encoding (empty) | Yes |
+| 7 | MODERATE | eth/messages.go BlockBodyData missing Withdrawals | Yes |
+| 8 | CRITICAL | core/rawdb/chaindb.go tx double-wrapping + no withdrawals | Yes |
+| 9 | CRITICAL | core/chain/blockchain.go tx double-wrapping | Yes |

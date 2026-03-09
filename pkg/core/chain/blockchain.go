@@ -573,12 +573,17 @@ func encodeBlockBody(body *types.Body) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			// Wrap raw tx bytes as an RLP byte string.
-			wrapped, err := rlp.EncodeToBytes(txEnc)
-			if err != nil {
-				return nil, err
+			if tx.Type() == types.LegacyTxType {
+				// Legacy: txEnc is already an RLP list; append directly.
+				txsPayload = append(txsPayload, txEnc...)
+			} else {
+				// Typed: wrap as RLP byte string (type_byte || RLP_payload).
+				wrapped, err := rlp.EncodeToBytes(txEnc)
+				if err != nil {
+					return nil, err
+				}
+				txsPayload = append(txsPayload, wrapped...)
 			}
-			txsPayload = append(txsPayload, wrapped...)
 		}
 	}
 
@@ -630,11 +635,20 @@ func decodeBlockBody(data []byte) (*types.Body, error) {
 	}
 	var txs []*types.Transaction
 	for !s.AtListEnd() {
-		txBytes, err := s.Bytes()
+		kind, _, err := s.Kind()
 		if err != nil {
-			return nil, fmt.Errorf("reading tx bytes: %w", err)
+			return nil, fmt.Errorf("peeking tx kind: %w", err)
 		}
-		tx, err := types.DecodeTxRLP(txBytes)
+		var txData []byte
+		if kind == rlp.List {
+			txData, err = s.RawItem()
+		} else {
+			txData, err = s.Bytes()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading tx: %w", err)
+		}
+		tx, err := types.DecodeTxRLP(txData)
 		if err != nil {
 			return nil, fmt.Errorf("decoding tx: %w", err)
 		}
