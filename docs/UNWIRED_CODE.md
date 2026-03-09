@@ -104,14 +104,14 @@ Streaming payload delivery infrastructure is active.
 **Verdict: 🟢 COVERED**
 
 `BuilderAuction` is instantiated in `node.New()` with `DefaultAuctionConfig()`.
-EL-side builder auction infrastructure is active.
+`RunAuction(slot)` is called per slot in `ForkchoiceUpdated` (fork-gated `IsAmsterdam`)
+to close bids and select the EL-side block-builder winner.
 
 | Symbol | File | Status |
 |--------|------|--------|
 | `BuilderAuction` | `engine/auction/builder_auction.go` | 🟢 Instantiated in node |
-| `SubmitBid` / `FinalizeAuction` | same | 🔴 Not called |
-
-**Where to wire:** `engine` root or `engine/payload` builder registration path.
+| `RunAuction` | same | 🟢 Called in `ForkchoiceUpdated` (`backend.go`, fork-gated `IsAmsterdam`) |
+| `SubmitBid` | same | 🔴 Not called — bids arrive from external builders only |
 
 ---
 
@@ -731,7 +731,7 @@ log format is not applied.
 |---------|--------|-----------|-----------------|-----|
 | `core/execution` | `ReceiptGenerator`, `DefaultReceiptGeneratorConfig`, `TxExecutionOutcome` | `execution/receipt_generation.go:15,29,58` | 🔴 UNCALLED — defined only; zero call-sites outside `execution/` | Call from `core/block` builder after each tx exec |
 | `core/execution` | `TxGroup` | `execution/dependency_graph.go:13` | 🔴 UNCALLED — `Partition()` returns `[]TxGroup` but caller (`parallel.go`) is also internal | Wire into `core/block` gigagas parallel path |
-| `core/execution` | `SetSlasher` | `execution/processor.go:84` | 🔴 UNCALLED — method defined; no call-site in `node.go` or anywhere else | `n.stateProcessor.SetSlasher(n.epbsSlashing)` in `node.New()` |
+| `core/execution` | `SetSlasher` | `execution/processor.go:84` | 🟢 COVERED — `node.go:565` calls `n.stateProcessor.SetSlasher(&slashingEngineAdapter{eng: n.epbsSlashing})`; slashing adapter translates execution events to `SlashingEngine` | No action needed |
 | `core/eips` | `UserOpHash` | `eips/aa_entrypoint.go:82` | 🔴 UNCALLED — package IS imported for EIP-4788/2935/7702 constants but not for AA | Needed in `txpool/validation` AA stage |
 | `core/eips` | `ValidateUserOp` | `eips/aa_entrypoint.go:128` | 🟢 COVERED — called in `txpool/txpool.go:511` for EIP-7701 AA tx validation; gated by `AllowAATx` config flag (default true, CLI `--txpool.allow-aa`) | No action needed |
 | `core/eips` | `ValidateUserOpState` | `eips/aa_entrypoint.go:155` | 🔴 UNCALLED | Call in post-execution AA validation path |
@@ -746,7 +746,7 @@ log format is not applied.
 | `geth` | `NewGethBlockProcessorWithEth2028` | `geth/processor.go:38` | 🟢 COVERED — called in `core/eftest/geth_runner.go:237`; `MakeEVM()` injects custom precompiles for EF state tests | No action needed |
 | `geth` | `Eth2028PrecompileInfo` | `geth/extensions.go:311` | 🟢 COVERED — `ListCustomPrecompiles()` returns `[]Eth2028PrecompileInfo`; called from `cmd/eth2030-geth/precompiles.go:77` | Already wired |
 | `geth` | `ToGethAddress`, `FromGethAddress`, `ToGethHash`, `FromGethHash` | `geth/convert.go` | 🟢 COVERED — called in `core/eftest/geth_runner.go` for EF state test execution | Already wired |
-| `metrics` | `PrometheusExporter` | `metrics/prometheus_exporter.go:56` | 🟢 COVERED — `node.go:733` calls `metrics.NewPrometheusExporter(metrics.DefaultRegistry, metrics.DefaultPrometheusConfig())` for the `/metrics` endpoint (namespace="ETH2030", runtime metrics on) | No action needed |
+| `metrics` | `PrometheusExporter` | `metrics/prometheus_exporter.go:56` | 🟢 COVERED — `node.go:772` calls `metrics.NewPrometheusExporter(metrics.DefaultRegistry, metrics.DefaultPrometheusConfig())` for the `/metrics` endpoint (namespace="ETH2030", runtime metrics on) | No action needed |
 | `bal` | `AdvancedConflictAnalyzer`, `ConflictCluster`, `ReorderSuggestion`, `ParallelismScore` | `bal/conflict_detector_advanced.go:41,15,22,31` | 🟢 COVERED — `core/block/builder.go:547` calls `NewAdvancedConflictAnalyzer(NewBALConflictDetector(StrategySerialize)).ScoreParallelism(blockBAL)` after each block assembly; parallelism score logged at Debug level | No action needed |
 | `crypto/bn254` | `FpElement` + 12 methods (`NewFpElement`, `FpZero`, `FpOne`, `Add`, `Sub`, `Mul`, …) | `crypto/bn254/bn254_fp_extended.go:27` | 🟡 PARTIAL — `NewFpElement` + `Add` called in `crypto/bn254/shielded_tx.go:165-167` (`CommitmentsHomomorphicAdd`) for modular blinding factor addition; remaining methods (`Mul`, `Inv`, `Sqrt`, `FpBatchInverse`, etc.) still uncalled | Wire remaining methods into `proofs/` Groth16 circuits |
 
@@ -801,7 +801,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `engine/blobval` | 🟢 COVERED | `GetPayloadV3` validates KZG commitments via `blobval.BlobValidator` |
 | `engine/vhash` | 🟢 COVERED | `VerifyAllBlobVersionBytes` called in `ProcessBlock` |
 | `engine/chunking` | 🟢 COVERED | `PayloadChunker` instantiated in node (128 KB) |
-| `engine/auction` | 🟢 COVERED | `BuilderAuction` instantiated in node |
+| `engine/auction` | 🟢 COVERED | `BuilderAuction` instantiated; `RunAuction()` called per slot in `ForkchoiceUpdated` (Amsterdam) |
 | `txpool/validation` | 🟢 COVERED | `txpool.go` `validateTx()` lines 382–552 |
 | `txpool/queue` | 🟢 COVERED | `txpool.go` `txSortedList` lines 127–194 |
 | `txpool/replacement` | 🟢 COVERED | `txpool.go` `hasSufficientBump()` lines 344–371 |
@@ -865,7 +865,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `light` | 🟢 COVERED | `LightClient` started/stopped in node lifecycle |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 0 | 🟡 PARTIAL: 7 | 🟢 COVERED: 63
+**Counts:** 🔴 MISSING: 0 | 🟡 PARTIAL: 5 | 🟢 COVERED: 62
 
 ---
 
@@ -880,7 +880,7 @@ running via inline code. No wiring needed:
 - `txpool/queue` — inline `txSortedList` is sufficient
 - `txpool/replacement` — inline `hasSufficientBump()` is sufficient
 - `txpool/fees` — inline `SetBaseFee` is sufficient
-- ~~`metrics/PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` wired in `node.go:733` (branch `feat/check-pkg-ref`)
+- ~~`metrics/PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` wired in `node.go:772` (branch `feat/check-pkg-ref`)
 - `rpc/netapi` — reportedly wired (confirm with `go list -deps ./rpc/...`)
 - `p2p/discv5` orphan — V5 exists in `p2p/discover`
 
@@ -913,7 +913,7 @@ running via inline code. No wiring needed:
 
 - ~~`core/chain.VerifyTimestampWindow`~~ ✅ **DONE** — called in `engine/payload/builder.go:92`
 - ~~`core/chain.CalcGasLimitRange`~~ ✅ **DONE** — called in `engine/payload/builder.go:85`
-- ~~`metrics.PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` in `node.go:733`
+- ~~`metrics.PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` in `node.go:772`
 - ~~`bal.AdvancedConflictAnalyzer`~~ ✅ **DONE** — `ScoreParallelism` in `core/block/builder.go:547`
 - ~~`core/eips.ValidateUserOp`~~ ✅ **DONE** — called in `txpool/txpool.go:511` (gated `--txpool.allow-aa`)
 - ~~`geth.NewGethBlockProcessorWithEth2028`~~ ✅ **DONE** — called in `core/eftest/geth_runner.go:237`
@@ -954,7 +954,7 @@ running via inline code. No wiring needed:
 - ~~`sync/beam`~~ ✅ **DONE** — `BeamSync` instantiated with stub fetcher
 - ~~`sync/rangeproof`~~ ✅ **DONE** — `RangeProver` instantiated in node
 - ~~`engine/vhash`~~ ✅ **DONE** — `VerifyAllBlobVersionBytes` called in `ProcessBlock`
-- ~~`engine/auction`~~ ✅ **DONE** — `BuilderAuction` instantiated in node
+- ~~`engine/auction`~~ ✅ **DONE** — `BuilderAuction` instantiated in node; `RunAuction()` wired in `ForkchoiceUpdated`
 - ~~`trie/prune`~~ ✅ **DONE** — `StatePruner` instantiated in node
 - ~~`trie/stack`~~ ✅ **DONE** — `StackTrieNodeCollector` instantiated in node
 - ~~`trie/announce`~~ ✅ **DONE** — `AnnounceBinaryTrie` instantiated in node
