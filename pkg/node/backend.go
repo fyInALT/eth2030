@@ -646,8 +646,10 @@ func (b *engineBackend) processBlockInternal(
 			if mdb, ok := statedb.(*state.MemoryStateDB); ok {
 				accounts, storage := mdb.SnapshotDiff()
 				if uerr := b.node.snapshotTree.Update(payload.StateRoot, payload.ParentHash, accounts, storage); uerr == nil {
-					// Cap to 128 diff layers above the disk layer to bound memory growth.
-					b.node.snapshotTree.Cap(payload.StateRoot, 128)
+					// Cap diff layers to bound memory growth; 0 disables periodic flushing.
+					if depth := b.node.config.SnapshotCapDepth; depth > 0 {
+						b.node.snapshotTree.Cap(payload.StateRoot, depth)
+					}
 				}
 			}
 		}

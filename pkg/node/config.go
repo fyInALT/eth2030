@@ -162,6 +162,13 @@ type Config struct {
 	// advances (one batch per N blocks). 0 disables periodic migration.
 	MigrateEveryBlocks int // --trie.migrate-every
 
+	// SnapshotCapDepth is the maximum number of in-memory diff layers the
+	// snapshot tree retains before flushing the oldest to disk. Higher values
+	// keep more state in RAM (better for fast reads); lower values flush more
+	// aggressively (less RAM, more disk I/O). 0 disables periodic flushing.
+	// Matches go-ethereum's --cache.snapshot semantics (default 128).
+	SnapshotCapDepth int // --snapshot.cap-depth
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -255,6 +262,9 @@ func DefaultConfig() Config {
 
 		// Incremental MPT→BinaryTrie migration: advance one batch every 16 blocks.
 		MigrateEveryBlocks: 16,
+
+		// Snapshot: retain at most 128 in-memory diff layers (go-ethereum default).
+		SnapshotCapDepth: 128,
 	}
 }
 
@@ -292,6 +302,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxPeers < 0 {
 		return fmt.Errorf("config: invalid max peers: %d", c.MaxPeers)
+	}
+	if c.SnapshotCapDepth < 0 {
+		return fmt.Errorf("config: invalid snapshot.cap-depth: %d (must be >= 0)", c.SnapshotCapDepth)
 	}
 	if c.FrameMempoolTier != "" && c.FrameMempoolTier != "conservative" && c.FrameMempoolTier != "aggressive" {
 		return fmt.Errorf("config: invalid frame-mempool tier %q (must be conservative or aggressive)", c.FrameMempoolTier)

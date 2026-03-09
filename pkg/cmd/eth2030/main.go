@@ -229,6 +229,9 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	// --- Trie Migration ---
 	fs.IntVar(&cfg.MigrateEveryBlocks, "trie.migrate-every", cfg.MigrateEveryBlocks, "advance MPT→BinaryTrie migration one batch every N blocks (0 = disabled, I+ only)")
 
+	// --- Snapshot ---
+	fs.IntVar(&cfg.SnapshotCapDepth, "snapshot.cap-depth", cfg.SnapshotCapDepth, "max in-memory snapshot diff layers before flushing to disk (0 = no flush, default 128)")
+
 	return fs
 }
 
