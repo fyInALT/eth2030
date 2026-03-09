@@ -1214,3 +1214,16 @@ func (s *nodeSyncTrigger) OnNewBlock(peerID string, blockNum uint64) {
 		}
 	}()
 }
+
+// slashingEngineAdapter adapts epbsslash.SlashingEngine to the
+// coreconfig.PaymasterSlasher interface used by the state processor.
+type slashingEngineAdapter struct {
+	eng *epbsslash.SlashingEngine
+}
+
+func (a *slashingEngineAdapter) SlashOnBadSettlement(addr types.Address) error {
+	_, err := a.eng.EvaluateAll(nil, nil, addr)
+	return err
+}
+
+var _ coreconfig.PaymasterSlasher = (*slashingEngineAdapter)(nil)
