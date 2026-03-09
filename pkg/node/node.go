@@ -41,6 +41,9 @@ import (
 	dasnetwork "github.com/eth2030/eth2030/das/network"
 	dasvalidator "github.com/eth2030/eth2030/das/validator"
 	syncinserter "github.com/eth2030/eth2030/sync/inserter"
+	synccheckpoint "github.com/eth2030/eth2030/sync/checkpoint"
+	syncchecksync "github.com/eth2030/eth2030/sync/checksync"
+	syncsupport "github.com/eth2030/eth2030/sync/support"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
@@ -107,6 +110,12 @@ type Node struct {
 
 	// Sync chain inserter with verification metrics.
 	chainInserter *syncinserter.ChainInserter
+
+	// Sync support: checkpoint store, checkpoint syncer, progress tracker, and pipeline.
+	checkpointStore   *synccheckpoint.CheckpointStore
+	checkpointSyncer  *syncchecksync.CheckpointSyncer
+	syncProgressTrack *syncsupport.ProgressTracker
+	syncPipeline      *syncsupport.SyncPipeline
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -236,6 +245,12 @@ func New(config *Config) (*Node, error) {
 		syncinserter.DefaultChainInserterConfig(),
 		n.blockchain,
 	)
+
+	// Initialize sync support: checkpoint store, syncer, progress tracker, pipeline.
+	n.checkpointStore = synccheckpoint.NewCheckpointStore(synccheckpoint.DefaultCheckpointStoreConfig())
+	n.checkpointSyncer = syncchecksync.NewCheckpointSyncer(syncchecksync.DefaultCheckpointConfig())
+	n.syncProgressTrack = syncsupport.NewProgressTracker()
+	n.syncPipeline = syncsupport.NewSyncPipeline(syncsupport.DefaultPipelineConfig())
 
 	// Initialize tx journal for pending tx persistence across restarts.
 	journalPath := config.ResolvePath("transactions.rlp")
