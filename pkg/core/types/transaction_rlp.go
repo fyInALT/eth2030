@@ -762,14 +762,21 @@ func encodeHashList(hashes []Hash) []byte {
 }
 
 // encodeAuthListBytes RLP-encodes an EIP-7702 authorization list as raw bytes.
+// Each entry is [chain_id, address, nonce, y_parity, r, s] per EIP-7702 §signing.
 func encodeAuthListBytes(list []Authorization) []byte {
 	var inner []byte
 	for _, auth := range list {
 		chainEnc, _ := rlp.EncodeToBytes(auth.ChainID)
 		addrEnc, _ := rlp.EncodeToBytes(auth.Address[:])
 		nonceEnc, _ := rlp.EncodeToBytes(auth.Nonce)
+		vEnc, _ := rlp.EncodeToBytes(bigOrZero(auth.V))
+		rEnc, _ := rlp.EncodeToBytes(bigOrZero(auth.R))
+		sEnc, _ := rlp.EncodeToBytes(bigOrZero(auth.S))
 		item := append(chainEnc, addrEnc...)
 		item = append(item, nonceEnc...)
+		item = append(item, vEnc...)
+		item = append(item, rEnc...)
+		item = append(item, sEnc...)
 		inner = append(inner, rlp.WrapList(item)...)
 	}
 	return rlp.WrapList(inner)
