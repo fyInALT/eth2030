@@ -441,7 +441,9 @@ func (cdb *ChainDB) readHeaderFromDB(number uint64, hash types.Hash) *types.Head
 	return header
 }
 
-// encodeBlockBody encodes the body portion of a block (transactions + uncles).
+// encodeBlockBody encodes the body portion of a block (transactions + uncles + withdrawals).
+// Legacy txs are appended directly (RLP lists); typed txs are wrapped as byte strings.
+// Withdrawals are appended as an optional third list (post-Shanghai).
 func encodeBlockBody(block *types.Block) ([]byte, error) {
 	// Encode transactions list.
 	var txsPayload []byte
@@ -450,11 +452,15 @@ func encodeBlockBody(block *types.Block) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		wrapped, err := rlp.EncodeToBytes(txEnc)
-		if err != nil {
-			return nil, err
+		if tx.Type() == types.LegacyTxType {
+			txsPayload = append(txsPayload, txEnc...)
+		} else {
+			wrapped, err := rlp.EncodeToBytes(txEnc)
+			if err != nil {
+				return nil, err
+			}
+			txsPayload = append(txsPayload, wrapped...)
 		}
-		txsPayload = append(txsPayload, wrapped...)
 	}
 
 	// Encode uncles list.
@@ -470,6 +476,16 @@ func encodeBlockBody(block *types.Block) ([]byte, error) {
 	var payload []byte
 	payload = append(payload, rlp.WrapList(txsPayload)...)
 	payload = append(payload, rlp.WrapList(unclesPayload)...)
+
+	// Withdrawals (post-Shanghai): nil slice = pre-Shanghai (omit list).
+	if block.Withdrawals() != nil {
+		var wPayload []byte
+		for _, w := range block.Withdrawals() {
+			wPayload = append(wPayload, types.EncodeWithdrawal(w)...)
+		}
+		payload = append(payload, rlp.WrapList(wPayload)...)
+	}
+
 	return rlp.WrapList(payload), nil
 }
 
@@ -488,11 +504,20 @@ func decodeBlockBody(data []byte) (*types.Body, error) {
 	}
 	var txs []*types.Transaction
 	for !s.AtListEnd() {
-		txBytes, err := s.Bytes()
+		kind, _, err := s.Kind()
 		if err != nil {
 			return nil, err
 		}
-		tx, err := types.DecodeTxRLP(txBytes)
+		var txData []byte
+		if kind == rlp.List {
+			txData, err = s.RawItem()
+		} else {
+			txData, err = s.Bytes()
+		}
+		if err != nil {
+			return nil, err
+		}
+		tx, err := types.DecodeTxRLP(txData)
 		if err != nil {
 			return nil, err
 		}
@@ -522,14 +547,37 @@ func decodeBlockBody(data []byte) (*types.Body, error) {
 	if err := s.ListEnd(); err != nil {
 		return nil, err
 	}
+
+	body := &types.Body{Transactions: txs, Uncles: uncles}
+
+	// Withdrawals (optional, post-Shanghai).
+	if !s.AtListEnd() {
+		_, err = s.List()
+		if err != nil {
+			return nil, err
+		}
+		body.Withdrawals = make([]*types.Withdrawal, 0)
+		for !s.AtListEnd() {
+			wBytes, err := s.RawItem()
+			if err != nil {
+				return nil, err
+			}
+			w, err := types.DecodeWithdrawal(wBytes)
+			if err != nil {
+				return nil, err
+			}
+			body.Withdrawals = append(body.Withdrawals, w)
+		}
+		if err := s.ListEnd(); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.ListEnd(); err != nil {
 		return nil, err
 	}
 
-	return &types.Body{
-		Transactions: txs,
-		Uncles:       uncles,
-	}, nil
+	return body, nil
 }
 
 // encodeReceiptList RLP-encodes a list of receipts as a single blob.

@@ -7,78 +7,201 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// emptyRLP is the RLP encoding of an empty/nil optional field (0x80).
+var emptyRLP = []byte{0x80}
+
 // EncodeRLP returns the RLP encoding of the header in Yellow Paper field order:
 // [ParentHash, UncleHash, Coinbase, Root, TxHash, ReceiptHash, Bloom,
 //
 //	Difficulty, Number, GasLimit, GasUsed, Time, Extra, MixDigest, Nonce,
-//	BaseFee, WithdrawalsHash, BlobGasUsed, ExcessBlobGas, ParentBeaconRoot, RequestsHash]
+//	BaseFee, WithdrawalsHash, BlobGasUsed, ExcessBlobGas, ParentBeaconRoot,
+//	RequestsHash, CalldataGasUsed, CalldataExcessGas]
 //
-// Optional fields are appended only if non-nil (and all preceding optionals are present).
+// Optional fields are appended only when needed.  When a later optional field
+// is non-nil, earlier nil optional fields are written as 0x80 (empty string)
+// to preserve positional integrity, matching go-ethereum's gen_header_rlp.go.
 func (h *Header) EncodeRLP() ([]byte, error) {
-	// Encode the base 15 fields as an RLP list manually to control ordering.
-	var items []interface{}
-
-	items = append(items, h.ParentHash)
-	items = append(items, h.UncleHash)
-	items = append(items, h.Coinbase)
-	items = append(items, h.Root)
-	items = append(items, h.TxHash)
-	items = append(items, h.ReceiptHash)
-	items = append(items, h.Bloom)
-	items = append(items, bigIntOrZero(h.Difficulty))
-	items = append(items, bigIntOrZero(h.Number))
-	items = append(items, h.GasLimit)
-	items = append(items, h.GasUsed)
-	items = append(items, h.Time)
-	items = append(items, h.Extra)
-	items = append(items, h.MixDigest)
-	items = append(items, h.Nonce)
-
-	// EIP-1559: BaseFee
-	if h.BaseFee != nil {
-		items = append(items, h.BaseFee)
-	}
-	// EIP-4895: WithdrawalsHash
-	if h.WithdrawalsHash != nil {
-		items = append(items, *h.WithdrawalsHash)
-	}
-	// EIP-4844: BlobGasUsed, ExcessBlobGas
-	if h.BlobGasUsed != nil {
-		items = append(items, *h.BlobGasUsed)
-	}
-	if h.ExcessBlobGas != nil {
-		items = append(items, *h.ExcessBlobGas)
-	}
-	// EIP-4788: ParentBeaconBlockRoot
-	if h.ParentBeaconRoot != nil {
-		items = append(items, *h.ParentBeaconRoot)
-	}
-	// EIP-7685: RequestsHash
-	if h.RequestsHash != nil {
-		items = append(items, *h.RequestsHash)
-	}
-	// EIP-7706: CalldataGasUsed, CalldataExcessGas
-	if h.CalldataGasUsed != nil {
-		items = append(items, *h.CalldataGasUsed)
-	}
-	if h.CalldataExcessGas != nil {
-		items = append(items, *h.CalldataExcessGas)
-	}
-
-	return encodeRLPList(items)
-}
-
-// encodeRLPList encodes a list of items as an RLP list by encoding each item
-// and wrapping the concatenated payload.
-func encodeRLPList(items []interface{}) ([]byte, error) {
 	var payload []byte
-	for _, item := range items {
-		enc, err := rlp.EncodeToBytes(item)
+
+	// appendItem RLP-encodes v and appends to payload.
+	appendItem := func(v interface{}) error {
+		enc, err := rlp.EncodeToBytes(v)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		payload = append(payload, enc...)
+		return nil
 	}
+	// appendEmpty appends an RLP empty string (0x80) as a nil-field placeholder.
+	appendEmpty := func() {
+		payload = append(payload, emptyRLP...)
+	}
+
+	// 15 mandatory base fields.
+	if err := appendItem(h.ParentHash); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.UncleHash); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.Coinbase); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.Root); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.TxHash); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.ReceiptHash); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.Bloom); err != nil {
+		return nil, err
+	}
+	if err := appendItem(bigIntOrZero(h.Difficulty)); err != nil {
+		return nil, err
+	}
+	if err := appendItem(bigIntOrZero(h.Number)); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.GasLimit); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.GasUsed); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.Time); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.Extra); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.MixDigest); err != nil {
+		return nil, err
+	}
+	if err := appendItem(h.Nonce); err != nil {
+		return nil, err
+	}
+
+	// Determine which optional fields are present.
+	hasBaseFee := h.BaseFee != nil
+	hasWithdrawals := h.WithdrawalsHash != nil
+	hasBlobGasUsed := h.BlobGasUsed != nil
+	hasExcessBlobGas := h.ExcessBlobGas != nil
+	hasBeaconRoot := h.ParentBeaconRoot != nil
+	hasRequestsHash := h.RequestsHash != nil
+	hasCalldataUsed := h.CalldataGasUsed != nil
+	hasCalldataExcess := h.CalldataExcessGas != nil
+
+	// anyFrom[i] is true when any optional field at or after position i is set.
+	// This mirrors go-ethereum's generated encoder logic.
+	anyFromCalldataExcess := hasCalldataExcess
+	anyFromCalldataUsed := hasCalldataUsed || anyFromCalldataExcess
+	anyFromRequests := hasRequestsHash || anyFromCalldataUsed
+	anyFromBeacon := hasBeaconRoot || anyFromRequests
+	anyFromExcessBlob := hasExcessBlobGas || anyFromBeacon
+	anyFromBlobUsed := hasBlobGasUsed || anyFromExcessBlob
+	anyFromWithdrawals := hasWithdrawals || anyFromBlobUsed
+	anyFromBaseFee := hasBaseFee || anyFromWithdrawals
+
+	if !anyFromBaseFee {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-1559: BaseFee
+	if hasBaseFee {
+		if err := appendItem(h.BaseFee); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromWithdrawals {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-4895: WithdrawalsHash
+	if hasWithdrawals {
+		if err := appendItem(*h.WithdrawalsHash); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromBlobUsed {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-4844: BlobGasUsed
+	if hasBlobGasUsed {
+		if err := appendItem(*h.BlobGasUsed); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromExcessBlob {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-4844: ExcessBlobGas
+	if hasExcessBlobGas {
+		if err := appendItem(*h.ExcessBlobGas); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromBeacon {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-4788: ParentBeaconBlockRoot
+	if hasBeaconRoot {
+		if err := appendItem(*h.ParentBeaconRoot); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromRequests {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-7685: RequestsHash
+	if hasRequestsHash {
+		if err := appendItem(*h.RequestsHash); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromCalldataUsed {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-7706: CalldataGasUsed
+	if hasCalldataUsed {
+		if err := appendItem(*h.CalldataGasUsed); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+	if !anyFromCalldataExcess {
+		return rlp.WrapList(payload), nil
+	}
+
+	// EIP-7706: CalldataExcessGas
+	if hasCalldataExcess {
+		if err := appendItem(*h.CalldataExcessGas); err != nil {
+			return nil, err
+		}
+	} else {
+		appendEmpty()
+	}
+
 	return rlp.WrapList(payload), nil
 }
 
@@ -154,64 +277,106 @@ func DecodeHeaderRLP(data []byte) (*Header, error) {
 		return nil, err
 	}
 
-	// Optional fields: try reading each in sequence. If we hit ListEnd, stop.
-	if !s.AtListEnd() {
-		h.BaseFee, err = s.BigInt()
-		if err != nil {
-			return nil, err
-		}
+	// Optional fields: read each in sequence; stop at list end.
+	// A field encoded as 0x80 (empty string / nil placeholder) has len 0.
+
+	// EIP-1559: BaseFee (*big.Int)
+	// If this position is reached, the field is present (0x80 = value 0, not nil).
+	if s.AtListEnd() {
+		return finishHeader(s, h)
 	}
-	if !s.AtListEnd() {
-		var wh Hash
-		if err := decodeHash(s, &wh); err != nil {
-			return nil, err
-		}
-		h.WithdrawalsHash = &wh
-	}
-	if !s.AtListEnd() {
-		bgu, err := s.Uint64()
-		if err != nil {
-			return nil, err
-		}
-		h.BlobGasUsed = &bgu
-	}
-	if !s.AtListEnd() {
-		ebg, err := s.Uint64()
-		if err != nil {
-			return nil, err
-		}
-		h.ExcessBlobGas = &ebg
-	}
-	if !s.AtListEnd() {
-		var pbr Hash
-		if err := decodeHash(s, &pbr); err != nil {
-			return nil, err
-		}
-		h.ParentBeaconRoot = &pbr
-	}
-	if !s.AtListEnd() {
-		var rh Hash
-		if err := decodeHash(s, &rh); err != nil {
-			return nil, err
-		}
-		h.RequestsHash = &rh
-	}
-	// EIP-7706: CalldataGasUsed, CalldataExcessGas
-	if !s.AtListEnd() {
-		cgu, err := s.Uint64()
-		if err != nil {
-			return nil, err
-		}
-		h.CalldataGasUsed = &cgu
-	}
-	if !s.AtListEnd() {
-		ceg, err := s.Uint64()
-		if err != nil {
-			return nil, err
-		}
-		h.CalldataExcessGas = &ceg
+	h.BaseFee, err = s.BigInt()
+	if err != nil {
+		return nil, err
 	}
 
+	// EIP-4895: WithdrawalsHash (*Hash)
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	var whBytes []byte
+	whBytes, err = s.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(whBytes) == HashLength {
+		wh := BytesToHash(whBytes)
+		h.WithdrawalsHash = &wh
+	}
+
+	// EIP-4844: BlobGasUsed (*uint64)
+	// If this position is reached, field is present. 0x80 = value 0 (not nil).
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	bgu, err := s.Uint64()
+	if err != nil {
+		return nil, err
+	}
+	h.BlobGasUsed = &bgu
+
+	// EIP-4844: ExcessBlobGas (*uint64)
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	ebg, err := s.Uint64()
+	if err != nil {
+		return nil, err
+	}
+	h.ExcessBlobGas = &ebg
+
+	// EIP-4788: ParentBeaconBlockRoot (*Hash)
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	var pbrBytes []byte
+	pbrBytes, err = s.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(pbrBytes) == HashLength {
+		pbr := BytesToHash(pbrBytes)
+		h.ParentBeaconRoot = &pbr
+	}
+
+	// EIP-7685: RequestsHash (*Hash)
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	var rhBytes []byte
+	rhBytes, err = s.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(rhBytes) == HashLength {
+		rh := BytesToHash(rhBytes)
+		h.RequestsHash = &rh
+	}
+
+	// EIP-7706: CalldataGasUsed (*uint64)
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	cgu, err := s.Uint64()
+	if err != nil {
+		return nil, err
+	}
+	h.CalldataGasUsed = &cgu
+
+	// EIP-7706: CalldataExcessGas (*uint64)
+	if s.AtListEnd() {
+		return finishHeader(s, h)
+	}
+	ceg, err := s.Uint64()
+	if err != nil {
+		return nil, err
+	}
+	h.CalldataExcessGas = &ceg
+
+	return finishHeader(s, h)
+}
+
+func finishHeader(s *rlp.Stream, h *Header) (*Header, error) {
 	if err := s.ListEnd(); err != nil {
 		return nil, err
 	}

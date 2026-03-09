@@ -34,7 +34,10 @@ type TxLookupEntry struct {
 // Blockchain manages the canonical chain of blocks, applying state
 // transitions and persisting data to the underlying database.
 type Blockchain struct {
-	mu        sync.RWMutex
+	mu sync.RWMutex
+	// rcMu guards receiptCache independently of mu, allowing concurrent
+	// receipt reads while InsertBlock holds mu.Lock() for state execution.
+	rcMu      sync.RWMutex
 	config    *config.ChainConfig
 	db        rawdb.Database
 	hc        *HeaderChain
@@ -47,7 +50,7 @@ type Blockchain struct {
 	// Canonical number -> hash for quick lookups.
 	canonCache map[uint64]types.Hash
 
-	// Receipt cache: blockHash -> receipts.
+	// Receipt cache: blockHash -> receipts.  Protected by rcMu.
 	receiptCache map[types.Hash][]*types.Receipt
 
 	// Transaction lookup: txHash -> location in chain.
@@ -245,8 +248,10 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Cache receipts by block hash.
+	// Cache receipts by block hash (rcMu allows concurrent readers in GetReceipts).
+	bc.rcMu.Lock()
 	bc.receiptCache[hash] = receipts
+	bc.rcMu.Unlock()
 
 	// Build tx lookup index.
 	for i, tx := range txs {
@@ -256,6 +261,10 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			TxIndex:     uint64(i),
 		}
 	}
+
+	// Always cache the post-execution state so that reorgs to this block
+	// (canonical or side-chain) can recover state in O(1).
+	bc.sc.put(hash, num, statedb.(*state.MemoryStateDB))
 
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
@@ -273,11 +282,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 
 		// Update header chain.
 		bc.hc.InsertHeaders([]*types.Header{header})
-
-		// Cache state snapshot at regular intervals.
-		if shouldSnapshot(num) {
-			bc.sc.put(hash, num, bc.currentState)
-		}
 	}
 
 	return nil
@@ -573,12 +577,17 @@ func encodeBlockBody(body *types.Body) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			// Wrap raw tx bytes as an RLP byte string.
-			wrapped, err := rlp.EncodeToBytes(txEnc)
-			if err != nil {
-				return nil, err
+			if tx.Type() == types.LegacyTxType {
+				// Legacy: txEnc is already an RLP list; append directly.
+				txsPayload = append(txsPayload, txEnc...)
+			} else {
+				// Typed: wrap as RLP byte string (type_byte || RLP_payload).
+				wrapped, err := rlp.EncodeToBytes(txEnc)
+				if err != nil {
+					return nil, err
+				}
+				txsPayload = append(txsPayload, wrapped...)
 			}
-			txsPayload = append(txsPayload, wrapped...)
 		}
 	}
 
@@ -630,11 +639,20 @@ func decodeBlockBody(data []byte) (*types.Body, error) {
 	}
 	var txs []*types.Transaction
 	for !s.AtListEnd() {
-		txBytes, err := s.Bytes()
+		kind, _, err := s.Kind()
 		if err != nil {
-			return nil, fmt.Errorf("reading tx bytes: %w", err)
+			return nil, fmt.Errorf("peeking tx kind: %w", err)
 		}
-		tx, err := types.DecodeTxRLP(txBytes)
+		var txData []byte
+		if kind == rlp.List {
+			txData, err = s.RawItem()
+		} else {
+			txData, err = s.Bytes()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading tx: %w", err)
+		}
+		tx, err := types.DecodeTxRLP(txData)
 		if err != nil {
 			return nil, fmt.Errorf("decoding tx: %w", err)
 		}
@@ -835,13 +853,15 @@ func (bc *Blockchain) ChainLength() uint64 {
 }
 
 // GetReceipts returns the receipts for a block identified by hash.
+// Uses rcMu instead of the main mu to avoid blocking on concurrent InsertBlock.
 func (bc *Blockchain) GetReceipts(blockHash types.Hash) []*types.Receipt {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-	if r, ok := bc.receiptCache[blockHash]; ok {
+	bc.rcMu.RLock()
+	r, ok := bc.receiptCache[blockHash]
+	bc.rcMu.RUnlock()
+	if ok {
 		return r
 	}
-	// Fallback: read from rawdb (e.g. after restart).
+	// Fallback: read from rawdb (thread-safe, no bc.mu needed).
 	num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
 	if err != nil {
 		return nil
@@ -855,22 +875,29 @@ func (bc *Blockchain) GetReceipts(blockHash types.Hash) []*types.Receipt {
 }
 
 // GetBlockReceipts returns the receipts for the canonical block at the given number.
+// Reads canonical hash from rawdb (thread-safe) and receipt cache under rcMu to
+// avoid blocking on InsertBlock's bc.mu.Lock() during state execution.
 func (bc *Blockchain) GetBlockReceipts(number uint64) []*types.Receipt {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-	hash, ok := bc.canonCache[number]
-	if !ok {
-		// Fallback: try rawdb canonical hash.
-		h, err := rawdb.ReadCanonicalHash(bc.db, number)
-		if err != nil {
+	// Prefer rawdb for canonical hash: it's always consistent and doesn't
+	// need bc.mu. Fall back to in-memory canonCache only if rawdb lacks the entry.
+	hash, err := rawdb.ReadCanonicalHash(bc.db, number)
+	if err != nil {
+		bc.mu.RLock()
+		h, ok := bc.canonCache[number]
+		bc.mu.RUnlock()
+		if !ok {
 			return nil
 		}
 		hash = h
 	}
-	if r, ok2 := bc.receiptCache[hash]; ok2 {
+	// Check receipt cache under fine-grained rcMu.
+	bc.rcMu.RLock()
+	r, ok2 := bc.receiptCache[hash]
+	bc.rcMu.RUnlock()
+	if ok2 {
 		return r
 	}
-	// Fallback: read from rawdb.
+	// Fallback: read from rawdb (thread-safe).
 	blk := bc.readBlock(hash)
 	var txs []*types.Transaction
 	if blk != nil {
@@ -881,11 +908,11 @@ func (bc *Blockchain) GetBlockReceipts(number uint64) []*types.Receipt {
 
 // GetLogs returns all logs from receipts for the block identified by hash.
 func (bc *Blockchain) GetLogs(blockHash types.Hash) []*types.Log {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
+	bc.rcMu.RLock()
 	receipts, ok := bc.receiptCache[blockHash]
+	bc.rcMu.RUnlock()
 	if !ok {
-		// Fallback: read from rawdb.
+		// Fallback: read from rawdb (thread-safe, no bc.mu needed).
 		num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
 		if err == nil {
 			blk := bc.readBlock(blockHash)
@@ -1087,12 +1114,6 @@ func (bc *Blockchain) readReceiptsFromDB(num uint64, hash types.Hash, txs []*typ
 		}
 	}
 	return receipts
-}
-
-// shouldSnapshot returns true if a state snapshot should be cached at
-// the given block number.
-func shouldSnapshot(num uint64) bool {
-	return num%stateSnapshotInterval == 0
 }
 
 // EvictBlockFromCache removes a block from the in-memory block cache,

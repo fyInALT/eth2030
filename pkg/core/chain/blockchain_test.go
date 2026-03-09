@@ -594,7 +594,7 @@ func TestBlockchain_StateCachePopulated(t *testing.T) {
 	}
 }
 
-func TestBlockchain_StateCacheNotPopulatedAtNonInterval(t *testing.T) {
+func TestBlockchain_StateCachePopulatedForEveryBlock(t *testing.T) {
 	bc, statedb := testChain(t)
 
 	// Insert a few blocks (less than stateSnapshotInterval).
@@ -608,15 +608,16 @@ func TestBlockchain_StateCacheNotPopulatedAtNonInterval(t *testing.T) {
 		parent = b
 	}
 
-	// Blocks 1-5 should NOT have cached states (none are multiples of 16).
+	// Every inserted block should have a cached state (we cache all blocks
+	// to make reorg state recovery O(1)).
 	for i := uint64(1); i <= 5; i++ {
 		b := bc.GetBlockByNumber(i)
 		if b == nil {
 			t.Fatalf("block %d not found", i)
 		}
 		_, ok := bc.sc.get(b.Hash())
-		if ok {
-			t.Errorf("state cache should not be populated at block %d", i)
+		if !ok {
+			t.Errorf("state cache should be populated at block %d", i)
 		}
 	}
 }

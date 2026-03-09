@@ -10,8 +10,8 @@ import (
 )
 
 // encodeTransactions encodes a list of transactions into a Msg.
-// Each transaction is encoded using its own EncodeRLP, then wrapped as
-// a byte string in the outer list.
+// Legacy txs are appended directly (already RLP lists); typed txs are
+// wrapped as RLP byte strings (type_byte || RLP_payload), matching geth.
 func encodeTransactions(txs []*types.Transaction) (p2p.Msg, error) {
 	var payload []byte
 	for i, tx := range txs {
@@ -19,11 +19,17 @@ func encodeTransactions(txs []*types.Transaction) (p2p.Msg, error) {
 		if err != nil {
 			return p2p.Msg{}, fmt.Errorf("encode tx %d: %w", i, err)
 		}
-		wrapped, err := rlp.EncodeToBytes(txEnc)
-		if err != nil {
-			return p2p.Msg{}, fmt.Errorf("wrap tx %d: %w", i, err)
+		if tx.Type() == types.LegacyTxType {
+			// Legacy: txEnc is already an RLP list; append directly.
+			payload = append(payload, txEnc...)
+		} else {
+			// Typed: wrap as RLP byte string (type_byte || RLP_payload).
+			wrapped, err := rlp.EncodeToBytes(txEnc)
+			if err != nil {
+				return p2p.Msg{}, fmt.Errorf("wrap tx %d: %w", i, err)
+			}
+			payload = append(payload, wrapped...)
 		}
-		payload = append(payload, wrapped...)
 	}
 	data := rlp.WrapList(payload)
 	return p2p.Msg{
@@ -42,11 +48,22 @@ func decodeTransactions(msg p2p.Msg) ([]*types.Transaction, error) {
 	}
 	var txs []*types.Transaction
 	for !s.AtListEnd() {
-		txBytes, err := s.Bytes()
+		kind, _, err := s.Kind()
 		if err != nil {
-			return nil, fmt.Errorf("read tx bytes: %w", err)
+			return nil, fmt.Errorf("peek tx kind: %w", err)
 		}
-		tx, err := types.DecodeTxRLP(txBytes)
+		var txData []byte
+		if kind == rlp.List {
+			// Legacy transaction: read entire RLP list item.
+			txData, err = s.RawItem()
+		} else {
+			// Typed transaction: read byte string (type_byte || RLP_payload).
+			txData, err = s.Bytes()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read tx: %w", err)
+		}
+		tx, err := types.DecodeTxRLP(txData)
 		if err != nil {
 			return nil, fmt.Errorf("decode tx: %w", err)
 		}

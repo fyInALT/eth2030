@@ -71,10 +71,12 @@ type GetBlockBodiesMessage struct {
 	Hashes []types.Hash
 }
 
-// BlockBodyData holds the transactions and uncles of a single block.
+// BlockBodyData holds the transactions, uncles, and (post-Shanghai) withdrawals
+// of a single block. Withdrawals is nil for pre-Shanghai blocks.
 type BlockBodyData struct {
 	Transactions []*types.Transaction
 	Uncles       []*types.Header
+	Withdrawals  []*types.Withdrawal // nil = pre-Shanghai
 }
 
 // BlockBodiesMessage is a response containing requested block bodies.
@@ -139,7 +141,7 @@ func EncodeMsg(code uint64, msg interface{}) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("eth: EncodeMsg: expected *TransactionsMessage for code 0x%02x", code)
 		}
-		return rlp.EncodeToBytes(tm.Transactions)
+		return encodeTxsToRLP(tm.Transactions)
 
 	case MsgGetBlockHeaders:
 		gm, ok := msg.(*GetBlockHeadersMessage)
@@ -153,7 +155,7 @@ func EncodeMsg(code uint64, msg interface{}) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("eth: EncodeMsg: expected *BlockHeadersMessage for code 0x%02x", code)
 		}
-		return rlp.EncodeToBytes(bm.Headers)
+		return encodeHeadersToRLP(bm.Headers)
 
 	case MsgGetBlockBodies:
 		gm, ok := msg.(*GetBlockBodiesMessage)
@@ -167,7 +169,7 @@ func EncodeMsg(code uint64, msg interface{}) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("eth: EncodeMsg: expected *BlockBodiesMessage for code 0x%02x", code)
 		}
-		return rlp.EncodeToBytes(bm.Bodies)
+		return encodeBodyListToRLP(bm.Bodies)
 
 	case MsgNewBlock:
 		nm, ok := msg.(*NewBlockMessage)
@@ -195,7 +197,7 @@ func EncodeMsg(code uint64, msg interface{}) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("eth: EncodeMsg: expected *PooledTransactionsMessage for code 0x%02x", code)
 		}
-		return rlp.EncodeToBytes(pm.Transactions)
+		return encodeTxsToRLP(pm.Transactions)
 
 	default:
 		return nil, fmt.Errorf("eth: EncodeMsg: unknown message code 0x%02x", code)
@@ -221,8 +223,8 @@ func DecodeMsg(code uint64, data []byte) (interface{}, error) {
 		return &NewBlockHashesMessage{Entries: entries}, nil
 
 	case MsgTransactions:
-		var txs []*types.Transaction
-		if err := rlp.DecodeBytes(data, &txs); err != nil {
+		txs, err := decodeTxsFromRLP(data)
+		if err != nil {
 			return nil, fmt.Errorf("eth: DecodeMsg Transactions: %w", err)
 		}
 		return &TransactionsMessage{Transactions: txs}, nil
@@ -235,8 +237,8 @@ func DecodeMsg(code uint64, data []byte) (interface{}, error) {
 		return &m, nil
 
 	case MsgBlockHeaders:
-		var headers []*types.Header
-		if err := rlp.DecodeBytes(data, &headers); err != nil {
+		headers, err := decodeHeadersFromRLP(data)
+		if err != nil {
 			return nil, fmt.Errorf("eth: DecodeMsg BlockHeaders: %w", err)
 		}
 		return &BlockHeadersMessage{Headers: headers}, nil
@@ -249,8 +251,8 @@ func DecodeMsg(code uint64, data []byte) (interface{}, error) {
 		return &GetBlockBodiesMessage{Hashes: hashes}, nil
 
 	case MsgBlockBodies:
-		var bodies []BlockBodyData
-		if err := rlp.DecodeBytes(data, &bodies); err != nil {
+		bodies, err := decodeBodyListFromRLP(data)
+		if err != nil {
 			return nil, fmt.Errorf("eth: DecodeMsg BlockBodies: %w", err)
 		}
 		return &BlockBodiesMessage{Bodies: bodies}, nil
@@ -273,8 +275,8 @@ func DecodeMsg(code uint64, data []byte) (interface{}, error) {
 		return &GetPooledTransactionsMessage{Hashes: hashes}, nil
 
 	case MsgPooledTransactions:
-		var txs []*types.Transaction
-		if err := rlp.DecodeBytes(data, &txs); err != nil {
+		txs, err := decodeTxsFromRLP(data)
+		if err != nil {
 			return nil, fmt.Errorf("eth: DecodeMsg PooledTransactions: %w", err)
 		}
 		return &PooledTransactionsMessage{Transactions: txs}, nil
@@ -303,6 +305,183 @@ func encodeNewBlockMsg(msg *NewBlockMessage) ([]byte, error) {
 	payload = append(payload, blockEnc...)
 	payload = append(payload, tdEnc...)
 	return rlp.WrapList(payload), nil
+}
+
+// encodeTxsToRLP encodes a transaction list to RLP bytes.
+// Legacy txs are appended directly (RLP lists); typed txs are wrapped as
+// RLP byte strings (type_byte || RLP_payload), matching geth's eth protocol.
+func encodeTxsToRLP(txs []*types.Transaction) ([]byte, error) {
+	var payload []byte
+	for i, tx := range txs {
+		txEnc, err := tx.EncodeRLP()
+		if err != nil {
+			return nil, fmt.Errorf("tx %d: %w", i, err)
+		}
+		if tx.Type() == types.LegacyTxType {
+			payload = append(payload, txEnc...)
+		} else {
+			wrapped, err := rlp.EncodeToBytes(txEnc)
+			if err != nil {
+				return nil, fmt.Errorf("wrap tx %d: %w", i, err)
+			}
+			payload = append(payload, wrapped...)
+		}
+	}
+	return rlp.WrapList(payload), nil
+}
+
+// decodeTxsFromRLP decodes a transaction list from RLP bytes.
+// Legacy txs appear as RLP lists; typed txs appear as RLP byte strings.
+func decodeTxsFromRLP(data []byte) ([]*types.Transaction, error) {
+	s := rlp.NewStreamFromBytes(data)
+	if _, err := s.List(); err != nil {
+		return nil, fmt.Errorf("open tx list: %w", err)
+	}
+	var txs []*types.Transaction
+	for !s.AtListEnd() {
+		kind, _, err := s.Kind()
+		if err != nil {
+			return nil, fmt.Errorf("peek tx kind: %w", err)
+		}
+		var txData []byte
+		if kind == rlp.List {
+			txData, err = s.RawItem()
+		} else {
+			txData, err = s.Bytes()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read tx: %w", err)
+		}
+		tx, err := types.DecodeTxRLP(txData)
+		if err != nil {
+			return nil, fmt.Errorf("decode tx: %w", err)
+		}
+		txs = append(txs, tx)
+	}
+	return txs, s.ListEnd()
+}
+
+// encodeHeadersToRLP encodes a list of headers to RLP bytes.
+// Each header is encoded in Yellow Paper field order via Header.EncodeRLP.
+func encodeHeadersToRLP(headers []*types.Header) ([]byte, error) {
+	var payload []byte
+	for i, h := range headers {
+		hEnc, err := h.EncodeRLP()
+		if err != nil {
+			return nil, fmt.Errorf("header %d: %w", i, err)
+		}
+		payload = append(payload, hEnc...)
+	}
+	return rlp.WrapList(payload), nil
+}
+
+// decodeHeadersFromRLP decodes a list of headers from RLP bytes.
+func decodeHeadersFromRLP(data []byte) ([]*types.Header, error) {
+	s := rlp.NewStreamFromBytes(data)
+	if _, err := s.List(); err != nil {
+		return nil, fmt.Errorf("open headers list: %w", err)
+	}
+	var headers []*types.Header
+	for !s.AtListEnd() {
+		hBytes, err := s.RawItem()
+		if err != nil {
+			return nil, fmt.Errorf("read header: %w", err)
+		}
+		h, err := types.DecodeHeaderRLP(hBytes)
+		if err != nil {
+			return nil, fmt.Errorf("decode header: %w", err)
+		}
+		headers = append(headers, h)
+	}
+	return headers, s.ListEnd()
+}
+
+// encodeBodyListToRLP encodes a list of block bodies to RLP bytes.
+// Each body is encoded as [txs_list, uncles_list] or
+// [txs_list, uncles_list, withdrawals_list] for post-Shanghai blocks.
+func encodeBodyListToRLP(bodies []BlockBodyData) ([]byte, error) {
+	var outer []byte
+	for i, bd := range bodies {
+		txsEnc, err := encodeTxsToRLP(bd.Transactions)
+		if err != nil {
+			return nil, fmt.Errorf("body %d txs: %w", i, err)
+		}
+		unclesEnc, err := encodeHeadersToRLP(bd.Uncles)
+		if err != nil {
+			return nil, fmt.Errorf("body %d uncles: %w", i, err)
+		}
+		var bodyPayload []byte
+		bodyPayload = append(bodyPayload, txsEnc...)
+		bodyPayload = append(bodyPayload, unclesEnc...)
+		if bd.Withdrawals != nil {
+			var wPayload []byte
+			for _, w := range bd.Withdrawals {
+				wPayload = append(wPayload, types.EncodeWithdrawal(w)...)
+			}
+			bodyPayload = append(bodyPayload, rlp.WrapList(wPayload)...)
+		}
+		outer = append(outer, rlp.WrapList(bodyPayload)...)
+	}
+	return rlp.WrapList(outer), nil
+}
+
+// decodeBodyListFromRLP decodes a list of block bodies from RLP bytes.
+func decodeBodyListFromRLP(data []byte) ([]BlockBodyData, error) {
+	s := rlp.NewStreamFromBytes(data)
+	if _, err := s.List(); err != nil {
+		return nil, fmt.Errorf("open bodies list: %w", err)
+	}
+	var bodies []BlockBodyData
+	for !s.AtListEnd() {
+		if _, err := s.List(); err != nil {
+			return nil, fmt.Errorf("open body: %w", err)
+		}
+		// Transactions list.
+		txListBytes, err := s.RawItem()
+		if err != nil {
+			return nil, fmt.Errorf("read txs: %w", err)
+		}
+		txs, err := decodeTxsFromRLP(txListBytes)
+		if err != nil {
+			return nil, fmt.Errorf("decode txs: %w", err)
+		}
+		// Uncles list.
+		uncleListBytes, err := s.RawItem()
+		if err != nil {
+			return nil, fmt.Errorf("read uncles: %w", err)
+		}
+		uncles, err := decodeHeadersFromRLP(uncleListBytes)
+		if err != nil {
+			return nil, fmt.Errorf("decode uncles: %w", err)
+		}
+		bd := BlockBodyData{Transactions: txs, Uncles: uncles}
+		// Withdrawals (optional, post-Shanghai).
+		if !s.AtListEnd() {
+			if _, err := s.List(); err != nil {
+				return nil, fmt.Errorf("open withdrawals: %w", err)
+			}
+			bd.Withdrawals = make([]*types.Withdrawal, 0)
+			for !s.AtListEnd() {
+				wBytes, err := s.RawItem()
+				if err != nil {
+					return nil, fmt.Errorf("read withdrawal: %w", err)
+				}
+				w, err := types.DecodeWithdrawal(wBytes)
+				if err != nil {
+					return nil, fmt.Errorf("decode withdrawal: %w", err)
+				}
+				bd.Withdrawals = append(bd.Withdrawals, w)
+			}
+			if err := s.ListEnd(); err != nil {
+				return nil, fmt.Errorf("close withdrawals: %w", err)
+			}
+		}
+		if err := s.ListEnd(); err != nil {
+			return nil, fmt.Errorf("close body: %w", err)
+		}
+		bodies = append(bodies, bd)
+	}
+	return bodies, s.ListEnd()
 }
 
 // MsgCodeName returns a human-readable name for an ETH/68 message code.
