@@ -718,25 +718,75 @@ log format is not applied.
 
 ## Symbol-Level Dead Code in Wired Packages
 
-These packages ARE imported by production code but individual exported symbols
-are never called from outside the package.
+> **Audit date**: 2026-03-09 | **Method**: `grep -rn <symbol> --include="*.go"` across entire
+> `pkg/` tree, excluding `_test.go` files and the defining package itself.
+>
+> **Two categories:**
+> - **Symbol-dead** — package IS imported but specific exported symbols have zero call-sites outside their own package.
+> - **Instantiation-dead** — object IS created (field on `Node`) but no methods are ever called on it after construction.
 
-| Package | Symbol | File:Line | Status | Where to Call |
-|---------|--------|-----------|--------|---------------|
-| `core/execution` | `ReceiptGenerator`, `DefaultReceiptGeneratorConfig`, `TxExecutionOutcome` | `execution/receipt_gen.go:~30` | 🔴 MISSING | `core/block` after each tx execution |
-| `core/execution` | `TxGroup` | `execution/parallel.go:~1` | 🔴 MISSING | `core/block` gigagas parallel mode |
-| `core/execution` | `SetSlasher` | `execution/stf.go:~1` | 🔴 MISSING | `node.go` to wire `epbs/slashing` into STF |
-| `core/eips` | `UserOpHash`, `ValidateUserOp`, `ValidateUserOpState` | `eips/eip7701.go:~1` | 🔴 MISSING | `txpool/validation` AA stage; `core/execution` |
-| `core/eips` | `MaxUserOpGasCost`, `EstimateUserOpGas` | same | 🔴 MISSING | `txpool/pricing`, `rpc/gas` |
-| `core/eips` | `IncrementSmartNonce`, `PaymasterValidator` | same | 🔴 MISSING | `core/state` after AA tx |
-| `core/chain` | `TxLookupEntry`, `VerifyAgainstParent`, `VerifyTimestampWindow` | `chain/chain.go:~1` | 🔴 MISSING | `rpc/ethapi`, `core/block` validation |
-| `core/chain` | `CalcGasLimitRange` | same | 🔴 MISSING | `engine/payload` header building |
-| `core/config` | `IsEIP7864FinalHash`, `BinaryTrieHashFuncAt` | `config/chain_config.go:~1` | 🔴 MISSING | `trie/migrate` completion check (also orphaned) |
-| `geth` | `NewGethBlockProcessorWithEth2028`, `Eth2028PrecompileInfo` | `geth/processor.go:~1` | 🔴 MISSING | `core/eftest`, `cmd/eth2030-geth` |
-| `geth` | `ToGethAddress`, `FromGethAddress`, `ToGethHash`, etc. | `geth/convert.go:~1` | 🟡 PARTIAL | Used internally but also needed by `core/eftest` |
-| `metrics` | `PrometheusExporter`, `ReportBackend` | `metrics/prometheus.go:~1` | 🟢 COVERED | `node/node.go:335` has `/metrics` handler inline |
-| `bal` | `ConflictCluster`, `ReorderSuggestion`, `ParallelismScore` | `bal/analysis.go:~1` | 🔴 MISSING | `core/execution` parallel scheduler (also orphaned) |
-| `crypto/bn254` | `FpElement` extended API (13 symbols) | `crypto/bn254/fp.go:~1` | 🔴 MISSING | `proofs` Groth16 circuits; shielded transfers |
+### A. Symbol-Dead: Exported functions/types with no external call-sites
+
+| Package | Symbol | File:Line | Verified Status | Fix |
+|---------|--------|-----------|-----------------|-----|
+| `core/execution` | `ReceiptGenerator`, `DefaultReceiptGeneratorConfig`, `TxExecutionOutcome` | `execution/receipt_generation.go:15,29,58` | 🔴 UNCALLED — defined only; zero call-sites outside `execution/` | Call from `core/block` builder after each tx exec |
+| `core/execution` | `TxGroup` | `execution/dependency_graph.go:13` | 🔴 UNCALLED — `Partition()` returns `[]TxGroup` but caller (`parallel.go`) is also internal | Wire into `core/block` gigagas parallel path |
+| `core/execution` | `SetSlasher` | `execution/processor.go:84` | 🔴 UNCALLED — method defined; no call-site in `node.go` or anywhere else | `n.stateProcessor.SetSlasher(n.epbsSlashing)` in `node.New()` |
+| `core/eips` | `UserOpHash` | `eips/aa_entrypoint.go:82` | 🔴 UNCALLED — package IS imported for EIP-4788/2935/7702 constants but not for AA | Needed in `txpool/validation` AA stage |
+| `core/eips` | `ValidateUserOp`, `ValidateUserOpState` | `eips/aa_entrypoint.go:128,155` | 🔴 UNCALLED | Call in txpool AA validation path |
+| `core/eips` | `MaxUserOpGasCost`, `EstimateUserOpGas` | `eips/aa_entrypoint.go:185,261` | 🔴 UNCALLED | Call in `txpool/pricing` and `rpc/gas` |
+| `core/eips` | `IncrementSmartNonce`, `PaymasterValidator` | `eips/aa_entrypoint.go:197,247` | 🔴 UNCALLED | Call post-AA-tx-execution in `core/execution` |
+| `core/chain` | `VerifyTimestampWindow` | `chain/header_verification.go:302` | 🔴 UNCALLED — `VerifyAgainstParent` calls it internally but nothing calls it externally | Wire into `engine/payload` block validation |
+| `core/chain` | `CalcGasLimitRange` | `chain/header_verification.go:313` | 🔴 UNCALLED — defined but no external call-site | Wire into `engine/payload` header building |
+| `core/chain` | `TxLookupEntry` | `chain/blockchain.go:28` | 🟡 INTERNAL — used as private map value inside `chain.Blockchain`; not exposed via any public method | Expose via `TxByHash(hash)` RPC method |
+| `core/chain` | `VerifyAgainstParent` | `chain/header_verification.go:67` | 🟢 INTERNAL — called by `VerifyChain()` within the same package; correctly scoped | No action needed |
+| `core/config` | `IsEIP7864FinalHash` | `config/chain_config.go:164` | 🟡 INTERNAL — called only by `BinaryTrieHashFuncAt` in the same file; nothing external calls either | Wire into `trie/migrate` completion check |
+| `core/config` | `BinaryTrieHashFuncAt` | `config/chain_config.go:171` | 🔴 UNCALLED — no external call-site | Wire into `trie/migrate` when selecting hash function |
+| `geth` | `NewGethBlockProcessorWithEth2028` | `geth/processor.go:38` | 🔴 UNCALLED externally — defined in `geth/`, but `core/eftest` and `cmd/eth2030-geth` (only two importers) do not call it | Wire in `core/eftest/geth_runner.go` block execution |
+| `geth` | `Eth2028PrecompileInfo` | `geth/extensions.go:311` | 🟢 COVERED — `ListCustomPrecompiles()` returns `[]Eth2028PrecompileInfo`; called from `cmd/eth2030-geth/precompiles.go:77` | Already wired |
+| `geth` | `ToGethAddress`, `FromGethAddress`, `ToGethHash`, `FromGethHash` | `geth/convert.go` | 🟢 COVERED — called in `core/eftest/geth_runner.go` for EF state test execution | Already wired |
+| `metrics` | `PrometheusExporter` | `metrics/prometheus_exporter.go:56` | 🔴 UNCALLED — `node.go` has an inline `/metrics` handler that does not use this type | Replace inline handler with `NewPrometheusExporter` |
+| `bal` | `AdvancedConflictAnalyzer`, `ConflictCluster`, `ReorderSuggestion`, `ParallelismScore` | `bal/conflict_detector_advanced.go:41,15,22,31` | 🔴 UNCALLED — `bal` IS imported by 7 files for `BlockAccessList`/`BALTracker` but the advanced analyzer is never instantiated | Wire into `core/execution` parallel scheduler |
+| `crypto/bn254` | `FpElement` + 12 methods (`NewFpElement`, `FpZero`, `FpOne`, `Add`, `Sub`, `Mul`, …) | `crypto/bn254/bn254_fp_extended.go:27` | 🔴 UNCALLED — entire file is dead; no importer outside `crypto/bn254/` | Wire into `proofs/` Groth16 circuits or `crypto/shielded` |
+
+### B. Instantiation-Dead: Node fields constructed but no methods called
+
+These objects are assigned to `Node` struct fields in `node.New()` but **no methods are ever called**
+on them anywhere in `node.go` or any other production file.
+
+| Field | Type | Wiring needed |
+|-------|------|---------------|
+| `n.epbsAuction` | `*epbsauction.AuctionEngine` | Call `ProcessBid()` / `SelectWinner()` in engine ePBS payload flow |
+| `n.epbsBid` | `*epbsbid.BidScoreCalculator` | Call `Score()` when ranking builder bids |
+| `n.epbsBuilder` | `*epbsbuilder.BuilderMarket` | Call `RegisterBuilder()` / `GetBuilders()` in builder registration |
+| `n.epbsCommit` | `*epbscommit.CommitmentChain` | Call `Append()` / `Verify()` on payload commit |
+| `n.epbsEscrow` | `*epbsescrow.BidEscrow` | Call `Lock()` / `Release()` when processing bids |
+| `n.epbsMEVBurn` | `*epbsmevburn.MEVBurnTracker` | Call `RecordBlock()` per block to track MEV burn |
+| `n.epbsSlashing` | `*epbsslash.SlashingEngine` | Call `n.stateProcessor.SetSlasher(n.epbsSlashing)` to wire into tx execution |
+| `n.rollupAnchor` | `*rollupanchor.Contract` | Call `Verify()` when processing native rollup EXECUTE precompile |
+| `n.rollupBridge` | `*rollupbridge.Bridge` | Call `Deposit()` / `Withdraw()` on cross-chain messages |
+| `n.rollupProof` | `*rollupproof.MessageProofGenerator` | Call `Generate()` when producing rollup output proofs |
+| `n.rollupRegistry` | `*rollupregistry.Registry` | Call `Register()` / `Lookup()` for rollup chain registration |
+| `n.rollupSeq` | `*rollupseq.Sequencer` | Call `SubmitBatch()` in rollup sequencer path |
+| `n.payloadChunker` | `*enginechunking.PayloadChunker` | Call `ChunkPayload()` in Engine API streaming (note: `core/eips.ChunkPayload` free function is a separate impl) |
+| `n.engineAuction` | `*engineauction.BuilderAuction` | Call `SubmitBid()` / `SelectWinner()` in `engine/server.go` |
+| `n.rpcRegistry` | `*rpcregistry.MethodRegistry` | Call `Register()` / `Lookup()` in RPC server method dispatch |
+| `n.natMgr` | `*p2pnat.NATManager` | Call `ExternalIP()` to advertise correct enode address |
+| `n.p2pDispatch` | `*p2pdispatch.MessageRouter` | Call `Route()` / `AddHandler()` to route P2P messages |
+| `n.nonceAnnouncer` | `*p2pnonce.NonceAnnouncer` | Call `Announce()` per tx on ETH/72 announce-nonce path |
+| `n.reqRespMgr` | `*p2preqresp.ReqRespManager` | Call `Send()` / `Register()` for beacon req/resp protocol |
+| `n.sharedPool` | `*shared.SharedMempool` | Call `Add()` / `Pending()` to route txs across shard sub-pools |
+| `n.stateHealer` | `*synchealer.StateHealer` | Call `HealRange()` / `Commit()` during snap-sync trie healing |
+| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | Call `Schedule()` / `Run()` to drive state sync during snap-sync |
+| `n.portalDB` | `*p2pportal.ContentDB` | Call `Store()` / `Retrieve()` in portal content lookup |
+| `n.portalRouter` | `*p2pportal.DHTRouter` | Call `Lookup()` / `Offer()` to route portal DHT messages |
+| `n.snapHandler` | `*p2psnap.ServerHandler` | Register as handler on P2P server snap protocol |
+| `n.beaconSyncer` | `*syncbeacon.BeaconSyncer` | Call `SyncHead()` / `Start()` in CL-driven sync loop |
+| `n.blobSyncMgr` | `*syncbeacon.BlobSyncManager` | Call `FetchBlob()` / `Start()` in blob availability sync |
+| `n.trieMigrator` | `*migrate.IncrementalMigrator` | Call `Step()` periodically to migrate MPT → binary trie |
+| `n.triePruner` | `*trieprune.StatePruner` | Call `Prune()` after each finalized block |
+| `n.stackTrie` | `*triestack.StackTrieNodeCollector` | Call `Add()` during block processing to collect trie nodes |
+| `n.trieAnnouncer` | `*trieannounce.AnnounceBinaryTrie` | Call `Announce()` to gossip binary trie root updates |
 
 ---
 
