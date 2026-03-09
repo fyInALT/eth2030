@@ -211,6 +211,54 @@ func TestShieldedCircuitVerifyTamperedRangeProof(t *testing.T) {
 	}
 }
 
+func TestShieldedCircuitVerifyRejectsMalformedSubproofDigests(t *testing.T) {
+	ct := NewCommitmentTree()
+	var sk, randomness, recipientPK [32]byte
+	sk[0] = 0x21
+	randomness[0] = 0x22
+	recipientPK[0] = 0x23
+
+	commitment := PedersenCommitBN254(77, randomness)
+	idx, root, _ := ct.Append(commitment)
+	proof, _ := ct.MerkleProof(idx)
+
+	siblings := make([][32]byte, CommitTreeDepth)
+	for i := 0; i < CommitTreeDepth; i++ {
+		siblings[i] = proof.Siblings[i]
+	}
+
+	witness := &ShieldedTransferWitness{
+		SecretKey:       sk,
+		Amount:          77,
+		Randomness:      randomness,
+		CommitmentIndex: idx,
+		MerklePath:      siblings,
+		MerkleRoot:      root,
+		RecipientPK:     recipientPK,
+	}
+
+	circuitProof, err := ProveShieldedTransfer(witness)
+	if err != nil {
+		t.Fatalf("ProveShieldedTransfer: %v", err)
+	}
+
+	circuitProof.NullifierProof = nil
+	circuitProof.CommitmentProof = []byte{0x01}
+	circuitProof.ProofHash = types.Hash(scHash(
+		scDomainProof,
+		circuitProof.Nullifier[:],
+		circuitProof.OutputCommitment[:],
+		circuitProof.MerkleRoot[:],
+		circuitProof.NullifierProof,
+		circuitProof.CommitmentProof,
+		circuitProof.RangeProof,
+	))
+
+	if VerifyShieldedTransfer(circuitProof, circuitProof.Nullifier, circuitProof.OutputCommitment, root) {
+		t.Error("malformed fixed-size proof digests should not verify")
+	}
+}
+
 func TestShieldedCircuitCreateNote(t *testing.T) {
 	var sk, randomness, recipientPK [32]byte
 	sk[0] = 0x77
@@ -379,8 +427,20 @@ func TestValidateShieldedTransfer(t *testing.T) {
 	}
 
 	// Valid witness.
-	witness.MerklePath = [][32]byte{{0x01}}
+	witness.MerklePath = make([][32]byte, CommitTreeDepth)
 	if err := ValidateShieldedTransfer(witness); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProveShieldedTransferRejectsMalformedWitness(t *testing.T) {
+	witness := &ShieldedTransferWitness{
+		SecretKey:  [32]byte{0x01},
+		MerkleRoot: types.Hash{0x01},
+		MerklePath: [][32]byte{{0x01}},
+	}
+
+	if _, err := ProveShieldedTransfer(witness); err != ErrShieldedCircuitMerkle {
+		t.Fatalf("expected ErrShieldedCircuitMerkle, got %v", err)
 	}
 }

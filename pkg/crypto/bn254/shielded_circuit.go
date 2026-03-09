@@ -36,6 +36,9 @@ const (
 	// ShieldedCircuitVersion identifies the shielded proof version.
 	ShieldedCircuitVersion byte = 0x01
 
+	// Nullifier and commitment proofs are serialized as fixed 32-byte digests.
+	shieldedProofDigestLen = 32
+
 	// BN254 field prime (approximate, used for domain checks).
 	bn254PrimeBits = 254
 )
@@ -287,8 +290,8 @@ func verifyMerkleInclusionProof(proofData []byte, commitment types.Hash, root ty
 
 // ProveShieldedTransfer generates a complete shielded transfer proof.
 func ProveShieldedTransfer(witness *ShieldedTransferWitness) (*ShieldedCircuitProof, error) {
-	if witness == nil {
-		return nil, ErrShieldedCircuitNilWitness
+	if err := ValidateShieldedTransfer(witness); err != nil {
+		return nil, err
 	}
 
 	// 1. Compute the output commitment.
@@ -360,6 +363,15 @@ func VerifyShieldedTransfer(proof *ShieldedCircuitProof, nullifier, outputCommit
 	if proof.Version != ShieldedCircuitVersion {
 		return false
 	}
+	if len(proof.NullifierProof) != shieldedProofDigestLen {
+		return false
+	}
+	if len(proof.CommitmentProof) != shieldedProofDigestLen {
+		return false
+	}
+	if proof.ProofHash.IsZero() {
+		return false
+	}
 
 	// Check claimed values match proof.
 	if proof.Nullifier != nullifier {
@@ -411,6 +423,9 @@ func ValidateShieldedTransfer(witness *ShieldedTransferWitness) error {
 		return errors.New("shielded_circuit: zero merkle root")
 	}
 	if len(witness.MerklePath) == 0 {
+		return ErrShieldedCircuitMerkle
+	}
+	if len(witness.MerklePath) != CommitTreeDepth {
 		return ErrShieldedCircuitMerkle
 	}
 	return nil
