@@ -36,9 +36,9 @@ import (
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/eth"
 	"github.com/eth2030/eth2030/light"
+	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/p2p/dnsdisc"
-	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
@@ -54,6 +54,8 @@ import (
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
 	"github.com/eth2030/eth2030/txpool/tracking"
+
+	execpkg "github.com/eth2030/eth2030/core/execution"
 
 	epbsauction "github.com/eth2030/eth2030/epbs/auction"
 	epbsbid "github.com/eth2030/eth2030/epbs/bid"
@@ -225,6 +227,9 @@ type Node struct {
 
 	// MPT → BinaryTrie incremental migrator (EIP-7864 trie migration).
 	trieMigrator *migrate.IncrementalMigrator
+
+	// State processor with paymaster slasher wiring (AA-1.3).
+	stateProcessor *execpkg.StateProcessor
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -554,6 +559,10 @@ func New(config *Config) (*Node, error) {
 	n.epbsEscrow = epbsescrow.NewBidEscrow(1024)
 	n.epbsMEVBurn = epbsmevburn.NewMEVBurnTracker(epbsmevburn.DefaultMEVBurnConfig())
 	n.epbsSlashing = epbsslash.NewSlashingEngine(epbsslash.DefaultPenaltyMultipliers(), 100)
+
+	// Wire state processor with paymaster slasher (AA-1.3 ePBS slashing integration).
+	n.stateProcessor = execpkg.NewStateProcessor(chainConfig)
+	n.stateProcessor.SetSlasher(&slashingEngineAdapter{eng: n.epbsSlashing})
 
 	// Initialize engine payload chunker (128 KB segments for streaming to CL).
 	n.payloadChunker = enginechunking.NewPayloadChunker(128 * 1024)

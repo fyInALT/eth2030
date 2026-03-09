@@ -225,6 +225,9 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.BoolVar(&cfg.ExperimentalLocalTx, "experimental-local-tx", cfg.ExperimentalLocalTx, "enable type-0x08 local tx (proof-of-concept; enforces ScopeHint BAL check, BB-2.2)")
 	fs.BoolVar(&cfg.AllowAATx, "txpool.allow-aa", cfg.AllowAATx, "accept EIP-7701 AA transactions (type 0x05) in the txpool; default true on Glamsterdam+ networks")
 
+	// --- Trie Migration ---
+	fs.IntVar(&cfg.MigrateEveryBlocks, "trie.migrate-every", cfg.MigrateEveryBlocks, "advance MPT→BinaryTrie migration one batch every N blocks (0 = disabled, I+ only)")
+
 	return fs
 }
 

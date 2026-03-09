@@ -153,6 +153,10 @@ type Config struct {
 	// pre-Glamsterdam networks or chains that do not support native AA.
 	AllowAATx bool // --txpool.allow-aa
 
+	// MigrateEveryBlocks controls how often the incremental MPT→BinaryTrie migrator
+	// advances (one batch per N blocks). 0 disables periodic migration.
+	MigrateEveryBlocks int // --trie.migrate-every
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -240,6 +244,9 @@ func DefaultConfig() Config {
 
 		// EIP-7701: AA transactions are accepted by default on Glamsterdam+ networks.
 		AllowAATx: true,
+
+		// Incremental MPT→BinaryTrie migration: advance one batch every 16 blocks.
+		MigrateEveryBlocks: 16,
 	}
 }
 
