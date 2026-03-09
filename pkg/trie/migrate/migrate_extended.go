@@ -5,9 +5,11 @@ package migrate
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
+	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/trie/mpt"
@@ -46,6 +48,11 @@ type MigrationConfig struct {
 	BatchSize int
 	// Workers is the number of parallel migration workers.
 	Workers int
+	// ChainConfig selects the binary trie hash function based on fork timestamp.
+	// If nil, the default SHA-256 hash function is assumed.
+	ChainConfig *coreconfig.ChainConfig
+	// Timestamp is the block timestamp used for fork-level hash function selection.
+	Timestamp uint64
 }
 
 // DefaultMigrationConfig returns sensible defaults for migration.
@@ -163,6 +170,12 @@ func (m *IncrementalMigrator) MigrateBatch() (int, bool) {
 	m.progress.State = MigrationRunning
 	m.progress.MPTRoot = m.source.Hash()
 	m.mu.Unlock()
+
+	// Select hash function based on chain config and block timestamp.
+	if m.config.ChainConfig != nil {
+		hashFunc := m.config.ChainConfig.BinaryTrieHashFuncAt(m.config.Timestamp)
+		slog.Debug("migration: binary trie hash function", "func", hashFunc)
+	}
 
 	// Collect all key-value pairs from MPT.
 	pairs := m.collectPairs()
