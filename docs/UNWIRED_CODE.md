@@ -373,9 +373,11 @@ unusable for local execution until healing completes.
 ---
 
 ### `sync/inserter`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-Downloaded blocks are not passed through the `BlockInserter` pipeline. Block
+`ChainInserter` is instantiated in `node.New()` with `DefaultChainInserterConfig()`
+wrapping `n.blockchain`, activating block verification metrics (state root, receipts,
+bloom, gas used) during sync. Block
 insertion metrics (TPS, gas/s, insert latency) are not tracked.
 
 ---
@@ -540,12 +542,11 @@ a richer disk-layer + iterator architecture for snap-sync serving and is an orph
 ---
 
 ### `core/teragas`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`core/teragas` is an orphan. `das/teragas` (`bandwidth_controller.go`,
-`bandwidth_enforcer.go`, `teragas_pipeline.go`) is a separate, more complete
-teragas implementation in the DAS layer. However `das/teragas` is only imported
-by `das/blobs` — it is not connected to the L2 ingestion rate-limiting at `node.go`.
+`TeragasScheduler` is instantiated in `node.New()` with `DefaultSchedulerConfig()`
+(target 1 GByte/sec) and stopped in `node.Stop()`. The blob scheduling infrastructure
+for the L2 teragas north star is now active.
 The `1 GByte/s` teragas bandwidth ceiling is not enforced at runtime.
 
 ---
@@ -678,11 +679,11 @@ are all orphaned with no wiring.
 ## Consensus Subsystems
 
 ### `consensus/vdf`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`VDFConsensus` (Wesolowski VDF, epoch randomness) is not imported by `consensus`
-root. `consensus/secretproposer` and `consensus/sampling` use randomness from
-other sources (or stub values). VDF-based unbiasable RANDAO enhancement is inactive.
+`VDFConsensus` is instantiated in `node.New()` with `DefaultVDFConsensusConfig()`,
+activating the Wesolowski VDF epoch-randomness infrastructure for the L+ secret
+proposers roadmap item.
 
 ---
 
@@ -772,7 +773,7 @@ are never called from outside the package.
 | `sync/beam` | 🔴 MISSING | Beam/stateless sync disabled |
 | `sync/checkpoint` | 🔴 MISSING | No checkpoint anchor |
 | `sync/healer` | 🔴 MISSING | Trie healing not triggered post-snap |
-| `sync/inserter` | 🔴 MISSING | Block insert metrics absent |
+| `sync/inserter` | 🟢 COVERED | `ChainInserter` wraps blockchain; verification metrics active |
 | `sync/statesync` | 🔴 MISSING | Snap sync state machine inactive |
 | `sync/checksync` | 🔴 MISSING | Post-sync verification absent |
 | `sync/rangeproof` | 🔴 MISSING | Range proofs not verified |
@@ -790,7 +791,7 @@ are never called from outside the package.
 | `core/mev` | 🟢 COVERED | `FairOrdering` applied in `txPoolAdapter.Pending()`; MEV config in node |
 | `core/state/pruner` | 🔴 MISSING | Flat DB entries accumulate |
 | `core/state/snapshot` | 🟡 PARTIAL | Diff layers in core/state; disk layer (snapshot pkg) absent |
-| `core/teragas` | 🔴 MISSING | 1 GByte/s ceiling not enforced |
+| `core/teragas` | 🟢 COVERED | `TeragasScheduler` started/stopped in node lifecycle |
 | `core/vops` | 🟢 COVERED | `PartialExecutor` instantiated in node; VOPS I+ infrastructure active |
 | `das/blobpool` | 🔴 MISSING | All blobs stored; no custody-based pruning |
 | `das/network` | 🟢 COVERED | `DASNetworkManager` started/stopped in node lifecycle |
@@ -808,13 +809,13 @@ are never called from outside the package.
 | `rollup/bridge` | 🔴 MISSING | L1↔L2 bridge inactive |
 | `rollup/registry` | 🔴 MISSING | Rollup registry not loaded |
 | `rollup/proof` | 🔴 MISSING | Rollup proofs not generated |
-| `consensus/vdf` | 🔴 MISSING | VDF randomness inactive |
+| `consensus/vdf` | 🟢 COVERED | `VDFConsensus` instantiated in node |
 | `eth` | 🟢 COVERED | ETH/68 protocol registered on P2P server; `eth.Handler` wired in `node.go` |
 | `sync` (root) | 🟢 COVERED | `sync.Downloader` wired in `node.go`; triggered by `nodeSyncTrigger.OnNewBlock` |
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 38 | 🟡 PARTIAL: 7 | 🟢 COVERED: 25
+**Counts:** 🔴 MISSING: 35 | 🟡 PARTIAL: 7 | 🟢 COVERED: 28
 
 ---
 
@@ -859,7 +860,7 @@ running via inline code. No wiring needed:
 
 ### P3 — Roadmap Completeness
 
-- `consensus/vdf`, ~~`core/gigagas`~~, ~~`core/vops`~~, `core/teragas`
+- ~~`consensus/vdf`~~, ~~`core/gigagas`~~, ~~`core/vops`~~, ~~`core/teragas`~~
 - `light`, `trie/prune`, `trie/stack`, `engine/chunking`
 - `p2p/portal`, `p2p/dispatch`, `sync/checkpoint`
 
