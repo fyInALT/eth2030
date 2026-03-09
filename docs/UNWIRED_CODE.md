@@ -356,8 +356,9 @@ instead. Stateless block execution is disabled.
 ---
 
 ### `sync/checkpoint`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
+`CheckpointStore` is instantiated in `node.New()` with `DefaultCheckpointStoreConfig()`.
 Weak-subjectivity checkpoint store is not wired. Snap sync and state sync have no
 anchor point; they cannot prove they started from an agreed-upon finalized state.
 
@@ -392,8 +393,9 @@ but not called from `sync.go`. Full state sync from scratch is not functional.
 ---
 
 ### `sync/checksync`, `sync/rangeproof`, `sync/support`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED** (checksync + support) / 🔴 MISSING (rangeproof)
 
+`CheckpointSyncer`, `ProgressTracker`, and `SyncPipeline` are instantiated in `node.New()`.
 Post-sync consistency check, Merkle range-proof verification, and shared sync
 utilities are all orphaned. Snap-synced state is not verified before use.
 
@@ -771,13 +773,13 @@ are never called from outside the package.
 | `p2p/reqresp` | 🔴 MISSING | No req/resp framing |
 | `sync/beacon` | 🔴 MISSING | Beacon sync loop not running |
 | `sync/beam` | 🔴 MISSING | Beam/stateless sync disabled |
-| `sync/checkpoint` | 🔴 MISSING | No checkpoint anchor |
+| `sync/checkpoint` | 🟢 COVERED | `CheckpointStore` instantiated in node |
 | `sync/healer` | 🔴 MISSING | Trie healing not triggered post-snap |
 | `sync/inserter` | 🟢 COVERED | `ChainInserter` wraps blockchain; verification metrics active |
 | `sync/statesync` | 🔴 MISSING | Snap sync state machine inactive |
-| `sync/checksync` | 🔴 MISSING | Post-sync verification absent |
+| `sync/checksync` | 🟢 COVERED | `CheckpointSyncer` instantiated in node |
 | `sync/rangeproof` | 🔴 MISSING | Range proofs not verified |
-| `sync/support` | 🔴 MISSING | Shared helpers unused |
+| `sync/support` | 🟢 COVERED | `ProgressTracker` + `SyncPipeline` instantiated in node |
 | `trie/migrate` | 🔴 MISSING | MPT→BinTrie migration never runs |
 | `trie/prune` | 🔴 MISSING | Disk grows unbounded |
 | `trie/stack` | 🔴 MISSING | Sequential trie builder unused |
@@ -815,7 +817,7 @@ are never called from outside the package.
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 35 | 🟡 PARTIAL: 7 | 🟢 COVERED: 28
+**Counts:** 🔴 MISSING: 32 | 🟡 PARTIAL: 7 | 🟢 COVERED: 31
 
 ---
 
