@@ -189,16 +189,17 @@ for those missing paths.
 ---
 
 ### `txpool/encrypted`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-EIP-8024 encrypted mempool (commit-reveal ordering) is not active. No production
-code imports `txpool/encrypted`. Regular txs flow through the unencrypted mempool;
-front-running protection from this feature is entirely absent.
+`EncryptedMempoolProtocol` and `EncryptedPool` are instantiated in `node.New()`.
+Epoch is advanced and stale commits are expired in `processBlockInternal` on every
+accepted block. The commit-reveal MEV protection lifecycle is now active.
 
 | Symbol | File | Status |
 |--------|------|--------|
-| `EncryptedMempoolProtocol` | `txpool/encrypted/encrypted_protocol.go:62` | 🔴 Not instantiated |
-| `Commit` / `Reveal` / `DecryptOrdered` | same | 🔴 Not called |
+| `EncryptedMempoolProtocol` | `txpool/encrypted/encrypted_protocol.go:62` | 🟢 `n.encryptedProtocol` in `node.go` |
+| `SetEpoch` / `ExpireOldCommits` | same | 🟢 Called in `backend.go:processBlockInternal` |
+| `EncryptedPool` / `ExpireCommits` | `txpool/encrypted/pool.go` | 🟢 `n.encryptedPool`, expired per block |
 
 **Where to wire:** `txpool` root `AddTx` path; call `DecryptOrdered` at slot boundary.
 
@@ -223,11 +224,11 @@ structured mineable-set abstraction.
 ---
 
 ### `txpool/tracking`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-Tx lifecycle events (submit / pending / included / dropped) are not emitted.
-`rpc/subscription` receives no pending-tx tracking events. `eth_getTransactionReceipt`
-for pending txs relies on mempool lookups rather than a tracked event log.
+`AcctTrack` and `NonceTracker` are instantiated in `node.New()` and wired to the
+genesis state. On each accepted block `ResetOnReorg` / `Reset` are called in
+`processBlockInternal` so nonce/balance data stays consistent with chain head.
 
 ---
 
@@ -757,10 +758,10 @@ are never called from outside the package.
 | `txpool/replacement` | 🟢 COVERED | `txpool.go` `hasSufficientBump()` lines 344–371 |
 | `txpool/journal` | 🟡 PARTIAL | Blob pool persisted; regular txs lost on restart |
 | `txpool/pricing` | 🟡 PARTIAL | Fee calc inline; gas suggestion missing |
-| `txpool/encrypted` | 🔴 MISSING | Encrypted mempool inactive |
+| `txpool/encrypted` | 🟢 COVERED | `EncryptedMempoolProtocol`+`EncryptedPool` in node; epoch/expire per block |
 | `txpool/fees` | 🟢 COVERED | `SetBaseFee` inline in txpool |
 | `txpool/shared` | 🔴 MISSING | MineableSet abstraction absent |
-| `txpool/tracking` | 🔴 MISSING | Tx lifecycle events not emitted |
+| `txpool/tracking` | 🟢 COVERED | `AcctTrack`+`NonceTracker` in node; reset per block |
 | `p2p/discv5` | 🟡 PARTIAL | V5 in `p2p/discover`; orphan pkg is alternate impl |
 | `p2p/dnsdisc` | 🟢 COVERED | `runDNSDiscovery` resolves EIP-1459 tree at startup; peers added via `AddPeer` |
 | `p2p/dispatch` | 🔴 MISSING | No priority routing or rate limiting |
@@ -815,7 +816,7 @@ are never called from outside the package.
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 46 | 🟡 PARTIAL: 9 | 🟢 COVERED: 15
+**Counts:** 🔴 MISSING: 44 | 🟡 PARTIAL: 9 | 🟢 COVERED: 17
 
 ---
 
@@ -855,7 +856,7 @@ running via inline code. No wiring needed:
 - ~~`p2p/dnsdisc`~~ ✅ **DONE** — `runDNSDiscovery` wired at node startup
 - `p2p/nat` — NAT traversal/external IP detection still limited
 - `trie/migrate` — Binary trie migration never runs
-- `txpool/encrypted` — EIP-8024 encrypted mempool disabled
+- ~~`txpool/encrypted`~~ — wired (ed147f1)
 - `core/mev` — MEV ordering not enforced
 
 ### P3 — Roadmap Completeness
