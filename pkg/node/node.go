@@ -388,6 +388,8 @@ func New(config *Config) (*Node, error) {
 	poolCfg := txpool.DefaultConfig()
 	// BB-2.2: propagate experimental LocalTx flag into pool config.
 	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
+	// EIP-7701: propagate AA tx acceptance flag into pool config (--txpool.allow-aa).
+	poolCfg.AllowAATx = config.AllowAATx
 	n.txPool = txpool.New(poolCfg, bc.State())
 
 	// Initialize EP-3 STARK mempool gossip subsystem.

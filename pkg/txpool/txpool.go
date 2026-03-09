@@ -80,6 +80,9 @@ type Config struct {
 	// AllowLocalTx enables acceptance of type-0x08 LocalTx (BB-2.2, --experimental-local-tx).
 	// When false (default), LocalTx are rejected at pool entry.
 	AllowLocalTx bool
+	// AllowAATx enables acceptance of EIP-7701 type-0x05 AA transactions (--txpool.allow-aa).
+	// Defaults to true; set false to disable AA tx acceptance on networks without Glamsterdam.
+	AllowAATx bool
 }
 
 // DefaultConfig returns sensible defaults for the pool.
@@ -90,6 +93,7 @@ func DefaultConfig() Config {
 		MinGasPrice:     big.NewInt(1), // 1 wei minimum
 		BlockGasLimit:   30_000_000,
 		PaymasterStrict: true,
+		AllowAATx:       true, // EIP-7701 AA is enabled by default (Glamsterdam+)
 	}
 }
 
@@ -490,8 +494,11 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		}
 	}
 
-	// EIP-7701: AA transaction — validate UserOperation fields statically.
+	// EIP-7701: AA transaction — reject if AA is not enabled on this network.
 	if tx.Type() == types.AATxType {
+		if !pool.config.AllowAATx {
+			return errors.New("AA transactions not enabled; set --txpool.allow-aa")
+		}
 		if aatx, ok := tx.Inner().(*types.AATx); ok {
 			uo := &eips.UserOperation{
 				Sender:               aatx.Sender,

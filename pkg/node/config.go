@@ -148,6 +148,11 @@ type Config struct {
 	// When true, the txpool accepts type-0x08 txs and enforces ScopeHint access restrictions.
 	ExperimentalLocalTx bool // --experimental-local-tx
 
+	// AllowAATx controls whether the txpool accepts EIP-7701 AA transactions (type 0x05).
+	// Defaults to true (enabled on Glamsterdam+ networks). Set false to disable on
+	// pre-Glamsterdam networks or chains that do not support native AA.
+	AllowAATx bool // --txpool.allow-aa
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -232,6 +237,9 @@ func DefaultConfig() Config {
 
 		// BB-1.1: default to simulated mixnet (no external daemon required).
 		MixnetMode: "simulated",
+
+		// EIP-7701: AA transactions are accepted by default on Glamsterdam+ networks.
+		AllowAATx: true,
 	}
 }
 
