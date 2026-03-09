@@ -79,6 +79,7 @@ import (
 	triestack "github.com/eth2030/eth2030/trie/stack"
 
 	enginechunking "github.com/eth2030/eth2030/engine/chunking"
+	"github.com/eth2030/eth2030/engine/forkchoice"
 	"github.com/eth2030/eth2030/p2p/discover"
 	p2pdispatch "github.com/eth2030/eth2030/p2p/dispatch"
 	p2pnat "github.com/eth2030/eth2030/p2p/nat"
@@ -233,6 +234,10 @@ type Node struct {
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
+
+	// Forkchoice state manager: reorg detection, proposer boost, checkpoint tracking.
+	fcStateManager *forkchoice.ForkchoiceStateManager
+	fcTracker      *forkchoice.ForkchoiceTracker
 
 	// EP-3: STARK mempool P2P subsystem.
 	topicMgr         *p2p.TopicManager
@@ -661,6 +666,42 @@ func New(config *Config) (*Node, error) {
 		slog.Warn("rollup registry: register L1 chain", "err", rrErr)
 	}
 	n.rollupSeq = rollupseq.NewSequencer(rollupseq.DefaultConfig())
+
+	// Initialize forkchoice state manager (reorg detection + proposer boost).
+	// Seed with genesis so initial head is the genesis block.
+	genesisInfo := &forkchoice.BlockInfo{
+		Hash:       genesis.Hash(),
+		ParentHash: genesis.Header().ParentHash,
+		Number:     genesis.NumberU64(),
+		Slot:       genesis.NumberU64(),
+	}
+	n.fcStateManager = forkchoice.NewForkchoiceStateManager(genesisInfo)
+	n.fcTracker = forkchoice.NewForkchoiceTracker(256, 128)
+
+	// Register reorg listeners: log the event, reset txpool trackers, and
+	// clear the ePBS escrow for the orphaned slot.
+	n.fcStateManager.OnReorg(func(ev forkchoice.ReorgEvent) {
+		slog.Warn("chain reorg detected",
+			"slot", ev.Slot,
+			"oldHead", ev.OldHead,
+			"newHead", ev.NewHead,
+			"depth", ev.Depth,
+			"oldNum", ev.OldHeadNumber,
+			"newNum", ev.NewHeadNumber,
+		)
+	})
+	n.fcStateManager.OnReorg(func(ev forkchoice.ReorgEvent) {
+		// Reset tx pool state views so pending/queued reflect the new chain tip.
+		if n.txPool != nil && n.blockchain != nil {
+			n.txPool.Reset(n.blockchain.State())
+		}
+	})
+	n.fcStateManager.OnReorg(func(ev forkchoice.ReorgEvent) {
+		// Prune ePBS escrow entries for the reorged-out slot.
+		if n.epbsEscrow != nil && ev.OldHeadNumber > 0 {
+			n.epbsEscrow.PruneBefore(ev.OldHeadNumber)
+		}
+	})
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)

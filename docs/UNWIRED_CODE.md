@@ -797,7 +797,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 
 | Package | Verdict | Reason |
 |---------|---------|--------|
-| `engine/forkchoice` | 🟡 PARTIAL | Head/safe/finalized inline; reorg callbacks missing |
+| `engine/forkchoice` | 🟢 COVERED | `ForkchoiceStateManager` wired: `AddBlock` on every accepted block, `ProcessForkchoiceUpdate` on FCU fires 3 reorg listeners (log/txpool-reset/ePBS-escrow-prune); `ForkchoiceTracker.ProcessUpdate` records FCU history and conflict detection |
 | `engine/blobval` | 🟢 COVERED | `GetPayloadV3` validates KZG commitments via `blobval.BlobValidator` |
 | `engine/vhash` | 🟢 COVERED | `VerifyAllBlobVersionBytes` called in `ProcessBlock` |
 | `engine/chunking` | 🟢 COVERED | `PayloadChunker` instantiated in node (128 KB) |
@@ -865,7 +865,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `light` | 🟢 COVERED | `LightClient` started/stopped in node lifecycle |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 0 | 🟡 PARTIAL: 5 | 🟢 COVERED: 62
+**Counts:** 🔴 MISSING: 0 | 🟡 PARTIAL: 4 | 🟢 COVERED: 63
 
 ---
 
@@ -968,6 +968,7 @@ running via inline code. No wiring needed:
 - ~~`p2p/dispatch`~~ ✅ **DONE** — `MessageRouter` instantiated
 - ~~`sync/healer`~~ ✅ **DONE** — `StateHealer` instantiated with stub writer
 - ~~`sync/statesync`~~ ✅ **DONE** — `StateSyncScheduler` instantiated with stub writer
+- ~~`engine/forkchoice`~~ ✅ **DONE** — `ForkchoiceStateManager` wired: `AddBlock` on every accepted block, `ProcessForkchoiceUpdate` on FCU fires 3 reorg listeners; `ForkchoiceTracker.ProcessUpdate` records FCU history
 
 ---
 

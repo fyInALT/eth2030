@@ -16,6 +16,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/engine"
+	"github.com/eth2030/eth2030/engine/forkchoice"
 	"github.com/eth2030/eth2030/engine/vhash"
 	epbsbid "github.com/eth2030/eth2030/epbs/bid"
 	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
@@ -747,6 +748,18 @@ func (b *engineBackend) processBlockInternal(
 		}
 	}
 
+	// Register accepted block in forkchoice state manager for reorg detection.
+	if b.node.fcStateManager != nil {
+		bi := &forkchoice.BlockInfo{
+			Hash:       payload.BlockHash,
+			ParentHash: payload.ParentHash,
+			Number:     payload.BlockNumber,
+			Slot:       payload.BlockNumber,
+		}
+		b.node.fcStateManager.AddBlock(bi)
+		b.node.fcTracker.Reorgs.AddBlock(bi)
+	}
+
 	// Announce this block's sequence number to peers (EIP-8077 announce-nonce, ETH/72).
 	if b.node.nonceAnnouncer != nil {
 		if err := b.node.nonceAnnouncer.AnnounceNonce("local", payload.BlockHash, payload.BlockNumber); err != nil {
@@ -808,6 +821,38 @@ func (b *engineBackend) ForkchoiceUpdated(
 		"headBlockHash", headHash,
 		"number", headBlock.NumberU64(),
 	)
+
+	// Run forkchoice state manager: detects reorgs and fires registered listeners.
+	if b.node.fcStateManager != nil {
+		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(fcState); err != nil {
+			slog.Debug("fcStateManager update", "err", err)
+		}
+	}
+
+	// Update the high-level tracker: conflict detection, FCU history, reorg analytics.
+	if b.node.fcTracker != nil {
+		safeNum := uint64(0)
+		finalNum := uint64(0)
+		if safeBlock := bc.GetBlock(fcState.SafeBlockHash); safeBlock != nil {
+			safeNum = safeBlock.NumberU64()
+		}
+		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
+			finalNum = finalBlock.NumberU64()
+		}
+		conflict, reason, reorg := b.node.fcTracker.ProcessUpdate(
+			fcState, payloadAttributes != nil, headBlock.NumberU64(), safeNum, finalNum,
+		)
+		if conflict {
+			slog.Warn("forkchoice conflict detected", "reason", reason)
+		}
+		if reorg != nil {
+			slog.Warn("forkchoice tracker: reorg",
+				"depth", reorg.Depth,
+				"oldHead", reorg.OldHead,
+				"newHead", reorg.NewHead,
+			)
+		}
+	}
 
 	// ePBS auction lifecycle: open a new auction slot and prune stale bids/escrow.
 	// Only active after Amsterdam fork (EIP-7732 ePBS).
