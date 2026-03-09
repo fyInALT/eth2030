@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
@@ -160,7 +161,16 @@ func (b *nodeBackend) GetProof(addr types.Address, storageKeys []types.Hash, blo
 }
 
 func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
-	return b.node.txPool.AddLocal(tx)
+	if err := b.node.txPool.AddLocal(tx); err != nil {
+		return err
+	}
+	// Persist to journal for crash recovery.
+	if b.node.txJournal != nil {
+		if jerr := b.node.txJournal.Insert(tx, true); jerr != nil {
+			slog.Debug("tx journal insert failed", "hash", tx.Hash(), "err", jerr)
+		}
+	}
+	return nil
 }
 
 func (b *nodeBackend) GetTransaction(hash types.Hash) (*types.Transaction, uint64, uint64) {
@@ -392,7 +402,24 @@ type txPoolAdapter struct {
 }
 
 func (a *txPoolAdapter) Pending() []*types.Transaction {
-	return a.node.txPool.PendingFlat()
+	txs := a.node.txPool.PendingFlat()
+
+	// Apply fair ordering for MEV protection when enabled.
+	if a.node.mevConfig != nil && a.node.mevConfig.EnableFairOrdering && len(txs) > 0 {
+		entries := make([]mev.FairOrderingEntry, len(txs))
+		for i, tx := range txs {
+			entries[i] = mev.FairOrderingEntry{
+				Transaction: tx,
+				ArrivalTime: uint64(i), // use insertion order as proxy for arrival time
+			}
+		}
+		ordered, _ := mev.FairOrdering(entries, a.node.mevConfig.FairOrderMaxDelay)
+		txs = make([]*types.Transaction, len(ordered))
+		for i, e := range ordered {
+			txs[i] = e.Transaction
+		}
+	}
+	return txs
 }
 
 // pendingPayload stores a built payload for later retrieval by getPayload.

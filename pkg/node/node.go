@@ -33,8 +33,10 @@ import (
 	"github.com/eth2030/eth2030/rpc"
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
 	ethsync "github.com/eth2030/eth2030/sync"
+	mevpkg "github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
+	txjournal "github.com/eth2030/eth2030/txpool/journal"
 	"github.com/eth2030/eth2030/txpool/tracking"
 )
 
@@ -69,6 +71,12 @@ type Node struct {
 	// Txpool lifecycle tracking: per-account nonce/balance and nonce-gap detection.
 	acctTracker  *tracking.AcctTrack
 	nonceTracker *tracking.NonceTracker
+
+	// MEV protection: sandwich/frontrun detection + fair ordering (Hegotá).
+	mevConfig *mevpkg.MEVProtectionConfig
+
+	// Tx journal for crash-recovery of pending transactions.
+	txJournal *txjournal.TxJournal
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -173,6 +181,24 @@ func New(config *Config) (*Node, error) {
 	// Initialize per-account nonce/balance trackers for the tx pool.
 	n.acctTracker = tracking.NewAcctTrack(statedb)
 	n.nonceTracker = tracking.NewNonceTracker(tracking.DefaultNonceTrackerConfig(), statedb)
+
+	// Initialize MEV protection (sandwich/frontrun detection + fair ordering).
+	n.mevConfig = mevpkg.DefaultMEVProtectionConfig()
+
+	// Initialize tx journal for pending tx persistence across restarts.
+	journalPath := config.ResolvePath("transactions.rlp")
+	if j, jerr := txjournal.NewTxJournal(journalPath); jerr != nil {
+		slog.Warn("tx journal init failed", "path", journalPath, "err", jerr)
+	} else {
+		n.txJournal = j
+		// Replay previously journaled txs into the pool (crash recovery).
+		if journaledTxs, _, loadErr := txjournal.Load(journalPath); loadErr == nil {
+			for _, tx := range journaledTxs {
+				_ = n.txPool.AddLocal(tx) // best-effort replay; ignore errors
+			}
+			slog.Info("tx journal replayed", "count", len(journaledTxs))
+		}
+	}
 
 	// Initialize transaction pool.
 	poolCfg := txpool.DefaultConfig()
