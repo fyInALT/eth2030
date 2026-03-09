@@ -606,13 +606,13 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
-	// Track prunable state roots for binary trie / MPT state pruning.
-	if b.node.triePruner != nil {
+	// Track prunable state roots for binary trie / MPT state pruning (I+ EIP-7864).
+	if b.node.triePruner != nil && bc.Config().IsIPlus(payload.Timestamp) {
 		b.node.triePruner.AddRoot(payload.BlockNumber, payload.StateRoot)
 	}
 
-	// Record MEV burn for ePBS bid tracking.
-	if b.node.epbsMEVBurn != nil {
+	// Record MEV burn for ePBS bid tracking (Amsterdam EIP-7732).
+	if b.node.epbsMEVBurn != nil && bc.Config().IsAmsterdam(payload.Timestamp) {
 		epoch := payload.BlockNumber / 32
 		b.node.epbsMEVBurn.RecordBurn(epoch, epbsmevburn.MEVBurnResult{})
 	}
@@ -705,18 +705,21 @@ func (b *engineBackend) ForkchoiceUpdated(
 	)
 
 	// ePBS auction lifecycle: open a new auction slot and prune stale bids/escrow.
+	// Only active after Amsterdam fork (EIP-7732 ePBS).
 	headNum := headBlock.NumberU64()
-	if b.node.epbsAuction != nil {
-		if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
-			slog.Debug("epbs: open auction", "slot", headNum, "err", err)
+	if bc.Config().IsAmsterdam(headBlock.Time()) {
+		if b.node.epbsAuction != nil {
+			if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
+				slog.Debug("epbs: open auction", "slot", headNum, "err", err)
+			}
 		}
-	}
-	if headNum > 32 {
-		if b.node.epbsBuilder != nil {
-			b.node.epbsBuilder.PruneBefore(headNum - 32)
-		}
-		if b.node.epbsEscrow != nil {
-			b.node.epbsEscrow.PruneBefore(headNum - 32)
+		if headNum > 32 {
+			if b.node.epbsBuilder != nil {
+				b.node.epbsBuilder.PruneBefore(headNum - 32)
+			}
+			if b.node.epbsEscrow != nil {
+				b.node.epbsEscrow.PruneBefore(headNum - 32)
+			}
 		}
 	}
 

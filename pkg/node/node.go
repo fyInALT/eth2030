@@ -557,7 +557,10 @@ func New(config *Config) (*Node, error) {
 	n.payloadChunker = enginechunking.NewPayloadChunker(128 * 1024)
 
 	// Initialize MPT→BinaryTrie incremental migrator (EIP-7864).
-	n.trieMigrator = migrate.NewIncrementalMigrator(mpt.New(), migrate.DefaultMigrationConfig())
+	// Pass ChainConfig so BinaryTrieHashFuncAt selects sha256/blake3 per fork.
+	migCfg := migrate.DefaultMigrationConfig()
+	migCfg.ChainConfig = chainConfig
+	n.trieMigrator = migrate.NewIncrementalMigrator(mpt.New(), migCfg)
 
 	// Initialize Portal network: content DB + DHT router (history/state content).
 	var portalNodeID p2pportal.NodeID // zero node ID until real discovery is wired
@@ -725,7 +728,7 @@ func (n *Node) Start() error {
 	if n.config.Metrics {
 		mux := http.NewServeMux()
 		mux.Handle("/debug/vars", expvar.Handler())
-		pe := metrics.NewPrometheusExporter(metrics.DefaultRegistry, metrics.PrometheusConfig{})
+		pe := metrics.NewPrometheusExporter(metrics.DefaultRegistry, metrics.DefaultPrometheusConfig())
 		mux.Handle("/metrics", pe.Handler())
 		n.metricsServer = &http.Server{
 			Addr:    n.config.MetricsListenAddr(),
