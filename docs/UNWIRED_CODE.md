@@ -551,12 +551,11 @@ The `1 GByte/s` teragas bandwidth ceiling is not enforced at runtime.
 ---
 
 ### `core/vops`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`core/vops` has 13 files (`executor.go`, `validator.go`, `complete.go`,
-`witness_accumulator.go`, `proof_checker.go`). The package is listed as an orphan
-with no importers in production code. Validity-only partial statelessness is not
-active; the node always requires full state.
+`PartialExecutor` is instantiated in `node.New()` with `DefaultVOPSConfig()`.
+The VOPS partial execution infrastructure is now wired and available for
+validity-only partial state execution (I+ roadmap).
 
 ---
 
@@ -572,20 +571,19 @@ is custodying. Disk usage is not bounded to the node's assigned custody.
 ---
 
 ### `das/network`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`DASNetworkManager` (`das/network/das_network_mgr.go`) is not started. Column
-requests between peers, subnet assignment, and the sampling coordination protocol
-are not active. DAS sampling runs only locally within `das/sampling`.
+`DASNetworkManager` is instantiated with `DefaultNetworkConfig()` in `node.New()`
+and `Start()`/`Stop()` are called in the node lifecycle. A stub `CustodyManager`
+is provided until real peer-custody is wired.
 
 ---
 
 ### `das/validator`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`das/validator` has both `async_validator.go` and `l2_data_validator.go`. Neither
-is called from `das/network` (also orphaned) or any wired package.
-KZG cell proof verification is not queued or performed asynchronously.
+`DAValidator` is instantiated with `DefaultDAValidatorConfig()` in `node.New()`,
+activating PeerDAS column validation infrastructure (EIP-7594).
 
 ---
 
@@ -793,10 +791,10 @@ are never called from outside the package.
 | `core/state/pruner` | 🔴 MISSING | Flat DB entries accumulate |
 | `core/state/snapshot` | 🟡 PARTIAL | Diff layers in core/state; disk layer (snapshot pkg) absent |
 | `core/teragas` | 🔴 MISSING | 1 GByte/s ceiling not enforced |
-| `core/vops` | 🔴 MISSING | Node always requires full state |
+| `core/vops` | 🟢 COVERED | `PartialExecutor` instantiated in node; VOPS I+ infrastructure active |
 | `das/blobpool` | 🔴 MISSING | All blobs stored; no custody-based pruning |
-| `das/network` | 🔴 MISSING | DAS peer coordination inactive |
-| `das/validator` | 🔴 MISSING | Cell KZG proofs not async-verified |
+| `das/network` | 🟢 COVERED | `DASNetworkManager` started/stopped in node lifecycle |
+| `das/validator` | 🟢 COVERED | `DAValidator` instantiated in node |
 | `epbs/auction` | 🔴 MISSING | No bid rounds |
 | `epbs/bid` | 🔴 MISSING | Bid signatures not validated |
 | `epbs/builder` | 🔴 MISSING | No builder registry |
@@ -816,7 +814,7 @@ are never called from outside the package.
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 41 | 🟡 PARTIAL: 7 | 🟢 COVERED: 22
+**Counts:** 🔴 MISSING: 38 | 🟡 PARTIAL: 7 | 🟢 COVERED: 25
 
 ---
 
@@ -852,7 +850,7 @@ running via inline code. No wiring needed:
 ### P2 — Protocol Features
 
 - `rollup/execute` — EXECUTE precompile must be registered in `core/vm`
-- `das/network` + `das/validator` — DAS peer coordination inactive
+- ~~`das/network` + `das/validator`~~ — wired (f78512d)
 - ~~`p2p/dnsdisc`~~ ✅ **DONE** — `runDNSDiscovery` wired at node startup
 - `p2p/nat` — NAT traversal/external IP detection still limited
 - `trie/migrate` — Binary trie migration never runs
@@ -861,7 +859,7 @@ running via inline code. No wiring needed:
 
 ### P3 — Roadmap Completeness
 
-- `consensus/vdf`, ~~`core/gigagas`~~, `core/vops`, `core/teragas`
+- `consensus/vdf`, ~~`core/gigagas`~~, ~~`core/vops`~~, `core/teragas`
 - `light`, `trie/prune`, `trie/stack`, `engine/chunking`
 - `p2p/portal`, `p2p/dispatch`, `sync/checkpoint`
 
