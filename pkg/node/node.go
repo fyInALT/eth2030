@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	_ "net/http/pprof" // register pprof handlers on DefaultServeMux
 	"os"
@@ -88,6 +89,7 @@ import (
 	p2pportal "github.com/eth2030/eth2030/p2p/portal"
 	p2preqresp "github.com/eth2030/eth2030/p2p/reqresp"
 	p2psnap "github.com/eth2030/eth2030/p2p/snap"
+	"github.com/eth2030/eth2030/p2p/discv5"
 	syncbeacon "github.com/eth2030/eth2030/sync/beacon"
 	synchealer "github.com/eth2030/eth2030/sync/healer"
 	syncstatesync "github.com/eth2030/eth2030/sync/statesync"
@@ -220,6 +222,9 @@ type Node struct {
 	// Snap protocol server handler + persistent snapshot tree (disk+diff layers).
 	snapHandler  *p2psnap.ServerHandler
 	snapshotTree *snapshot.Tree
+
+	// DiscV5 Kademlia DHT for node discovery (alternate standalone impl).
+	discV5 *discv5.DiscV5
 
 	// Beacon sync manager and blob recovery.
 	beaconSyncer *syncbeacon.BeaconSyncer
@@ -591,6 +596,25 @@ func New(config *Config) (*Node, error) {
 	portalKT := discover.NewKademliaTable(portalSelfID, discover.DefaultKademliaConfig())
 	n.portalRouter = p2pportal.NewDHTRouter(portalKT, p2pportal.DefaultDHTRouterConfig())
 
+	// Initialize standalone DiscV5 Kademlia DHT (p2p/discv5).
+	// Uses a zero self-ID derived from the portal node ID slot; a no-op
+	// Transport is passed so Ping/FindNode are harmless until a real UDP
+	// transport is wired (the p2p/discover V5Protocol is the production path).
+	var discSelfID discv5.NodeID
+	copy(discSelfID[:], portalSelfID[:])
+	n.discV5 = discv5.New(discSelfID, discv5.Config{}, nil)
+
+	// Seed DiscV5 routing table with configured bootnodes.
+	for _, bn := range strings.Split(config.Bootnodes, ",") {
+		bn = strings.TrimSpace(bn)
+		if bn == "" {
+			continue
+		}
+		if rec := bootnodeToDiscV5Record(bn); rec != nil {
+			_ = n.discV5.AddNode(rec)
+		}
+	}
+
 	// Initialize snapshot tree (disk + diff layers) for snap-sync serving.
 	// The tree is seeded at the genesis state root and updated per-block in
 	// processBlockInternal. Both FileDB and MemoryDB satisfy snapshot.SnapshotDB.
@@ -793,6 +817,10 @@ func (n *Node) Start() error {
 		go n.runDNSDiscovery(n.config.DNSDiscovery)
 	}
 
+	// Start standalone DiscV5 DHT and feed discovered peers into the P2P server.
+	n.discV5.Start()
+	go n.runDiscV5PeerFeed()
+
 	// Start JSON-RPC server (ExtServer handles auth, rate limiting, CORS, body limits).
 	go func() {
 		slog.Info("RPC server listening", "addr", n.config.RPCAddr())
@@ -918,6 +946,9 @@ func (n *Node) Stop() error {
 			slog.Warn("Metrics server stop error", "err", err)
 		}
 	}
+
+	// Stop standalone DiscV5 DHT.
+	n.discV5.Stop()
 
 	// Stop NAT port mapping and P2P message subsystems.
 	n.natMgr.Stop()
@@ -1370,3 +1401,65 @@ func (a *slashingEngineAdapter) SlashOnBadSettlement(addr types.Address) error {
 }
 
 var _ coreconfig.PaymasterSlasher = (*slashingEngineAdapter)(nil)
+
+// bootnodeToDiscV5Record converts a bootnode address string (enode:// or bare
+// host:port) into a discv5.NodeRecord for routing table seeding. Returns nil
+// when the address cannot be parsed.
+func bootnodeToDiscV5Record(addr string) *discv5.NodeRecord {
+	// Strip "enode://<pubkey>@" prefix if present.
+	hostport := addr
+	if idx := strings.Index(addr, "@"); idx >= 0 {
+		hostport = addr[idx+1:]
+	}
+	// Remove any URL scheme.
+	if idx := strings.Index(hostport, "://"); idx >= 0 {
+		hostport = hostport[idx+3:]
+	}
+	host, portStr, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+	var portNum int
+	if _, err := fmt.Sscanf(portStr, "%d", &portNum); err != nil {
+		return nil
+	}
+	port := uint16(portNum)
+	// Derive a stable NodeID from the IP bytes via Keccak256.
+	hash := crypto.Keccak256(ip)
+	var id discv5.NodeID
+	copy(id[:], hash)
+	return &discv5.NodeRecord{
+		NodeID:  id,
+		IP:      ip,
+		UDPPort: port,
+		TCPPort: port,
+	}
+}
+
+// runDiscV5PeerFeed periodically performs a random lookup in the standalone
+// DiscV5 DHT and feeds discovered peer addresses into the P2P server.
+func (n *Node) runDiscV5PeerFeed() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-n.stop:
+			return
+		case <-ticker.C:
+			peers := n.discV5.RandomLookup()
+			for _, rec := range peers {
+				if rec.IP == nil || rec.TCPPort == 0 {
+					continue
+				}
+				addr := fmt.Sprintf("%s:%d", rec.IP.String(), rec.TCPPort)
+				if err := n.p2pServer.AddPeer(addr); err != nil {
+					slog.Debug("discv5: failed to add peer", "addr", addr, "err", err)
+				}
+			}
+		}
+	}
+}

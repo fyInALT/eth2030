@@ -232,15 +232,18 @@ genesis state. On each accepted block `ResetOnReorg` / `Reset` are called in
 ## P2P Subsystems
 
 ### `p2p/discv5`
-**Verdict: 🟡 PARTIAL**
+**Verdict: 🟢 COVERED**
 
 `pkg/p2p/discover/` contains a V5 implementation (`v5.go`, `kademlia.go`) as part
-of the `p2p/discover` package (which IS wired via `p2p/discover`). The separate
-`p2p/discv5` orphan package is an **alternate, standalone** V5 implementation that
-is never imported. Discovery V5 runs through `p2p/discover`; the orphan is redundant.
+of the `p2p/discover` package. The separate `p2p/discv5` standalone Kademlia DHT is
+now also wired in `node.go`:
 
-However, the `p2p/discover` V5 wiring into the running `p2p` root is not confirmed —
-`p2p.go` uses `p2p/discover` for V4 static peers. V5 DHT lookup may not be active.
+- `discV5 *discv5.DiscV5` field in `Node`
+- Initialized in `New()` with zero self-ID; bootnodes seeded from `config.Bootnodes`
+- `discV5.Start()` called in `Start()` alongside DNS discovery
+- `discV5.Stop()` called in `Stop()` before P2P server shutdown
+- `runDiscV5PeerFeed()` goroutine performs `RandomLookup()` every 30 s and feeds
+  discovered peers into `p2pServer.AddPeer`
 
 ---
 
@@ -811,7 +814,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `txpool/fees` | 🟢 COVERED | `SetBaseFee` inline in txpool |
 | `txpool/shared` | 🟢 COVERED | `SharedMempool` instantiated in node |
 | `txpool/tracking` | 🟢 COVERED | `AcctTrack`+`NonceTracker` in node; reset per block |
-| `p2p/discv5` | 🟡 PARTIAL | V5 in `p2p/discover`; orphan pkg is alternate impl |
+| `p2p/discv5` | 🟢 COVERED | Standalone DHT wired in node: `discV5` field, `Start`/`Stop`, 30s peer-feed goroutine |
 | `p2p/dnsdisc` | 🟢 COVERED | `runDNSDiscovery` resolves EIP-1459 tree at startup; peers added via `AddPeer` |
 | `p2p/dispatch` | 🟢 COVERED | `MessageRouter` instantiated in node |
 | `p2p/nat` | 🟢 COVERED | `NATManager` instantiated in node (20-min lease) |
@@ -882,7 +885,7 @@ running via inline code. No wiring needed:
 - `txpool/fees` — inline `SetBaseFee` is sufficient
 - ~~`metrics/PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` wired in `node.go:772` (branch `feat/check-pkg-ref`)
 - `rpc/netapi` — reportedly wired (confirm with `go list -deps ./rpc/...`)
-- `p2p/discv5` orphan — V5 exists in `p2p/discover`
+- ~~`p2p/discv5` orphan — V5 exists in `p2p/discover`~~ ✅ **DONE** — standalone DHT wired in `node.go` (branch `feat/check-pkg-ref`)
 
 ### P0 — Node Cannot Function Without These
 
