@@ -26,9 +26,11 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/engine"
+	"github.com/eth2030/eth2030/eth"
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
+	ethsync "github.com/eth2030/eth2030/sync"
 	"github.com/eth2030/eth2030/txpool"
 )
 
@@ -46,6 +48,12 @@ type Node struct {
 	p2pServer     *p2p.Server
 	metricsServer *http.Server
 	wsServer      *http.Server
+
+	// ETH/68 protocol handler (block/tx exchange with peers).
+	ethHandler *eth.Handler
+
+	// Sync engine for downloading blocks from peers.
+	syncer *ethsync.Downloader
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -188,13 +196,26 @@ func New(config *Config) (*Node, error) {
 		"stark_frames", config.StarkValidationFrames,
 	)
 
+	// Initialize ETH/68 protocol handler for block and transaction exchange.
+	n.ethHandler = eth.NewHandler(bc, n.txPool, config.NetworkID)
+
+	// Initialize sync downloader and wire it with the eth handler.
+	n.syncer = ethsync.NewDownloader(nil) // nil uses DefaultDownloaderConfig
+	fetcher := eth.NewPeerFetcher(bc)
+	n.syncer.SetFetchers(fetcher, fetcher, bc)
+	// Wire the sync notifier so new block announcements trigger sync.
+	n.ethHandler.SetSyncNotifier(&nodeSyncTrigger{dl: n.syncer})
+	n.ethHandler.SetDownloader(n.syncer)
+
 	// Initialize P2P server with bootnodes, discovery port, and NAT.
+	// Register the ETH protocol so peers can exchange blocks and transactions.
 	n.p2pServer = p2p.NewServer(p2p.Config{
 		ListenAddr:     config.P2PAddr(),
 		MaxPeers:       config.MaxPeers,
 		BootstrapNodes: config.Bootnodes,
 		DiscoveryPort:  config.EffectiveDiscoveryPort(),
 		NAT:            config.NAT,
+		Protocols:      []p2p.Protocol{n.ethHandler.Protocol()},
 	})
 
 	// EP-6 BB-1.1/1.2/1.3: initialize anonymous transport manager.
@@ -240,8 +261,10 @@ func New(config *Config) (*Node, error) {
 	// Initialize RPC server with blockchain backend.
 	backend := newNodeBackend(n)
 	adminBackend := newNodeAdminBackend(n)
+	netBackend := newNodeNetBackend(n)
 	n.rpcHandler = rpc.NewServer(backend)
 	n.rpcHandler.SetAdminBackend(adminBackend)
+	n.rpcHandler.SetNetBackend(netBackend)
 	n.rpcServer = rpc.NewExtServer(backend, rpc.ServerConfig{
 		MaxRequestSize:   config.RPCMaxRequestSize,
 		ReadTimeout:      30 * time.Second,
@@ -254,6 +277,7 @@ func New(config *Config) (*Node, error) {
 		MaxBatchSize:     config.RPCMaxBatchSize,
 	})
 	n.rpcServer.SetAdminBackend(adminBackend)
+	n.rpcServer.SetNetBackend(netBackend)
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)
@@ -693,4 +717,18 @@ func sliceContains(s []string, elem string) bool {
 		}
 	}
 	return false
+}
+
+// nodeSyncTrigger adapts the sync.Downloader to the eth.SyncNotifier interface.
+// It starts a sync goroutine when a new block is announced by a peer.
+type nodeSyncTrigger struct {
+	dl *ethsync.Downloader
+}
+
+func (s *nodeSyncTrigger) OnNewBlock(peerID string, blockNum uint64) {
+	go func() {
+		if err := s.dl.Start(blockNum); err != nil {
+			slog.Debug("sync trigger failed", "peer", peerID, "block", blockNum, "err", err)
+		}
+	}()
 }

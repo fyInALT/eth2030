@@ -951,3 +951,32 @@ func (b *nodeAdminBackend) ChainID() uint64 {
 func (b *nodeAdminBackend) DataDir() string {
 	return b.node.config.DataDir
 }
+
+// nodeNetBackend adapts the Node to the netapi.Backend interface.
+type nodeNetBackend struct {
+	node *Node
+}
+
+func newNodeNetBackend(n *Node) *nodeNetBackend {
+	return &nodeNetBackend{node: n}
+}
+
+// NetworkID returns the configured network identifier.
+func (b *nodeNetBackend) NetworkID() uint64 {
+	return b.node.config.NetworkID
+}
+
+// IsListening reports whether the P2P server is accepting connections.
+func (b *nodeNetBackend) IsListening() bool {
+	return b.node.p2pServer.ListenAddr() != nil
+}
+
+// PeerCount returns the number of currently connected peers.
+func (b *nodeNetBackend) PeerCount() int {
+	return b.node.p2pServer.PeerCount()
+}
+
+// MaxPeers returns the configured maximum peer count.
+func (b *nodeNetBackend) MaxPeers() int {
+	return b.node.config.MaxPeers
+}
