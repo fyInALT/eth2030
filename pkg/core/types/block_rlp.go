@@ -6,26 +6,37 @@ import (
 	"github.com/eth2030/eth2030/rlp"
 )
 
-// EncodeRLP returns the RLP encoding of the block: [header, [tx1, tx2, ...], [uncle1, uncle2, ...]].
+// EncodeRLP returns the RLP encoding of the block:
+// [header, [tx...], [uncle...]] for pre-Shanghai blocks
+// [header, [tx...], [uncle...], [withdrawal...]] for post-Shanghai blocks
+//
+// Legacy transactions are encoded as RLP lists directly; typed transactions
+// are wrapped as RLP byte strings (type_byte || RLP_payload), matching geth.
 func (b *Block) EncodeRLP() ([]byte, error) {
 	headerEnc, err := b.header.EncodeRLP()
 	if err != nil {
 		return nil, fmt.Errorf("encoding header: %w", err)
 	}
 
-	// Encode transactions list using proper Transaction RLP encoding.
+	// Encode transactions list.
+	// Legacy txs are RLP lists; typed txs are byte strings (type || payload).
 	var txsPayload []byte
 	for i, tx := range b.body.Transactions {
 		txEnc, err := tx.EncodeRLP()
 		if err != nil {
 			return nil, fmt.Errorf("encoding tx %d: %w", i, err)
 		}
-		// Wrap the raw tx bytes as an RLP byte string.
-		wrapped, err := rlp.EncodeToBytes(txEnc)
-		if err != nil {
-			return nil, fmt.Errorf("wrapping tx %d: %w", i, err)
+		if tx.Type() == LegacyTxType {
+			// Legacy tx: txEnc is already an RLP list; append directly.
+			txsPayload = append(txsPayload, txEnc...)
+		} else {
+			// Typed tx: wrap as RLP byte string (type_byte || RLP_payload).
+			wrapped, err := rlp.EncodeToBytes(txEnc)
+			if err != nil {
+				return nil, fmt.Errorf("wrapping tx %d: %w", i, err)
+			}
+			txsPayload = append(txsPayload, wrapped...)
 		}
-		txsPayload = append(txsPayload, wrapped...)
 	}
 
 	// Encode uncles list.
@@ -42,6 +53,17 @@ func (b *Block) EncodeRLP() ([]byte, error) {
 	blockPayload = append(blockPayload, headerEnc...)
 	blockPayload = append(blockPayload, rlp.WrapList(txsPayload)...)
 	blockPayload = append(blockPayload, rlp.WrapList(unclesPayload)...)
+
+	// Withdrawals list (post-Shanghai, rlp:"optional").
+	// A non-nil slice (even empty) indicates post-Shanghai.
+	if b.body.Withdrawals != nil {
+		var wPayload []byte
+		for _, w := range b.body.Withdrawals {
+			wEnc := EncodeWithdrawal(w)
+			wPayload = append(wPayload, wEnc...)
+		}
+		blockPayload = append(blockPayload, rlp.WrapList(wPayload)...)
+	}
 
 	return rlp.WrapList(blockPayload), nil
 }
@@ -71,11 +93,23 @@ func DecodeBlockRLP(data []byte) (*Block, error) {
 	}
 	var txs []*Transaction
 	for !s.AtListEnd() {
-		txBytes, err := s.Bytes()
+		// Legacy txs appear as RLP lists; typed txs as byte strings.
+		kind, _, err := s.Kind()
 		if err != nil {
-			return nil, fmt.Errorf("reading tx bytes: %w", err)
+			return nil, fmt.Errorf("peeking tx kind: %w", err)
 		}
-		tx, err := DecodeTxRLP(txBytes)
+		var txData []byte
+		if kind == rlp.List {
+			// Legacy transaction: read entire RLP list item.
+			txData, err = s.RawItem()
+		} else {
+			// Typed transaction: read byte string (type_byte || RLP_payload).
+			txData, err = s.Bytes()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading tx: %w", err)
+		}
+		tx, err := DecodeTxRLP(txData)
 		if err != nil {
 			return nil, fmt.Errorf("decoding tx: %w", err)
 		}
@@ -106,12 +140,37 @@ func DecodeBlockRLP(data []byte) (*Block, error) {
 		return nil, fmt.Errorf("closing uncles list: %w", err)
 	}
 
+	block := &Block{header: header}
+	block.body.Transactions = txs
+	block.body.Uncles = uncles
+
+	// Decode withdrawals list (optional, post-Shanghai).
+	if !s.AtListEnd() {
+		_, err = s.List()
+		if err != nil {
+			return nil, fmt.Errorf("opening withdrawals list: %w", err)
+		}
+		withdrawals := make([]*Withdrawal, 0)
+		for !s.AtListEnd() {
+			wBytes, err := s.RawItem()
+			if err != nil {
+				return nil, fmt.Errorf("reading withdrawal: %w", err)
+			}
+			w, err := DecodeWithdrawal(wBytes)
+			if err != nil {
+				return nil, fmt.Errorf("decoding withdrawal: %w", err)
+			}
+			withdrawals = append(withdrawals, w)
+		}
+		if err := s.ListEnd(); err != nil {
+			return nil, fmt.Errorf("closing withdrawals list: %w", err)
+		}
+		block.body.Withdrawals = withdrawals
+	}
+
 	if err := s.ListEnd(); err != nil {
 		return nil, fmt.Errorf("closing block list: %w", err)
 	}
 
-	block := &Block{header: header}
-	block.body.Transactions = txs
-	block.body.Uncles = uncles
 	return block, nil
 }
