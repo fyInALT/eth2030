@@ -28,6 +28,7 @@ import (
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/eth"
 	"github.com/eth2030/eth2030/p2p"
+	"github.com/eth2030/eth2030/p2p/dnsdisc"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
@@ -327,6 +328,11 @@ func (n *Node) Start() error {
 		return fmt.Errorf("start p2p: %w", err)
 	}
 	slog.Info("P2P server listening", "addr", n.p2pServer.ListenAddr())
+
+	// Bootstrap peers from DNS discovery (EIP-1459) if configured.
+	if n.config.DNSDiscovery != "" {
+		go n.runDNSDiscovery(n.config.DNSDiscovery)
+	}
 
 	// Start JSON-RPC server (ExtServer handles auth, rate limiting, CORS, body limits).
 	go func() {
@@ -724,6 +730,37 @@ func sliceContains(s []string, elem string) bool {
 		}
 	}
 	return false
+}
+
+// runDNSDiscovery resolves peers from a DNS EIP-1459 tree URL and connects
+// to them via the P2P server. It runs once at startup and logs results.
+func (n *Node) runDNSDiscovery(treeURL string) {
+	// Parse "enrtree://<pubkey>@<domain>" format.
+	domain := treeURL
+	if idx := strings.Index(treeURL, "@"); idx >= 0 {
+		domain = treeURL[idx+1:]
+	}
+
+	client := dnsdisc.NewDNSClient(dnsdisc.DNSConfig{
+		Domain: domain,
+	})
+
+	nodes, err := client.Resolve(domain)
+	if err != nil {
+		slog.Warn("DNS discovery failed", "url", treeURL, "err", err)
+		return
+	}
+
+	slog.Info("DNS discovery found peers", "count", len(nodes), "domain", domain)
+	for _, node := range nodes {
+		addr := node.String()
+		if addr == "" {
+			continue
+		}
+		if err := n.p2pServer.AddPeer(addr); err != nil {
+			slog.Debug("DNS discovery: failed to add peer", "addr", addr, "err", err)
+		}
+	}
 }
 
 // nodeSyncTrigger adapts the sync.Downloader to the eth.SyncNotifier interface.

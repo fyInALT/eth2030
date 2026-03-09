@@ -42,6 +42,11 @@ type Config struct {
 	// Bootnodes is a comma-separated list of enode URLs used for bootstrapping.
 	Bootnodes string
 
+	// DNSDiscovery is an optional EIP-1459 DNS tree URL for peer discovery
+	// (e.g. "enrtree://AKA3AM6...@all.mainnet.ethdisco.net").
+	// When set, the node resolves peers from the DNS tree at startup.
+	DNSDiscovery string
+
 	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
 	NAT string
 
