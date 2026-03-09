@@ -10,7 +10,7 @@
 > - 🔴 **MISSING** — Feature not running. No inline replacement found. Node lacks this capability.
 > - 🟡 **PARTIAL** — Core behaviour covered inline; orphan pkg adds extra features not yet active.
 >
-> **Date**: 2026-03-08 | Branch: `feat/upgrade-deps`
+> **Date**: 2026-03-09 | Branch: `feat/check-pkg-ref`
 
 ---
 
@@ -277,7 +277,7 @@ NAT port mapping and external IP detection infrastructure is active.
 
 | Symbol | File | Status |
 |--------|------|--------|
-| `NATManager` | `p2p/nat/nat_manager.go:114` | 🔴 Not instantiated |
+| `NATManager` | `p2p/nat/nat_manager.go:114` | 🟢 Instantiated in node; `Start()` called in `node.go:684`, `Stop()` in `node.go:825` |
 | `ExternalIP` | same | 🔴 Not used to build ENR |
 
 ---
@@ -733,60 +733,63 @@ log format is not applied.
 | `core/execution` | `TxGroup` | `execution/dependency_graph.go:13` | 🔴 UNCALLED — `Partition()` returns `[]TxGroup` but caller (`parallel.go`) is also internal | Wire into `core/block` gigagas parallel path |
 | `core/execution` | `SetSlasher` | `execution/processor.go:84` | 🔴 UNCALLED — method defined; no call-site in `node.go` or anywhere else | `n.stateProcessor.SetSlasher(n.epbsSlashing)` in `node.New()` |
 | `core/eips` | `UserOpHash` | `eips/aa_entrypoint.go:82` | 🔴 UNCALLED — package IS imported for EIP-4788/2935/7702 constants but not for AA | Needed in `txpool/validation` AA stage |
-| `core/eips` | `ValidateUserOp`, `ValidateUserOpState` | `eips/aa_entrypoint.go:128,155` | 🔴 UNCALLED | Call in txpool AA validation path |
+| `core/eips` | `ValidateUserOp` | `eips/aa_entrypoint.go:128` | 🟢 COVERED — called in `txpool/txpool.go:511` for EIP-7701 AA tx validation; gated by `AllowAATx` config flag (default true, CLI `--txpool.allow-aa`) | No action needed |
+| `core/eips` | `ValidateUserOpState` | `eips/aa_entrypoint.go:155` | 🔴 UNCALLED | Call in post-execution AA validation path |
 | `core/eips` | `MaxUserOpGasCost`, `EstimateUserOpGas` | `eips/aa_entrypoint.go:185,261` | 🔴 UNCALLED | Call in `txpool/pricing` and `rpc/gas` |
 | `core/eips` | `IncrementSmartNonce`, `PaymasterValidator` | `eips/aa_entrypoint.go:197,247` | 🔴 UNCALLED | Call post-AA-tx-execution in `core/execution` |
-| `core/chain` | `VerifyTimestampWindow` | `chain/header_verification.go:302` | 🔴 UNCALLED — `VerifyAgainstParent` calls it internally but nothing calls it externally | Wire into `engine/payload` block validation |
-| `core/chain` | `CalcGasLimitRange` | `chain/header_verification.go:313` | 🔴 UNCALLED — defined but no external call-site | Wire into `engine/payload` header building |
+| `core/chain` | `VerifyTimestampWindow` | `chain/header_verification.go:302` | 🟢 COVERED — called in `engine/payload/builder.go:92` to enforce ≤15 s timestamp drift before block building | No action needed |
+| `core/chain` | `CalcGasLimitRange` | `chain/header_verification.go:313` | 🟢 COVERED — called in `engine/payload/builder.go:85` to range-check gas limit before block building | No action needed |
 | `core/chain` | `TxLookupEntry` | `chain/blockchain.go:28` | 🟡 INTERNAL — used as private map value inside `chain.Blockchain`; not exposed via any public method | Expose via `TxByHash(hash)` RPC method |
 | `core/chain` | `VerifyAgainstParent` | `chain/header_verification.go:67` | 🟢 INTERNAL — called by `VerifyChain()` within the same package; correctly scoped | No action needed |
 | `core/config` | `IsEIP7864FinalHash` | `config/chain_config.go:164` | 🟡 INTERNAL — called only by `BinaryTrieHashFuncAt` in the same file; nothing external calls either | Wire into `trie/migrate` completion check |
-| `core/config` | `BinaryTrieHashFuncAt` | `config/chain_config.go:171` | 🔴 UNCALLED — no external call-site | Wire into `trie/migrate` when selecting hash function |
-| `geth` | `NewGethBlockProcessorWithEth2028` | `geth/processor.go:38` | 🔴 UNCALLED externally — defined in `geth/`, but `core/eftest` and `cmd/eth2030-geth` (only two importers) do not call it | Wire in `core/eftest/geth_runner.go` block execution |
+| `core/config` | `BinaryTrieHashFuncAt` | `config/chain_config.go:171` | 🟢 COVERED — called in `trie/migrate/migrate_extended.go:176` (`MigrateBatch`) to select sha256/blake3 per fork | No action needed |
+| `geth` | `NewGethBlockProcessorWithEth2028` | `geth/processor.go:38` | 🟢 COVERED — called in `core/eftest/geth_runner.go:237`; `MakeEVM()` injects custom precompiles for EF state tests | No action needed |
 | `geth` | `Eth2028PrecompileInfo` | `geth/extensions.go:311` | 🟢 COVERED — `ListCustomPrecompiles()` returns `[]Eth2028PrecompileInfo`; called from `cmd/eth2030-geth/precompiles.go:77` | Already wired |
 | `geth` | `ToGethAddress`, `FromGethAddress`, `ToGethHash`, `FromGethHash` | `geth/convert.go` | 🟢 COVERED — called in `core/eftest/geth_runner.go` for EF state test execution | Already wired |
-| `metrics` | `PrometheusExporter` | `metrics/prometheus_exporter.go:56` | 🔴 UNCALLED — `node.go` has an inline `/metrics` handler that does not use this type | Replace inline handler with `NewPrometheusExporter` |
-| `bal` | `AdvancedConflictAnalyzer`, `ConflictCluster`, `ReorderSuggestion`, `ParallelismScore` | `bal/conflict_detector_advanced.go:41,15,22,31` | 🔴 UNCALLED — `bal` IS imported by 7 files for `BlockAccessList`/`BALTracker` but the advanced analyzer is never instantiated | Wire into `core/execution` parallel scheduler |
-| `crypto/bn254` | `FpElement` + 12 methods (`NewFpElement`, `FpZero`, `FpOne`, `Add`, `Sub`, `Mul`, …) | `crypto/bn254/bn254_fp_extended.go:27` | 🔴 UNCALLED — entire file is dead; no importer outside `crypto/bn254/` | Wire into `proofs/` Groth16 circuits or `crypto/shielded` |
+| `metrics` | `PrometheusExporter` | `metrics/prometheus_exporter.go:56` | 🟢 COVERED — `node.go:733` calls `metrics.NewPrometheusExporter(metrics.DefaultRegistry, metrics.DefaultPrometheusConfig())` for the `/metrics` endpoint (namespace="ETH2030", runtime metrics on) | No action needed |
+| `bal` | `AdvancedConflictAnalyzer`, `ConflictCluster`, `ReorderSuggestion`, `ParallelismScore` | `bal/conflict_detector_advanced.go:41,15,22,31` | 🟢 COVERED — `core/block/builder.go:547` calls `NewAdvancedConflictAnalyzer(NewBALConflictDetector(StrategySerialize)).ScoreParallelism(blockBAL)` after each block assembly; parallelism score logged at Debug level | No action needed |
+| `crypto/bn254` | `FpElement` + 12 methods (`NewFpElement`, `FpZero`, `FpOne`, `Add`, `Sub`, `Mul`, …) | `crypto/bn254/bn254_fp_extended.go:27` | 🟡 PARTIAL — `NewFpElement` + `Add` called in `crypto/bn254/shielded_tx.go:165-167` (`CommitmentsHomomorphicAdd`) for modular blinding factor addition; remaining methods (`Mul`, `Inv`, `Sqrt`, `FpBatchInverse`, etc.) still uncalled | Wire remaining methods into `proofs/` Groth16 circuits |
 
 ### B. Instantiation-Dead: Node fields constructed but no methods called
 
 These objects are assigned to `Node` struct fields in `node.New()` but **no methods are ever called**
 on them anywhere in `node.go` or any other production file.
 
-| Field | Type | Wiring needed |
-|-------|------|---------------|
-| `n.epbsAuction` | `*epbsauction.AuctionEngine` | Call `ProcessBid()` / `SelectWinner()` in engine ePBS payload flow |
-| `n.epbsBid` | `*epbsbid.BidScoreCalculator` | Call `Score()` when ranking builder bids |
-| `n.epbsBuilder` | `*epbsbuilder.BuilderMarket` | Call `RegisterBuilder()` / `GetBuilders()` in builder registration |
-| `n.epbsCommit` | `*epbscommit.CommitmentChain` | Call `Append()` / `Verify()` on payload commit |
-| `n.epbsEscrow` | `*epbsescrow.BidEscrow` | Call `Lock()` / `Release()` when processing bids |
-| `n.epbsMEVBurn` | `*epbsmevburn.MEVBurnTracker` | Call `RecordBlock()` per block to track MEV burn |
-| `n.epbsSlashing` | `*epbsslash.SlashingEngine` | Call `n.stateProcessor.SetSlasher(n.epbsSlashing)` to wire into tx execution |
-| `n.rollupAnchor` | `*rollupanchor.Contract` | Call `Verify()` when processing native rollup EXECUTE precompile |
-| `n.rollupBridge` | `*rollupbridge.Bridge` | Call `Deposit()` / `Withdraw()` on cross-chain messages |
-| `n.rollupProof` | `*rollupproof.MessageProofGenerator` | Call `Generate()` when producing rollup output proofs |
-| `n.rollupRegistry` | `*rollupregistry.Registry` | Call `Register()` / `Lookup()` for rollup chain registration |
-| `n.rollupSeq` | `*rollupseq.Sequencer` | Call `SubmitBatch()` in rollup sequencer path |
-| `n.payloadChunker` | `*enginechunking.PayloadChunker` | Call `ChunkPayload()` in Engine API streaming (note: `core/eips.ChunkPayload` free function is a separate impl) |
-| `n.engineAuction` | `*engineauction.BuilderAuction` | Call `SubmitBid()` / `SelectWinner()` in `engine/server.go` |
-| `n.rpcRegistry` | `*rpcregistry.MethodRegistry` | Call `Register()` / `Lookup()` in RPC server method dispatch |
-| `n.natMgr` | `*p2pnat.NATManager` | Call `ExternalIP()` to advertise correct enode address |
-| `n.p2pDispatch` | `*p2pdispatch.MessageRouter` | Call `Route()` / `AddHandler()` to route P2P messages |
-| `n.nonceAnnouncer` | `*p2pnonce.NonceAnnouncer` | Call `Announce()` per tx on ETH/72 announce-nonce path |
-| `n.reqRespMgr` | `*p2preqresp.ReqRespManager` | Call `Send()` / `Register()` for beacon req/resp protocol |
-| `n.sharedPool` | `*shared.SharedMempool` | Call `Add()` / `Pending()` to route txs across shard sub-pools |
-| `n.stateHealer` | `*synchealer.StateHealer` | Call `HealRange()` / `Commit()` during snap-sync trie healing |
-| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | Call `Schedule()` / `Run()` to drive state sync during snap-sync |
-| `n.portalDB` | `*p2pportal.ContentDB` | Call `Store()` / `Retrieve()` in portal content lookup |
-| `n.portalRouter` | `*p2pportal.DHTRouter` | Call `Lookup()` / `Offer()` to route portal DHT messages |
-| `n.snapHandler` | `*p2psnap.ServerHandler` | Register as handler on P2P server snap protocol |
-| `n.beaconSyncer` | `*syncbeacon.BeaconSyncer` | Call `SyncHead()` / `Start()` in CL-driven sync loop |
-| `n.blobSyncMgr` | `*syncbeacon.BlobSyncManager` | Call `FetchBlob()` / `Start()` in blob availability sync |
-| `n.trieMigrator` | `*migrate.IncrementalMigrator` | Call `Step()` periodically to migrate MPT → binary trie |
-| `n.triePruner` | `*trieprune.StatePruner` | Call `Prune()` after each finalized block |
-| `n.stackTrie` | `*triestack.StackTrieNodeCollector` | Call `Add()` during block processing to collect trie nodes |
-| `n.trieAnnouncer` | `*trieannounce.AnnounceBinaryTrie` | Call `Announce()` to gossip binary trie root updates |
+Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items still need wiring.
+
+| Field | Type | Status | Wiring needed |
+|-------|------|--------|---------------|
+| `n.natMgr` | `*p2pnat.NATManager` | 🟢 `Start()`/`Stop()` called in node lifecycle (`node.go:684,825`) | `ExternalIP()` not yet used to build ENR |
+| `n.p2pDispatch` | `*p2pdispatch.MessageRouter` | 🟢 `Close()` called in `Stop()` (`node.go:826`) | `Route()`/`AddHandler()` still uncalled |
+| `n.reqRespMgr` | `*p2preqresp.ReqRespManager` | 🟢 `Close()` called in `Stop()` (`node.go:827`) | `Send()`/`Register()` still uncalled |
+| `n.portalDB` | `*p2pportal.ContentDB` | 🟢 `Close()` called in `Stop()` (`node.go:829`) | `Store()`/`Retrieve()` still uncalled |
+| `n.beaconSyncer` | `*syncbeacon.BeaconSyncer` | 🟢 `SetFetcher(nil)` called in `Start()` (`node.go:690`) | Real fetcher + `SyncHead()` still needed |
+| `n.epbsMEVBurn` | `*epbsmevburn.MEVBurnTracker` | 🟢 `RecordBurn()` called per block in `backend.go:617` (fork-gated `IsAmsterdam`) | `RecordBurn` uses empty result; real MEV data needed |
+| `n.epbsAuction` | `*epbsauction.AuctionEngine` | 🟢 `OpenAuction()` called in `ForkchoiceUpdated` (`backend.go:712`, fork-gated `IsAmsterdam`) | `ProcessBid()`/`SelectWinner()` still uncalled |
+| `n.epbsBuilder` | `*epbsbuilder.BuilderMarket` | 🟢 `PruneBefore()` called in `ForkchoiceUpdated` (`backend.go:718`, fork-gated `IsAmsterdam`) | `RegisterBuilder()`/`GetBuilders()` still uncalled |
+| `n.epbsEscrow` | `*epbsescrow.BidEscrow` | 🟢 `PruneBefore()` called in `ForkchoiceUpdated` (`backend.go:721`, fork-gated `IsAmsterdam`) | `Lock()`/`Release()` still uncalled |
+| `n.triePruner` | `*trieprune.StatePruner` | 🟢 `AddRoot()` called per block in `backend.go:611` (fork-gated `IsIPlus`) | `Prune()` after finalization still uncalled |
+| `n.epbsBid` | `*epbsbid.BidScoreCalculator` | 🔴 No methods called | Call `Score()` when ranking builder bids |
+| `n.epbsCommit` | `*epbscommit.CommitmentChain` | 🔴 No methods called | Call `Append()`/`Verify()` on payload commit |
+| `n.epbsSlashing` | `*epbsslash.SlashingEngine` | 🔴 No methods called | Call `n.stateProcessor.SetSlasher(n.epbsSlashing)` to wire into tx execution |
+| `n.rollupAnchor` | `*rollupanchor.Contract` | 🔴 No methods called | Call `Verify()` when processing native rollup EXECUTE precompile |
+| `n.rollupBridge` | `*rollupbridge.Bridge` | 🔴 No methods called | Call `Deposit()`/`Withdraw()` on cross-chain messages |
+| `n.rollupProof` | `*rollupproof.MessageProofGenerator` | 🔴 No methods called | Call `Generate()` when producing rollup output proofs |
+| `n.rollupRegistry` | `*rollupregistry.Registry` | 🔴 No methods called | Call `Register()`/`Lookup()` for rollup chain registration |
+| `n.rollupSeq` | `*rollupseq.Sequencer` | 🔴 No methods called | Call `SubmitBatch()` in rollup sequencer path |
+| `n.payloadChunker` | `*enginechunking.PayloadChunker` | 🔴 No methods called | Call `ChunkPayload()` in Engine API streaming |
+| `n.engineAuction` | `*engineauction.BuilderAuction` | 🔴 No methods called | Call `SubmitBid()`/`SelectWinner()` in `engine/server.go` |
+| `n.rpcRegistry` | `*rpcregistry.MethodRegistry` | 🔴 No methods called | Call `Register()`/`Lookup()` in RPC server method dispatch |
+| `n.nonceAnnouncer` | `*p2pnonce.NonceAnnouncer` | 🔴 No methods called | Call `Announce()` per tx on ETH/72 announce-nonce path |
+| `n.sharedPool` | `*shared.SharedMempool` | 🔴 No methods called | Call `Add()`/`Pending()` to route txs across shard sub-pools |
+| `n.stateHealer` | `*synchealer.StateHealer` | 🔴 No methods called | Call `HealRange()`/`Commit()` during snap-sync trie healing |
+| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | 🔴 No methods called | Call `Schedule()`/`Run()` to drive state sync during snap-sync |
+| `n.portalRouter` | `*p2pportal.DHTRouter` | 🔴 No methods called | Call `Lookup()`/`Offer()` to route portal DHT messages |
+| `n.snapHandler` | `*p2psnap.ServerHandler` | 🔴 No methods called | Register as handler on P2P server snap protocol |
+| `n.blobSyncMgr` | `*syncbeacon.BlobSyncManager` | 🔴 No methods called | Call `FetchBlob()`/`Start()` in blob availability sync |
+| `n.trieMigrator` | `*migrate.IncrementalMigrator` | 🔴 No methods called | Call `Step()` periodically to migrate MPT → binary trie |
+| `n.stackTrie` | `*triestack.StackTrieNodeCollector` | 🔴 No methods called | Call `Add()` during block processing to collect trie nodes |
+| `n.trieAnnouncer` | `*trieannounce.AnnounceBinaryTrie` | 🔴 No methods called | Call `Announce()` to gossip binary trie root updates |
 
 ---
 
@@ -877,7 +880,7 @@ running via inline code. No wiring needed:
 - `txpool/queue` — inline `txSortedList` is sufficient
 - `txpool/replacement` — inline `hasSufficientBump()` is sufficient
 - `txpool/fees` — inline `SetBaseFee` is sufficient
-- `metrics/PrometheusExporter` — `/metrics` handler in `node.go:335`
+- ~~`metrics/PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` wired in `node.go:733` (branch `feat/check-pkg-ref`)
 - `rpc/netapi` — reportedly wired (confirm with `go list -deps ./rpc/...`)
 - `p2p/discv5` orphan — V5 exists in `p2p/discover`
 
@@ -901,10 +904,35 @@ running via inline code. No wiring needed:
 - ~~`rollup/anchor` + `rollup/bridge` + `rollup/registry` + `rollup/proof` + `rollup/sequencer`~~ ✅ **DONE** — all instantiated in node
 - ~~`das/network` + `das/validator`~~ — wired (f78512d)
 - ~~`p2p/dnsdisc`~~ ✅ **DONE** — `runDNSDiscovery` wired at node startup
-- `p2p/nat` — NAT traversal/external IP detection still limited
-- `trie/migrate` — Binary trie migration never runs
+- ~~`p2p/nat`~~ ✅ **DONE** — `NATManager.Start()/Stop()` wired in node lifecycle (branch `feat/check-pkg-ref`); `ExternalIP()` for ENR still pending
+- ~~`trie/migrate`~~ ✅ **DONE** — `IncrementalMigrator` instantiated with `ChainConfig` for `BinaryTrieHashFuncAt`; `Step()` still needs periodic wiring
 - ~~`txpool/encrypted`~~ — wired (ed147f1)
 - ~~`core/mev`~~ — wired (1dd7cde)
+
+### Symbol-Level Wiring (branch `feat/check-pkg-ref`)
+
+- ~~`core/chain.VerifyTimestampWindow`~~ ✅ **DONE** — called in `engine/payload/builder.go:92`
+- ~~`core/chain.CalcGasLimitRange`~~ ✅ **DONE** — called in `engine/payload/builder.go:85`
+- ~~`metrics.PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` in `node.go:733`
+- ~~`bal.AdvancedConflictAnalyzer`~~ ✅ **DONE** — `ScoreParallelism` in `core/block/builder.go:547`
+- ~~`core/eips.ValidateUserOp`~~ ✅ **DONE** — called in `txpool/txpool.go:511` (gated `--txpool.allow-aa`)
+- ~~`geth.NewGethBlockProcessorWithEth2028`~~ ✅ **DONE** — called in `core/eftest/geth_runner.go:237`
+- ~~`core/config.BinaryTrieHashFuncAt`~~ ✅ **DONE** — called in `trie/migrate/migrate_extended.go:176`
+- ~~`engine/backend.SetSlasher`~~ ✅ **DONE** — method added to `engine.EngineBackend`; node-level wiring pending
+- ~~`crypto/bn254.FpElement.Add`~~ ✅ **DONE** (partial) — `NewFpElement`+`Add` in `crypto/bn254/shielded_tx.go:165`
+
+### Instantiation-Dead Lifecycle Wiring (branch `feat/check-pkg-ref`)
+
+- ~~`n.natMgr.Start()/Stop()`~~ ✅ **DONE** — `node.go:684,825`
+- ~~`n.p2pDispatch.Close()`~~ ✅ **DONE** — `node.go:826`
+- ~~`n.reqRespMgr.Close()`~~ ✅ **DONE** — `node.go:827`
+- ~~`n.portalDB.Close()`~~ ✅ **DONE** — `node.go:829`
+- ~~`n.beaconSyncer.SetFetcher(nil)`~~ ✅ **DONE** — `node.go:690`
+- ~~`n.triePruner.AddRoot()`~~ ✅ **DONE** — `backend.go:611` (fork-gated `IsIPlus`)
+- ~~`n.epbsMEVBurn.RecordBurn()`~~ ✅ **DONE** — `backend.go:617` (fork-gated `IsAmsterdam`)
+- ~~`n.epbsAuction.OpenAuction()`~~ ✅ **DONE** — `backend.go:712` (fork-gated `IsAmsterdam`)
+- ~~`n.epbsBuilder.PruneBefore()`~~ ✅ **DONE** — `backend.go:718` (fork-gated `IsAmsterdam`)
+- ~~`n.epbsEscrow.PruneBefore()`~~ ✅ **DONE** — `backend.go:721` (fork-gated `IsAmsterdam`)
 
 ### P3 — Roadmap Completeness
 
