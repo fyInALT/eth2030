@@ -674,6 +674,16 @@ func (n *Node) Start() error {
 	}
 	slog.Info("P2P server listening", "addr", n.p2pServer.ListenAddr())
 
+	// Start NAT port mapping manager.
+	if err := n.natMgr.Start(); err != nil {
+		slog.Warn("NAT manager start failed", "err", err)
+	}
+
+	// Wire beacon syncer fetcher (marks it active; full fetcher set by sync coordinator).
+	if n.beaconSyncer != nil {
+		n.beaconSyncer.SetFetcher(nil)
+	}
+
 	// Bootstrap peers from DNS discovery (EIP-1459) if configured.
 	if n.config.DNSDiscovery != "" {
 		go n.runDNSDiscovery(n.config.DNSDiscovery)
@@ -805,6 +815,14 @@ func (n *Node) Stop() error {
 		if err := n.metricsServer.Close(); err != nil {
 			slog.Warn("Metrics server stop error", "err", err)
 		}
+	}
+
+	// Stop NAT port mapping and P2P message subsystems.
+	n.natMgr.Stop()
+	n.p2pDispatch.Close()
+	n.reqRespMgr.Close()
+	if n.portalDB != nil {
+		n.portalDB.Close()
 	}
 
 	// Stop P2P server.
