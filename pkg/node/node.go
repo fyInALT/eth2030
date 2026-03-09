@@ -43,7 +43,11 @@ import (
 	syncinserter "github.com/eth2030/eth2030/sync/inserter"
 	synccheckpoint "github.com/eth2030/eth2030/sync/checkpoint"
 	syncchecksync "github.com/eth2030/eth2030/sync/checksync"
+	syncrangeproof "github.com/eth2030/eth2030/sync/rangeproof"
+	syncbeam "github.com/eth2030/eth2030/sync/beam"
 	syncsupport "github.com/eth2030/eth2030/sync/support"
+	"github.com/eth2030/eth2030/light"
+	dasblobpool "github.com/eth2030/eth2030/das/blobpool"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
@@ -116,6 +120,14 @@ type Node struct {
 	checkpointSyncer  *syncchecksync.CheckpointSyncer
 	syncProgressTrack *syncsupport.ProgressTracker
 	syncPipeline      *syncsupport.SyncPipeline
+	rangeProver       *syncrangeproof.RangeProver
+	beamSync          *syncbeam.BeamSync
+
+	// Light client subsystem.
+	lightClient *light.LightClient
+
+	// DAS sparse blob pool (custody-based pruning, EIP-4844/7594).
+	dasBlobPool *dasblobpool.SparseBlobPool
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -251,6 +263,14 @@ func New(config *Config) (*Node, error) {
 	n.checkpointSyncer = syncchecksync.NewCheckpointSyncer(syncchecksync.DefaultCheckpointConfig())
 	n.syncProgressTrack = syncsupport.NewProgressTracker()
 	n.syncPipeline = syncsupport.NewSyncPipeline(syncsupport.DefaultPipelineConfig())
+	n.rangeProver = syncrangeproof.NewRangeProver()
+	n.beamSync = syncbeam.NewBeamSync(&stubBeamFetcher{})
+
+	// Initialize light client (header sync + proof verification).
+	n.lightClient = light.NewLightClient()
+
+	// Initialize DAS sparse blob pool (custody-based pruning, EIP-4844/7594).
+	n.dasBlobPool = dasblobpool.NewSparseBlobPool(4) // 4 subnets default
 
 	// Initialize tx journal for pending tx persistence across restarts.
 	journalPath := config.ResolvePath("transactions.rlp")
@@ -454,6 +474,15 @@ func (n *Node) Start() error {
 		slog.Info("DAS network manager started")
 	}
 
+	// Start light client subsystem.
+	if n.lightClient != nil {
+		if err := n.lightClient.Start(); err != nil {
+			slog.Warn("light client start failed", "err", err)
+		} else {
+			slog.Info("light client started")
+		}
+	}
+
 	// Start STARK mempool aggregator.
 	if err := n.starkAgg.Start(); err != nil {
 		return fmt.Errorf("start stark aggregator: %w", err)
@@ -557,6 +586,11 @@ func (n *Node) Stop() error {
 	// Stop DAS network manager.
 	if n.dasNetMgr != nil {
 		n.dasNetMgr.Stop()
+	}
+
+	// Stop light client.
+	if n.lightClient != nil {
+		n.lightClient.Stop()
 	}
 
 	// Stop teragas blob scheduler.
@@ -920,6 +954,18 @@ type stubCustodyManager struct{}
 
 func (s *stubCustodyManager) FindPeersForColumn(_ uint64) ([][32]byte, error) {
 	return nil, nil
+}
+
+// stubBeamFetcher is a no-op BeamStateFetcher used until the P2P layer is
+// wired to serve on-demand state requests during beam sync.
+type stubBeamFetcher struct{}
+
+func (s *stubBeamFetcher) FetchAccount(_ types.Address) (*syncbeam.BeamAccountData, error) {
+	return nil, errors.New("beam: no network fetcher wired")
+}
+
+func (s *stubBeamFetcher) FetchStorage(_ types.Address, _ types.Hash) (types.Hash, error) {
+	return types.Hash{}, errors.New("beam: no network fetcher wired")
 }
 
 // nodeSyncTrigger adapts the sync.Downloader to the eth.SyncNotifier interface.
