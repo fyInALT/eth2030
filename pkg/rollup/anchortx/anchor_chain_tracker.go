@@ -3,7 +3,7 @@
 // configurations, stores anchor history, handles confirmations, and provides
 // per-chain metrics. This complements anchor_state.go which provides the
 // higher-level proof-verified state management.
-package rollup
+package anchortx
 
 import (
 	"errors"
