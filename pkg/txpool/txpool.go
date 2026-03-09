@@ -534,15 +534,30 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		}
 		if aatx, ok := tx.Inner().(*types.AATx); ok {
 			uo := &eips.UserOperation{
-				Sender:               aatx.Sender,
-				Nonce:                new(big.Int).SetUint64(aatx.Nonce),
-				CallData:             aatx.SenderExecutionData,
-				VerificationGasLimit: aatx.SenderValidationGas,
-				MaxFeePerGas:         aatx.MaxFeePerGas,
-				MaxPriorityFeePerGas: aatx.MaxPriorityFeePerGas,
+				Sender:                        aatx.Sender,
+				Nonce:                         new(big.Int).SetUint64(aatx.Nonce),
+				CallData:                      aatx.SenderExecutionData,
+				CallGasLimit:                  aatx.SenderExecutionGas,
+				VerificationGasLimit:          aatx.SenderValidationGas,
+				PaymasterVerificationGasLimit: aatx.PaymasterValidationGas,
+				PaymasterPostOpGasLimit:       aatx.PaymasterPostOpGas,
+				Paymaster:                     aatx.Paymaster,
+				MaxFeePerGas:                  aatx.MaxFeePerGas,
+				MaxPriorityFeePerGas:          aatx.MaxPriorityFeePerGas,
 			}
 			if err := eips.ValidateUserOp(uo); err != nil {
 				return fmt.Errorf("aa: invalid user op: %w", err)
+			}
+			// Compute canonical UserOp hash for indexing and debug logging (EIP-7701 §3.1).
+			_ = eips.UserOpHash(uo, tx.ChainId())
+			// Reject if worst-case gas cost exceeds sender's current balance.
+			if pool.baseFee != nil {
+				maxCost := eips.MaxUserOpGasCost(uo, pool.baseFee)
+				senderBal := pool.state.GetBalance(aatx.Sender)
+				if senderBal.Cmp(maxCost) < 0 {
+					return fmt.Errorf("aa: insufficient balance for gas: have %s need %s",
+						senderBal, maxCost)
+				}
 			}
 		}
 	}

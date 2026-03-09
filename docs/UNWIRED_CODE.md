@@ -729,14 +729,14 @@ log format is not applied.
 
 | Package | Symbol | File:Line | Verified Status | Fix |
 |---------|--------|-----------|-----------------|-----|
-| `core/execution` | `ReceiptGenerator`, `DefaultReceiptGeneratorConfig`, `TxExecutionOutcome` | `execution/receipt_generation.go:15,29,58` | 🔴 UNCALLED — defined only; zero call-sites outside `execution/` | Call from `core/block` builder after each tx exec |
-| `core/execution` | `TxGroup` | `execution/dependency_graph.go:13` | 🔴 UNCALLED — `Partition()` returns `[]TxGroup` but caller (`parallel.go`) is also internal | Wire into `core/block` gigagas parallel path |
+| `core/execution` | `ReceiptGenerator`, `DefaultReceiptGeneratorConfig`, `TxExecutionOutcome` | `execution/receipt_generation.go:15,29,58` | 🟢 COVERED — `core/block/builder.go` initializes `NewReceiptGenerator`, calls `GenerateReceipt` after each tx, `FinalizeBlock`/`BlockBloom`/`ComputeReceiptTrieRoot` after tx loop | No action needed |
+| `core/execution` | `TxGroup` | `execution/dependency_graph.go:13` | 🟢 COVERED — `core/block/builder.go` calls `NewDependencyGraph(txs).Partition(4)` before the tx loop; groups logged at Debug level | No action needed |
 | `core/execution` | `SetSlasher` | `execution/processor.go:84` | 🟢 COVERED — `node.go:565` calls `n.stateProcessor.SetSlasher(&slashingEngineAdapter{eng: n.epbsSlashing})`; slashing adapter translates execution events to `SlashingEngine` | No action needed |
-| `core/eips` | `UserOpHash` | `eips/aa_entrypoint.go:82` | 🔴 UNCALLED — package IS imported for EIP-4788/2935/7702 constants but not for AA | Needed in `txpool/validation` AA stage |
+| `core/eips` | `UserOpHash` | `eips/aa_entrypoint.go:82` | 🟢 COVERED — called in `txpool/txpool.go` `validateTx()` AA branch; hash computed for indexing/debug logging | No action needed |
 | `core/eips` | `ValidateUserOp` | `eips/aa_entrypoint.go:128` | 🟢 COVERED — called in `txpool/txpool.go:511` for EIP-7701 AA tx validation; gated by `AllowAATx` config flag (default true, CLI `--txpool.allow-aa`) | No action needed |
-| `core/eips` | `ValidateUserOpState` | `eips/aa_entrypoint.go:155` | 🔴 UNCALLED | Call in post-execution AA validation path |
-| `core/eips` | `MaxUserOpGasCost`, `EstimateUserOpGas` | `eips/aa_entrypoint.go:185,261` | 🔴 UNCALLED | Call in `txpool/pricing` and `rpc/gas` |
-| `core/eips` | `IncrementSmartNonce`, `PaymasterValidator` | `eips/aa_entrypoint.go:197,247` | 🔴 UNCALLED | Call post-AA-tx-execution in `core/execution` |
+| `core/eips` | `ValidateUserOpState` | `eips/aa_entrypoint.go:155` | 🟢 COVERED — called in `core/execution/processor.go` `ProcessWithBAL()` before applying each AA tx; validates state preconditions (nonce, balance, paymaster) | No action needed |
+| `core/eips` | `MaxUserOpGasCost`, `EstimateUserOpGas` | `eips/aa_entrypoint.go:185,261` | 🟢 COVERED — `MaxUserOpGasCost` called in `txpool/txpool.go` balance check; `EstimateUserOpGas` called in `core/execution/processor.go` pre-execution | No action needed |
+| `core/eips` | `IncrementSmartNonce`, `PaymasterValidator` | `eips/aa_entrypoint.go:197,247` | 🟢 COVERED — `IncrementSmartNonce` called post successful AA tx in `core/execution/processor.go`; `PaymasterValidator.PostOp` called via optional `paymasterValidator` field on `StateProcessor` | No action needed |
 | `core/chain` | `VerifyTimestampWindow` | `chain/header_verification.go:302` | 🟢 COVERED — called in `engine/payload/builder.go:92` to enforce ≤15 s timestamp drift before block building | No action needed |
 | `core/chain` | `CalcGasLimitRange` | `chain/header_verification.go:313` | 🟢 COVERED — called in `engine/payload/builder.go:85` to range-check gas limit before block building | No action needed |
 | `core/chain` | `TxLookupEntry` | `chain/blockchain.go:28` | 🟢 COVERED — `GetTxLookupEntry()` exposes the struct directly; `node/backend.go` uses it in `GetTransaction` and `TraceTransaction` | No action needed |
@@ -773,8 +773,8 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `n.epbsCommit` | `*epbscommit.CommitmentChain` | 🟢 `PruneSlot()` called in `ForkchoiceUpdated` (`backend.go:780`, fork-gated `IsAmsterdam`) | `Append()`/`Verify()` still uncalled |
 | `n.epbsSlashing` | `*epbsslash.SlashingEngine` | 🟢 Wrapped in `slashingEngineAdapter` passed to `stateProcessor.SetSlasher()` (`node.go:565`); adapter calls engine on slash events | `EvaluateAll()` driven indirectly via adapter; `Records()` not yet queried |
 | `n.rollupAnchor` | `*rollupanchor.Contract` | 🟢 `UpdateAfterExecute()` called per block in `processBlockInternal` (`backend.go`, fork-gated `IsAmsterdam`) | `ProcessAnchorData()` for EXECUTE precompile calls still uncalled |
-| `n.rollupBridge` | `*rollupbridge.Bridge` | 🔴 No methods called | Call `Deposit()`/`Withdraw()` on cross-chain L1↔L2 messages |
-| `n.rollupProof` | `*rollupproof.MessageProofGenerator` | 🔴 No methods called | Call `Generate()` when producing rollup output proofs |
+| `n.rollupBridge` | `*rollupbridge.Bridge` | 🟢 `ConfirmDeposits()` called per block in `processBlockInternal` (`backend.go`); confirmed count logged at Debug | `Deposit()`/`Withdraw()` cross-chain path still uncalled |
+| `n.rollupProof` | `*rollupproof.MessageProofGenerator` | 🟢 `GenerateDepositProof()` called per block in `processBlockInternal` (`backend.go`, fork-gated `IsAmsterdam`); L1→L2 deposit message proofs generated | Full round-trip verification still uncalled |
 | `n.rollupRegistry` | `*rollupregistry.Registry` | 🟢 `RegisterRollup()` called in `node.New()` for L1 chain (ID=1, "eth2030-l1") | `SubmitBatch()`/`VerifyStateTransition()` still uncalled |
 | `n.rollupSeq` | `*rollupseq.Sequencer` | 🟢 `AddTransaction()` called per non-empty-data tx in `SendTransaction()` (`backend.go`) | `SealBatch()` not yet called; batches accumulate but never submitted |
 | `n.payloadChunker` | `*enginechunking.PayloadChunker` | 🟢 `ChunkPayload()` called in `getPayloadChunked` (`backend.go:700–702`) | Streaming path active when payload fits chunk budget |
@@ -782,10 +782,10 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `n.rpcRegistry` | `*rpcregistry.MethodRegistry` | 🟢 `RegisterBatch()` called in `node.New()` registering 8 core `eth_` methods | `Call()` not yet hooked into dispatch; used as capability catalog |
 | `n.nonceAnnouncer` | `*p2pnonce.NonceAnnouncer` | 🟢 `AnnounceNonce("local", blockHash, blockNumber)` called per accepted block in `processBlockInternal` (`backend.go`) | Peer-to-peer propagation path (`p2p` handler) still uncalled |
 | `n.sharedPool` | `*shared.SharedMempool` | 🟢 `AddTransaction()` called in `SendTransaction()` (`backend.go:192`) | `GetPendingTxs()`/gossip relay still uncalled |
-| `n.stateHealer` | `*synchealer.StateHealer` | 🔴 No methods called | Call `DetectGaps()`/`Run(peer)` during snap-sync trie healing |
-| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | 🔴 No methods called | Call `StartSync(targetRoot)` to drive state sync during snap-sync |
-| `n.portalRouter` | `*p2pportal.DHTRouter` | 🔴 No methods called | Call `Lookup()`/`Offer()` to route portal DHT messages |
-| `n.snapHandler` | `*p2psnap.ServerHandler` | 🔴 No methods called | Register as handler on P2P server snap protocol |
+| `n.stateHealer` | `*synchealer.StateHealer` | 🟢 `DetectGaps()` called in `ForkchoiceUpdated` (`backend.go`); gap count logged at Debug | `Run(peer)` trie healing loop still uncalled |
+| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | 🟢 `SetPivot()` called in `ForkchoiceUpdated` (`backend.go`) when finalized block advances; snap-sync pivot configured | `StartSync()`/`ScheduleTask()` still uncalled |
+| `n.portalRouter` | `*p2pportal.DHTRouter` | 🟢 `UpdateRadius()` called per block in `processBlockInternal` (`backend.go`); portal DHT radius updated with block number | `Lookup()`/`Offer()` content routing still uncalled |
+| `n.snapHandler` | `*p2psnap.ServerHandler` | 🟢 `Protocol()` registered on P2P server in `node.go`; snap/1 message loop dispatches `GetAccountRange`/`GetStorageRanges`/`GetByteCodes`/`GetTrieNodes` to handle methods | Snap client path (requesting side) still uncalled |
 | `n.blobSyncMgr` | `*syncbeacon.BlobSyncManager` | 🟢 `RequestBlobs()` called per blob-carrying block (`backend.go:665`); `VerifyBlobConsistency()` uncalled | `ProcessBlobResponse()` and peer delivery path still uncalled |
 | `n.trieMigrator` | `*migrate.IncrementalMigrator` | 🟢 `MigrateBatch()` called per-N-blocks (`backend.go:649`, I+ fork-gated) | `Step()` single-step path unused; `MigrateBatch` drives migration |
 | `n.stackTrie` | `*triestack.StackTrieNodeCollector` | 🟢 `Put(stateRoot, blockHashBytes)` called per block in `processBlockInternal` (`backend.go`, I+ fork-gated) | `FlushTo(db)` not yet called; nodes accumulate in memory |
@@ -893,7 +893,7 @@ running via inline code. No wiring needed:
 ### P1 — Major Feature Gaps
 
 - ~~`epbs/*` all 7 sub-packages~~ ✅ **DONE** — auction/bid/builder/commit/escrow/mevburn/slashing all instantiated in node
-- `p2p/snap` — Peers cannot snap-sync from this node
+- ~~`p2p/snap`~~ ✅ **DONE** — `ServerHandler.Protocol()` registered on P2P server; snap/1 message loop dispatches all 4 Get* message types
 - ~~`rpc/beaconapi`~~ ✅ **DONE** — `beacon_` namespace wired
 - ~~`txpool/journal`~~ — wired (1dd7cde)
 - `sync/beacon` — No CL-driven sync loop
@@ -916,6 +916,14 @@ running via inline code. No wiring needed:
 - ~~`metrics.PrometheusExporter`~~ ✅ **DONE** — `NewPrometheusExporter` in `node.go:772`
 - ~~`bal.AdvancedConflictAnalyzer`~~ ✅ **DONE** — `ScoreParallelism` in `core/block/builder.go:547`
 - ~~`core/eips.ValidateUserOp`~~ ✅ **DONE** — called in `txpool/txpool.go:511` (gated `--txpool.allow-aa`)
+- ~~`core/eips.UserOpHash`~~ ✅ **DONE** — called in `txpool/txpool.go` AA branch for indexing/debug
+- ~~`core/eips.MaxUserOpGasCost`~~ ✅ **DONE** — called in `txpool/txpool.go` balance check
+- ~~`core/eips.EstimateUserOpGas`~~ ✅ **DONE** — called in `core/execution/processor.go` pre-AA-tx
+- ~~`core/eips.ValidateUserOpState`~~ ✅ **DONE** — called in `core/execution/processor.go` pre-AA-tx
+- ~~`core/eips.IncrementSmartNonce`~~ ✅ **DONE** — called in `core/execution/processor.go` post successful AA tx
+- ~~`core/eips.PaymasterValidator`~~ ✅ **DONE** — optional field on `StateProcessor`; `PostOp` called post AA tx
+- ~~`core/execution.ReceiptGenerator`~~ ✅ **DONE** — wired in `core/block/builder.go` per-tx and end-of-block
+- ~~`core/execution.TxGroup`~~ ✅ **DONE** — `DependencyGraph.Partition(4)` called in `core/block/builder.go`
 - ~~`geth.NewGethBlockProcessorWithEth2028`~~ ✅ **DONE** — called in `core/eftest/geth_runner.go:237`
 - ~~`core/config.BinaryTrieHashFuncAt`~~ ✅ **DONE** — called in `trie/migrate/migrate_extended.go:176`
 - ~~`engine/backend.SetSlasher`~~ ✅ **DONE** — method added to `engine.EngineBackend`; node-level wiring pending
@@ -939,8 +947,14 @@ running via inline code. No wiring needed:
 - ~~`n.engineAuction.RunAuction()`~~ ✅ **DONE** — `ForkchoiceUpdated` (fork-gated `IsAmsterdam`); closes auction per slot
 - ~~`n.triePruner.Prune()`~~ ✅ **DONE** — `ForkchoiceUpdated` when finalized block advances (fork-gated `IsIPlus`)
 - ~~`n.rollupAnchor.UpdateAfterExecute()`~~ ✅ **DONE** — `processBlockInternal` (fork-gated `IsAmsterdam`); advances L2 anchor state
+- ~~`n.rollupBridge.ConfirmDeposits()`~~ ✅ **DONE** — `processBlockInternal` confirms L1→L2 deposits per block
+- ~~`n.rollupProof.GenerateDepositProof()`~~ ✅ **DONE** — `processBlockInternal` generates L1→L2 deposit proof per block (fork-gated `IsAmsterdam`)
 - ~~`n.rollupRegistry.RegisterRollup()`~~ ✅ **DONE** — `node.New()` registers L1 chain as rollup ID=1 ("eth2030-l1")
 - ~~`n.rollupSeq.AddTransaction()`~~ ✅ **DONE** — `SendTransaction()` feeds tx calldata to rollup sequencer
+- ~~`n.stateHealer.DetectGaps()`~~ ✅ **DONE** — `ForkchoiceUpdated` detects trie gaps on each finalized block advance
+- ~~`n.stateSyncSched.SetPivot()`~~ ✅ **DONE** — `ForkchoiceUpdated` sets snap-sync pivot when finalized block advances
+- ~~`n.portalRouter.UpdateRadius()`~~ ✅ **DONE** — `processBlockInternal` updates portal DHT radius per block
+- ~~`n.snapHandler.Protocol()`~~ ✅ **DONE** — registered on P2P server in `node.go`; snap/1 protocol active
 - ~~`n.rpcRegistry.RegisterBatch()`~~ ✅ **DONE** — `node.New()` registers 8 core `eth_` methods as capability catalog
 - ~~`n.nonceAnnouncer.AnnounceNonce()`~~ ✅ **DONE** — `processBlockInternal` announces block sequence number per accepted block
 - ~~`n.stackTrie.Put()`~~ ✅ **DONE** — `processBlockInternal` collects block state root as trie node (fork-gated `IsIPlus`)

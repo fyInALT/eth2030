@@ -21,6 +21,7 @@ import (
 	epbsbid "github.com/eth2030/eth2030/epbs/bid"
 	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
 	"github.com/eth2030/eth2030/rollup"
+	rollupproof "github.com/eth2030/eth2030/rollup/proof"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/trie"
 	"github.com/eth2030/eth2030/txpool/shared"
@@ -692,6 +693,19 @@ func (b *engineBackend) processBlockInternal(
 		b.node.epbsMEVBurn.RecordBurn(epoch, epbsmevburn.MEVBurnResult{})
 	}
 
+	// Confirm pending L1→L2 bridge deposits that have accrued enough confirmations (EIP-8079).
+	if b.node.rollupBridge != nil {
+		if confirmed := b.node.rollupBridge.ConfirmDeposits(payload.BlockNumber); confirmed > 0 {
+			slog.Debug("rollup bridge: deposits confirmed", "block", payload.BlockNumber, "count", confirmed)
+		}
+	}
+
+	// Update portal content-radius estimate based on block height (Portal network).
+	// Real storage metrics feed into this when the state backend is wired.
+	if b.node.portalRouter != nil {
+		b.node.portalRouter.UpdateRadius(payload.BlockNumber, 1<<32)
+	}
+
 	// Advance native rollup anchor state after each accepted EL block (Amsterdam EIP-8079).
 	// This records the latest L1 block hash and state root for L2 chains to anchor against.
 	if b.node.rollupAnchor != nil && bc.Config().IsAmsterdam(payload.Timestamp) {
@@ -703,6 +717,22 @@ func (b *engineBackend) processBlockInternal(
 		}
 		if err := b.node.rollupAnchor.UpdateAfterExecute(execOut, payload.BlockNumber, payload.Timestamp); err != nil {
 			slog.Debug("rollup anchor update", "block", payload.BlockNumber, "err", err)
+		}
+	}
+
+	// Generate a cross-layer deposit proof anchoring the accepted block's state
+	// root to the L1 chain (EIP-8079 native rollups, Amsterdam+).
+	if b.node.rollupProof != nil && bc.Config().IsAmsterdam(payload.Timestamp) {
+		msg := &rollupproof.CrossLayerMessage{
+			Source:      rollupproof.LayerL1,
+			Destination: rollupproof.LayerL2,
+			Nonce:       payload.BlockNumber,
+			Sender:      payload.FeeRecipient,
+			Target:      payload.FeeRecipient,
+			Value:       new(big.Int),
+		}
+		if _, err := b.node.rollupProof.GenerateDepositProof(msg, payload.StateRoot); err != nil {
+			slog.Debug("rollup proof generate", "block", payload.BlockNumber, "err", err)
 		}
 	}
 
@@ -905,6 +935,22 @@ func (b *engineBackend) ForkchoiceUpdated(
 			if len(pruned) > 0 {
 				slog.Debug("trie pruner: pruned stale roots", "count", len(pruned))
 			}
+		}
+	}
+
+	// Drive trie-healing gap detection on each forkchoice update.
+	// DetectGaps scans for missing trie nodes that need to be fetched from peers.
+	if b.node.stateHealer != nil {
+		if n, err := b.node.stateHealer.DetectGaps(); err == nil && n > 0 {
+			slog.Debug("state healer: trie gaps detected", "count", n)
+		}
+	}
+
+	// Configure state-sync pivot to the latest finalized block header.
+	// This enables snap-sync to resume from a finalized checkpoint.
+	if b.node.stateSyncSched != nil {
+		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
+			b.node.stateSyncSched.SetPivot(finalBlock.Header())
 		}
 	}
 

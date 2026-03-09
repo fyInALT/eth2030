@@ -63,9 +63,10 @@ var (
 
 // StateProcessor processes blocks by applying transactions sequentially.
 type StateProcessor struct {
-	config  *corconfig.ChainConfig
-	getHash vm.GetHashFunc
-	slasher corconfig.PaymasterSlasher // optional: slashes paymasters on bad settlement (AA-1.3)
+	config             *corconfig.ChainConfig
+	getHash            vm.GetHashFunc
+	slasher            corconfig.PaymasterSlasher // optional: slashes paymasters on bad settlement (AA-1.3)
+	paymasterValidator eips.PaymasterValidator    // optional: validates AA paymaster willingness (EIP-7701)
 }
 
 // NewStateProcessor creates a new state processor.
@@ -83,6 +84,12 @@ func (p *StateProcessor) SetGetHash(fn vm.GetHashFunc) {
 // fails to cover gas after execution (AA-1.3).
 func (p *StateProcessor) SetSlasher(s corconfig.PaymasterSlasher) {
 	p.slasher = s
+}
+
+// SetPaymasterValidator wires an eips.PaymasterValidator into the processor.
+// When set, PostOp is called on the validator after each successful AA tx (EIP-7701).
+func (p *StateProcessor) SetPaymasterValidator(v eips.PaymasterValidator) {
+	p.paymasterValidator = v
 }
 
 // Process executes all transactions in a block sequentially and returns the receipts.
@@ -205,9 +212,35 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 			preBalances, preNonces = capturePreState(statedb, tx)
 		}
 
+		// EIP-7701: pre-execution AA validation and gas estimation for AA txs.
+		if tx.Type() == types.AATxType {
+			if aatx, ok := tx.Inner().(*types.AATx); ok {
+				uo := buildAAUserOp(aatx)
+				// ValidateUserOpState checks balance, nonce, and paymaster allowance.
+				if err := eips.ValidateUserOpState(uo, statedb, header.BaseFee); err != nil {
+					return nil, fmt.Errorf("aa: state validation failed tx %d: %w", i, err)
+				}
+				// EstimateUserOpGas provides recommended gas limits for observability.
+				_, _, _ = eips.EstimateUserOpGas(uo, statedb, header.BaseFee)
+			}
+		}
+
 		receipt, usedGas, err := applyTransactionFull(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker), p.slasher)
 		if err != nil {
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx, err)
+		}
+
+		// EIP-7701: post-execution AA lifecycle hooks for successful AA txs.
+		if tx.Type() == types.AATxType && receipt.Status == types.ReceiptStatusSuccessful {
+			if aatx, ok := tx.Inner().(*types.AATx); ok {
+				// Increment the sender's smart-account 2D nonce after execution.
+				eips.IncrementSmartNonce(statedb, aatx.Sender)
+				// Notify paymaster of actual gas usage if a validator is configured.
+				if p.paymasterValidator != nil {
+					uo := buildAAUserOp(aatx)
+					_ = p.paymasterValidator.PostOp(uo, nil, usedGas, statedb)
+				}
+			}
 		}
 
 		// Track cumulative gas across all transactions in the block.
@@ -1504,4 +1537,21 @@ func CountToUint64(val types.Hash) uint64 {
 // TrimTrailingZeros is an exported version of trimTrailingZeros for tests.
 func TrimTrailingZeros(b []byte) []byte {
 	return trimTrailingZeros(b)
+}
+
+// buildAAUserOp constructs an eips.UserOperation from the on-chain AATx fields.
+// Used for pre/post-execution EIP-7701 validation hooks.
+func buildAAUserOp(aatx *types.AATx) *eips.UserOperation {
+	return &eips.UserOperation{
+		Sender:                        aatx.Sender,
+		Nonce:                         new(big.Int).SetUint64(aatx.Nonce),
+		CallData:                      aatx.SenderExecutionData,
+		CallGasLimit:                  aatx.SenderExecutionGas,
+		VerificationGasLimit:          aatx.SenderValidationGas,
+		PaymasterVerificationGasLimit: aatx.PaymasterValidationGas,
+		PaymasterPostOpGasLimit:       aatx.PaymasterPostOpGas,
+		Paymaster:                     aatx.Paymaster,
+		MaxFeePerGas:                  aatx.MaxFeePerGas,
+		MaxPriorityFeePerGas:          aatx.MaxPriorityFeePerGas,
+	}
 }

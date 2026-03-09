@@ -472,7 +472,7 @@ func New(config *Config) (*Node, error) {
 		BootstrapNodes: config.Bootnodes,
 		DiscoveryPort:  config.EffectiveDiscoveryPort(),
 		NAT:            config.NAT,
-		Protocols:      []p2p.Protocol{n.ethHandler.Protocol()},
+		Protocols:      []p2p.Protocol{n.ethHandler.Protocol(), n.snapHandler.Protocol()},
 	})
 
 	// EP-6 BB-1.1/1.2/1.3: initialize anonymous transport manager.
