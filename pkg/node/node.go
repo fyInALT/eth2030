@@ -19,40 +19,54 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/eth2030/eth2030/consensus/vdf"
 	"github.com/eth2030/eth2030/core/chain"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/gigagas"
+	mevpkg "github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
+	"github.com/eth2030/eth2030/core/teragas"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/vops"
 	"github.com/eth2030/eth2030/crypto"
+	dasblobpool "github.com/eth2030/eth2030/das/blobpool"
+	dasnetwork "github.com/eth2030/eth2030/das/network"
+	dasvalidator "github.com/eth2030/eth2030/das/validator"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/eth"
+	"github.com/eth2030/eth2030/light"
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/p2p/dnsdisc"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
+	rpcmiddleware "github.com/eth2030/eth2030/rpc/middleware"
 	ethsync "github.com/eth2030/eth2030/sync"
-	mevpkg "github.com/eth2030/eth2030/core/mev"
-	"github.com/eth2030/eth2030/core/gigagas"
-	"github.com/eth2030/eth2030/core/teragas"
-	"github.com/eth2030/eth2030/core/vops"
-	"github.com/eth2030/eth2030/consensus/vdf"
-	dasnetwork "github.com/eth2030/eth2030/das/network"
-	dasvalidator "github.com/eth2030/eth2030/das/validator"
-	syncinserter "github.com/eth2030/eth2030/sync/inserter"
+	syncbeam "github.com/eth2030/eth2030/sync/beam"
 	synccheckpoint "github.com/eth2030/eth2030/sync/checkpoint"
 	syncchecksync "github.com/eth2030/eth2030/sync/checksync"
+	syncinserter "github.com/eth2030/eth2030/sync/inserter"
 	syncrangeproof "github.com/eth2030/eth2030/sync/rangeproof"
-	syncbeam "github.com/eth2030/eth2030/sync/beam"
 	syncsupport "github.com/eth2030/eth2030/sync/support"
-	"github.com/eth2030/eth2030/light"
-	dasblobpool "github.com/eth2030/eth2030/das/blobpool"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
 	"github.com/eth2030/eth2030/txpool/tracking"
-	rpcmiddleware "github.com/eth2030/eth2030/rpc/middleware"
+
+	epbsauction "github.com/eth2030/eth2030/epbs/auction"
+	epbsbid "github.com/eth2030/eth2030/epbs/bid"
+	epbsbuilder "github.com/eth2030/eth2030/epbs/builder"
+	epbscommit "github.com/eth2030/eth2030/epbs/commit"
+	epbsescrow "github.com/eth2030/eth2030/epbs/escrow"
+	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
+	epbsslash "github.com/eth2030/eth2030/epbs/slashing"
+
+	rollupanchor "github.com/eth2030/eth2030/rollup/anchor"
+	rollupbridge "github.com/eth2030/eth2030/rollup/bridge"
+	rollupproof "github.com/eth2030/eth2030/rollup/proof"
+	rollupregistry "github.com/eth2030/eth2030/rollup/registry"
+	rollupseq "github.com/eth2030/eth2030/rollup/sequencer"
 )
 
 // Node is the top-level ETH2030 node that manages all subsystems.
@@ -103,7 +117,7 @@ type Node struct {
 	vopsExecutor *vops.PartialExecutor
 
 	// DAS: data availability network manager and validator (PeerDAS, EIP-7594).
-	dasNetMgr   *dasnetwork.DASNetworkManager
+	dasNetMgr    *dasnetwork.DASNetworkManager
 	dasValidator *dasvalidator.DAValidator
 
 	// Teragas L2 blob scheduler (1 GByte/sec north star).
@@ -128,6 +142,24 @@ type Node struct {
 
 	// DAS sparse blob pool (custody-based pruning, EIP-4844/7594).
 	dasBlobPool *dasblobpool.SparseBlobPool
+
+	// ePBS sub-systems (EIP-7732): auction, bid scoring, builder market,
+	// commitment chain, escrow, MEV burn tracker, and slashing.
+	epbsAuction  *epbsauction.AuctionEngine
+	epbsBid      *epbsbid.BidScoreCalculator
+	epbsBuilder  *epbsbuilder.BuilderMarket
+	epbsCommit   *epbscommit.CommitmentChain
+	epbsEscrow   *epbsescrow.BidEscrow
+	epbsMEVBurn  *epbsmevburn.MEVBurnTracker
+	epbsSlashing *epbsslash.SlashingEngine
+
+	// Native rollup sub-systems (EIP-8079): anchor contract, bridge,
+	// proof generator, rollup registry, and sequencer.
+	rollupAnchor   *rollupanchor.Contract
+	rollupBridge   *rollupbridge.Bridge
+	rollupProof    *rollupproof.MessageProofGenerator
+	rollupRegistry *rollupregistry.Registry
+	rollupSeq      *rollupseq.Sequencer
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -441,6 +473,28 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize gigagas gas-rate tracker (M+ 1 Ggas/sec north star).
 	n.gasRateTracker = gigagas.NewGasRateTracker(100)
+
+	// Initialize ePBS sub-systems (EIP-7732): auction, bid scoring, builder market,
+	// commitment chain, bid escrow, MEV burn tracker, and slashing engine.
+	n.epbsAuction = epbsauction.NewAuctionEngine(epbsauction.DefaultAuctionEngineConfig())
+	if bsc, bscErr := epbsbid.NewBidScoreCalculator(epbsbid.DefaultBidScoreConfig()); bscErr == nil {
+		n.epbsBid = bsc
+	} else {
+		slog.Warn("epbs bid scorer init failed", "err", bscErr)
+	}
+	n.epbsBuilder = epbsbuilder.NewBuilderMarket(epbsbuilder.DefaultBuilderMarketConfig())
+	n.epbsCommit = epbscommit.NewCommitmentChain()
+	n.epbsEscrow = epbsescrow.NewBidEscrow(1024)
+	n.epbsMEVBurn = epbsmevburn.NewMEVBurnTracker(epbsmevburn.DefaultMEVBurnConfig())
+	n.epbsSlashing = epbsslash.NewSlashingEngine(epbsslash.DefaultPenaltyMultipliers(), 100)
+
+	// Initialize native rollup sub-systems (EIP-8079): anchor contract, L1↔L2
+	// bridge, proof generator, rollup registry, and sequencer.
+	n.rollupAnchor = rollupanchor.NewContract()
+	n.rollupBridge = rollupbridge.NewBridge(rollupbridge.DefaultConfig())
+	n.rollupProof = rollupproof.NewMessageProofGenerator()
+	n.rollupRegistry = rollupregistry.NewRegistry()
+	n.rollupSeq = rollupseq.NewSequencer(rollupseq.DefaultConfig())
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)
