@@ -355,10 +355,12 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	}
 
 	// Separate and sort: regular txs first, then blob txs.
-	regularTxs, blobTxs := sortedTxLists(pendingTxs, header.BaseFee)
-
-	// Process regular transactions followed by blob transactions.
-	allSorted := append(regularTxs, blobTxs...)
+	// Blob txs are excluded from payload building until BlobsBundle (KZG
+	// commitments + proofs) generation is fully implemented; including them
+	// without returning a matching BlobsBundle causes the CL to reject the
+	// payload with "invalid blob versioned hashes".
+	regularTxs, _ := sortedTxLists(pendingTxs, header.BaseFee)
+	allSorted := regularTxs
 
 	// Partition transactions into non-conflicting groups for parallel execution
 	// observability (gigagas parallel path, M+ roadmap). The groups are not yet
