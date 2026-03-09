@@ -676,6 +676,7 @@ func New(config *Config) (*Node, error) {
 		Slot:       genesis.NumberU64(),
 	}
 	n.fcStateManager = forkchoice.NewForkchoiceStateManager(genesisInfo)
+	n.fcStateManager.SetChain(bc)
 	n.fcTracker = forkchoice.NewForkchoiceTracker(256, 128)
 
 	// Register reorg listeners: log the event, reset txpool trackers, and
