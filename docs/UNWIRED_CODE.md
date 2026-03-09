@@ -806,7 +806,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `txpool/queue` | 🟢 COVERED | `txpool.go` `txSortedList` lines 127–194 |
 | `txpool/replacement` | 🟢 COVERED | `txpool.go` `hasSufficientBump()` lines 344–371 |
 | `txpool/journal` | 🟢 COVERED | `TxJournal` persists regular txs; replayed on startup |
-| `txpool/pricing` | 🟡 PARTIAL | Fee calc inline; gas suggestion missing |
+| `txpool/pricing` | 🟢 COVERED | `PriceBumper` wired into `TxPool`: `RecordBlock` feeds header fee data; `SuggestGasPrice(tier)` and `SuggestAllTiers()` expose tiered fee recommendations |
 | `txpool/encrypted` | 🟢 COVERED | `EncryptedMempoolProtocol`+`EncryptedPool` in node; epoch/expire per block |
 | `txpool/fees` | 🟢 COVERED | `SetBaseFee` inline in txpool |
 | `txpool/shared` | 🟢 COVERED | `SharedMempool` instantiated in node |

@@ -11,6 +11,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/txpool/frametx"
+	"github.com/eth2030/eth2030/txpool/pricing"
 )
 
 // Type aliases re-exported from sub-packages for backward compatibility.
@@ -190,9 +191,10 @@ func (l *txSortedList) Ready(baseNonce uint64) []*types.Transaction {
 type TxPool struct {
 	config      Config
 	state       StateReader
-	codeReader  FrameStateReader // optional: enables VERIFY frame code check (AA-3.1)
-	baseFee     *big.Int         // current base fee, nil if unknown
-	blobBaseFee *big.Int         // current blob base fee (EIP-4844), nil if unknown
+	codeReader  FrameStateReader     // optional: enables VERIFY frame code check (AA-3.1)
+	baseFee     *big.Int             // current base fee, nil if unknown
+	blobBaseFee *big.Int             // current blob base fee (EIP-4844), nil if unknown
+	suggestor   *pricing.PriceBumper // gas price suggestion engine
 
 	mu      sync.RWMutex
 	pending map[types.Address]*txSortedList // processable transactions
@@ -203,12 +205,32 @@ type TxPool struct {
 // New creates a new transaction pool.
 func New(config Config, state StateReader) *TxPool {
 	return &TxPool{
-		config:  config,
-		state:   state,
-		pending: make(map[types.Address]*txSortedList),
-		queue:   make(map[types.Address]*txSortedList),
-		lookup:  newTxLookup(),
+		config:    config,
+		state:     state,
+		suggestor: pricing.NewPriceBumper(pricing.DefaultBumperConfig()),
+		pending:   make(map[types.Address]*txSortedList),
+		queue:     make(map[types.Address]*txSortedList),
+		lookup:    newTxLookup(),
 	}
+}
+
+// RecordBlock feeds fee data from a newly processed block into the gas price
+// suggestion engine. Call this once per block so SuggestGasPrice returns
+// up-to-date recommendations.
+func (pool *TxPool) RecordBlock(header *types.Header, txs []*types.Transaction) {
+	pool.suggestor.RecordBlockFromHeader(header, txs)
+}
+
+// SuggestGasPrice returns a fee suggestion for the desired speed tier.
+// Valid tiers: pricing.TierUrgent, TierFast, TierStandard, TierSlow.
+// Falls back to TierStandard for unknown tier names.
+func (pool *TxPool) SuggestGasPrice(tier string) pricing.FeeSuggestion {
+	return pool.suggestor.SuggestFee(tier)
+}
+
+// SuggestAllTiers returns fee suggestions for all four speed tiers at once.
+func (pool *TxPool) SuggestAllTiers() pricing.TieredSuggestion {
+	return pool.suggestor.SuggestAllTiers()
 }
 
 // SetCodeReader wires a FrameStateReader into the pool, enabling lightweight
