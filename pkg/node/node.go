@@ -35,9 +35,12 @@ import (
 	ethsync "github.com/eth2030/eth2030/sync"
 	mevpkg "github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/gigagas"
+	"github.com/eth2030/eth2030/core/teragas"
 	"github.com/eth2030/eth2030/core/vops"
+	"github.com/eth2030/eth2030/consensus/vdf"
 	dasnetwork "github.com/eth2030/eth2030/das/network"
 	dasvalidator "github.com/eth2030/eth2030/das/validator"
+	syncinserter "github.com/eth2030/eth2030/sync/inserter"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
@@ -95,6 +98,15 @@ type Node struct {
 	// DAS: data availability network manager and validator (PeerDAS, EIP-7594).
 	dasNetMgr   *dasnetwork.DASNetworkManager
 	dasValidator *dasvalidator.DAValidator
+
+	// Teragas L2 blob scheduler (1 GByte/sec north star).
+	teragasScheduler *teragas.TeragasScheduler
+
+	// VDF randomness consensus (L+ secret proposers).
+	vdfConsensus *vdf.VDFConsensus
+
+	// Sync chain inserter with verification metrics.
+	chainInserter *syncinserter.ChainInserter
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -212,6 +224,18 @@ func New(config *Config) (*Node, error) {
 		&stubCustodyManager{},
 	)
 	n.dasValidator = dasvalidator.NewDAValidator(dasvalidator.DefaultDAValidatorConfig())
+
+	// Initialize teragas L2 blob scheduler (L2 1 GByte/sec north star).
+	n.teragasScheduler = teragas.NewTeragasScheduler(teragas.DefaultSchedulerConfig())
+
+	// Initialize VDF consensus for slot-based randomness (L+ secret proposers).
+	n.vdfConsensus = vdf.NewVDFConsensus(vdf.DefaultVDFConsensusConfig())
+
+	// Initialize chain inserter with verification metrics (sync/inserter).
+	n.chainInserter = syncinserter.NewChainInserter(
+		syncinserter.DefaultChainInserterConfig(),
+		n.blockchain,
+	)
 
 	// Initialize tx journal for pending tx persistence across restarts.
 	journalPath := config.ResolvePath("transactions.rlp")
@@ -518,6 +542,11 @@ func (n *Node) Stop() error {
 	// Stop DAS network manager.
 	if n.dasNetMgr != nil {
 		n.dasNetMgr.Stop()
+	}
+
+	// Stop teragas blob scheduler.
+	if n.teragasScheduler != nil {
+		n.teragasScheduler.Stop()
 	}
 
 	// Stop STARK mempool aggregator.
