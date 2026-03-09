@@ -35,6 +35,9 @@ type TxLookupEntry struct {
 // transitions and persisting data to the underlying database.
 type Blockchain struct {
 	mu        sync.RWMutex
+	// rcMu guards receiptCache independently of mu, allowing concurrent
+	// receipt reads while InsertBlock holds mu.Lock() for state execution.
+	rcMu      sync.RWMutex
 	config    *config.ChainConfig
 	db        rawdb.Database
 	hc        *HeaderChain
@@ -47,7 +50,7 @@ type Blockchain struct {
 	// Canonical number -> hash for quick lookups.
 	canonCache map[uint64]types.Hash
 
-	// Receipt cache: blockHash -> receipts.
+	// Receipt cache: blockHash -> receipts.  Protected by rcMu.
 	receiptCache map[types.Hash][]*types.Receipt
 
 	// Transaction lookup: txHash -> location in chain.
@@ -245,8 +248,10 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Cache receipts by block hash.
+	// Cache receipts by block hash (rcMu allows concurrent readers in GetReceipts).
+	bc.rcMu.Lock()
 	bc.receiptCache[hash] = receipts
+	bc.rcMu.Unlock()
 
 	// Build tx lookup index.
 	for i, tx := range txs {
@@ -849,13 +854,15 @@ func (bc *Blockchain) ChainLength() uint64 {
 }
 
 // GetReceipts returns the receipts for a block identified by hash.
+// Uses rcMu instead of the main mu to avoid blocking on concurrent InsertBlock.
 func (bc *Blockchain) GetReceipts(blockHash types.Hash) []*types.Receipt {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-	if r, ok := bc.receiptCache[blockHash]; ok {
+	bc.rcMu.RLock()
+	r, ok := bc.receiptCache[blockHash]
+	bc.rcMu.RUnlock()
+	if ok {
 		return r
 	}
-	// Fallback: read from rawdb (e.g. after restart).
+	// Fallback: read from rawdb (thread-safe, no bc.mu needed).
 	num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
 	if err != nil {
 		return nil
@@ -869,22 +876,29 @@ func (bc *Blockchain) GetReceipts(blockHash types.Hash) []*types.Receipt {
 }
 
 // GetBlockReceipts returns the receipts for the canonical block at the given number.
+// Reads canonical hash from rawdb (thread-safe) and receipt cache under rcMu to
+// avoid blocking on InsertBlock's bc.mu.Lock() during state execution.
 func (bc *Blockchain) GetBlockReceipts(number uint64) []*types.Receipt {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-	hash, ok := bc.canonCache[number]
-	if !ok {
-		// Fallback: try rawdb canonical hash.
-		h, err := rawdb.ReadCanonicalHash(bc.db, number)
-		if err != nil {
+	// Prefer rawdb for canonical hash: it's always consistent and doesn't
+	// need bc.mu. Fall back to in-memory canonCache only if rawdb lacks the entry.
+	hash, err := rawdb.ReadCanonicalHash(bc.db, number)
+	if err != nil {
+		bc.mu.RLock()
+		h, ok := bc.canonCache[number]
+		bc.mu.RUnlock()
+		if !ok {
 			return nil
 		}
 		hash = h
 	}
-	if r, ok2 := bc.receiptCache[hash]; ok2 {
+	// Check receipt cache under fine-grained rcMu.
+	bc.rcMu.RLock()
+	r, ok2 := bc.receiptCache[hash]
+	bc.rcMu.RUnlock()
+	if ok2 {
 		return r
 	}
-	// Fallback: read from rawdb.
+	// Fallback: read from rawdb (thread-safe).
 	blk := bc.readBlock(hash)
 	var txs []*types.Transaction
 	if blk != nil {
@@ -895,11 +909,11 @@ func (bc *Blockchain) GetBlockReceipts(number uint64) []*types.Receipt {
 
 // GetLogs returns all logs from receipts for the block identified by hash.
 func (bc *Blockchain) GetLogs(blockHash types.Hash) []*types.Log {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
+	bc.rcMu.RLock()
 	receipts, ok := bc.receiptCache[blockHash]
+	bc.rcMu.RUnlock()
 	if !ok {
-		// Fallback: read from rawdb.
+		// Fallback: read from rawdb (thread-safe, no bc.mu needed).
 		num, err := rawdb.ReadHeaderNumber(bc.db, blockHash)
 		if err == nil {
 			blk := bc.readBlock(blockHash)
