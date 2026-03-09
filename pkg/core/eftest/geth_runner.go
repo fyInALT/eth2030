@@ -230,9 +230,12 @@ func (st *GethStateTest) RunWithGeth(subtest StateSubtest) *GethRunResult {
 		return result
 	}
 
-	// Build block context and execute.
+	// Build block context and execute via processor (injects custom precompiles when active).
 	blockCtx := st.buildGethBlockContext(config)
-	evm := gethvm.NewEVM(blockCtx, stState.StateDB, config, gethvm.Config{})
+	evmBlockNum := new(big.Int).SetUint64(hexToUint64(st.json.Env.CurrentNumber))
+	evmTimestamp := hexToUint64(st.json.Env.CurrentTimestamp)
+	processor := geth.NewGethBlockProcessorWithEth2028(config, nil)
+	evm := processor.MakeEVM(blockCtx, stState.StateDB, evmBlockNum, evmTimestamp)
 	snapshot := stState.StateDB.Snapshot()
 	gasPool := new(gethcore.GasPool).AddGas(hexToUint64(st.json.Env.CurrentGasLimit))
 
