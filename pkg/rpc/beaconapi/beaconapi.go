@@ -383,6 +383,17 @@ func (api *BeaconAPI) getNodeHealth(req *rpctypes.Request) *rpctypes.Response {
 	return rpctypes.NewSuccessResponse(req.ID, map[string]string{"status": status})
 }
 
+// HandleBeaconRequest dispatches a beacon_ namespace JSON-RPC request.
+func (api *BeaconAPI) HandleBeaconRequest(req *rpctypes.Request) *rpctypes.Response {
+	routes := RegisterBeaconRoutes(api)
+	handler, ok := routes[req.Method]
+	if !ok {
+		return rpctypes.NewErrorResponse(req.ID, BeaconErrNotFound,
+			fmt.Sprintf("method %q not found in beacon namespace", req.Method))
+	}
+	return handler(req)
+}
+
 func beaconErr(id json.RawMessage, code int, msg string) *rpctypes.Response {
 	return rpctypes.NewErrorResponse(id, code, msg)
 }

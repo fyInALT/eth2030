@@ -22,6 +22,18 @@ type AdminRequestHandler interface {
 	HandleAdminRequest(req *rpctypes.Request) *rpctypes.Response
 }
 
+// NetRequestHandler dispatches net_ namespace JSON-RPC requests.
+// *netapi.API satisfies this interface.
+type NetRequestHandler interface {
+	HandleNetRequest(req *rpctypes.Request) *rpctypes.Response
+}
+
+// BeaconRequestHandler dispatches beacon_ namespace JSON-RPC requests.
+// *beaconapi.BeaconAPI satisfies this interface.
+type BeaconRequestHandler interface {
+	HandleBeaconRequest(req *rpctypes.Request) *rpctypes.Response
+}
+
 // BatchResponse represents a single response within a JSON-RPC batch.
 type BatchResponse struct {
 	JSONRPC string             `json:"jsonrpc"`
@@ -31,10 +43,13 @@ type BatchResponse struct {
 }
 
 // BatchHandler processes JSON-RPC batch requests by dispatching each item
-// to the underlying RequestHandler, optionally also serving admin_ methods.
+// to the underlying RequestHandler, optionally also serving admin_, net_,
+// and beacon_ methods.
 type BatchHandler struct {
 	api          RequestHandler
 	adminAPI     AdminRequestHandler
+	netAPI       NetRequestHandler
+	beaconAPI    BeaconRequestHandler
 	parallelism  int
 	maxBatchSize int
 }
@@ -51,6 +66,16 @@ func NewBatchHandler(api RequestHandler) *BatchHandler {
 // SetAdminHandler wires an AdminRequestHandler so admin_ methods are dispatched.
 func (bh *BatchHandler) SetAdminHandler(h AdminRequestHandler) {
 	bh.adminAPI = h
+}
+
+// SetNetHandler wires a NetRequestHandler so net_ methods are dispatched.
+func (bh *BatchHandler) SetNetHandler(h NetRequestHandler) {
+	bh.netAPI = h
+}
+
+// SetBeaconHandler wires a BeaconRequestHandler so beacon_ methods are dispatched.
+func (bh *BatchHandler) SetBeaconHandler(h BeaconRequestHandler) {
+	bh.beaconAPI = h
 }
 
 // SetMaxBatchSize sets the maximum number of items in a single batch.
@@ -115,6 +140,14 @@ func isAdminMethod(method string) bool {
 	return len(method) > 6 && method[:6] == "admin_"
 }
 
+func isNetMethod(method string) bool {
+	return len(method) > 4 && method[:4] == "net_"
+}
+
+func isBeaconMethod(method string) bool {
+	return len(method) > 7 && method[:7] == "beacon_"
+}
+
 func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 	if req.JSONRPC != "2.0" {
 		return BatchResponse{
@@ -137,9 +170,14 @@ func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 		ID:      req.ID,
 	}
 	var resp *rpctypes.Response
-	if isAdminMethod(req.Method) && bh.adminAPI != nil {
+	switch {
+	case isAdminMethod(req.Method) && bh.adminAPI != nil:
 		resp = bh.adminAPI.HandleAdminRequest(apiReq)
-	} else {
+	case isNetMethod(req.Method) && bh.netAPI != nil:
+		resp = bh.netAPI.HandleNetRequest(apiReq)
+	case isBeaconMethod(req.Method) && bh.beaconAPI != nil:
+		resp = bh.beaconAPI.HandleBeaconRequest(apiReq)
+	default:
 		resp = bh.api.HandleRequest(apiReq)
 	}
 	return BatchResponse{

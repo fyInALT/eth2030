@@ -1,9 +1,13 @@
 // server_extended.go re-exports ExtServer from rpc/server for backward
-// compatibility, with a convenience wrapper for AdminBackend wiring.
+// compatibility, with convenience wrappers for AdminBackend, NetBackend,
+// and BeaconAPI wiring.
 package rpc
 
 import (
 	rpcserver "github.com/eth2030/eth2030/rpc/server"
+
+	"github.com/eth2030/eth2030/rpc/beaconapi"
+	"github.com/eth2030/eth2030/rpc/netapi"
 )
 
 // ExtServer is a full-featured JSON-RPC server with middleware, CORS,
@@ -22,6 +26,16 @@ func NewExtServer(backend Backend, config ServerConfig) *ExtServer {
 // SetAdminBackend wires an AdminBackend so admin_* methods are served.
 func (s *ExtServer) SetAdminBackend(b AdminBackend) {
 	s.SetAdminHandler(NewAdminDispatchAPI(b))
+}
+
+// SetNetBackend wires a netapi.Backend so net_* methods are served.
+func (s *ExtServer) SetNetBackend(b netapi.Backend) {
+	s.SetNetHandler(netapi.NewAPI(b))
+}
+
+// SetBeaconAPI wires a BeaconAPI so beacon_* methods are served.
+func (s *ExtServer) SetBeaconAPI(api *beaconapi.BeaconAPI) {
+	s.SetBeaconHandler(api)
 }
 
 // Re-export middleware constructors.
