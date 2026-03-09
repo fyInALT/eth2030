@@ -3,9 +3,10 @@ set -euo pipefail
 
 ENCLAVE="${1:-eth2030-devnet}"
 
-# Get first EL RPC endpoint
-EL_SVC=$(kurtosis enclave inspect "$ENCLAVE" 2>/dev/null | grep "^el-" | head -1 | awk '{print $1}')
-RPC_URL=$(kurtosis port print "$ENCLAVE" "$EL_SVC" rpc 2>/dev/null)
+# Get first EL RPC endpoint (inspect lines have UUID prefix, match by name pattern)
+EL_SVC=$(kurtosis enclave inspect "$ENCLAVE" 2>/dev/null | grep "el-[0-9].*geth" | head -1 | awk '{print $2}')
+RPC_PORT=$(kurtosis port print "$ENCLAVE" "$EL_SVC" rpc 2>/dev/null)
+RPC_URL="http://$RPC_PORT"
 
 echo "=== Testing ETH2030 Custom Precompiles ==="
 echo "RPC: $RPC_URL"

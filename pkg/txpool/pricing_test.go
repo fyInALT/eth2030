@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/txpool/pricing"
 )
 
 // makeDynTx creates an EIP-1559 dynamic fee transaction with the given parameters.
@@ -591,5 +592,93 @@ func TestEvictLowest_Direct(t *testing.T) {
 		if tx.GasPrice().Int64() == 100 {
 			t.Error("cheapest tx should have been evicted")
 		}
+	}
+}
+
+// --- Gas suggestion via PriceBumper wired into TxPool ---
+
+func TestTxPool_SuggestGasPrice_NoHistory(t *testing.T) {
+	state := newMockState()
+	pool := New(DefaultConfig(), state)
+
+	// With no block history the bumper falls back to min suggested tip.
+	s := pool.SuggestGasPrice(pricing.TierStandard)
+	if s.MaxPriorityFeePerGas == nil {
+		t.Fatal("MaxPriorityFeePerGas should not be nil")
+	}
+	if s.MaxPriorityFeePerGas.Cmp(big.NewInt(pricing.BumperMinSuggestedTip)) < 0 {
+		t.Errorf("tip %v < min suggested tip", s.MaxPriorityFeePerGas)
+	}
+}
+
+func TestTxPool_RecordBlock_UpdatesSuggestor(t *testing.T) {
+	state := newMockState()
+	pool := New(DefaultConfig(), state)
+
+	baseFee := big.NewInt(10e9)
+	excess := uint64(0)
+	header := &types.Header{
+		Number:        big.NewInt(1),
+		BaseFee:       baseFee,
+		GasLimit:      30_000_000,
+		GasUsed:       15_000_000,
+		ExcessBlobGas: &excess,
+	}
+	pool.RecordBlock(header, nil)
+
+	// After recording a block the suggestor should know the base fee.
+	s := pool.SuggestGasPrice(pricing.TierStandard)
+	if s.MaxFeePerGas == nil {
+		t.Fatal("MaxFeePerGas should not be nil after recording a block")
+	}
+	// fee cap must be >= base fee (it's baseFee * multiplier + tip).
+	if s.MaxFeePerGas.Cmp(baseFee) < 0 {
+		t.Errorf("MaxFeePerGas %v < baseFee %v", s.MaxFeePerGas, baseFee)
+	}
+	// Blob fee should be present when ExcessBlobGas is set.
+	if s.MaxFeePerBlobGas == nil {
+		t.Error("MaxFeePerBlobGas should not be nil when ExcessBlobGas is set")
+	}
+}
+
+func TestTxPool_SuggestAllTiers_OrderingInvariant(t *testing.T) {
+	state := newMockState()
+	pool := New(DefaultConfig(), state)
+
+	pool.RecordBlock(&types.Header{
+		Number:   big.NewInt(1),
+		BaseFee:  big.NewInt(5e9),
+		GasLimit: 30_000_000,
+		GasUsed:  20_000_000,
+	}, []*types.Transaction{
+		makeTx(0, 3e9, 21000),
+		makeTx(1, 7e9, 21000),
+	})
+
+	ts := pool.SuggestAllTiers()
+	if ts.BaseFee == nil {
+		t.Fatal("BaseFee should not be nil")
+	}
+	// Urgent tip >= slow tip.
+	if ts.Urgent.MaxPriorityFeePerGas.Cmp(ts.Slow.MaxPriorityFeePerGas) < 0 {
+		t.Errorf("urgent tip %v < slow tip %v",
+			ts.Urgent.MaxPriorityFeePerGas, ts.Slow.MaxPriorityFeePerGas)
+	}
+	// Urgent fee cap >= slow fee cap.
+	if ts.Urgent.MaxFeePerGas.Cmp(ts.Slow.MaxFeePerGas) < 0 {
+		t.Errorf("urgent fee cap %v < slow fee cap %v",
+			ts.Urgent.MaxFeePerGas, ts.Slow.MaxFeePerGas)
+	}
+}
+
+func TestTxPool_SuggestGasPrice_UnknownTierDefaultsToStandard(t *testing.T) {
+	state := newMockState()
+	pool := New(DefaultConfig(), state)
+
+	s := pool.SuggestGasPrice("bogus-tier")
+	std := pool.SuggestGasPrice(pricing.TierStandard)
+	// Unknown tier delegates to standard percentile; both should be equal.
+	if s.MaxFeePerGas.Cmp(std.MaxFeePerGas) != 0 {
+		t.Errorf("unknown tier fee %v != standard fee %v", s.MaxFeePerGas, std.MaxFeePerGas)
 	}
 }

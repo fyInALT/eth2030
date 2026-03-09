@@ -1,12 +1,15 @@
 package payload
 
 import (
+	"fmt"
 	"log/slog"
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/chain"
 	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -76,6 +79,18 @@ func (pb *PayloadBuilder) StartBuild(
 	if (attrs.ParentBeaconBlockRoot != types.Hash{}) {
 		br := attrs.ParentBeaconBlockRoot
 		beaconRoot = &br
+	}
+
+	// Validate gas limit is within allowed range from parent.
+	minGas, maxGas := chain.CalcGasLimitRange(parentHeader.GasLimit)
+	if parentHeader.GasLimit < minGas || parentHeader.GasLimit > maxGas {
+		return fmt.Errorf("payload gas limit %d out of range [%d, %d]", parentHeader.GasLimit, minGas, maxGas)
+	}
+
+	// Validate timestamp is not more than 15 seconds in the future.
+	syntheticHeader := &types.Header{Time: attrs.Timestamp}
+	if err := chain.VerifyTimestampWindow(syntheticHeader, uint64(time.Now().Unix()), 15); err != nil {
+		return fmt.Errorf("payload timestamp: %w", err)
 	}
 
 	blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{

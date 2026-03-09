@@ -383,9 +383,9 @@ func TestGetPayloadV3_ResponseFormat(t *testing.T) {
 				},
 				BlockValue: big.NewInt(5_000_000),
 				BlobsBundle: &BlobsBundleV1{
-					Commitments: [][]byte{{0x01, 0x02}},
-					Proofs:      [][]byte{{0x03, 0x04}},
-					Blobs:       [][]byte{{0x05, 0x06}},
+					Commitments: [][]byte{func() []byte { c := make([]byte, 48); c[0] = 0x01; return c }()},
+					Proofs:      [][]byte{make([]byte, 48)},
+					Blobs:       [][]byte{func() []byte { b := make([]byte, 131072); b[0] = 0x01; return b }()},
 				},
 			}, nil
 		},
@@ -454,9 +454,9 @@ func TestGetPayloadV4_ResponseFormat(t *testing.T) {
 				},
 				BlockValue: big.NewInt(10_000_000),
 				BlobsBundle: &BlobsBundleV1{
-					Commitments: [][]byte{{0x01, 0x02}},
-					Proofs:      [][]byte{{0x03, 0x04}},
-					Blobs:       [][]byte{{0x05, 0x06}},
+					Commitments: [][]byte{func() []byte { c := make([]byte, 48); c[0] = 0x01; return c }()},
+					Proofs:      [][]byte{make([]byte, 48)},
+					Blobs:       [][]byte{func() []byte { b := make([]byte, 131072); b[0] = 0x01; return b }()},
 				},
 				ExecutionRequests: [][]byte{{0x00, 0x01}, {0x01, 0x02}},
 			}, nil

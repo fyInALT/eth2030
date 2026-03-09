@@ -42,6 +42,11 @@ type Config struct {
 	// Bootnodes is a comma-separated list of enode URLs used for bootstrapping.
 	Bootnodes string
 
+	// DNSDiscovery is an optional EIP-1459 DNS tree URL for peer discovery
+	// (e.g. "enrtree://AKA3AM6...@all.mainnet.ethdisco.net").
+	// When set, the node resolves peers from the DNS tree at startup.
+	DNSDiscovery string
+
 	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
 	NAT string
 
@@ -143,6 +148,27 @@ type Config struct {
 	// When true, the txpool accepts type-0x08 txs and enforces ScopeHint access restrictions.
 	ExperimentalLocalTx bool // --experimental-local-tx
 
+	// AllowAATx controls whether the txpool accepts EIP-7701 AA transactions (type 0x05).
+	// Defaults to true (enabled on Glamsterdam+ networks). Set false to disable on
+	// pre-Glamsterdam networks or chains that do not support native AA.
+	AllowAATx bool // --txpool.allow-aa
+
+	// TxpoolPriceHistory is the number of recent blocks the txpool gas-price
+	// suggestor considers when computing fee recommendations. Higher values
+	// smooth out volatility; lower values react faster to fee changes.
+	TxpoolPriceHistory int // --txpool.price-history
+
+	// MigrateEveryBlocks controls how often the incremental MPT→BinaryTrie migrator
+	// advances (one batch per N blocks). 0 disables periodic migration.
+	MigrateEveryBlocks int // --trie.migrate-every
+
+	// SnapshotCapDepth is the maximum number of in-memory diff layers the
+	// snapshot tree retains before flushing the oldest to disk. Higher values
+	// keep more state in RAM (better for fast reads); lower values flush more
+	// aggressively (less RAM, more disk I/O). 0 disables periodic flushing.
+	// Matches go-ethereum's --cache.snapshot semantics (default 128).
+	SnapshotCapDepth int // --snapshot.cap-depth
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -227,6 +253,18 @@ func DefaultConfig() Config {
 
 		// BB-1.1: default to simulated mixnet (no external daemon required).
 		MixnetMode: "simulated",
+
+		// EIP-7701: AA transactions are accepted by default on Glamsterdam+ networks.
+		AllowAATx: true,
+
+		// 20-block fee history window for the txpool gas-price suggestor.
+		TxpoolPriceHistory: 20,
+
+		// Incremental MPT→BinaryTrie migration: advance one batch every 16 blocks.
+		MigrateEveryBlocks: 16,
+
+		// Snapshot: retain at most 128 in-memory diff layers (go-ethereum default).
+		SnapshotCapDepth: 128,
 	}
 }
 
@@ -264,6 +302,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxPeers < 0 {
 		return fmt.Errorf("config: invalid max peers: %d", c.MaxPeers)
+	}
+	if c.SnapshotCapDepth < 0 {
+		return fmt.Errorf("config: invalid snapshot.cap-depth: %d (must be >= 0)", c.SnapshotCapDepth)
 	}
 	if c.FrameMempoolTier != "" && c.FrameMempoolTier != "conservative" && c.FrameMempoolTier != "aggressive" {
 		return fmt.Errorf("config: invalid frame-mempool tier %q (must be conservative or aggressive)", c.FrameMempoolTier)

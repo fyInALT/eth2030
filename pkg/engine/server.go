@@ -15,6 +15,8 @@ import (
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/backendapi"
+	"github.com/eth2030/eth2030/engine/blobval"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
 // Backend is a type alias — canonical definition in engine/backendapi.
@@ -24,6 +26,7 @@ type Backend = backendapi.Backend
 type EngineAPI struct {
 	backend         Backend
 	builderRegistry *BuilderRegistry
+	blobValidator   *blobval.BlobValidator
 	server          *http.Server
 	listener        net.Listener
 	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
@@ -37,6 +40,7 @@ func NewEngineAPI(backend Backend) *EngineAPI {
 	return &EngineAPI{
 		backend:         backend,
 		builderRegistry: NewBuilderRegistry(),
+		blobValidator:   blobval.NewBlobValidator(),
 		maxRequestSize:  5 * 1024 * 1024,
 	}
 }
@@ -122,6 +126,9 @@ func (api *EngineAPI) GetPayloadV3(payloadID PayloadID) (*GetPayloadV3Response, 
 	if err != nil {
 		return nil, err
 	}
+	if err := api.validateBlobsBundle(resp.BlobsBundle); err != nil {
+		return nil, fmt.Errorf("invalid blobs bundle: %w", err)
+	}
 	// Build the V3 response (no executionRequests in V3).
 	v3Resp := &GetPayloadV3Response{
 		ExecutionPayload: &resp.ExecutionPayload.ExecutionPayloadV3,
@@ -130,6 +137,29 @@ func (api *EngineAPI) GetPayloadV3(payloadID PayloadID) (*GetPayloadV3Response, 
 		Override:         resp.Override,
 	}
 	return v3Resp, nil
+}
+
+// validateBlobsBundle validates the KZG commitments and blob counts in a blobs bundle.
+// It converts the dynamic [][]byte slices to fixed-size arrays required by blobval.
+func (api *EngineAPI) validateBlobsBundle(bundle *payload.BlobsBundleV1) error {
+	if bundle == nil || len(bundle.Blobs) == 0 {
+		return nil
+	}
+	commitments := make([][48]byte, len(bundle.Commitments))
+	for i, c := range bundle.Commitments {
+		if len(c) != 48 {
+			return fmt.Errorf("commitment[%d]: expected 48 bytes, got %d", i, len(c))
+		}
+		copy(commitments[i][:], c)
+	}
+	blobs := make([][131072]byte, len(bundle.Blobs))
+	for i, b := range bundle.Blobs {
+		if len(b) != 131072 {
+			return fmt.Errorf("blob[%d]: expected 131072 bytes, got %d", i, len(b))
+		}
+		copy(blobs[i][:], b)
+	}
+	return api.blobValidator.ValidateKZGCommitments(commitments, blobs)
 }
 
 // NewPayloadV4 validates and executes a Prague/Electra payload with execution requests.

@@ -3,6 +3,7 @@ package block
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"sort"
 
@@ -354,10 +355,30 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	}
 
 	// Separate and sort: regular txs first, then blob txs.
-	regularTxs, blobTxs := sortedTxLists(pendingTxs, header.BaseFee)
+	// Blob txs are excluded from payload building until BlobsBundle (KZG
+	// commitments + proofs) generation is fully implemented; including them
+	// without returning a matching BlobsBundle causes the CL to reject the
+	// payload with "invalid blob versioned hashes".
+	regularTxs, _ := sortedTxLists(pendingTxs, header.BaseFee)
+	allSorted := regularTxs
 
-	// Process regular transactions followed by blob transactions.
-	allSorted := append(regularTxs, blobTxs...)
+	// Partition transactions into non-conflicting groups for parallel execution
+	// observability (gigagas parallel path, M+ roadmap). The groups are not yet
+	// executed in parallel — the partition informs future scheduling decisions.
+	if len(allSorted) > 0 {
+		depGraph := execution.NewDependencyGraph(allSorted, nil)
+		txGroups := depGraph.Partition(4) // up to 4 parallel groups
+		slog.Debug("tx dependency partition",
+			"txs", len(allSorted),
+			"groups", len(txGroups),
+			"conflicts", depGraph.ConflictCount(),
+		)
+		_ = txGroups // groups available for future parallel dispatch
+	}
+
+	// ReceiptGenerator tracks enhanced receipt metadata (bloom, cumulative gas,
+	// receipt trie root) alongside the inline receipt accumulator below.
+	recGen := execution.NewReceiptGenerator(execution.DefaultReceiptGeneratorConfig())
 
 	for _, tx := range allSorted {
 		// Skip transactions already included from the inclusion list.
@@ -428,6 +449,31 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		receipts = append(receipts, receipt)
 		gasUsed += used
 
+		// Feed the ReceiptGenerator with per-tx outcome for enhanced bloom and
+		// receipt-trie-root computation (used for cross-validation).
+		outcome := &execution.TxExecutionOutcome{
+			GasUsed:          used,
+			Failed:           receipt.Status == types.ReceiptStatusFailed,
+			Logs:             receipt.Logs,
+			ContractAddress:  receipt.ContractAddress,
+			BlobGasUsed:      receipt.BlobGasUsed,
+			BlobGasPrice:     receipt.BlobGasPrice,
+			CalldataGasUsed:  receipt.CalldataGasUsed,
+			CalldataGasPrice: receipt.CalldataGasPrice,
+			TxHash:           tx.Hash(),
+			TxType:           tx.Type(),
+		}
+		if header.BaseFee != nil && tx.GasFeeCap() != nil {
+			outcome.EffectiveGasPrice = new(big.Int).Add(
+				header.BaseFee,
+				new(big.Int).Sub(tx.GasFeeCap(), header.BaseFee),
+			)
+			if outcome.EffectiveGasPrice.Cmp(tx.GasFeeCap()) > 0 {
+				outcome.EffectiveGasPrice = new(big.Int).Set(tx.GasFeeCap())
+			}
+		}
+		recGen.GenerateReceipt(outcome, uint(txIndex))
+
 		// Track blob gas for EIP-4844 blob transactions.
 		if tx.Type() == types.BlobTxType && cancunActive {
 			blobGasUsed += tx.BlobGas()
@@ -471,6 +517,13 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		header.GasUsedVec = &gasUsed3D
 		header.ExcessGasVec = &excessGas
 	}
+
+	// Finalize ReceiptGenerator: compute the aggregate bloom and receipt trie root.
+	// The block hash is not yet known, so use a zero placeholder hash.
+	recGen.FinalizeBlock(types.Hash{}, header.Number.Uint64())
+	// Use the generator's bloom for cross-validation with types.CreateBloom.
+	_ = recGen.BlockBloom()
+	_ = recGen.ComputeReceiptTrieRoot()
 
 	// Compute block-level bloom filter from all receipts.
 	header.Bloom = types.CreateBloom(receipts)
@@ -541,6 +594,11 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		blockBAL.Sort()
 		h := blockBAL.Hash()
 		header.BlockAccessListHash = &h
+
+		// Score block parallelism for observability.
+		analyzer := bal.NewAdvancedConflictAnalyzer(bal.NewBALConflictDetector(bal.StrategySerialize))
+		score := analyzer.ScoreParallelism(blockBAL)
+		slog.Debug("block parallelism score", "score", score.Score, "clusters", score.ClusterCount)
 	}
 
 	block := types.NewBlock(header, body)

@@ -49,7 +49,17 @@ type tokenBucket struct {
 }
 
 // newTokenBucket creates a bucket with the given rate (tokens/sec) and burst multiplier.
+// A rate of 0 means unlimited: the bucket always allows.
 func newTokenBucket(rate int, burstMult int) *tokenBucket {
+	if rate <= 0 {
+		// rate=0 signals "unlimited" — use a sentinel with max capacity.
+		return &tokenBucket{
+			tokens:     1e18,
+			capacity:   1e18,
+			refillRate: 1e18,
+			lastRefill: time.Now().UnixNano(),
+		}
+	}
 	cap := float64(rate * burstMult)
 	return &tokenBucket{
 		tokens:     cap,

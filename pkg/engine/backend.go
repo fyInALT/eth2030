@@ -621,6 +621,12 @@ func (b *EngineBackend) ilsAsFocil() []*focil.InclusionList {
 	return result
 }
 
+// SetSlasher wires a PaymasterSlasher into the state processor so the
+// processor can slash paymasters on bad settlement (AA EIP-7701).
+func (b *EngineBackend) SetSlasher(s coreconfig.PaymasterSlasher) {
+	b.processor.SetSlasher(s)
+}
+
 // focilCheckILSatisfaction wraps focil.CheckILSatisfaction for use in engine_newPayload.
 func focilCheckILSatisfaction(block *types.Block, ils []*focil.InclusionList, gasRemaining uint64) bool {
 	return focil.CheckILSatisfaction(block, ils, nil, gasRemaining) == focil.ILSatisfied

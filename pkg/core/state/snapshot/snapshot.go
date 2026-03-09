@@ -9,8 +9,10 @@ package snapshot
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -74,8 +76,8 @@ type Tree struct {
 
 // NewTree creates a new snapshot tree with a disk layer at the given root.
 // The db must support reads, writes, batch operations, and iteration.
-// Both rawdb.MemoryDB and rawdb.FileDB satisfy this requirement.
-func NewTree(db snapshotDB, diskRoot types.Hash) *Tree {
+// Both rawdb.MemoryDB and rawdb.FileDB satisfy the SnapshotDB requirement.
+func NewTree(db SnapshotDB, diskRoot types.Hash) *Tree {
 	base := &diskLayer{
 		diskdb: db,
 		root:   diskRoot,
@@ -199,4 +201,67 @@ func (t *Tree) Size() int {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	return len(t.layers)
+}
+
+// IterateAccounts iterates all accounts in the snapshot at root in hash order,
+// starting from origin. The callback fn is invoked for each account with its
+// hash and RLP-encoded body; return false to stop early. Deleted accounts
+// (nil body) are skipped. Returns an error if the root is unknown.
+func (t *Tree) IterateAccounts(root, origin types.Hash, fn func(hash types.Hash, body []byte) bool) error {
+	t.lock.RLock()
+	layer, ok := t.layers[root]
+	t.lock.RUnlock()
+	if !ok {
+		return fmt.Errorf("snapshot: unknown root %s", root)
+	}
+	it := layer.AccountIterator(origin)
+	defer it.Release()
+	for it.Next() {
+		body := it.Account()
+		if len(body) == 0 {
+			continue // skip deleted accounts
+		}
+		if !fn(it.Hash(), body) {
+			break
+		}
+	}
+	return nil
+}
+
+// IterateStorage iterates storage slots for the given account in the snapshot
+// at root, starting from origin. The callback fn is invoked for each slot with
+// its hash and value; return false to stop early. Deleted slots (nil value)
+// are skipped. Returns an error if the root is unknown.
+func (t *Tree) IterateStorage(root, account types.Hash, origin []byte, fn func(hash types.Hash, body []byte) bool) error {
+	t.lock.RLock()
+	layer, ok := t.layers[root]
+	t.lock.RUnlock()
+	if !ok {
+		return fmt.Errorf("snapshot: unknown root %s", root)
+	}
+	var seekHash types.Hash
+	if len(origin) >= types.HashLength {
+		copy(seekHash[:], origin[:types.HashLength])
+	}
+	it := layer.StorageIterator(account, seekHash)
+	defer it.Release()
+	for it.Next() {
+		body := it.Slot()
+		if body == nil {
+			continue // skip deleted slots
+		}
+		if !fn(it.Hash(), body) {
+			break
+		}
+	}
+	return nil
+}
+
+// SnapshotDB is the database interface required by snapshot.NewTree. It
+// extends the base key-value store with batch writes and prefix iteration,
+// both of which are provided by rawdb.FileDB and rawdb.MemoryDB.
+type SnapshotDB interface {
+	rawdb.KeyValueStore
+	NewBatch() rawdb.Batch
+	NewIterator(prefix []byte) rawdb.Iterator
 }

@@ -7,6 +7,7 @@ import (
 	"math/bits"
 
 	"github.com/eth2030/eth2030/core/types"
+	rollupexecute "github.com/eth2030/eth2030/rollup/execute"
 )
 
 // NTT precompile over BN254 scalar field.
@@ -588,5 +589,7 @@ var PrecompiledContractsIPlus = func() map[types.Address]PrecompiledContract {
 	m[NiiFieldMulAddr] = &NiiFieldMulPrecompile{}
 	m[NiiFieldInvAddr] = &NiiFieldInvPrecompile{}
 	m[NiiBatchVerifyAddr] = &NiiBatchVerifyPrecompile{}
+	// EIP-8079: EXECUTE precompile for native rollup state transition verification.
+	m[types.HexToAddress(rollupexecute.PrecompileAddr)] = &rollupexecute.ExecutePrecompile{}
 	return m
 }()

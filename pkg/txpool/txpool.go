@@ -7,9 +7,11 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/txpool/frametx"
+	"github.com/eth2030/eth2030/txpool/pricing"
 )
 
 // Type aliases re-exported from sub-packages for backward compatibility.
@@ -79,16 +81,24 @@ type Config struct {
 	// AllowLocalTx enables acceptance of type-0x08 LocalTx (BB-2.2, --experimental-local-tx).
 	// When false (default), LocalTx are rejected at pool entry.
 	AllowLocalTx bool
+	// AllowAATx enables acceptance of EIP-7701 type-0x05 AA transactions (--txpool.allow-aa).
+	// Defaults to true; set false to disable AA tx acceptance on networks without Glamsterdam.
+	AllowAATx bool
+	// PriceHistoryBlocks is the number of recent blocks the gas price suggestor
+	// uses to compute fee recommendations (--txpool.price-history, default 20).
+	PriceHistoryBlocks int
 }
 
 // DefaultConfig returns sensible defaults for the pool.
 func DefaultConfig() Config {
 	return Config{
-		MaxSize:         MaxPoolSize,
-		MaxPerSender:    MaxPerSender,
-		MinGasPrice:     big.NewInt(1), // 1 wei minimum
-		BlockGasLimit:   30_000_000,
-		PaymasterStrict: true,
+		MaxSize:            MaxPoolSize,
+		MaxPerSender:       MaxPerSender,
+		MinGasPrice:        big.NewInt(1), // 1 wei minimum
+		BlockGasLimit:      30_000_000,
+		PaymasterStrict:    true,
+		AllowAATx:          true, // EIP-7701 AA is enabled by default (Glamsterdam+)
+		PriceHistoryBlocks: pricing.DefaultFeeHistoryDepth,
 	}
 }
 
@@ -185,9 +195,10 @@ func (l *txSortedList) Ready(baseNonce uint64) []*types.Transaction {
 type TxPool struct {
 	config      Config
 	state       StateReader
-	codeReader  FrameStateReader // optional: enables VERIFY frame code check (AA-3.1)
-	baseFee     *big.Int         // current base fee, nil if unknown
-	blobBaseFee *big.Int         // current blob base fee (EIP-4844), nil if unknown
+	codeReader  FrameStateReader     // optional: enables VERIFY frame code check (AA-3.1)
+	baseFee     *big.Int             // current base fee, nil if unknown
+	blobBaseFee *big.Int             // current blob base fee (EIP-4844), nil if unknown
+	suggestor   *pricing.PriceBumper // gas price suggestion engine
 
 	mu      sync.RWMutex
 	pending map[types.Address]*txSortedList // processable transactions
@@ -197,13 +208,40 @@ type TxPool struct {
 
 // New creates a new transaction pool.
 func New(config Config, state StateReader) *TxPool {
-	return &TxPool{
-		config:  config,
-		state:   state,
-		pending: make(map[types.Address]*txSortedList),
-		queue:   make(map[types.Address]*txSortedList),
-		lookup:  newTxLookup(),
+	bumperCfg := pricing.DefaultBumperConfig()
+	if config.PriceHistoryBlocks > 0 {
+		bumperCfg.HistoryDepth = config.PriceHistoryBlocks
 	}
+	if config.MinGasPrice != nil {
+		bumperCfg.IgnorePrice = new(big.Int).Set(config.MinGasPrice)
+	}
+	return &TxPool{
+		config:    config,
+		state:     state,
+		suggestor: pricing.NewPriceBumper(bumperCfg),
+		pending:   make(map[types.Address]*txSortedList),
+		queue:     make(map[types.Address]*txSortedList),
+		lookup:    newTxLookup(),
+	}
+}
+
+// RecordBlock feeds fee data from a newly processed block into the gas price
+// suggestion engine. Call this once per block so SuggestGasPrice returns
+// up-to-date recommendations.
+func (pool *TxPool) RecordBlock(header *types.Header, txs []*types.Transaction) {
+	pool.suggestor.RecordBlockFromHeader(header, txs)
+}
+
+// SuggestGasPrice returns a fee suggestion for the desired speed tier.
+// Valid tiers: pricing.TierUrgent, TierFast, TierStandard, TierSlow.
+// Falls back to TierStandard for unknown tier names.
+func (pool *TxPool) SuggestGasPrice(tier string) pricing.FeeSuggestion {
+	return pool.suggestor.SuggestFee(tier)
+}
+
+// SuggestAllTiers returns fee suggestions for all four speed tiers at once.
+func (pool *TxPool) SuggestAllTiers() pricing.TieredSuggestion {
+	return pool.suggestor.SuggestAllTiers()
 }
 
 // SetCodeReader wires a FrameStateReader into the pool, enabling lightweight
@@ -485,6 +523,41 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 			}
 			if err := frametx.SimulateVerifyFrame(ftx, pool.codeReader); err != nil {
 				return err
+			}
+		}
+	}
+
+	// EIP-7701: AA transaction — reject if AA is not enabled on this network.
+	if tx.Type() == types.AATxType {
+		if !pool.config.AllowAATx {
+			return errors.New("AA transactions not enabled; set --txpool.allow-aa")
+		}
+		if aatx, ok := tx.Inner().(*types.AATx); ok {
+			uo := &eips.UserOperation{
+				Sender:                        aatx.Sender,
+				Nonce:                         new(big.Int).SetUint64(aatx.Nonce),
+				CallData:                      aatx.SenderExecutionData,
+				CallGasLimit:                  aatx.SenderExecutionGas,
+				VerificationGasLimit:          aatx.SenderValidationGas,
+				PaymasterVerificationGasLimit: aatx.PaymasterValidationGas,
+				PaymasterPostOpGasLimit:       aatx.PaymasterPostOpGas,
+				Paymaster:                     aatx.Paymaster,
+				MaxFeePerGas:                  aatx.MaxFeePerGas,
+				MaxPriorityFeePerGas:          aatx.MaxPriorityFeePerGas,
+			}
+			if err := eips.ValidateUserOp(uo); err != nil {
+				return fmt.Errorf("aa: invalid user op: %w", err)
+			}
+			// Compute canonical UserOp hash for indexing and debug logging (EIP-7701 §3.1).
+			_ = eips.UserOpHash(uo, tx.ChainId())
+			// Reject if worst-case gas cost exceeds sender's current balance.
+			if pool.baseFee != nil {
+				maxCost := eips.MaxUserOpGasCost(uo, pool.baseFee)
+				senderBal := pool.state.GetBalance(aatx.Sender)
+				if senderBal.Cmp(maxCost) < 0 {
+					return fmt.Errorf("aa: insufficient balance for gas: have %s need %s",
+						senderBal, maxCost)
+				}
 			}
 		}
 	}

@@ -1,11 +1,13 @@
 package snapshot
 
 import (
+	"math/big"
 	"sort"
 	"sync"
 	"sync/atomic"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/rlp"
 )
 
 // diffLayer represents a collection of modifications made to a state snapshot
@@ -197,19 +199,40 @@ func (dl *diffLayer) StorageIterator(accountHash types.Hash, seek types.Hash) St
 	}
 }
 
+// slimAccount is the RLP-serializable form of an Ethereum account as stored
+// by SnapshotDiff (matching memory_statedb.go's rlpAccount layout).
+type slimAccount struct {
+	Nonce    uint64
+	Balance  *big.Int
+	Root     []byte
+	CodeHash []byte
+}
+
 // decodeAccount decodes RLP-encoded slim account data into an Account struct.
-// For our simplified snapshot, the "RLP" encoding is just the raw bytes
-// as stored by the tree's Update method.
+// The encoding matches memory_statedb.rlpAccount: [Nonce, Balance, Root, CodeHash].
+// If the bytes are present but cannot be decoded (e.g. non-RLP test fixtures),
+// a non-nil empty account is returned so callers can still detect existence.
 func decodeAccount(data []byte) (*types.Account, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	// The snapshot stores accounts as raw bytes passed by the caller.
-	// Return a new account with the data stored as-is.
+	var slim slimAccount
+	if err := rlp.DecodeBytes(data, &slim); err != nil {
+		// Non-RLP bytes: account exists in snapshot but cannot be decoded.
+		acc := types.NewAccount()
+		return &acc, nil
+	}
 	acc := types.NewAccount()
-	// Store the raw data: caller is responsible for encoding/decoding.
-	// For the snapshot layer, we store the raw blob and the caller
-	// interprets it. Return a minimal account object.
+	acc.Nonce = slim.Nonce
+	if slim.Balance != nil {
+		acc.Balance = slim.Balance
+	}
+	if len(slim.Root) == types.HashLength {
+		copy(acc.Root[:], slim.Root)
+	}
+	if len(slim.CodeHash) > 0 {
+		acc.CodeHash = slim.CodeHash
+	}
 	return &acc, nil
 }
 

@@ -17,11 +17,20 @@ package forkchoice
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/payload"
 )
+
+// ChainReader is the minimal interface into the persistent block store used by
+// ForkchoiceStateManager to resolve ancestry when a block is not in the
+// in-memory cache. *chain.Blockchain satisfies this interface.
+type ChainReader interface {
+	// GetBlock returns the full block for the given hash, or nil if unknown.
+	GetBlock(hash types.Hash) *types.Block
+}
 
 // Fork choice state errors.
 var (
@@ -110,6 +119,11 @@ type ForkchoiceStateManager struct {
 	// Block metadata store for ancestry checks and reorg depth.
 	blocks map[types.Hash]*BlockInfo
 
+	// chain is an optional fallback for block lookups not in the in-memory
+	// store. When set, isAncestor and reorgDepth walk the persistent DB
+	// instead of short-circuiting on a cache miss.
+	chain ChainReader
+
 	// Reorg detection.
 	reorgListeners []ReorgListener
 
@@ -135,6 +149,15 @@ func NewForkchoiceStateManager(genesis *BlockInfo) *ForkchoiceStateManager {
 	return m
 }
 
+// SetChain wires a persistent block store so that ancestry walks can fall back
+// to the DB when a block is absent from the in-memory cache (e.g. after restart).
+// Safe to call concurrently; typically called once during node startup.
+func (m *ForkchoiceStateManager) SetChain(chain ChainReader) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.chain = chain
+}
+
 // AddBlock registers a block in the fork choice store. This must be called
 // for all blocks the node knows about so ancestry lookups work.
 func (m *ForkchoiceStateManager) AddBlock(info *BlockInfo) {
@@ -155,18 +178,22 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	m.updateCount++
 
 	// Verify the head block is known.
 	headInfo, headKnown := m.blocks[update.HeadBlockHash]
 	if !headKnown {
+		m.mu.Unlock()
 		return fmt.Errorf("%w: %s", ErrFCStateHeadNotFound, update.HeadBlockHash.Hex())
 	}
 
 	// Detect reorg: if the new head differs from the old head, and the new
 	// head is not a direct descendant of the old head, it is a reorg.
+	// Note: isAncestorLocked walks the in-memory blocks map. If intermediate
+	// blocks are absent (e.g. after restart), the walk short-circuits and
+	// returns false — treating the situation as a reorg rather than an
+	// extension. Guard: both old and new head must be known in the map.
 	oldHead := m.headHash
 	var reorgEvent *ReorgEvent
 	if oldHead != (types.Hash{}) && oldHead != update.HeadBlockHash {
@@ -182,6 +209,18 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 				NewHeadNumber: headInfo.Number,
 			}
 			m.reorgCount++
+			logFn := slog.Warn
+			if depth > 63 {
+				logFn = slog.Error
+			}
+			logFn("chain reorg detected",
+				"depth", depth,
+				"oldHead", oldHead,
+				"newHead", update.HeadBlockHash,
+				"oldNum", oldInfo.Number,
+				"newNum", headInfo.Number,
+				"slot", headInfo.Slot,
+			)
 		}
 	}
 
@@ -210,12 +249,23 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 		}
 	}
 
-	// Notify reorg listeners outside the critical data updates (but still
-	// under lock to ensure ordering; listeners should not block).
+	// Snapshot the listener list before releasing the lock. Listeners are
+	// called outside the lock to avoid deadlocks: a listener may call back
+	// into the txpool, blockchain, or any other subsystem that could
+	// re-enter the forkchoice state manager (e.g. via Head() or AddBlock()).
+	// This mirrors how geth uses event.Feed: state is committed first, then
+	// subscribers are notified asynchronously via channels.
+	var listeners []ReorgListener
 	if reorgEvent != nil {
-		for _, listener := range m.reorgListeners {
-			listener(*reorgEvent)
-		}
+		listeners = make([]ReorgListener, len(m.reorgListeners))
+		copy(listeners, m.reorgListeners)
+	}
+
+	m.mu.Unlock()
+
+	// Invoke reorg listeners outside the lock.
+	for _, l := range listeners {
+		l(*reorgEvent)
 	}
 
 	return nil
@@ -378,65 +428,73 @@ func (m *ForkchoiceStateManager) BlockCount() int {
 
 // --- internal helpers ---
 
+// parentOf returns the parent hash of the given block, consulting the in-memory
+// store first and then falling back to the persistent chain DB.
+// Returns (zero, false) if the parent cannot be resolved.
+// Caller must hold m.mu (read or write).
+func (m *ForkchoiceStateManager) parentOf(hash types.Hash) (types.Hash, bool) {
+	if info, ok := m.blocks[hash]; ok {
+		return info.ParentHash, true
+	}
+	if m.chain != nil {
+		if blk := m.chain.GetBlock(hash); blk != nil {
+			return blk.Header().ParentHash, true
+		}
+	}
+	return types.Hash{}, false
+}
+
 // isAncestorLocked checks if ancestorHash is an ancestor of descendantHash
-// by walking the parent chain. Caller must hold at least m.mu read lock.
+// by walking the parent chain. Falls back to the persistent DB for blocks not
+// in the in-memory store so a restart does not produce false-positive reorgs.
+// Caller must hold at least m.mu read lock.
 func (m *ForkchoiceStateManager) isAncestorLocked(ancestorHash, descendantHash types.Hash) bool {
 	current := descendantHash
-	// Walk up to 1024 blocks to find the ancestor (bounded to avoid infinite loops).
 	for i := 0; i < 1024; i++ {
 		if current == ancestorHash {
 			return true
 		}
-		info, ok := m.blocks[current]
-		if !ok {
+		parent, ok := m.parentOf(current)
+		if !ok || parent == current {
+			// Block unknown or self-referencing (genesis / broken chain).
 			return false
 		}
-		if info.ParentHash == current {
-			// Self-referencing (genesis or broken chain).
-			return false
-		}
-		current = info.ParentHash
+		current = parent
 	}
 	return false
 }
 
 // reorgDepthLocked computes the depth of a reorg by finding the common
-// ancestor between oldHead and newHead. Returns 0 if no common ancestor
-// is found within 1024 blocks. Caller must hold at least m.mu read lock.
+// ancestor between oldHead and newHead. Falls back to the persistent DB for
+// blocks not in the in-memory store. Returns 0 if no common ancestor is found
+// within 1024 blocks. Caller must hold at least m.mu read lock.
 func (m *ForkchoiceStateManager) reorgDepthLocked(oldHead, newHead types.Hash) uint64 {
-	// Collect ancestors of oldHead.
-	oldAncestors := make(map[types.Hash]uint64) // hash -> distance from oldHead
+	// Collect ancestors of oldHead with their distance.
+	oldAncestors := make(map[types.Hash]uint64)
 	current := oldHead
 	for dist := uint64(0); dist < 1024; dist++ {
 		oldAncestors[current] = dist
-		info, ok := m.blocks[current]
-		if !ok {
+		parent, ok := m.parentOf(current)
+		if !ok || parent == current {
 			break
 		}
-		if info.ParentHash == current {
-			break
-		}
-		current = info.ParentHash
+		current = parent
 	}
 
-	// Walk newHead's ancestors to find the first one in oldAncestors.
+	// Walk newHead's ancestors to find the first shared entry.
 	current = newHead
 	for dist := uint64(0); dist < 1024; dist++ {
 		if oldDist, found := oldAncestors[current]; found {
-			// Depth is the max of both distances to the common ancestor.
 			if dist > oldDist {
 				return dist
 			}
 			return oldDist
 		}
-		info, ok := m.blocks[current]
-		if !ok {
+		parent, ok := m.parentOf(current)
+		if !ok || parent == current {
 			break
 		}
-		if info.ParentHash == current {
-			break
-		}
-		current = info.ParentHash
+		current = parent
 	}
 
 	return 0

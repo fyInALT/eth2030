@@ -1,9 +1,12 @@
 // server.go re-exports Server from rpc/server for backward compatibility,
-// with a convenience wrapper for AdminBackend wiring.
+// with convenience wrappers for AdminBackend, NetBackend, and BeaconAPI wiring.
 package rpc
 
 import (
 	rpcserver "github.com/eth2030/eth2030/rpc/server"
+
+	"github.com/eth2030/eth2030/rpc/beaconapi"
+	"github.com/eth2030/eth2030/rpc/netapi"
 )
 
 // Server is a JSON-RPC HTTP server that dispatches requests to the EthAPI.
@@ -21,4 +24,14 @@ func NewServer(backend Backend) *Server {
 // SetAdminBackend wires an AdminBackend so admin_* methods are served.
 func (s *Server) SetAdminBackend(b AdminBackend) {
 	s.SetAdminHandler(NewAdminDispatchAPI(b))
+}
+
+// SetNetBackend wires a netapi.Backend so net_* methods are served.
+func (s *Server) SetNetBackend(b netapi.Backend) {
+	s.SetNetHandler(netapi.NewAPI(b))
+}
+
+// SetBeaconAPI wires a BeaconAPI so beacon_* methods are served.
+func (s *Server) SetBeaconAPI(api *beaconapi.BeaconAPI) {
+	s.SetBeaconHandler(api)
 }

@@ -26,6 +26,18 @@ type AdminRequestHandler interface {
 	HandleAdminRequest(req *rpctypes.Request) *rpctypes.Response
 }
 
+// NetRequestHandler dispatches net_ namespace JSON-RPC requests.
+// *netapi.API satisfies this interface.
+type NetRequestHandler interface {
+	HandleNetRequest(req *rpctypes.Request) *rpctypes.Response
+}
+
+// BeaconRequestHandler dispatches beacon_ namespace JSON-RPC requests.
+// *beaconapi.BeaconAPI satisfies this interface.
+type BeaconRequestHandler interface {
+	HandleBeaconRequest(req *rpctypes.Request) *rpctypes.Response
+}
+
 // RequestHandler dispatches a single JSON-RPC request.
 // *ethapi.EthAPI satisfies this interface.
 type RequestHandler interface {
@@ -130,11 +142,13 @@ func (rl *RateLimiter) Allow() bool {
 type MiddlewareFunc func(http.Handler) http.Handler
 
 // Server is a simple JSON-RPC HTTP server that dispatches requests to a
-// RequestHandler, with optional admin_ namespace support.
+// RequestHandler, with optional admin_, net_, and beacon_ namespace support.
 type Server struct {
-	api      RequestHandler
-	adminAPI AdminRequestHandler
-	mux      *http.ServeMux
+	api       RequestHandler
+	adminAPI  AdminRequestHandler
+	netAPI    NetRequestHandler
+	beaconAPI BeaconRequestHandler
+	mux       *http.ServeMux
 }
 
 // NewServer creates a new Server for the given RequestHandler.
@@ -150,6 +164,16 @@ func NewServer(api RequestHandler) *Server {
 // SetAdminHandler wires an AdminRequestHandler so admin_ methods are dispatched.
 func (s *Server) SetAdminHandler(h AdminRequestHandler) {
 	s.adminAPI = h
+}
+
+// SetNetHandler wires a NetRequestHandler so net_ methods are dispatched.
+func (s *Server) SetNetHandler(h NetRequestHandler) {
+	s.netAPI = h
+}
+
+// SetBeaconHandler wires a BeaconRequestHandler so beacon_ methods are dispatched.
+func (s *Server) SetBeaconHandler(h BeaconRequestHandler) {
+	s.beaconAPI = h
 }
 
 // Handler returns the HTTP handler for the server.
@@ -176,9 +200,14 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var resp *rpctypes.Response
-	if isAdminMethod(req.Method) && s.adminAPI != nil {
+	switch {
+	case isAdminMethod(req.Method) && s.adminAPI != nil:
 		resp = s.adminAPI.HandleAdminRequest(&req)
-	} else {
+	case isNetMethod(req.Method) && s.netAPI != nil:
+		resp = s.netAPI.HandleNetRequest(&req)
+	case isBeaconMethod(req.Method) && s.beaconAPI != nil:
+		resp = s.beaconAPI.HandleBeaconRequest(&req)
+	default:
 		resp = s.api.HandleRequest(&req)
 	}
 	writeJSON(w, resp)
@@ -187,6 +216,16 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 // isAdminMethod reports whether the JSON-RPC method belongs to the admin namespace.
 func isAdminMethod(method string) bool {
 	return len(method) > 6 && method[:6] == "admin_"
+}
+
+// isNetMethod reports whether the method belongs to the net_ namespace.
+func isNetMethod(method string) bool {
+	return len(method) > 4 && method[:4] == "net_"
+}
+
+// isBeaconMethod reports whether the method belongs to the beacon_ namespace.
+func isBeaconMethod(method string) bool {
+	return len(method) > 7 && method[:7] == "beacon_"
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
@@ -209,6 +248,8 @@ type ExtServer struct {
 	config       ServerConfig
 	api          RequestHandler
 	adminAPI     AdminRequestHandler
+	netAPI       NetRequestHandler
+	beaconAPI    BeaconRequestHandler
 	batch        *rpcbatch.BatchHandler
 	rateLimiter  *RateLimiter
 	httpServer   *http.Server
@@ -241,6 +282,18 @@ func NewExtServer(api RequestHandler, config ServerConfig) *ExtServer {
 func (s *ExtServer) SetAdminHandler(h AdminRequestHandler) {
 	s.adminAPI = h
 	s.batch.SetAdminHandler(h)
+}
+
+// SetNetHandler wires a NetRequestHandler so net_ methods are dispatched.
+func (s *ExtServer) SetNetHandler(h NetRequestHandler) {
+	s.netAPI = h
+	s.batch.SetNetHandler(h)
+}
+
+// SetBeaconHandler wires a BeaconRequestHandler so beacon_ methods are dispatched.
+func (s *ExtServer) SetBeaconHandler(h BeaconRequestHandler) {
+	s.beaconAPI = h
+	s.batch.SetBeaconHandler(h)
 }
 
 // Config returns the server configuration.
@@ -400,9 +453,14 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var resp *rpctypes.Response
-	if isAdminMethod(req.Method) && s.adminAPI != nil {
+	switch {
+	case isAdminMethod(req.Method) && s.adminAPI != nil:
 		resp = s.adminAPI.HandleAdminRequest(&req)
-	} else {
+	case isNetMethod(req.Method) && s.netAPI != nil:
+		resp = s.netAPI.HandleNetRequest(&req)
+	case isBeaconMethod(req.Method) && s.beaconAPI != nil:
+		resp = s.beaconAPI.HandleBeaconRequest(&req)
+	default:
 		resp = s.api.HandleRequest(&req)
 	}
 	writeJSON(w, resp)

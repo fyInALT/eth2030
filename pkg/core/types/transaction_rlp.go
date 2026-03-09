@@ -82,6 +82,25 @@ type blobTxRLP struct {
 	S          *big.Int
 }
 
+// blobTxNetworkV0RLP is the EIP-4844 legacy sidecar format (version 0):
+// [signed_tx, blobs, kzg_commitments, kzg_proofs].
+type blobTxNetworkV0RLP struct {
+	Tx          blobTxRLP
+	Blobs       [][]byte
+	Commitments [][]byte
+	Proofs      [][]byte
+}
+
+// blobTxNetworkV1RLP is the EIP-4844 versioned sidecar format (version 1),
+// introduced in go-ethereum v1.17: [signed_tx, version, blobs, kzg_commitments, kzg_proofs].
+type blobTxNetworkV1RLP struct {
+	Tx          blobTxRLP
+	Version     byte
+	Blobs       [][]byte
+	Commitments [][]byte
+	Proofs      [][]byte
+}
+
 // setCodeTxRLP is the RLP encoding layout for SetCodeTx (EIP-7702).
 // Fields: [chainID, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList, authorizationList, v, r, s]
 type setCodeTxRLP struct {
@@ -423,7 +442,19 @@ func decodeDynamicFeeTx(data []byte) (*Transaction, error) {
 func decodeBlobTx(data []byte) (*Transaction, error) {
 	var dec blobTxRLP
 	if err := rlp.DecodeBytes(data, &dec); err != nil {
-		return nil, fmt.Errorf("decode blob tx: %w", err)
+		// Try network/pooled format (sidecar stripped after submission).
+		// V0: [signed_tx, blobs, commitments, proofs]
+		// V1 (go-ethereum v1.17+): [signed_tx, version, blobs, commitments, proofs]
+		var v0 blobTxNetworkV0RLP
+		if err0 := rlp.DecodeBytes(data, &v0); err0 == nil {
+			dec = v0.Tx
+		} else {
+			var v1 blobTxNetworkV1RLP
+			if err1 := rlp.DecodeBytes(data, &v1); err1 != nil {
+				return nil, fmt.Errorf("decode blob tx: %w", err)
+			}
+			dec = v1.Tx
+		}
 	}
 	inner := &BlobTx{
 		ChainID:    dec.ChainID,
@@ -731,14 +762,21 @@ func encodeHashList(hashes []Hash) []byte {
 }
 
 // encodeAuthListBytes RLP-encodes an EIP-7702 authorization list as raw bytes.
+// Each entry is [chain_id, address, nonce, y_parity, r, s] per EIP-7702 §signing.
 func encodeAuthListBytes(list []Authorization) []byte {
 	var inner []byte
 	for _, auth := range list {
 		chainEnc, _ := rlp.EncodeToBytes(auth.ChainID)
 		addrEnc, _ := rlp.EncodeToBytes(auth.Address[:])
 		nonceEnc, _ := rlp.EncodeToBytes(auth.Nonce)
+		vEnc, _ := rlp.EncodeToBytes(bigOrZero(auth.V))
+		rEnc, _ := rlp.EncodeToBytes(bigOrZero(auth.R))
+		sEnc, _ := rlp.EncodeToBytes(bigOrZero(auth.S))
 		item := append(chainEnc, addrEnc...)
 		item = append(item, nonceEnc...)
+		item = append(item, vEnc...)
+		item = append(item, rEnc...)
+		item = append(item, sEnc...)
 		inner = append(inner, rlp.WrapList(item)...)
 	}
 	return rlp.WrapList(inner)

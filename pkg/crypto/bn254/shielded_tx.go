@@ -161,11 +161,11 @@ func CommitmentsHomomorphicAdd(c1, c2 types.Hash, o1, o2 *CommitmentOpening) (ty
 	}
 	sumValue := o1.Value + o2.Value
 	var sumBlinding [32]byte
-	// Add blinding factors as big integers mod a large prime.
-	b1 := new(big.Int).SetBytes(o1.Blinding[:])
-	b2 := new(big.Int).SetBytes(o2.Blinding[:])
-	sum := new(big.Int).Add(b1, b2)
-	sumBytes := sum.Bytes()
+	// Add blinding factors using FpElement for correct modular reduction.
+	b1 := NewFpElement(new(big.Int).SetBytes(o1.Blinding[:]))
+	b2 := NewFpElement(new(big.Int).SetBytes(o2.Blinding[:]))
+	sumInt := b1.Add(b2).BigInt()
+	sumBytes := sumInt.Bytes()
 	if len(sumBytes) > 32 {
 		sumBytes = sumBytes[len(sumBytes)-32:]
 	}

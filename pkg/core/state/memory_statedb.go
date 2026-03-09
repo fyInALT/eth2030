@@ -653,5 +653,75 @@ func (s *MemoryStateDB) FinalizePreState() {
 	}
 }
 
+// SnapshotDiff returns the current state serialized as hash-keyed maps
+// suitable for snapshot.Tree.Update. The caller receives ownership.
+//
+//   - accounts: keccak256(address) → RLP-encoded slim account (nil = deleted)
+//   - storage:  keccak256(address) → (keccak256(slot) → slot bytes) (nil = deleted)
+func (s *MemoryStateDB) SnapshotDiff() (map[types.Hash][]byte, map[types.Hash]map[types.Hash][]byte) {
+	accounts := make(map[types.Hash][]byte, len(s.stateObjects))
+	storage := make(map[types.Hash]map[types.Hash][]byte)
+
+	for addr, obj := range s.stateObjects {
+		var addrHash types.Hash
+		copy(addrHash[:], crypto.Keccak256(addr[:]))
+
+		if obj.selfDestructed {
+			accounts[addrHash] = nil // mark as deleted
+			continue
+		}
+
+		storageRoot := computeStorageRoot(obj)
+		codeHash := obj.account.CodeHash
+		if len(codeHash) == 0 {
+			codeHash = types.EmptyCodeHash.Bytes()
+		}
+		acc := rlpAccount{
+			Nonce:    obj.account.Nonce,
+			Balance:  obj.account.Balance,
+			Root:     storageRoot[:],
+			CodeHash: codeHash,
+		}
+		encoded, err := rlp.EncodeToBytes(acc)
+		if err != nil {
+			continue
+		}
+		accounts[addrHash] = encoded
+
+		// Merge committed + dirty storage into snapshot slots.
+		totalSlots := len(obj.committedStorage) + len(obj.dirtyStorage)
+		if totalSlots == 0 {
+			continue
+		}
+		slots := make(map[types.Hash][]byte, totalSlots)
+		for slot, val := range obj.committedStorage {
+			var slotHash types.Hash
+			copy(slotHash[:], crypto.Keccak256(slot[:]))
+			if val == (types.Hash{}) {
+				slots[slotHash] = nil
+			} else {
+				// Snap protocol stores values as RLP(trimmed big-endian bytes).
+				trimmed := new(big.Int).SetBytes(val[:]).Bytes()
+				enc, _ := rlp.EncodeToBytes(trimmed)
+				slots[slotHash] = enc
+			}
+		}
+		for slot, val := range obj.dirtyStorage {
+			var slotHash types.Hash
+			copy(slotHash[:], crypto.Keccak256(slot[:]))
+			if val == (types.Hash{}) {
+				slots[slotHash] = nil
+			} else {
+				// Snap protocol stores values as RLP(trimmed big-endian bytes).
+				trimmed := new(big.Int).SetBytes(val[:]).Bytes()
+				enc, _ := rlp.EncodeToBytes(trimmed)
+				slots[slotHash] = enc
+			}
+		}
+		storage[addrHash] = slots
+	}
+	return accounts, storage
+}
+
 // Verify interface compliance at compile time.
 var _ StateDB = (*MemoryStateDB)(nil)

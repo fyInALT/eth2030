@@ -39,6 +39,27 @@ func NewGethBlockProcessorWithEth2028(config *params.ChainConfig, eth2030Cfg *et
 	return &GethBlockProcessor{config: config, eth2030Cfg: eth2030Cfg}
 }
 
+// MakeEVM constructs a go-ethereum EVM for the given block context, injecting
+// eth2030 custom precompiles when the eth2030 config is present and the
+// block timestamp meets the Glamsterdam+ fork threshold.
+func (p *GethBlockProcessor) MakeEVM(
+	blockCtx gethvm.BlockContext,
+	statedb *gethstate.StateDB,
+	blockNumber *big.Int,
+	timestamp uint64,
+) *gethvm.EVM {
+	evm := gethvm.NewEVM(blockCtx, statedb, p.config, gethvm.Config{})
+	if p.eth2030Cfg != nil {
+		forkLevel := Eth2028ForkLevelFromConfig(p.eth2030Cfg, timestamp)
+		if forkLevel > ForkLevelPrague {
+			rules := p.config.Rules(blockNumber, true, timestamp)
+			precompiles := InjectCustomPrecompiles(rules, forkLevel)
+			evm.SetPrecompiles(precompiles)
+		}
+	}
+	return evm
+}
+
 // ProcessBlock executes all transactions in an eth2030 block against a
 // go-ethereum StateDB. Returns eth2030 receipts and the post-state root.
 // The caller is responsible for committing the state after processing.
@@ -121,17 +142,7 @@ func (p *GethBlockProcessor) applyTransaction(
 ) (*types.Receipt, uint64, error) {
 	msg := txToGethMessage(tx, header.BaseFee)
 
-	evm := gethvm.NewEVM(*blockCtx, statedb, p.config, gethvm.Config{})
-
-	// Inject eth2030 custom precompiles if configured.
-	if p.eth2030Cfg != nil {
-		forkLevel := Eth2028ForkLevelFromConfig(p.eth2030Cfg, header.Time)
-		if forkLevel > ForkLevelPrague {
-			rules := p.config.Rules(header.Number, true, header.Time)
-			precompiles := InjectCustomPrecompiles(rules, forkLevel)
-			evm.SetPrecompiles(precompiles)
-		}
-	}
+	evm := p.MakeEVM(*blockCtx, statedb, header.Number, header.Time)
 
 	snapshot := statedb.Snapshot()
 	result, err := gethcore.ApplyMessage(evm, msg, gasPool)

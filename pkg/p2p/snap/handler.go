@@ -3,10 +3,15 @@ package snap
 import (
 	"bytes"
 	"errors"
+	"fmt"
 
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/p2p"
+	"github.com/eth2030/eth2030/p2p/peermgr"
+	"github.com/eth2030/eth2030/p2p/wire"
+	"github.com/eth2030/eth2030/rlp"
 )
 
 var (
@@ -305,4 +310,97 @@ func (h *ServerHandler) HandleGetTrieNodes(req *GetTrieNodesPacket) (*TrieNodesP
 		ID:    req.ID,
 		Nodes: nodes,
 	}, nil
+}
+
+// Protocol returns a p2p.Protocol descriptor for snap/1. Register it with the
+// P2P server's Protocols list to enable snap-sync serving for connected peers.
+func (h *ServerHandler) Protocol() p2p.Protocol {
+	return p2p.Protocol{
+		Name:    ProtocolName,
+		Version: ProtocolVersion,
+		Length:  8, // message codes 0x00-0x07
+		Run:     h.runPeer,
+	}
+}
+
+// runPeer is the snap/1 message loop invoked by the P2P server for each peer
+// that negotiates the snap sub-protocol. It dispatches Get* requests to the
+// appropriate Handle* method and writes the response back. The loop exits when
+// the transport is closed or an unrecoverable error occurs.
+func (h *ServerHandler) runPeer(_ *peermgr.Peer, t wire.Transport) error {
+	for {
+		msg, err := t.ReadMsg()
+		if err != nil {
+			return err
+		}
+		if err := h.handleSnapMsg(t, msg); err != nil {
+			return err
+		}
+	}
+}
+
+// handleSnapMsg decodes a single snap/1 message and writes the response.
+func (h *ServerHandler) handleSnapMsg(t wire.Transport, msg wire.Msg) error {
+	switch msg.Code {
+	case GetAccountRangeMsg:
+		var req GetAccountRangePacket
+		if err := rlp.DecodeBytes(msg.Payload, &req); err != nil {
+			return fmt.Errorf("snap: decode GetAccountRange: %w", err)
+		}
+		resp, err := h.HandleGetAccountRange(&req)
+		if err != nil {
+			return fmt.Errorf("snap: GetAccountRange: %w", err)
+		}
+		return sendSnapMsg(t, AccountRangeMsg, resp)
+
+	case GetStorageRangesMsg:
+		var req GetStorageRangesPacket
+		if err := rlp.DecodeBytes(msg.Payload, &req); err != nil {
+			return fmt.Errorf("snap: decode GetStorageRanges: %w", err)
+		}
+		resp, err := h.HandleGetStorageRanges(&req)
+		if err != nil {
+			return fmt.Errorf("snap: GetStorageRanges: %w", err)
+		}
+		return sendSnapMsg(t, StorageRangesMsg, resp)
+
+	case GetByteCodesMsg:
+		var req GetByteCodesPacket
+		if err := rlp.DecodeBytes(msg.Payload, &req); err != nil {
+			return fmt.Errorf("snap: decode GetByteCodes: %w", err)
+		}
+		resp, err := h.HandleGetByteCodes(&req)
+		if err != nil {
+			return fmt.Errorf("snap: GetByteCodes: %w", err)
+		}
+		return sendSnapMsg(t, ByteCodesMsg, resp)
+
+	case GetTrieNodesMsg:
+		var req GetTrieNodesPacket
+		if err := rlp.DecodeBytes(msg.Payload, &req); err != nil {
+			return fmt.Errorf("snap: decode GetTrieNodes: %w", err)
+		}
+		resp, err := h.HandleGetTrieNodes(&req)
+		if err != nil {
+			return fmt.Errorf("snap: GetTrieNodes: %w", err)
+		}
+		return sendSnapMsg(t, TrieNodesMsg, resp)
+
+	default:
+		// Response messages (AccountRangeMsg etc.) or unknown codes: skip.
+		return nil
+	}
+}
+
+// sendSnapMsg RLP-encodes val and writes it as a snap/1 message with the given code.
+func sendSnapMsg(t wire.Transport, code uint64, val interface{}) error {
+	payload, err := rlp.EncodeToBytes(val)
+	if err != nil {
+		return fmt.Errorf("snap: encode message 0x%02x: %w", code, err)
+	}
+	return t.WriteMsg(wire.Msg{
+		Code:    code,
+		Size:    uint32(len(payload)),
+		Payload: payload,
+	})
 }

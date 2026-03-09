@@ -1037,37 +1037,54 @@ func (api *EthAPI) estimateGas(req *Request) *Response {
 
 	from, to, _, value, data := parseCallArgs(&args)
 
-	// Get block gas limit as upper bound
+	// Intrinsic gas: 21000 base + per-byte calldata cost (EIP-2028).
+	intrinsicGas := uint64(21000)
+	for _, b := range data {
+		if b == 0 {
+			intrinsicGas += 4
+		} else {
+			intrinsicGas += 16
+		}
+	}
+	if to == nil {
+		intrinsicGas += 32000 // contract creation extra
+	}
+
+	// Get block gas limit as upper bound for EVM execution portion.
 	header := api.backend.HeaderByNumber(bn)
 	if header == nil {
 		return errorResponse(req.ID, ErrCodeInternal, "block not found")
 	}
 
-	hi := header.GasLimit
-	// Intrinsic gas as lower bound (21000 base)
-	lo := uint64(21000)
+	if header.GasLimit <= intrinsicGas {
+		return errorResponse(req.ID, ErrCodeInternal, "block gas limit below intrinsic cost")
+	}
 
-	// If user specified gas, use it as upper bound
+	// hi is the max EVM execution gas (block limit minus intrinsic cost).
+	hi := header.GasLimit - intrinsicGas
+
+	// If user specified gas, cap hi to their supplied limit minus intrinsic.
 	if args.Gas != nil {
-		userGas := parseHexUint64(*args.Gas)
-		if userGas > 0 && userGas < hi {
-			hi = userGas
+		if userGas := parseHexUint64(*args.Gas); userGas > intrinsicGas {
+			if evmHi := userGas - intrinsicGas; evmHi < hi {
+				hi = evmHi
+			}
 		}
 	}
 
-	// Check that the upper bound works
-	_, _, err := api.backend.EVMCall(from, to, data, hi, value, bn)
-	if err != nil {
+	// Verify that the upper bound actually succeeds.
+	if _, _, err := api.backend.EVMCall(from, to, data, hi, value, bn); err != nil {
 		return errorResponse(req.ID, ErrCodeInternal, "execution error: "+err.Error())
 	}
 
-	// Check if the lower bound itself works.
-	_, _, errLo := api.backend.EVMCall(from, to, data, lo, value, bn)
-	if errLo == nil {
-		return successResponse(req.ID, encodeUint64(lo))
+	// If gas=0 suffices for EVM execution (e.g. plain ETH transfer), only
+	// intrinsic cost is required.
+	if _, _, err := api.backend.EVMCall(from, to, data, 0, value, bn); err == nil {
+		return successResponse(req.ID, encodeUint64(intrinsicGas))
 	}
 
-	// Binary search for minimum gas needed
+	// Binary search for minimum EVM execution gas.
+	lo := uint64(0)
 	for lo+1 < hi {
 		mid := (lo + hi) / 2
 		_, _, err := api.backend.EVMCall(from, to, data, mid, value, bn)
@@ -1078,7 +1095,7 @@ func (api *EthAPI) estimateGas(req *Request) *Response {
 		}
 	}
 
-	return successResponse(req.ID, encodeUint64(hi))
+	return successResponse(req.ID, encodeUint64(intrinsicGas+hi))
 }
 
 // getTransactionByHash returns transaction info by hash.
