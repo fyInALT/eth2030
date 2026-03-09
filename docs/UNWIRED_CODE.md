@@ -157,12 +157,11 @@ The orphan `txpool/replacement` package is a standalone version of this policy.
 ---
 
 ### `txpool/journal`
-**Verdict: 🟡 PARTIAL**
+**Verdict: 🟢 COVERED**
 
-The **blobpool** (`txpool/blobpool/blobpool.go`) persists blob txs via a WAL journal
-(fields `journalPath`, `journalFile`; methods `openJournal`, `journalWrite`).
-However, **regular (non-blob) transactions have no persistence** — they are lost on
-node restart. The orphan `txpool/journal` package would add this for all tx types.
+`TxJournal` is created in `node.New()` (path `<datadir>/transactions.rlp`). Previously
+journaled txs are replayed into the pool at startup for crash recovery. Every tx
+submitted via `SendTransaction` is now journaled before entering the pool.
 
 | What is covered | What is missing |
 |-----------------|-----------------|
@@ -503,11 +502,11 @@ never activates, regardless of block gas usage.
 ---
 
 ### `core/mev`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`core/mev/mev.go` defines `FlashbotsBundle`, sandwich/frontrun detection, and fair
-ordering. Nothing imports it from `engine/payload` or `txpool`. MEV protection and
-commit-reveal ordering are absent at runtime.
+`DefaultMEVProtectionConfig()` is instantiated in `node.New()`. The `txPoolAdapter.Pending()`
+in `backend.go` now calls `mev.FairOrdering` when building payloads, applying arrival-time
+fair ordering to all pending transactions before they are included in a block.
 
 ---
 
@@ -756,7 +755,7 @@ are never called from outside the package.
 | `txpool/validation` | 🟢 COVERED | `txpool.go` `validateTx()` lines 382–552 |
 | `txpool/queue` | 🟢 COVERED | `txpool.go` `txSortedList` lines 127–194 |
 | `txpool/replacement` | 🟢 COVERED | `txpool.go` `hasSufficientBump()` lines 344–371 |
-| `txpool/journal` | 🟡 PARTIAL | Blob pool persisted; regular txs lost on restart |
+| `txpool/journal` | 🟢 COVERED | `TxJournal` persists regular txs; replayed on startup |
 | `txpool/pricing` | 🟡 PARTIAL | Fee calc inline; gas suggestion missing |
 | `txpool/encrypted` | 🟢 COVERED | `EncryptedMempoolProtocol`+`EncryptedPool` in node; epoch/expire per block |
 | `txpool/fees` | 🟢 COVERED | `SetBaseFee` inline in txpool |
@@ -789,7 +788,7 @@ are never called from outside the package.
 | `rpc/netapi` | 🟢 COVERED | `net_` namespace routed via `NetRequestHandler`; wired in `node.go` |
 | `rpc/registry` | 🔴 MISSING | Routing is hardcoded |
 | `core/gigagas` | 🔴 MISSING | Parallel EVM scheduler never activates |
-| `core/mev` | 🔴 MISSING | MEV ordering not enforced |
+| `core/mev` | 🟢 COVERED | `FairOrdering` applied in `txPoolAdapter.Pending()`; MEV config in node |
 | `core/state/pruner` | 🔴 MISSING | Flat DB entries accumulate |
 | `core/state/snapshot` | 🟡 PARTIAL | Diff layers in core/state; disk layer (snapshot pkg) absent |
 | `core/teragas` | 🔴 MISSING | 1 GByte/s ceiling not enforced |
@@ -816,7 +815,7 @@ are never called from outside the package.
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 44 | 🟡 PARTIAL: 9 | 🟢 COVERED: 17
+**Counts:** 🔴 MISSING: 43 | 🟡 PARTIAL: 8 | 🟢 COVERED: 19
 
 ---
 
@@ -846,7 +845,7 @@ running via inline code. No wiring needed:
 - `epbs/*` all 7 sub-packages — EIP-7732 ePBS only runs at root level (types only)
 - `p2p/snap` — Peers cannot snap-sync from this node
 - ~~`rpc/beaconapi`~~ ✅ **DONE** — `beacon_` namespace wired
-- `txpool/journal` — Pending txs lost on restart
+- ~~`txpool/journal`~~ — wired (1dd7cde)
 - `sync/beacon` — No CL-driven sync loop
 
 ### P2 — Protocol Features
@@ -857,7 +856,7 @@ running via inline code. No wiring needed:
 - `p2p/nat` — NAT traversal/external IP detection still limited
 - `trie/migrate` — Binary trie migration never runs
 - ~~`txpool/encrypted`~~ — wired (ed147f1)
-- `core/mev` — MEV ordering not enforced
+- ~~`core/mev`~~ — wired (1dd7cde)
 
 ### P3 — Roadmap Completeness
 
