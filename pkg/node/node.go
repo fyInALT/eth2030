@@ -34,6 +34,8 @@ import (
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
 	ethsync "github.com/eth2030/eth2030/sync"
 	"github.com/eth2030/eth2030/txpool"
+	"github.com/eth2030/eth2030/txpool/encrypted"
+	"github.com/eth2030/eth2030/txpool/tracking"
 )
 
 // Node is the top-level ETH2030 node that manages all subsystems.
@@ -59,6 +61,14 @@ type Node struct {
 
 	// Gas oracle for EIP-1559-aware gas price suggestions.
 	gasOracle *gasrpc.GasOracle
+
+	// Encrypted mempool: commit-reveal scheme for MEV protection (Hegotá).
+	encryptedProtocol *encrypted.EncryptedMempoolProtocol
+	encryptedPool     *encrypted.EncryptedPool
+
+	// Txpool lifecycle tracking: per-account nonce/balance and nonce-gap detection.
+	acctTracker  *tracking.AcctTrack
+	nonceTracker *tracking.NonceTracker
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -150,6 +160,19 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize gas oracle for EIP-1559-aware gas price suggestions.
 	n.gasOracle = gasrpc.NewGasOracle(gasrpc.DefaultGasOracleConfig())
+
+	// Initialize encrypted mempool (commit-reveal MEV protection, Hegotá).
+	n.encryptedProtocol = encrypted.NewEncryptedMempoolProtocol(encrypted.EncryptedProtocolConfig{
+		CommitWindowBlocks: 2,
+		RevealWindowBlocks: 2,
+		MaxPendingCommits:  4096,
+		MinRevealers:       1,
+	})
+	n.encryptedPool = encrypted.NewEncryptedPool()
+
+	// Initialize per-account nonce/balance trackers for the tx pool.
+	n.acctTracker = tracking.NewAcctTrack(statedb)
+	n.nonceTracker = tracking.NewNonceTracker(tracking.DefaultNonceTrackerConfig(), statedb)
 
 	// Initialize transaction pool.
 	poolCfg := txpool.DefaultConfig()

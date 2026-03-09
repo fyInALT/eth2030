@@ -573,6 +573,24 @@ func (b *engineBackend) processBlockInternal(
 		b.node.gasOracle.RecordBlock(payload.BlockNumber, payload.BaseFeePerGas, tips)
 	}
 
+	// Advance encrypted mempool epoch and expire stale commits (Hegotá MEV protection).
+	if b.node.encryptedProtocol != nil {
+		b.node.encryptedProtocol.SetEpoch(payload.BlockNumber)
+		b.node.encryptedProtocol.ExpireOldCommits(payload.BlockNumber)
+	}
+	if b.node.encryptedPool != nil {
+		b.node.encryptedPool.ExpireCommits(payload.Timestamp)
+	}
+
+	// Reset txpool trackers to the new head state so nonce/balance data stays fresh.
+	newState := bc.State()
+	if b.node.acctTracker != nil {
+		b.node.acctTracker.ResetOnReorg(newState)
+	}
+	if b.node.nonceTracker != nil {
+		b.node.nonceTracker.Reset(newState)
+	}
+
 	blockHash := block.Hash()
 	slog.Info("engine_newPayload: accepted",
 		"blockNumber", payload.BlockNumber,
