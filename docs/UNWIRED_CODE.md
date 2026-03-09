@@ -245,16 +245,15 @@ However, the `p2p/discover` V5 wiring into the running `p2p` root is not confirm
 ---
 
 ### `p2p/dnsdisc`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-DNS-based peer discovery (EIP-1459 `enrtree://` URLs) is absent. `p2p.go` does not
-import `p2p/dnsdisc`. Bootnodes can only be specified as `enode://` addresses;
-`enrtree://` URLs in `--bootnodes` are not processed.
+`runDNSDiscovery` in `node.go` resolves EIP-1459 `enrtree://` URLs at startup
+using `dnsdisc.NewDNSClient`. Discovered peers are added via `p2pServer.AddPeer`.
 
 | Symbol | File | Status |
 |--------|------|--------|
-| `DNSClient` | `p2p/dnsdisc/client.go:44` | 🔴 Not instantiated |
-| `SyncTree` / `Nodes` | same | 🔴 Not called |
+| `DNSClient` | `p2p/dnsdisc/client.go` | 🟢 Instantiated in `runDNSDiscovery` |
+| `Resolve` / `Nodes` | same | 🟢 Called at node startup |
 
 ---
 
@@ -434,11 +433,11 @@ infrastructure for EIP-8077 trie proof gossip is active.
 ## RPC Endpoints
 
 ### `rpc/beaconapi`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`rpc/beaconapi` is implemented (16 endpoints, full response types) but is not
-registered in `node.go` or `rpc/rpc.go`. CL clients (`lighthouse`, `prysm`) that
-expect Beacon API at the EL RPC port will get 404 on all `/eth/v1/beacon/*` routes.
+`BeaconAPI` is wired via `SetBeaconAPI` in `node.go`. The `beacon_` namespace is
+routed through `BeaconRequestHandler` in the RPC server and batch handler.
+All 16 Beacon API endpoints are active.
 
 ---
 
@@ -684,13 +683,11 @@ proposers roadmap item.
 ## Client Subsystems
 
 ### `eth` (ETH wire protocol)
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`pkg/eth/` has 23 files including `protocol.go`, `block_fetcher.go`,
-`block_download.go`, `announce_nonce.go`. The package is an orphan — `node.go`
-does not import or start an ETH protocol handler. The running node speaks devp2p
-at the transport level (`p2p/transport`) but has no ETH/72 protocol registered.
-**This means the node cannot exchange blocks or transactions with peers.**
+`eth.Handler` is instantiated in `node.New()` via `eth.NewHandler(bc, txPool, networkID)`
+and registered as `eth.Handler.Protocol()` in the P2P server. ETH/68 block and
+transaction exchange is active. `SyncNotifier` is wired to trigger the downloader.
 
 ---
 
