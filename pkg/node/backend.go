@@ -645,7 +645,13 @@ func (b *engineBackend) processBlockInternal(
 		if statedb, err := bc.StateAtRoot(payload.StateRoot); err == nil {
 			if mdb, ok := statedb.(*state.MemoryStateDB); ok {
 				accounts, storage := mdb.SnapshotDiff()
-				if uerr := b.node.snapshotTree.Update(payload.StateRoot, payload.ParentHash, accounts, storage); uerr == nil {
+				// The snapshot tree is keyed by state roots, not block hashes.
+				// Retrieve the parent block to get its state root.
+				var parentStateRoot types.Hash
+				if parentBlock := bc.GetBlock(payload.ParentHash); parentBlock != nil {
+					parentStateRoot = parentBlock.Header().Root
+				}
+				if uerr := b.node.snapshotTree.Update(payload.StateRoot, parentStateRoot, accounts, storage); uerr == nil {
 					// Cap diff layers to bound memory growth; 0 disables periodic flushing.
 					if depth := b.node.config.SnapshotCapDepth; depth > 0 {
 						b.node.snapshotTree.Cap(payload.StateRoot, depth)

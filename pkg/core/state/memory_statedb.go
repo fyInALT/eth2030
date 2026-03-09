@@ -700,9 +700,10 @@ func (s *MemoryStateDB) SnapshotDiff() (map[types.Hash][]byte, map[types.Hash]ma
 			if val == (types.Hash{}) {
 				slots[slotHash] = nil
 			} else {
-				b := make([]byte, types.HashLength)
-				copy(b, val[:])
-				slots[slotHash] = b
+				// Snap protocol stores values as RLP(trimmed big-endian bytes).
+				trimmed := new(big.Int).SetBytes(val[:]).Bytes()
+				enc, _ := rlp.EncodeToBytes(trimmed)
+				slots[slotHash] = enc
 			}
 		}
 		for slot, val := range obj.dirtyStorage {
@@ -711,9 +712,10 @@ func (s *MemoryStateDB) SnapshotDiff() (map[types.Hash][]byte, map[types.Hash]ma
 			if val == (types.Hash{}) {
 				slots[slotHash] = nil
 			} else {
-				b := make([]byte, types.HashLength)
-				copy(b, val[:])
-				slots[slotHash] = b
+				// Snap protocol stores values as RLP(trimmed big-endian bytes).
+				trimmed := new(big.Int).SetBytes(val[:]).Bytes()
+				enc, _ := rlp.EncodeToBytes(trimmed)
+				slots[slotHash] = enc
 			}
 		}
 		storage[addrHash] = slots

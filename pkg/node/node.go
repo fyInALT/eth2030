@@ -386,7 +386,20 @@ func New(config *Config) (*Node, error) {
 	// Initialize DAS sparse blob pool (custody-based pruning, EIP-4844/7594).
 	n.dasBlobPool = dasblobpool.NewSparseBlobPool(4) // 4 subnets default
 
+	// Initialize transaction pool.
+	poolCfg := txpool.DefaultConfig()
+	// BB-2.2: propagate experimental LocalTx flag into pool config.
+	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
+	// EIP-7701: propagate AA tx acceptance flag into pool config (--txpool.allow-aa).
+	poolCfg.AllowAATx = config.AllowAATx
+	// --txpool.price-history: number of blocks for the gas-price suggestor.
+	if config.TxpoolPriceHistory > 0 {
+		poolCfg.PriceHistoryBlocks = config.TxpoolPriceHistory
+	}
+	n.txPool = txpool.New(poolCfg, bc.State())
+
 	// Initialize tx journal for pending tx persistence across restarts.
+	// Journal replay must happen after n.txPool is initialized.
 	journalPath := config.ResolvePath("transactions.rlp")
 	if j, jerr := txjournal.NewTxJournal(journalPath); jerr != nil {
 		slog.Warn("tx journal init failed", "path", journalPath, "err", jerr)
@@ -400,18 +413,6 @@ func New(config *Config) (*Node, error) {
 			slog.Info("tx journal replayed", "count", len(journaledTxs))
 		}
 	}
-
-	// Initialize transaction pool.
-	poolCfg := txpool.DefaultConfig()
-	// BB-2.2: propagate experimental LocalTx flag into pool config.
-	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
-	// EIP-7701: propagate AA tx acceptance flag into pool config (--txpool.allow-aa).
-	poolCfg.AllowAATx = config.AllowAATx
-	// --txpool.price-history: number of blocks for the gas-price suggestor.
-	if config.TxpoolPriceHistory > 0 {
-		poolCfg.PriceHistoryBlocks = config.TxpoolPriceHistory
-	}
-	n.txPool = txpool.New(poolCfg, bc.State())
 
 	// Initialize EP-3 STARK mempool gossip subsystem.
 	n.topicMgr = p2p.NewTopicManager(p2p.DefaultTopicParams())
@@ -459,6 +460,20 @@ func New(config *Config) (*Node, error) {
 		"lean_validators", config.LeanAvailableChainValidators,
 		"stark_frames", config.StarkValidationFrames,
 	)
+
+	// Initialize snapshot tree (disk + diff layers) for snap-sync serving.
+	// Must be done before P2P server init since snapHandler.Protocol() is
+	// referenced in the Protocols slice below.
+	var genesisRoot types.Hash
+	if genesis := bc.Genesis(); genesis != nil {
+		genesisRoot = genesis.Header().Root
+	}
+	if snapDB, ok := n.db.(snapshot.SnapshotDB); ok {
+		n.snapshotTree = snapshot.NewTree(snapDB, genesisRoot)
+		n.snapHandler = p2psnap.NewServerHandler(newSnapStateBackend(n.snapshotTree, n.db))
+	} else {
+		n.snapHandler = p2psnap.NewServerHandler(&stubSnapStateBackend{})
+	}
 
 	// Initialize ETH/68 protocol handler for block and transaction exchange.
 	n.ethHandler = eth.NewHandler(bc, n.txPool, config.NetworkID)
@@ -613,20 +628,6 @@ func New(config *Config) (*Node, error) {
 		if rec := bootnodeToDiscV5Record(bn); rec != nil {
 			_ = n.discV5.AddNode(rec)
 		}
-	}
-
-	// Initialize snapshot tree (disk + diff layers) for snap-sync serving.
-	// The tree is seeded at the genesis state root and updated per-block in
-	// processBlockInternal. Both FileDB and MemoryDB satisfy snapshot.SnapshotDB.
-	var genesisRoot types.Hash
-	if genesis := bc.Genesis(); genesis != nil {
-		genesisRoot = genesis.Header().Root
-	}
-	if snapDB, ok := n.db.(snapshot.SnapshotDB); ok {
-		n.snapshotTree = snapshot.NewTree(snapDB, genesisRoot)
-		n.snapHandler = p2psnap.NewServerHandler(newSnapStateBackend(n.snapshotTree, n.db))
-	} else {
-		n.snapHandler = p2psnap.NewServerHandler(&stubSnapStateBackend{})
 	}
 
 	// Initialize beacon syncer and blob sync manager.
@@ -947,6 +948,16 @@ func (n *Node) Stop() error {
 		}
 	}
 
+	// Signal all node-owned goroutines (peer-feed, etc.) to stop before tearing
+	// down the subsystems they use. Close n.stop first so runDiscV5PeerFeed
+	// exits before discV5.Stop() marks the DHT closed.
+	select {
+	case <-n.stop:
+		// already closed
+	default:
+		close(n.stop)
+	}
+
 	// Stop standalone DiscV5 DHT.
 	n.discV5.Stop()
 
@@ -968,12 +979,6 @@ func (n *Node) Stop() error {
 	n.db = nil
 
 	n.running = false
-	select {
-	case <-n.stop:
-		// stop channel already closed.
-	default:
-		close(n.stop)
-	}
 	slog.Info("node stopped")
 	return nil
 }
@@ -1425,6 +1430,9 @@ func bootnodeToDiscV5Record(addr string) *discv5.NodeRecord {
 	}
 	var portNum int
 	if _, err := fmt.Sscanf(portStr, "%d", &portNum); err != nil {
+		return nil
+	}
+	if portNum == 0 {
 		return nil
 	}
 	port := uint16(portNum)
