@@ -762,7 +762,7 @@ are never called from outside the package.
 | `txpool/shared` | 🔴 MISSING | MineableSet abstraction absent |
 | `txpool/tracking` | 🔴 MISSING | Tx lifecycle events not emitted |
 | `p2p/discv5` | 🟡 PARTIAL | V5 in `p2p/discover`; orphan pkg is alternate impl |
-| `p2p/dnsdisc` | 🔴 MISSING | No DNS discovery |
+| `p2p/dnsdisc` | 🟢 COVERED | `runDNSDiscovery` resolves EIP-1459 tree at startup; peers added via `AddPeer` |
 | `p2p/dispatch` | 🔴 MISSING | No priority routing or rate limiting |
 | `p2p/nat` | 🔴 MISSING | NAT not traversed; external IP not detected |
 | `p2p/portal` | 🔴 MISSING | Portal network not started |
@@ -783,7 +783,7 @@ are never called from outside the package.
 | `trie/stack` | 🔴 MISSING | Sequential trie builder unused |
 | `trie/announce` | 🔴 MISSING | EIP-8077 trie proofs not generated |
 | `rpc/beaconapi` | 🟢 COVERED | `beacon_` namespace routed via `BeaconRequestHandler` in server + batch handler |
-| `rpc/gas` | 🟡 PARTIAL | EstimateGas may be wired; feeHistory not confirmed |
+| `rpc/gas` | 🟢 COVERED | `GasOracle` feeds `SuggestGasPrice`; `RecordBlock` called on each new payload |
 | `rpc/middleware` | 🟡 PARTIAL | May be wired; confirm via `go list` |
 | `rpc/netapi` | 🟢 COVERED | `net_` namespace routed via `NetRequestHandler`; wired in `node.go` |
 | `rpc/registry` | 🔴 MISSING | Routing is hardcoded |
@@ -803,7 +803,7 @@ are never called from outside the package.
 | `epbs/escrow` | 🔴 MISSING | No financial settlement |
 | `epbs/mevburn` | 🔴 MISSING | MEV not burned |
 | `epbs/slashing` | 🔴 MISSING | Builders cannot be slashed |
-| `rollup/execute` | 🔴 MISSING | EXECUTE precompile not in EVM table |
+| `rollup/execute` | 🟢 COVERED | EXECUTE precompile registered in `PrecompiledContractsIPlus` at `0x0100...0100` |
 | `rollup/anchor` | 🔴 MISSING | Anchor contract not at genesis |
 | `rollup/sequencer` | 🔴 MISSING | Sequencer not started |
 | `rollup/bridge` | 🔴 MISSING | L1↔L2 bridge inactive |
@@ -815,7 +815,7 @@ are never called from outside the package.
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 48 | 🟡 PARTIAL: 10 | 🟢 COVERED: 12
+**Counts:** 🔴 MISSING: 46 | 🟡 PARTIAL: 9 | 🟢 COVERED: 15
 
 ---
 
@@ -852,7 +852,8 @@ running via inline code. No wiring needed:
 
 - `rollup/execute` — EXECUTE precompile must be registered in `core/vm`
 - `das/network` + `das/validator` — DAS peer coordination inactive
-- `p2p/nat`, `p2p/dnsdisc` — Peer discovery severely limited
+- ~~`p2p/dnsdisc`~~ ✅ **DONE** — `runDNSDiscovery` wired at node startup
+- `p2p/nat` — NAT traversal/external IP detection still limited
 - `trie/migrate` — Binary trie migration never runs
 - `txpool/encrypted` — EIP-8024 encrypted mempool disabled
 - `core/mev` — MEV ordering not enforced
