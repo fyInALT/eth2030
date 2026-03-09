@@ -1,6 +1,6 @@
 // Package metrics reporter provides periodic export of metric values to
 // pluggable backends (e.g. Prometheus push-gateway, StatsD, log file).
-package metrics
+package reporter
 
 import (
 	"sync"
