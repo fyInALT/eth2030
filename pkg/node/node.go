@@ -400,6 +400,10 @@ func New(config *Config) (*Node, error) {
 	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
 	// EIP-7701: propagate AA tx acceptance flag into pool config (--txpool.allow-aa).
 	poolCfg.AllowAATx = config.AllowAATx
+	// --txpool.price-history: number of blocks for the gas-price suggestor.
+	if config.TxpoolPriceHistory > 0 {
+		poolCfg.PriceHistoryBlocks = config.TxpoolPriceHistory
+	}
 	n.txPool = txpool.New(poolCfg, bc.State())
 
 	// Initialize EP-3 STARK mempool gossip subsystem.

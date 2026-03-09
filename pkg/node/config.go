@@ -153,6 +153,11 @@ type Config struct {
 	// pre-Glamsterdam networks or chains that do not support native AA.
 	AllowAATx bool // --txpool.allow-aa
 
+	// TxpoolPriceHistory is the number of recent blocks the txpool gas-price
+	// suggestor considers when computing fee recommendations. Higher values
+	// smooth out volatility; lower values react faster to fee changes.
+	TxpoolPriceHistory int // --txpool.price-history
+
 	// MigrateEveryBlocks controls how often the incremental MPT→BinaryTrie migrator
 	// advances (one batch per N blocks). 0 disables periodic migration.
 	MigrateEveryBlocks int // --trie.migrate-every
@@ -244,6 +249,9 @@ func DefaultConfig() Config {
 
 		// EIP-7701: AA transactions are accepted by default on Glamsterdam+ networks.
 		AllowAATx: true,
+
+		// 20-block fee history window for the txpool gas-price suggestor.
+		TxpoolPriceHistory: 20,
 
 		// Incremental MPT→BinaryTrie migration: advance one batch every 16 blocks.
 		MigrateEveryBlocks: 16,

@@ -84,17 +84,21 @@ type Config struct {
 	// AllowAATx enables acceptance of EIP-7701 type-0x05 AA transactions (--txpool.allow-aa).
 	// Defaults to true; set false to disable AA tx acceptance on networks without Glamsterdam.
 	AllowAATx bool
+	// PriceHistoryBlocks is the number of recent blocks the gas price suggestor
+	// uses to compute fee recommendations (--txpool.price-history, default 20).
+	PriceHistoryBlocks int
 }
 
 // DefaultConfig returns sensible defaults for the pool.
 func DefaultConfig() Config {
 	return Config{
-		MaxSize:         MaxPoolSize,
-		MaxPerSender:    MaxPerSender,
-		MinGasPrice:     big.NewInt(1), // 1 wei minimum
-		BlockGasLimit:   30_000_000,
-		PaymasterStrict: true,
-		AllowAATx:       true, // EIP-7701 AA is enabled by default (Glamsterdam+)
+		MaxSize:            MaxPoolSize,
+		MaxPerSender:       MaxPerSender,
+		MinGasPrice:        big.NewInt(1), // 1 wei minimum
+		BlockGasLimit:      30_000_000,
+		PaymasterStrict:    true,
+		AllowAATx:          true, // EIP-7701 AA is enabled by default (Glamsterdam+)
+		PriceHistoryBlocks: pricing.DefaultFeeHistoryDepth,
 	}
 }
 
@@ -204,10 +208,17 @@ type TxPool struct {
 
 // New creates a new transaction pool.
 func New(config Config, state StateReader) *TxPool {
+	bumperCfg := pricing.DefaultBumperConfig()
+	if config.PriceHistoryBlocks > 0 {
+		bumperCfg.HistoryDepth = config.PriceHistoryBlocks
+	}
+	if config.MinGasPrice != nil {
+		bumperCfg.IgnorePrice = new(big.Int).Set(config.MinGasPrice)
+	}
 	return &TxPool{
 		config:    config,
 		state:     state,
-		suggestor: pricing.NewPriceBumper(pricing.DefaultBumperConfig()),
+		suggestor: pricing.NewPriceBumper(bumperCfg),
 		pending:   make(map[types.Address]*txSortedList),
 		queue:     make(map[types.Address]*txSortedList),
 		lookup:    newTxLookup(),

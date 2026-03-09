@@ -716,6 +716,10 @@ func (b *engineBackend) processBlockInternal(
 		b.node.gasOracle.RecordBlock(payload.BlockNumber, payload.BaseFeePerGas, tips)
 	}
 
+	// Feed the txpool gas-price suggestor with the new block so that
+	// SuggestGasPrice / SuggestAllTiers return up-to-date recommendations.
+	b.node.txPool.RecordBlock(header, txs)
+
 	// Record block gas usage for gigagas throughput tracking (M+ north star).
 	if b.node.gasRateTracker != nil {
 		b.node.gasRateTracker.RecordBlockGas(payload.BlockNumber, payload.GasUsed, payload.Timestamp)
