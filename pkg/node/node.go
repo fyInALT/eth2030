@@ -83,13 +83,13 @@ import (
 	enginechunking "github.com/eth2030/eth2030/engine/chunking"
 	"github.com/eth2030/eth2030/engine/forkchoice"
 	"github.com/eth2030/eth2030/p2p/discover"
+	"github.com/eth2030/eth2030/p2p/discv5"
 	p2pdispatch "github.com/eth2030/eth2030/p2p/dispatch"
 	p2pnat "github.com/eth2030/eth2030/p2p/nat"
 	p2pnonce "github.com/eth2030/eth2030/p2p/nonce"
 	p2pportal "github.com/eth2030/eth2030/p2p/portal"
 	p2preqresp "github.com/eth2030/eth2030/p2p/reqresp"
 	p2psnap "github.com/eth2030/eth2030/p2p/snap"
-	"github.com/eth2030/eth2030/p2p/discv5"
 	syncbeacon "github.com/eth2030/eth2030/sync/beacon"
 	synchealer "github.com/eth2030/eth2030/sync/healer"
 	syncstatesync "github.com/eth2030/eth2030/sync/statesync"
@@ -559,7 +559,20 @@ func New(config *Config) (*Node, error) {
 	n.rpcServer.SetNetBackend(netBackend)
 
 	// Wire per-client/per-method rate limiter into the ExtServer middleware chain.
-	n.rpcRateLimiter = rpcmiddleware.NewRPCRateLimiter(rpcmiddleware.DefaultRPCRateLimitConfig())
+	// When RPCRateLimitPerSec == 0, rate limiting is disabled entirely.
+	rpcRateCfg := rpcmiddleware.DefaultRPCRateLimitConfig()
+	if config.RPCRateLimitPerSec > 0 {
+		rpcRateCfg.PerClientRPS = config.RPCRateLimitPerSec
+		rpcRateCfg.GlobalRPS = config.RPCRateLimitPerSec * 10
+		rpcRateCfg.PerMethodRPS = config.RPCRateLimitPerSec / 2
+	} else {
+		// 0 means unlimited: set all limits to 0 so the token bucket uses
+		// the "always allow" sentinel path.
+		rpcRateCfg.GlobalRPS = 0
+		rpcRateCfg.PerClientRPS = 0
+		rpcRateCfg.PerMethodRPS = 0
+	}
+	n.rpcRateLimiter = rpcmiddleware.NewRPCRateLimiter(rpcRateCfg)
 	n.rpcServer.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clientIP := r.RemoteAddr
