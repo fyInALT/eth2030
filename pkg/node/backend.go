@@ -704,6 +704,22 @@ func (b *engineBackend) ForkchoiceUpdated(
 		"number", headBlock.NumberU64(),
 	)
 
+	// ePBS auction lifecycle: open a new auction slot and prune stale bids/escrow.
+	headNum := headBlock.NumberU64()
+	if b.node.epbsAuction != nil {
+		if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
+			slog.Debug("epbs: open auction", "slot", headNum, "err", err)
+		}
+	}
+	if headNum > 32 {
+		if b.node.epbsBuilder != nil {
+			b.node.epbsBuilder.PruneBefore(headNum - 32)
+		}
+		if b.node.epbsEscrow != nil {
+			b.node.epbsEscrow.PruneBefore(headNum - 32)
+		}
+	}
+
 	// If no payload attributes, just return the forkchoice acknowledgment.
 	if payloadAttributes == nil {
 		return engine.ForkchoiceUpdatedResult{
