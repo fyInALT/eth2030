@@ -391,6 +391,9 @@ func NewTransaction(inner TxData) *Transaction {
 // Type returns the transaction type.
 func (tx *Transaction) Type() uint8 { return tx.inner.txType() }
 
+// Inner returns the underlying typed transaction data.
+func (tx *Transaction) Inner() TxData { return tx.inner }
+
 // ChainId returns the chain ID of the transaction.
 func (tx *Transaction) ChainId() *big.Int { return tx.inner.chainID() }
 

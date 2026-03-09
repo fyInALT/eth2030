@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/txpool/frametx"
@@ -485,6 +486,23 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 			}
 			if err := frametx.SimulateVerifyFrame(ftx, pool.codeReader); err != nil {
 				return err
+			}
+		}
+	}
+
+	// EIP-7701: AA transaction — validate UserOperation fields statically.
+	if tx.Type() == types.AATxType {
+		if aatx, ok := tx.Inner().(*types.AATx); ok {
+			uo := &eips.UserOperation{
+				Sender:               aatx.Sender,
+				Nonce:                new(big.Int).SetUint64(aatx.Nonce),
+				CallData:             aatx.SenderExecutionData,
+				VerificationGasLimit: aatx.SenderValidationGas,
+				MaxFeePerGas:         aatx.MaxFeePerGas,
+				MaxPriorityFeePerGas: aatx.MaxPriorityFeePerGas,
+			}
+			if err := eips.ValidateUserOp(uo); err != nil {
+				return fmt.Errorf("aa: invalid user op: %w", err)
 			}
 		}
 	}
