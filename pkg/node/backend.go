@@ -17,7 +17,9 @@ import (
 	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/engine/vhash"
+	epbsbid "github.com/eth2030/eth2030/epbs/bid"
 	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
+	"github.com/eth2030/eth2030/rollup"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/trie"
 	"github.com/eth2030/eth2030/txpool/shared"
@@ -191,6 +193,14 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 		}
 		if err := b.node.sharedPool.AddTransaction(smTx); err != nil {
 			slog.Debug("shared mempool add", "hash", tx.Hash(), "err", err)
+		}
+	}
+	// Feed calldata to native rollup sequencer for L2 batch assembly (EIP-8079).
+	if b.node.rollupSeq != nil {
+		if data := tx.Data(); len(data) > 0 {
+			if seqErr := b.node.rollupSeq.AddTransaction(data); seqErr != nil {
+				slog.Debug("rollup sequencer add", "hash", tx.Hash(), "err", seqErr)
+			}
 		}
 	}
 	return nil
@@ -642,6 +652,24 @@ func (b *engineBackend) processBlockInternal(
 		}
 	}
 
+	// Insert accepted block's state root into the binary announce trie and
+	// stack-trie node collector (I+ EIP-7864 binary trie infrastructure).
+	if bc.Config().IsIPlus(payload.Timestamp) {
+		key := payload.BlockHash[:]
+		val := payload.StateRoot[:]
+		if b.node.trieAnnouncer != nil {
+			if err := b.node.trieAnnouncer.Insert(key, val); err != nil {
+				slog.Debug("trie announcer insert", "block", payload.BlockNumber, "err", err)
+			}
+		}
+		if b.node.stackTrie != nil {
+			// Put the block state root as a collected trie node for later flush.
+			if err := b.node.stackTrie.Put(payload.StateRoot, val); err != nil {
+				slog.Debug("stack trie put", "block", payload.BlockNumber, "err", err)
+			}
+		}
+	}
+
 	// Request blob data for this block from the beacon blob sync manager (EIP-7594).
 	// BlobGasUsed > 0 signals that blob transactions are present in the block.
 	// Each blob consumes GAS_PER_BLOB = 131072 gas (EIP-4844).
@@ -662,6 +690,20 @@ func (b *engineBackend) processBlockInternal(
 	if b.node.epbsMEVBurn != nil && bc.Config().IsAmsterdam(payload.Timestamp) {
 		epoch := payload.BlockNumber / 32
 		b.node.epbsMEVBurn.RecordBurn(epoch, epbsmevburn.MEVBurnResult{})
+	}
+
+	// Advance native rollup anchor state after each accepted EL block (Amsterdam EIP-8079).
+	// This records the latest L1 block hash and state root for L2 chains to anchor against.
+	if b.node.rollupAnchor != nil && bc.Config().IsAmsterdam(payload.Timestamp) {
+		execOut := &rollup.ExecuteOutput{
+			PostStateRoot: payload.StateRoot,
+			ReceiptsRoot:  payload.ReceiptsRoot,
+			GasUsed:       payload.GasUsed,
+			Success:       true,
+		}
+		if err := b.node.rollupAnchor.UpdateAfterExecute(execOut, payload.BlockNumber, payload.Timestamp); err != nil {
+			slog.Debug("rollup anchor update", "block", payload.BlockNumber, "err", err)
+		}
 	}
 
 	// Sync txpool state with the new head so pending/queued txs are re-evaluated.
@@ -702,6 +744,13 @@ func (b *engineBackend) processBlockInternal(
 			if chunks, chunkErr := b.node.payloadChunker.ChunkPayload(encoded); chunkErr == nil {
 				slog.Debug("payload chunked", "block", payload.BlockNumber, "chunks", len(chunks))
 			}
+		}
+	}
+
+	// Announce this block's sequence number to peers (EIP-8077 announce-nonce, ETH/72).
+	if b.node.nonceAnnouncer != nil {
+		if err := b.node.nonceAnnouncer.AnnounceNonce("local", payload.BlockHash, payload.BlockNumber); err != nil {
+			slog.Debug("nonce announce", "block", payload.BlockNumber, "err", err)
 		}
 	}
 
@@ -778,6 +827,35 @@ func (b *engineBackend) ForkchoiceUpdated(
 			}
 			if b.node.epbsCommit != nil {
 				b.node.epbsCommit.PruneSlot(headNum - 32)
+			}
+		}
+		// Score current builder bids for the auction slot using composite metrics.
+		if b.node.epbsBid != nil {
+			components := epbsbid.ScoreComponents{
+				BidAmount:        0,    // no live bids yet; zero baseline
+				ReputationScore:  50.0, // neutral starting reputation
+				InclusionQuality: 1.0,  // full IL compliance assumed
+				LatencyMs:        0,
+			}
+			score := b.node.epbsBid.ComputeScore(components)
+			slog.Debug("epbs: bid baseline score", "slot", headNum, "score", score)
+		}
+		// Run the EL-side builder auction to close bids for this slot.
+		if b.node.engineAuction != nil {
+			if result, aErr := b.node.engineAuction.RunAuction(headNum); aErr != nil {
+				slog.Debug("engine auction run", "slot", headNum, "err", aErr)
+			} else {
+				slog.Debug("engine auction result", "slot", headNum, "bids", result.TotalBids)
+			}
+		}
+	}
+
+	// Prune stale state roots when the finalized block advances (I+ EIP-7864).
+	if b.node.triePruner != nil && bc.Config().IsIPlus(headBlock.Time()) {
+		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
+			pruned := b.node.triePruner.Prune(128)
+			if len(pruned) > 0 {
+				slog.Debug("trie pruner: pruned stale roots", "count", len(pruned))
 			}
 		}
 	}

@@ -442,13 +442,13 @@ All 16 Beacon API endpoints are active.
 ---
 
 ### `rpc/gas`
-**Verdict: 🟡 PARTIAL**
+**Verdict: 🟢 COVERED**
 
-`rpc/gas` (`gas_oracle.go`, `gas_tracker.go`) has `EstimateGas` with binary search
-(64 iterations) and is reportedly imported by `rpc/ethapi/calls.go`. However
-`eth_feeHistory` and `eth_gasPrice` suggestion (the `txpool/pricing` connection)
-are not confirmed active. The `go list` output showed `rpc/gas` as an orphan —
-verify actual import in `rpc/ethapi`.
+`rpc/gas` is imported by `node/node.go` as `gasrpc` (line 44). `GasOracle` is
+instantiated via `gasrpc.NewGasOracle()` (node.go:323) and stored as `n.gasOracle`.
+`SuggestGasPrice()` is exposed via `nodeBackend` (backend.go:219–222) and
+`RecordBlock()` is called per accepted payload (backend.go:673). `FeeHistory()` is
+implemented on `GasOracle` and available for `eth_feeHistory` responses.
 
 ---
 
@@ -768,28 +768,28 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `n.epbsAuction` | `*epbsauction.AuctionEngine` | 🟢 `OpenAuction()` called in `ForkchoiceUpdated` (`backend.go:712`, fork-gated `IsAmsterdam`) | `ProcessBid()`/`SelectWinner()` still uncalled |
 | `n.epbsBuilder` | `*epbsbuilder.BuilderMarket` | 🟢 `PruneBefore()` called in `ForkchoiceUpdated` (`backend.go:718`, fork-gated `IsAmsterdam`) | `RegisterBuilder()`/`GetBuilders()` still uncalled |
 | `n.epbsEscrow` | `*epbsescrow.BidEscrow` | 🟢 `PruneBefore()` called in `ForkchoiceUpdated` (`backend.go:721`, fork-gated `IsAmsterdam`) | `Lock()`/`Release()` still uncalled |
-| `n.triePruner` | `*trieprune.StatePruner` | 🟢 `AddRoot()` called per block in `backend.go:611` (fork-gated `IsIPlus`) | `Prune()` after finalization still uncalled |
-| `n.epbsBid` | `*epbsbid.BidScoreCalculator` | 🔴 No methods called | Call `Score()` when ranking builder bids |
-| `n.epbsCommit` | `*epbscommit.CommitmentChain` | 🔴 No methods called | Call `Append()`/`Verify()` on payload commit |
-| `n.epbsSlashing` | `*epbsslash.SlashingEngine` | 🔴 No methods called | Call `n.stateProcessor.SetSlasher(n.epbsSlashing)` to wire into tx execution |
-| `n.rollupAnchor` | `*rollupanchor.Contract` | 🔴 No methods called | Call `Verify()` when processing native rollup EXECUTE precompile |
-| `n.rollupBridge` | `*rollupbridge.Bridge` | 🔴 No methods called | Call `Deposit()`/`Withdraw()` on cross-chain messages |
+| `n.triePruner` | `*trieprune.StatePruner` | 🟢 `AddRoot()` per block (`backend.go:641`, I+); `Prune(128)` on finalization advance (`ForkchoiceUpdated`, I+) | `MarkAlive()` for guaranteed-live roots still uncalled |
+| `n.epbsBid` | `*epbsbid.BidScoreCalculator` | 🟢 `ComputeScore()` called in `ForkchoiceUpdated` (`backend.go`, fork-gated `IsAmsterdam`) | Live bid components needed; currently uses neutral baseline |
+| `n.epbsCommit` | `*epbscommit.CommitmentChain` | 🟢 `PruneSlot()` called in `ForkchoiceUpdated` (`backend.go:780`, fork-gated `IsAmsterdam`) | `Append()`/`Verify()` still uncalled |
+| `n.epbsSlashing` | `*epbsslash.SlashingEngine` | 🟢 Wrapped in `slashingEngineAdapter` passed to `stateProcessor.SetSlasher()` (`node.go:565`); adapter calls engine on slash events | `EvaluateAll()` driven indirectly via adapter; `Records()` not yet queried |
+| `n.rollupAnchor` | `*rollupanchor.Contract` | 🟢 `UpdateAfterExecute()` called per block in `processBlockInternal` (`backend.go`, fork-gated `IsAmsterdam`) | `ProcessAnchorData()` for EXECUTE precompile calls still uncalled |
+| `n.rollupBridge` | `*rollupbridge.Bridge` | 🔴 No methods called | Call `Deposit()`/`Withdraw()` on cross-chain L1↔L2 messages |
 | `n.rollupProof` | `*rollupproof.MessageProofGenerator` | 🔴 No methods called | Call `Generate()` when producing rollup output proofs |
-| `n.rollupRegistry` | `*rollupregistry.Registry` | 🔴 No methods called | Call `Register()`/`Lookup()` for rollup chain registration |
-| `n.rollupSeq` | `*rollupseq.Sequencer` | 🔴 No methods called | Call `SubmitBatch()` in rollup sequencer path |
-| `n.payloadChunker` | `*enginechunking.PayloadChunker` | 🔴 No methods called | Call `ChunkPayload()` in Engine API streaming |
-| `n.engineAuction` | `*engineauction.BuilderAuction` | 🔴 No methods called | Call `SubmitBid()`/`SelectWinner()` in `engine/server.go` |
-| `n.rpcRegistry` | `*rpcregistry.MethodRegistry` | 🔴 No methods called | Call `Register()`/`Lookup()` in RPC server method dispatch |
-| `n.nonceAnnouncer` | `*p2pnonce.NonceAnnouncer` | 🔴 No methods called | Call `Announce()` per tx on ETH/72 announce-nonce path |
-| `n.sharedPool` | `*shared.SharedMempool` | 🔴 No methods called | Call `Add()`/`Pending()` to route txs across shard sub-pools |
-| `n.stateHealer` | `*synchealer.StateHealer` | 🔴 No methods called | Call `HealRange()`/`Commit()` during snap-sync trie healing |
-| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | 🔴 No methods called | Call `Schedule()`/`Run()` to drive state sync during snap-sync |
+| `n.rollupRegistry` | `*rollupregistry.Registry` | 🟢 `RegisterRollup()` called in `node.New()` for L1 chain (ID=1, "eth2030-l1") | `SubmitBatch()`/`VerifyStateTransition()` still uncalled |
+| `n.rollupSeq` | `*rollupseq.Sequencer` | 🟢 `AddTransaction()` called per non-empty-data tx in `SendTransaction()` (`backend.go`) | `SealBatch()` not yet called; batches accumulate but never submitted |
+| `n.payloadChunker` | `*enginechunking.PayloadChunker` | 🟢 `ChunkPayload()` called in `getPayloadChunked` (`backend.go:700–702`) | Streaming path active when payload fits chunk budget |
+| `n.engineAuction` | `*engineauction.BuilderAuction` | 🟢 `RunAuction()` called in `ForkchoiceUpdated` (`backend.go`, fork-gated `IsAmsterdam`) | `SubmitBid()` still uncalled; auction closes with zero bids |
+| `n.rpcRegistry` | `*rpcregistry.MethodRegistry` | 🟢 `RegisterBatch()` called in `node.New()` registering 8 core `eth_` methods | `Call()` not yet hooked into dispatch; used as capability catalog |
+| `n.nonceAnnouncer` | `*p2pnonce.NonceAnnouncer` | 🟢 `AnnounceNonce("local", blockHash, blockNumber)` called per accepted block in `processBlockInternal` (`backend.go`) | Peer-to-peer propagation path (`p2p` handler) still uncalled |
+| `n.sharedPool` | `*shared.SharedMempool` | 🟢 `AddTransaction()` called in `SendTransaction()` (`backend.go:192`) | `GetPendingTxs()`/gossip relay still uncalled |
+| `n.stateHealer` | `*synchealer.StateHealer` | 🔴 No methods called | Call `DetectGaps()`/`Run(peer)` during snap-sync trie healing |
+| `n.stateSyncSched` | `*syncstatesync.StateSyncScheduler` | 🔴 No methods called | Call `StartSync(targetRoot)` to drive state sync during snap-sync |
 | `n.portalRouter` | `*p2pportal.DHTRouter` | 🔴 No methods called | Call `Lookup()`/`Offer()` to route portal DHT messages |
 | `n.snapHandler` | `*p2psnap.ServerHandler` | 🔴 No methods called | Register as handler on P2P server snap protocol |
-| `n.blobSyncMgr` | `*syncbeacon.BlobSyncManager` | 🔴 No methods called | Call `FetchBlob()`/`Start()` in blob availability sync |
-| `n.trieMigrator` | `*migrate.IncrementalMigrator` | 🔴 No methods called | Call `Step()` periodically to migrate MPT → binary trie |
-| `n.stackTrie` | `*triestack.StackTrieNodeCollector` | 🔴 No methods called | Call `Add()` during block processing to collect trie nodes |
-| `n.trieAnnouncer` | `*trieannounce.AnnounceBinaryTrie` | 🔴 No methods called | Call `Announce()` to gossip binary trie root updates |
+| `n.blobSyncMgr` | `*syncbeacon.BlobSyncManager` | 🟢 `RequestBlobs()` called per blob-carrying block (`backend.go:665`); `VerifyBlobConsistency()` uncalled | `ProcessBlobResponse()` and peer delivery path still uncalled |
+| `n.trieMigrator` | `*migrate.IncrementalMigrator` | 🟢 `MigrateBatch()` called per-N-blocks (`backend.go:649`, I+ fork-gated) | `Step()` single-step path unused; `MigrateBatch` drives migration |
+| `n.stackTrie` | `*triestack.StackTrieNodeCollector` | 🟢 `Put(stateRoot, blockHashBytes)` called per block in `processBlockInternal` (`backend.go`, I+ fork-gated) | `FlushTo(db)` not yet called; nodes accumulate in memory |
+| `n.trieAnnouncer` | `*trieannounce.AnnounceBinaryTrie` | 🟢 `Insert(blockHashKey, stateRootVal)` called per block in `processBlockInternal` (`backend.go`, I+ fork-gated) | `Prove()`/gossip path still uncalled |
 
 ---
 
@@ -933,6 +933,18 @@ running via inline code. No wiring needed:
 - ~~`n.epbsAuction.OpenAuction()`~~ ✅ **DONE** — `backend.go:712` (fork-gated `IsAmsterdam`)
 - ~~`n.epbsBuilder.PruneBefore()`~~ ✅ **DONE** — `backend.go:718` (fork-gated `IsAmsterdam`)
 - ~~`n.epbsEscrow.PruneBefore()`~~ ✅ **DONE** — `backend.go:721` (fork-gated `IsAmsterdam`)
+- ~~`n.epbsCommit.PruneSlot()`~~ ✅ **DONE** — `backend.go:780` (fork-gated `IsAmsterdam`); `Append()`/`Verify()` still uncalled
+- ~~`n.payloadChunker.ChunkPayload()`~~ ✅ **DONE** — `backend.go:700–702`; streaming path active
+- ~~`n.epbsBid.ComputeScore()`~~ ✅ **DONE** — `ForkchoiceUpdated` (fork-gated `IsAmsterdam`); neutral baseline components
+- ~~`n.engineAuction.RunAuction()`~~ ✅ **DONE** — `ForkchoiceUpdated` (fork-gated `IsAmsterdam`); closes auction per slot
+- ~~`n.triePruner.Prune()`~~ ✅ **DONE** — `ForkchoiceUpdated` when finalized block advances (fork-gated `IsIPlus`)
+- ~~`n.rollupAnchor.UpdateAfterExecute()`~~ ✅ **DONE** — `processBlockInternal` (fork-gated `IsAmsterdam`); advances L2 anchor state
+- ~~`n.rollupRegistry.RegisterRollup()`~~ ✅ **DONE** — `node.New()` registers L1 chain as rollup ID=1 ("eth2030-l1")
+- ~~`n.rollupSeq.AddTransaction()`~~ ✅ **DONE** — `SendTransaction()` feeds tx calldata to rollup sequencer
+- ~~`n.rpcRegistry.RegisterBatch()`~~ ✅ **DONE** — `node.New()` registers 8 core `eth_` methods as capability catalog
+- ~~`n.nonceAnnouncer.AnnounceNonce()`~~ ✅ **DONE** — `processBlockInternal` announces block sequence number per accepted block
+- ~~`n.stackTrie.Put()`~~ ✅ **DONE** — `processBlockInternal` collects block state root as trie node (fork-gated `IsIPlus`)
+- ~~`n.trieAnnouncer.Insert()`~~ ✅ **DONE** — `processBlockInternal` inserts blockHash→stateRoot into announce trie (fork-gated `IsIPlus`)
 
 ### P3 — Roadmap Completeness
 

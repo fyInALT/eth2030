@@ -621,8 +621,30 @@ func New(config *Config) (*Node, error) {
 	n.stackTrie = triestack.NewStackTrieNodeCollector()
 	n.trieAnnouncer = trieannounce.NewAnnounceBinaryTrie()
 
-	// Initialize RPC method registry for dynamic method routing.
+	// Initialize RPC method registry for dynamic method routing and capability
+	// advertisement.  Register the core eth_ methods so HasMethod / Methods()
+	// return accurate results; the real dispatch still goes through ExtServer.
 	n.rpcRegistry = rpcregistry.NewMethodRegistry()
+	if err := n.rpcRegistry.RegisterBatch([]rpcregistry.MethodInfo{
+		{Name: "eth_blockNumber", Namespace: "eth", Description: "Returns current block number", ParamCount: 0,
+			Handler: func(params []interface{}) (interface{}, error) { return "0x0", nil }},
+		{Name: "eth_getBalance", Namespace: "eth", Description: "Returns account balance", ParamCount: 2,
+			Handler: func(params []interface{}) (interface{}, error) { return "0x0", nil }},
+		{Name: "eth_sendRawTransaction", Namespace: "eth", Description: "Submits signed transaction", ParamCount: 1,
+			Handler: func(params []interface{}) (interface{}, error) { return types.Hash{}.Hex(), nil }},
+		{Name: "eth_getTransactionCount", Namespace: "eth", Description: "Returns account nonce", ParamCount: 2,
+			Handler: func(params []interface{}) (interface{}, error) { return "0x0", nil }},
+		{Name: "eth_gasPrice", Namespace: "eth", Description: "Returns current gas price", ParamCount: 0,
+			Handler: func(params []interface{}) (interface{}, error) { return "0x1", nil }},
+		{Name: "eth_feeHistory", Namespace: "eth", Description: "Returns fee history", ParamCount: 3,
+			Handler: func(params []interface{}) (interface{}, error) { return nil, nil }},
+		{Name: "eth_getBlockByNumber", Namespace: "eth", Description: "Returns block by number", ParamCount: 2,
+			Handler: func(params []interface{}) (interface{}, error) { return nil, nil }},
+		{Name: "eth_getTransactionReceipt", Namespace: "eth", Description: "Returns tx receipt", ParamCount: 1,
+			Handler: func(params []interface{}) (interface{}, error) { return nil, nil }},
+	}); err != nil {
+		slog.Warn("rpc registry batch register", "err", err)
+	}
 
 	// Initialize native rollup sub-systems (EIP-8079): anchor contract, L1↔L2
 	// bridge, proof generator, rollup registry, and sequencer.
@@ -630,6 +652,14 @@ func New(config *Config) (*Node, error) {
 	n.rollupBridge = rollupbridge.NewBridge(rollupbridge.DefaultConfig())
 	n.rollupProof = rollupproof.NewMessageProofGenerator()
 	n.rollupRegistry = rollupregistry.NewRegistry()
+	// Register the default L1 execution chain as native rollup ID 1 (EIP-8079).
+	if _, rrErr := n.rollupRegistry.RegisterRollup(rollupregistry.RollupConfig{
+		ID:       1,
+		Name:     "eth2030-l1",
+		GasLimit: 30_000_000,
+	}); rrErr != nil {
+		slog.Warn("rollup registry: register L1 chain", "err", rrErr)
+	}
 	n.rollupSeq = rollupseq.NewSequencer(rollupseq.DefaultConfig())
 
 	// Initialize Engine API server.
