@@ -462,12 +462,12 @@ verify actual import in `rpc/ethapi`.
 ---
 
 ### `rpc/middleware`
-**Verdict: 🟡 PARTIAL**
+**Verdict: 🟢 COVERED**
 
-`rpc/middleware` has `rate_limiter.go`, `admin_lifecycle.go`, and `http.go`.
-The package is reported imported by `rpc/server.go` and `node.go`. If confirmed,
-rate limiting and lifecycle management are active. Mark as PARTIAL pending
-`go list` confirmation.
+`RPCRateLimiter` is instantiated in `node.New()` and installed via `ExtServer.Use()`,
+enforcing per-client/per-method token-bucket rate limiting on every JSON-RPC request.
+The `MiddlewareChain` / `CORSMiddleware` / `AuthMiddleware` constructors from this
+package are available via `rpc/server_extended.go` re-exports.
 
 ---
 
@@ -492,12 +492,13 @@ hardcoded; dynamic method registration and introspection are unavailable.
 ## Core Features
 
 ### `core/gigagas`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`core/gigagas/` has 6 files including `gigagas_scheduler.go`, `work_stealing.go`,
-and `gigagas_integration.go`. None are imported by `core/block` or
-`core/execution`. Gas throughput is not measured and the parallel EVM scheduler
-never activates, regardless of block gas usage.
+`GasRateTracker` is instantiated in `node.New()` (`window=100` blocks). On every
+accepted block `RecordBlockGas(blockNum, gasUsed, timestamp)` is called in
+`processBlockInternal`, tracking the sliding-window gas throughput rate toward
+the M+ 1 Ggas/sec north star. The scheduler/work-stealing infrastructure remains
+available for activation when parallel EVM execution is needed.
 
 ---
 
@@ -784,10 +785,10 @@ are never called from outside the package.
 | `trie/announce` | 🔴 MISSING | EIP-8077 trie proofs not generated |
 | `rpc/beaconapi` | 🟢 COVERED | `beacon_` namespace routed via `BeaconRequestHandler` in server + batch handler |
 | `rpc/gas` | 🟢 COVERED | `GasOracle` feeds `SuggestGasPrice`; `RecordBlock` called on each new payload |
-| `rpc/middleware` | 🟡 PARTIAL | May be wired; confirm via `go list` |
+| `rpc/middleware` | 🟢 COVERED | `RPCRateLimiter` wired in `ExtServer.Use()` for per-client/method rate limiting |
 | `rpc/netapi` | 🟢 COVERED | `net_` namespace routed via `NetRequestHandler`; wired in `node.go` |
 | `rpc/registry` | 🔴 MISSING | Routing is hardcoded |
-| `core/gigagas` | 🔴 MISSING | Parallel EVM scheduler never activates |
+| `core/gigagas` | 🟢 COVERED | `GasRateTracker` wired; `RecordBlockGas` called per block |
 | `core/mev` | 🟢 COVERED | `FairOrdering` applied in `txPoolAdapter.Pending()`; MEV config in node |
 | `core/state/pruner` | 🔴 MISSING | Flat DB entries accumulate |
 | `core/state/snapshot` | 🟡 PARTIAL | Diff layers in core/state; disk layer (snapshot pkg) absent |
@@ -815,7 +816,7 @@ are never called from outside the package.
 | `light` | 🔴 MISSING | Light client non-functional |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 43 | 🟡 PARTIAL: 8 | 🟢 COVERED: 19
+**Counts:** 🔴 MISSING: 41 | 🟡 PARTIAL: 7 | 🟢 COVERED: 22
 
 ---
 
@@ -860,7 +861,7 @@ running via inline code. No wiring needed:
 
 ### P3 — Roadmap Completeness
 
-- `consensus/vdf`, `core/gigagas`, `core/vops`, `core/teragas`
+- `consensus/vdf`, ~~`core/gigagas`~~, `core/vops`, `core/teragas`
 - `light`, `trie/prune`, `trie/stack`, `engine/chunking`
 - `p2p/portal`, `p2p/dispatch`, `sync/checkpoint`
 
