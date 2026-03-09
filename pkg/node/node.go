@@ -30,6 +30,7 @@ import (
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
+	gasrpc "github.com/eth2030/eth2030/rpc/gas"
 	ethsync "github.com/eth2030/eth2030/sync"
 	"github.com/eth2030/eth2030/txpool"
 )
@@ -54,6 +55,9 @@ type Node struct {
 
 	// Sync engine for downloading blocks from peers.
 	syncer *ethsync.Downloader
+
+	// Gas oracle for EIP-1559-aware gas price suggestions.
+	gasOracle *gasrpc.GasOracle
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -142,6 +146,9 @@ func New(config *Config) (*Node, error) {
 		return nil, fmt.Errorf("init blockchain: %w", err)
 	}
 	n.blockchain = bc
+
+	// Initialize gas oracle for EIP-1559-aware gas price suggestions.
+	n.gasOracle = gasrpc.NewGasOracle(gasrpc.DefaultGasOracleConfig())
 
 	// Initialize transaction pool.
 	poolCfg := txpool.DefaultConfig()

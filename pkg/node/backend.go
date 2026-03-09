@@ -18,6 +18,47 @@ import (
 	"github.com/eth2030/eth2030/trie"
 )
 
+// extractBlockTips returns the effective priority fee (tip) for each
+// transaction in the block, given the block's base fee.
+func extractBlockTips(txs []*types.Transaction, baseFee *big.Int) []*big.Int {
+	tips := make([]*big.Int, 0, len(txs))
+	if baseFee == nil {
+		baseFee = new(big.Int)
+	}
+	for _, tx := range txs {
+		var tip *big.Int
+		switch tx.Type() {
+		case types.DynamicFeeTxType:
+			// EIP-1559: effectiveTip = min(GasTipCap, GasFeeCap - baseFee)
+			tipCap := tx.GasTipCap()
+			feeCap := tx.GasFeeCap()
+			if tipCap == nil || feeCap == nil {
+				continue
+			}
+			effective := new(big.Int).Sub(feeCap, baseFee)
+			if effective.Sign() < 0 {
+				continue
+			}
+			tip = tipCap
+			if effective.Cmp(tipCap) < 0 {
+				tip = effective
+			}
+		default:
+			// Legacy / access-list tx: tip = gasPrice - baseFee
+			gp := tx.GasPrice()
+			if gp == nil {
+				continue
+			}
+			tip = new(big.Int).Sub(gp, baseFee)
+			if tip.Sign() < 0 {
+				continue
+			}
+		}
+		tips = append(tips, new(big.Int).Set(tip))
+	}
+	return tips
+}
+
 // nodeBackend adapts the Node to the rpc.Backend interface.
 type nodeBackend struct {
 	node *Node
@@ -143,7 +184,11 @@ func (b *nodeBackend) GetTransaction(hash types.Hash) (*types.Transaction, uint6
 }
 
 func (b *nodeBackend) SuggestGasPrice() *big.Int {
-	// Return current base fee as a simple gas price suggestion.
+	// Use the gas oracle if it has seen blocks (returns baseFee + percentile tip).
+	if b.node.gasOracle != nil && b.node.gasOracle.BaseFee().Sign() > 0 {
+		return b.node.gasOracle.SuggestGasPrice()
+	}
+	// Fallback: return current base fee when oracle has no data yet.
 	blk := b.node.blockchain.CurrentBlock()
 	if blk != nil && blk.Header().BaseFee != nil {
 		return new(big.Int).Set(blk.Header().BaseFee)
@@ -521,6 +566,12 @@ func (b *engineBackend) processBlockInternal(
 
 	// Sync txpool state with the new head so pending/queued txs are re-evaluated.
 	b.node.txPool.Reset(bc.State())
+
+	// Notify gas oracle so it can refine its fee estimates.
+	if b.node.gasOracle != nil {
+		tips := extractBlockTips(txs, payload.BaseFeePerGas)
+		b.node.gasOracle.RecordBlock(payload.BlockNumber, payload.BaseFeePerGas, tips)
+	}
 
 	blockHash := block.Hash()
 	slog.Info("engine_newPayload: accepted",
