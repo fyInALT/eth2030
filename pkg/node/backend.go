@@ -600,6 +600,11 @@ func (b *engineBackend) processBlockInternal(
 		b.node.gasOracle.RecordBlock(payload.BlockNumber, payload.BaseFeePerGas, tips)
 	}
 
+	// Record block gas usage for gigagas throughput tracking (M+ north star).
+	if b.node.gasRateTracker != nil {
+		b.node.gasRateTracker.RecordBlockGas(payload.BlockNumber, payload.GasUsed, payload.Timestamp)
+	}
+
 	// Advance encrypted mempool epoch and expire stale commits (Hegotá MEV protection).
 	if b.node.encryptedProtocol != nil {
 		b.node.encryptedProtocol.SetEpoch(payload.BlockNumber)

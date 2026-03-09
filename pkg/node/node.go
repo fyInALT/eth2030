@@ -34,10 +34,12 @@ import (
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
 	ethsync "github.com/eth2030/eth2030/sync"
 	mevpkg "github.com/eth2030/eth2030/core/mev"
+	"github.com/eth2030/eth2030/core/gigagas"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
 	"github.com/eth2030/eth2030/txpool/tracking"
+	rpcmiddleware "github.com/eth2030/eth2030/rpc/middleware"
 )
 
 // Node is the top-level ETH2030 node that manages all subsystems.
@@ -77,6 +79,12 @@ type Node struct {
 
 	// Tx journal for crash-recovery of pending transactions.
 	txJournal *txjournal.TxJournal
+
+	// Gigagas gas-rate tracker (M+ north star: 1 Ggas/sec).
+	gasRateTracker *gigagas.GasRateTracker
+
+	// RPC rate limiter for per-client/per-method protection.
+	rpcRateLimiter *rpcmiddleware.RPCRateLimiter
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -335,6 +343,25 @@ func New(config *Config) (*Node, error) {
 	})
 	n.rpcServer.SetAdminBackend(adminBackend)
 	n.rpcServer.SetNetBackend(netBackend)
+
+	// Wire per-client/per-method rate limiter into the ExtServer middleware chain.
+	n.rpcRateLimiter = rpcmiddleware.NewRPCRateLimiter(rpcmiddleware.DefaultRPCRateLimitConfig())
+	n.rpcServer.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			clientIP := r.RemoteAddr
+			if idx := strings.LastIndex(clientIP, ":"); idx >= 0 {
+				clientIP = clientIP[:idx]
+			}
+			if !n.rpcRateLimiter.Allow(clientIP, r.URL.Path) {
+				http.Error(w, "rate limited", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	// Initialize gigagas gas-rate tracker (M+ 1 Ggas/sec north star).
+	n.gasRateTracker = gigagas.NewGasRateTracker(100)
 
 	// Initialize Engine API server.
 	engineBackend := newEngineBackend(n)
