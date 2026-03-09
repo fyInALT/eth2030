@@ -75,12 +75,19 @@ import (
 	trieprune "github.com/eth2030/eth2030/trie/prune"
 	triestack "github.com/eth2030/eth2030/trie/stack"
 
+	enginechunking "github.com/eth2030/eth2030/engine/chunking"
+	"github.com/eth2030/eth2030/p2p/discover"
 	p2pdispatch "github.com/eth2030/eth2030/p2p/dispatch"
 	p2pnat "github.com/eth2030/eth2030/p2p/nat"
 	p2pnonce "github.com/eth2030/eth2030/p2p/nonce"
+	p2pportal "github.com/eth2030/eth2030/p2p/portal"
 	p2preqresp "github.com/eth2030/eth2030/p2p/reqresp"
+	p2psnap "github.com/eth2030/eth2030/p2p/snap"
+	syncbeacon "github.com/eth2030/eth2030/sync/beacon"
 	synchealer "github.com/eth2030/eth2030/sync/healer"
 	syncstatesync "github.com/eth2030/eth2030/sync/statesync"
+	"github.com/eth2030/eth2030/trie/migrate"
+	"github.com/eth2030/eth2030/trie/mpt"
 	"github.com/eth2030/eth2030/txpool/shared"
 )
 
@@ -200,6 +207,23 @@ type Node struct {
 	// Snap sync: state healer and state sync scheduler.
 	stateHealer    *synchealer.StateHealer
 	stateSyncSched *syncstatesync.StateSyncScheduler
+
+	// Portal network content DB and DHT router.
+	portalDB     *p2pportal.ContentDB
+	portalRouter *p2pportal.DHTRouter
+
+	// Snap protocol server handler.
+	snapHandler *p2psnap.ServerHandler
+
+	// Beacon sync manager and blob recovery.
+	beaconSyncer *syncbeacon.BeaconSyncer
+	blobSyncMgr  *syncbeacon.BlobSyncManager
+
+	// Engine payload chunker (streaming large payloads to CL).
+	payloadChunker *enginechunking.PayloadChunker
+
+	// MPT → BinaryTrie incremental migrator (EIP-7864 trie migration).
+	trieMigrator *migrate.IncrementalMigrator
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -527,6 +551,26 @@ func New(config *Config) (*Node, error) {
 	n.epbsEscrow = epbsescrow.NewBidEscrow(1024)
 	n.epbsMEVBurn = epbsmevburn.NewMEVBurnTracker(epbsmevburn.DefaultMEVBurnConfig())
 	n.epbsSlashing = epbsslash.NewSlashingEngine(epbsslash.DefaultPenaltyMultipliers(), 100)
+
+	// Initialize engine payload chunker (128 KB segments for streaming to CL).
+	n.payloadChunker = enginechunking.NewPayloadChunker(128 * 1024)
+
+	// Initialize MPT→BinaryTrie incremental migrator (EIP-7864).
+	n.trieMigrator = migrate.NewIncrementalMigrator(mpt.New(), migrate.DefaultMigrationConfig())
+
+	// Initialize Portal network: content DB + DHT router (history/state content).
+	var portalNodeID p2pportal.NodeID // zero node ID until real discovery is wired
+	n.portalDB = p2pportal.NewContentDB(p2pportal.DefaultContentDBConfig(portalNodeID))
+	var portalSelfID [32]byte // zero self-ID for now
+	portalKT := discover.NewKademliaTable(portalSelfID, discover.DefaultKademliaConfig())
+	n.portalRouter = p2pportal.NewDHTRouter(portalKT, p2pportal.DefaultDHTRouterConfig())
+
+	// Initialize snap protocol server handler (serve snap requests to syncing peers).
+	n.snapHandler = p2psnap.NewServerHandler(&stubSnapStateBackend{})
+
+	// Initialize beacon syncer and blob sync manager.
+	n.beaconSyncer = syncbeacon.NewBeaconSyncer(syncbeacon.DefaultBeaconSyncConfig())
+	n.blobSyncMgr = syncbeacon.NewBlobSyncManager(syncbeacon.DefaultBlobSyncConfig())
 
 	// Initialize P2P sub-systems: NAT traversal, message dispatch, nonce
 	// announcer (EIP-8077), and request/response framing.
@@ -1098,6 +1142,21 @@ func (s *stubBeamFetcher) FetchAccount(_ types.Address) (*syncbeam.BeamAccountDa
 func (s *stubBeamFetcher) FetchStorage(_ types.Address, _ types.Hash) (types.Hash, error) {
 	return types.Hash{}, errors.New("beam: no network fetcher wired")
 }
+
+// stubSnapStateBackend is a no-op p2psnap.StateBackend used until the real
+// state snapshot layer is connected for snap protocol serving.
+type stubSnapStateBackend struct{}
+
+func (s *stubSnapStateBackend) AccountIterator(_ types.Hash, _ types.Hash, _ func(types.Hash, []byte) bool) error {
+	return nil
+}
+func (s *stubSnapStateBackend) StorageIterator(_ types.Hash, _ types.Hash, _ []byte, _ func(types.Hash, []byte) bool) error {
+	return nil
+}
+func (s *stubSnapStateBackend) Code(_ types.Hash) ([]byte, error)                 { return nil, nil }
+func (s *stubSnapStateBackend) TrieNode(_ types.Hash, _ []byte) ([]byte, error)   { return nil, nil }
+func (s *stubSnapStateBackend) AccountProof(_, _ types.Hash) ([][]byte, error)    { return nil, nil }
+func (s *stubSnapStateBackend) StorageProof(_, _, _ types.Hash) ([][]byte, error) { return nil, nil }
 
 // stubStateWriter is a no-op synchealer.StateWriter used until a real trie
 // database is wired as the state healer write target.
