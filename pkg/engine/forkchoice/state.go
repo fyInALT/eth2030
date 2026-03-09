@@ -155,18 +155,22 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	m.updateCount++
 
 	// Verify the head block is known.
 	headInfo, headKnown := m.blocks[update.HeadBlockHash]
 	if !headKnown {
+		m.mu.Unlock()
 		return fmt.Errorf("%w: %s", ErrFCStateHeadNotFound, update.HeadBlockHash.Hex())
 	}
 
 	// Detect reorg: if the new head differs from the old head, and the new
 	// head is not a direct descendant of the old head, it is a reorg.
+	// Note: isAncestorLocked walks the in-memory blocks map. If intermediate
+	// blocks are absent (e.g. after restart), the walk short-circuits and
+	// returns false — treating the situation as a reorg rather than an
+	// extension. Guard: both old and new head must be known in the map.
 	oldHead := m.headHash
 	var reorgEvent *ReorgEvent
 	if oldHead != (types.Hash{}) && oldHead != update.HeadBlockHash {
@@ -210,12 +214,23 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 		}
 	}
 
-	// Notify reorg listeners outside the critical data updates (but still
-	// under lock to ensure ordering; listeners should not block).
+	// Snapshot the listener list before releasing the lock. Listeners are
+	// called outside the lock to avoid deadlocks: a listener may call back
+	// into the txpool, blockchain, or any other subsystem that could
+	// re-enter the forkchoice state manager (e.g. via Head() or AddBlock()).
+	// This mirrors how geth uses event.Feed: state is committed first, then
+	// subscribers are notified asynchronously via channels.
+	var listeners []ReorgListener
 	if reorgEvent != nil {
-		for _, listener := range m.reorgListeners {
-			listener(*reorgEvent)
-		}
+		listeners = make([]ReorgListener, len(m.reorgListeners))
+		copy(listeners, m.reorgListeners)
+	}
+
+	m.mu.Unlock()
+
+	// Invoke reorg listeners outside the lock.
+	for _, l := range listeners {
+		l(*reorgEvent)
 	}
 
 	return nil
