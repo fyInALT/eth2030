@@ -43,6 +43,10 @@ const (
 	AccessListAddressCost = 2400 // per address in access list
 	AccessListStorageCost = 1900 // per storage key in access list
 
+	// EIP-7702 SetCode authorization gas costs (must match execution/processor.go).
+	PerAuthBaseCost     = 12500 // base cost per authorization entry
+	PerEmptyAccountCost = 25000 // additional cost when auth target account is empty
+
 	// priceBumpPercent is kept for internal use (same as PriceBump).
 	priceBumpPercent = PriceBump
 )
@@ -565,6 +569,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
 	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil)
 	intrinsicGas += AccessListGas(tx.AccessList())
+	// EIP-7702: per-authorization gas costs for SetCode transactions.
+	// Use worst-case (all auth targets empty) since the pool lacks Exist() access.
+	if tx.Type() == types.SetCodeTxType {
+		authList := tx.AuthorizationList()
+		intrinsicGas += uint64(len(authList)) * (PerAuthBaseCost + PerEmptyAccountCost)
+	}
 	if tx.Gas() < intrinsicGas {
 		return ErrIntrinsicGas
 	}
@@ -814,21 +824,32 @@ func (pool *TxPool) Reset(stateReader StateReader) {
 	for addr, list := range pool.pending {
 		stateNonce := pool.state.GetNonce(addr)
 		var toRemove []uint64
+		var toQueue []*types.Transaction
 		for _, tx := range list.items {
 			if tx.Nonce() < stateNonce {
+				// Confirmed: evict from pool entirely.
 				toRemove = append(toRemove, tx.Nonce())
 				pool.lookup.Remove(tx.Hash())
+			} else if tx.Nonce() > stateNonce {
+				// Future nonce (happens after a reorg that lowered stateNonce):
+				// demote back to queue so promoteQueue can re-order them correctly.
+				toQueue = append(toQueue, tx)
 			}
+			// tx.Nonce() == stateNonce: correctly at the head of pending, keep it.
 		}
 		for _, n := range toRemove {
 			list.Remove(n)
+		}
+		for _, tx := range toQueue {
+			list.Remove(tx.Nonce())
+			pool.addQueue(addr, tx)
 		}
 		if list.Len() == 0 {
 			delete(pool.pending, addr)
 		}
 	}
 
-	// Re-promote queued txs.
+	// Re-promote queued txs (including those just demoted from pending).
 	for addr := range pool.queue {
 		pool.promoteQueue(addr)
 	}

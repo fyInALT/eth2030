@@ -1569,3 +1569,119 @@ func TestTxPool_FrameTx_VerifyStructuralValidation(t *testing.T) {
 		t.Error("expected SENDER-without-VERIFY FrameTx to be rejected")
 	}
 }
+
+// makeSetCodeTx creates a SetCode (type 0x04) transaction for testing.
+func makeSetCodeTx(from types.Address, nonce uint64, gas uint64, authCount int) *types.Transaction {
+	to := types.BytesToAddress([]byte{0xde, 0xad})
+	auths := make([]types.Authorization, authCount)
+	for i := range auths {
+		auths[i] = types.Authorization{
+			Address: types.BytesToAddress([]byte{byte(i + 1)}),
+			V:       big.NewInt(0),
+			R:       big.NewInt(1),
+			S:       big.NewInt(2),
+		}
+	}
+	tx := types.NewTransaction(&types.SetCodeTx{
+		ChainID:           big.NewInt(1),
+		Nonce:             nonce,
+		GasTipCap:         big.NewInt(1_000_000_000),
+		GasFeeCap:         big.NewInt(50_000_000_000),
+		Gas:               gas,
+		To:                to,
+		Value:             big.NewInt(0),
+		AuthorizationList: auths,
+	})
+	tx.SetSender(from)
+	return tx
+}
+
+// TestSetCodeTxIntrinsicGas verifies that the pool rejects SetCode txs whose gas
+// limit is too low to cover per-authorization costs.
+func TestSetCodeTxIntrinsicGas(t *testing.T) {
+	from := types.BytesToAddress([]byte{0xAB})
+	state := newMockState()
+	state.balances[from] = new(big.Int).Set(richBalance)
+	pool := New(DefaultConfig(), state)
+
+	// 1 auth: 21000 + 12500 + 25000 = 58500 — should pass with gas=60000.
+	tx1 := makeSetCodeTx(from, 0, 60000, 1)
+	if err := pool.AddLocal(tx1); err != nil {
+		t.Errorf("1-auth SetCode with sufficient gas rejected: %v", err)
+	}
+
+	from2 := types.BytesToAddress([]byte{0xCD})
+	state.balances[from2] = new(big.Int).Set(richBalance)
+
+	// 5 auths worst-case: 21000 + 5*(12500+25000) = 208500 — gas=200000 is too low.
+	tx5low := makeSetCodeTx(from2, 0, 200000, 5)
+	if err := pool.AddLocal(tx5low); err == nil {
+		t.Error("5-auth SetCode with insufficient gas should be rejected")
+	}
+
+	// 5 auths with sufficient gas=210000 — should pass.
+	tx5ok := makeSetCodeTx(from2, 0, 210000, 5)
+	if err := pool.AddLocal(tx5ok); err != nil {
+		t.Errorf("5-auth SetCode with sufficient gas rejected: %v", err)
+	}
+}
+
+// TestResetDemotesFutureNonces verifies that after a reorg (stateNonce decreases),
+// pending txs with nonce > stateNonce are demoted to queue instead of staying in
+// pending and causing ErrNonceTooHigh in the block builder.
+func TestResetDemotesFutureNonces(t *testing.T) {
+	from := types.BytesToAddress([]byte{0xAB})
+	state := newMockState()
+	state.balances[from] = new(big.Int).Set(richBalance)
+	state.nonces[from] = 0
+	pool := New(DefaultConfig(), state)
+
+	// Submit tx nonce=0 and nonce=1.
+	tx0 := makeTxFrom(from, 0, 1_000_000_000, 21000)
+	tx1 := makeTxFrom(from, 1, 1_000_000_000, 21000)
+	if err := pool.AddLocal(tx0); err != nil {
+		t.Fatalf("add tx0: %v", err)
+	}
+	if err := pool.AddLocal(tx1); err != nil {
+		t.Fatalf("add tx1: %v", err)
+	}
+
+	// Simulate block confirmation: state nonce advances to 1 (tx0 confirmed).
+	state.nonces[from] = 1
+	pool.Reset(state)
+
+	// tx0 removed (nonce < stateNonce=1); tx1 promoted to pending.
+	pending := pool.Pending()
+	if len(pending[from]) != 1 || pending[from][0].Nonce() != 1 {
+		t.Fatalf("expected tx1 in pending after confirmation, got: %v", pending[from])
+	}
+
+	// Simulate reorg: state nonce rolls back to 0 (tx0 reverted).
+	state.nonces[from] = 0
+	pool.Reset(state)
+
+	// tx1 should be demoted to queue (nonce=1 > stateNonce=0).
+	// Pending should be empty for 'from'.
+	pending2 := pool.Pending()
+	if len(pending2[from]) != 0 {
+		t.Fatalf("expected empty pending after reorg, got nonces: %v",
+			func() []uint64 {
+				var ns []uint64
+				for _, tx := range pending2[from] {
+					ns = append(ns, tx.Nonce())
+				}
+				return ns
+			}())
+	}
+
+	// tx1 must be in queue, not pending.
+	pool.mu.RLock()
+	queuedList, inQueue := pool.queue[from]
+	pool.mu.RUnlock()
+	if !inQueue || queuedList.Len() != 1 {
+		t.Fatalf("expected tx1 in queue after reorg demotion")
+	}
+	if queuedList.items[0].Nonce() != 1 {
+		t.Fatalf("expected queued nonce=1, got %d", queuedList.items[0].Nonce())
+	}
+}
