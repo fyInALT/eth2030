@@ -136,11 +136,12 @@ type RPCAccessTuple struct {
 }
 
 // RPCAuthorization is the JSON representation of an EIP-7702 authorization entry.
+// V is serialized as "yParity" per the Ethereum JSON-RPC spec (EIP-7702).
 type RPCAuthorization struct {
 	ChainID string `json:"chainId"`
 	Address string `json:"address"`
 	Nonce   string `json:"nonce"`
-	V       string `json:"v"`
+	V       string `json:"yParity"`
 	R       string `json:"r"`
 	S       string `json:"s"`
 }
