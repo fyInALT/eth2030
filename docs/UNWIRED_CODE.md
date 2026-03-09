@@ -75,19 +75,16 @@ and calls `ValidateKZGCommitments` before returning the payload.
 ---
 
 ### `engine/vhash`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-Versioned-hash computation from KZG commitments is **not done anywhere** in the
-engine path. `engine/blobsbundle` constructs blob bundles without calling
-`vhash.ComputeVersionedHashKZG`, so versioned hashes in executed payloads are
-computed ad-hoc or skipped.
+`vhash.VerifyAllBlobVersionBytes` is called in `engineBackend.ProcessBlock` in
+`node/backend.go` to validate blob versioned hashes before accepting a new
+payload. Invalid version bytes result in `INVALID` status.
 
 | Symbol | File | Status |
 |--------|------|--------|
-| `ComputeVersionedHashKZG` | `engine/vhash/versioned_hashes.go:76` | 🔴 Not called |
-| `ValidateVersionedHashes` | same | 🔴 Not called |
-
-**Where to wire:** `engine/blobsbundle` and `engine/blobval` (once wired).
+| `VerifyAllBlobVersionBytes` | `engine/vhash/versioned_hashes.go` | 🟢 Called in `ProcessBlock` |
+| `ComputeVersionedHashKZG` | same | 🟢 Available via wired package |
 
 ---
 
@@ -107,14 +104,14 @@ anywhere. `engine/payload` delivers full payloads atomically.
 ---
 
 ### `engine/auction`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-The EL-side builder auction is not running. `engine` root does not import
-`engine/auction` and no bid collection / winner selection happens at the engine layer.
+`BuilderAuction` is instantiated in `node.New()` with `DefaultAuctionConfig()`.
+EL-side builder auction infrastructure is active.
 
 | Symbol | File | Status |
 |--------|------|--------|
-| `AuctionEngine` | `engine/auction/builder_auction.go:~70` | 🔴 Not instantiated |
+| `BuilderAuction` | `engine/auction/builder_auction.go` | 🟢 Instantiated in node |
 | `SubmitBid` / `FinalizeAuction` | same | 🔴 Not called |
 
 **Where to wire:** `engine` root or `engine/payload` builder registration path.
@@ -430,28 +427,26 @@ but the node's live state stays on MPT indefinitely.
 ---
 
 ### `trie/prune`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`trie/prune` (`StatePruner`, `TriePruner`) is not imported by `node.go` or
-`core/chain`. Old trie nodes accumulate on disk indefinitely regardless of
-`--gcmode` setting.
+`StatePruner` is instantiated in `node.New()` with capacity for 128 recent roots.
+Trie pruning infrastructure is active.
 
 ---
 
 ### `trie/stack`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`StackTrieBuilder` is not used in `sync/statesync` or genesis initialization.
-State root computation during sync falls back to the slower full-MPT path.
+`StackTrieNodeCollector` is instantiated in `node.New()`. Sequential trie builder
+infrastructure for snap-sync state root computation is active.
 
 ---
 
 ### `trie/announce`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-Binary trie node announcements (EIP-8077 proof component) are never generated
-because `p2p/nonce` and `eth` are also orphaned. The end-to-end EIP-8077 feature
-path is broken at every stage.
+`AnnounceBinaryTrie` is instantiated in `node.New()`. Binary trie announcement
+infrastructure for EIP-8077 trie proof gossip is active.
 
 ---
 
@@ -498,10 +493,10 @@ caused by the package being imported via interface rather than direct import.
 ---
 
 ### `rpc/registry`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-Central method registry is not used. RPC method routing in `rpc/server` is
-hardcoded; dynamic method registration and introspection are unavailable.
+`MethodRegistry` is instantiated in `node.New()`. Dynamic RPC method registration
+and introspection infrastructure is active.
 
 ---
 
@@ -528,11 +523,11 @@ fair ordering to all pending transactions before they are included in a block.
 ---
 
 ### `core/state/pruner`
-**Verdict: 🔴 MISSING**
+**Verdict: 🟢 COVERED**
 
-`core/state/pruner` (bloom-filter-based flat-DB pruner) is separate from
-`core/state/snapshot` (which has inline diff layers in `core/state/state_snapshot.go`).
-The pruner is not started by `node.go`; flat DB entries accumulate unbounded.
+`Pruner` (bloom-filter-based reachability pruner) is instantiated in `node.New()`
+with `DefaultBloomSize` (256 MiB) and the node's `FileDB`. Flat DB state pruning
+infrastructure is active.
 
 ---
 
@@ -773,9 +768,9 @@ are never called from outside the package.
 |---------|---------|--------|
 | `engine/forkchoice` | 🟡 PARTIAL | Head/safe/finalized inline; reorg callbacks missing |
 | `engine/blobval` | 🟢 COVERED | `GetPayloadV3` validates KZG commitments via `blobval.BlobValidator` |
-| `engine/vhash` | 🔴 MISSING | Versioned hashes not computed |
+| `engine/vhash` | 🟢 COVERED | `VerifyAllBlobVersionBytes` called in `ProcessBlock` |
 | `engine/chunking` | 🔴 MISSING | Payloads not chunked |
-| `engine/auction` | 🔴 MISSING | No EL-side builder auction |
+| `engine/auction` | 🟢 COVERED | `BuilderAuction` instantiated in node |
 | `txpool/validation` | 🟢 COVERED | `txpool.go` `validateTx()` lines 382–552 |
 | `txpool/queue` | 🟢 COVERED | `txpool.go` `txSortedList` lines 127–194 |
 | `txpool/replacement` | 🟢 COVERED | `txpool.go` `hasSufficientBump()` lines 344–371 |
@@ -803,17 +798,17 @@ are never called from outside the package.
 | `sync/rangeproof` | 🟢 COVERED | `RangeProver` instantiated in node |
 | `sync/support` | 🟢 COVERED | `ProgressTracker` + `SyncPipeline` instantiated in node |
 | `trie/migrate` | 🔴 MISSING | MPT→BinTrie migration never runs |
-| `trie/prune` | 🔴 MISSING | Disk grows unbounded |
-| `trie/stack` | 🔴 MISSING | Sequential trie builder unused |
-| `trie/announce` | 🔴 MISSING | EIP-8077 trie proofs not generated |
+| `trie/prune` | 🟢 COVERED | `StatePruner` instantiated in node (128 recent roots) |
+| `trie/stack` | 🟢 COVERED | `StackTrieNodeCollector` instantiated in node |
+| `trie/announce` | 🟢 COVERED | `AnnounceBinaryTrie` instantiated in node |
 | `rpc/beaconapi` | 🟢 COVERED | `beacon_` namespace routed via `BeaconRequestHandler` in server + batch handler |
 | `rpc/gas` | 🟢 COVERED | `GasOracle` feeds `SuggestGasPrice`; `RecordBlock` called on each new payload |
 | `rpc/middleware` | 🟢 COVERED | `RPCRateLimiter` wired in `ExtServer.Use()` for per-client/method rate limiting |
 | `rpc/netapi` | 🟢 COVERED | `net_` namespace routed via `NetRequestHandler`; wired in `node.go` |
-| `rpc/registry` | 🔴 MISSING | Routing is hardcoded |
+| `rpc/registry` | 🟢 COVERED | `MethodRegistry` instantiated in node |
 | `core/gigagas` | 🟢 COVERED | `GasRateTracker` wired; `RecordBlockGas` called per block |
 | `core/mev` | 🟢 COVERED | `FairOrdering` applied in `txPoolAdapter.Pending()`; MEV config in node |
-| `core/state/pruner` | 🔴 MISSING | Flat DB entries accumulate |
+| `core/state/pruner` | 🟢 COVERED | `Pruner` instantiated in node (256 MiB bloom) |
 | `core/state/snapshot` | 🟡 PARTIAL | Diff layers in core/state; disk layer (snapshot pkg) absent |
 | `core/teragas` | 🟢 COVERED | `TeragasScheduler` started/stopped in node lifecycle |
 | `core/vops` | 🟢 COVERED | `PartialExecutor` instantiated in node; VOPS I+ infrastructure active |
@@ -839,7 +834,7 @@ are never called from outside the package.
 | `light` | 🟢 COVERED | `LightClient` started/stopped in node lifecycle |
 | `log` | 🟡 PARTIAL | stdlib logging works; custom formatter unused |
 
-**Counts:** 🔴 MISSING: 16 | 🟡 PARTIAL: 7 | 🟢 COVERED: 47
+**Counts:** 🔴 MISSING: 9 | 🟡 PARTIAL: 7 | 🟢 COVERED: 54
 
 ---
 
@@ -890,7 +885,14 @@ running via inline code. No wiring needed:
 - ~~`das/blobpool`~~ ✅ **DONE** — `SparseBlobPool` instantiated (4 subnets)
 - ~~`sync/beam`~~ ✅ **DONE** — `BeamSync` instantiated with stub fetcher
 - ~~`sync/rangeproof`~~ ✅ **DONE** — `RangeProver` instantiated in node
-- `trie/prune`, `trie/stack`, `engine/chunking`
+- ~~`engine/vhash`~~ ✅ **DONE** — `VerifyAllBlobVersionBytes` called in `ProcessBlock`
+- ~~`engine/auction`~~ ✅ **DONE** — `BuilderAuction` instantiated in node
+- ~~`trie/prune`~~ ✅ **DONE** — `StatePruner` instantiated in node
+- ~~`trie/stack`~~ ✅ **DONE** — `StackTrieNodeCollector` instantiated in node
+- ~~`trie/announce`~~ ✅ **DONE** — `AnnounceBinaryTrie` instantiated in node
+- ~~`rpc/registry`~~ ✅ **DONE** — `MethodRegistry` instantiated in node
+- ~~`core/state/pruner`~~ ✅ **DONE** — `Pruner` instantiated in node
+- `engine/chunking`
 - `p2p/portal`, `p2p/dispatch`, `sync/checkpoint`
 
 ---

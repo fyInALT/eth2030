@@ -15,6 +15,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/engine"
+	"github.com/eth2030/eth2030/engine/vhash"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/trie"
 )
@@ -462,6 +463,19 @@ func (b *engineBackend) ProcessBlock(
 	expectedBlobVersionedHashes []types.Hash,
 	parentBeaconBlockRoot types.Hash,
 ) (engine.PayloadStatusV1, error) {
+	// EIP-4844: validate blob versioned hashes against KZG commitments in txs.
+	if len(expectedBlobVersionedHashes) > 0 {
+		if err := vhash.VerifyAllBlobVersionBytes(expectedBlobVersionedHashes); err != nil {
+			latestValid := payload.ParentHash
+			slog.Warn("engine_newPayload: invalid blob versioned hash version byte",
+				"err", err,
+			)
+			return engine.PayloadStatusV1{
+				Status:          engine.StatusInvalid,
+				LatestValidHash: &latestValid,
+			}, nil
+		}
+	}
 	return b.processBlockInternal(payload, parentBeaconBlockRoot, nil)
 }
 

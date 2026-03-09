@@ -67,6 +67,13 @@ import (
 	rollupproof "github.com/eth2030/eth2030/rollup/proof"
 	rollupregistry "github.com/eth2030/eth2030/rollup/registry"
 	rollupseq "github.com/eth2030/eth2030/rollup/sequencer"
+
+	trieprunestate "github.com/eth2030/eth2030/core/state/pruner"
+	engineauction "github.com/eth2030/eth2030/engine/auction"
+	rpcregistry "github.com/eth2030/eth2030/rpc/registry"
+	trieannounce "github.com/eth2030/eth2030/trie/announce"
+	trieprune "github.com/eth2030/eth2030/trie/prune"
+	triestack "github.com/eth2030/eth2030/trie/stack"
 )
 
 // Node is the top-level ETH2030 node that manages all subsystems.
@@ -160,6 +167,18 @@ type Node struct {
 	rollupProof    *rollupproof.MessageProofGenerator
 	rollupRegistry *rollupregistry.Registry
 	rollupSeq      *rollupseq.Sequencer
+
+	// Engine builder auction (EL-side ePBS slot auction).
+	engineAuction *engineauction.BuilderAuction
+
+	// Trie sub-systems: state pruner, stack trie builder, and EIP-8077 announcer.
+	statePruner   *trieprunestate.Pruner
+	triePruner    *trieprune.StatePruner
+	stackTrie     *triestack.StackTrieNodeCollector
+	trieAnnouncer *trieannounce.AnnounceBinaryTrie
+
+	// RPC method registry for dynamic routing.
+	rpcRegistry *rpcregistry.MethodRegistry
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -487,6 +506,25 @@ func New(config *Config) (*Node, error) {
 	n.epbsEscrow = epbsescrow.NewBidEscrow(1024)
 	n.epbsMEVBurn = epbsmevburn.NewMEVBurnTracker(epbsmevburn.DefaultMEVBurnConfig())
 	n.epbsSlashing = epbsslash.NewSlashingEngine(epbsslash.DefaultPenaltyMultipliers(), 100)
+
+	// Initialize engine EL-side builder auction.
+	n.engineAuction = engineauction.NewBuilderAuction(engineauction.DefaultAuctionConfig())
+
+	// Initialize trie sub-systems: state pruner (bloom-filter reachability),
+	// stack-trie node collector (snap-sync trie building), and binary-trie
+	// announcement set (EIP-8077 trie proof gossip).
+	if fdb, ok := n.db.(*rawdb.FileDB); ok {
+		n.statePruner = trieprunestate.NewPruner(
+			trieprunestate.PrunerConfig{BloomSize: trieprunestate.DefaultBloomSize},
+			fdb,
+		)
+	}
+	n.triePruner = trieprune.NewStatePruner(128) // keep 128 recent state roots
+	n.stackTrie = triestack.NewStackTrieNodeCollector()
+	n.trieAnnouncer = trieannounce.NewAnnounceBinaryTrie()
+
+	// Initialize RPC method registry for dynamic method routing.
+	n.rpcRegistry = rpcregistry.NewMethodRegistry()
 
 	// Initialize native rollup sub-systems (EIP-8079): anchor contract, L1↔L2
 	// bridge, proof generator, rollup registry, and sequencer.
