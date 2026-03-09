@@ -420,11 +420,33 @@ func (b *nodeBackend) TraceTransaction(txHash types.Hash) (*vm.StructLogTracer, 
 	}
 	evm := vm.NewEVMWithState(blockCtx, txCtx, tracingCfg, statedb)
 
+	// Subtract intrinsic gas before passing to the EVM so the trace faithfully
+	// replicates the actual execution environment (the state transition charges
+	// 21000 + calldata cost before entering the EVM).
+	intrinsicGas := uint64(21000)
+	for _, b := range targetTx.Data() {
+		if b == 0 {
+			intrinsicGas += 4
+		} else {
+			intrinsicGas += 16
+		}
+	}
+	if targetTx.To() == nil {
+		intrinsicGas += 32000
+	}
+	evmGas := uint64(0)
+	if targetTx.Gas() > intrinsicGas {
+		evmGas = targetTx.Gas() - intrinsicGas
+	}
+
 	to := targetTx.To()
 	if to != nil {
-		ret, gasLeft, err := evm.Call(from, *to, targetTx.Data(), targetTx.Gas(), targetTx.Value())
-		gasUsed := targetTx.Gas() - gasLeft
+		ret, gasLeft, err := evm.Call(from, *to, targetTx.Data(), evmGas, targetTx.Value())
+		gasUsed := evmGas - gasLeft
 		tracer.CaptureEnd(ret, gasUsed, err)
+	} else if evmGas > 0 {
+		// Contract creation: record as failed trace (no full create tracing here).
+		tracer.CaptureEnd(nil, evmGas, fmt.Errorf("contract creation tracing not supported"))
 	}
 
 	return tracer, nil
