@@ -3,6 +3,7 @@ package node
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -19,6 +20,7 @@ import (
 	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/trie"
+	"github.com/eth2030/eth2030/txpool/shared"
 )
 
 // extractBlockTips returns the effective priority fee (tip) for each
@@ -170,6 +172,25 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 	if b.node.txJournal != nil {
 		if jerr := b.node.txJournal.Insert(tx, true); jerr != nil {
 			slog.Debug("tx journal insert failed", "hash", tx.Hash(), "err", jerr)
+		}
+	}
+	// Propagate into shared mempool for cross-node gossip (sharded mempool).
+	if b.node.sharedPool != nil {
+		var chainID uint64
+		if cfg := b.node.blockchain.Config(); cfg != nil && cfg.ChainID != nil {
+			chainID = cfg.ChainID.Uint64()
+		}
+		signer := types.LatestSigner(chainID)
+		sender, _ := signer.Sender(tx)
+		smTx := shared.SharedMempoolTx{
+			Hash:     tx.Hash(),
+			Sender:   sender,
+			Nonce:    tx.Nonce(),
+			GasPrice: tx.GasFeeCap().Uint64(),
+			Data:     tx.Data(),
+		}
+		if err := b.node.sharedPool.AddTransaction(smTx); err != nil {
+			slog.Debug("shared mempool add", "hash", tx.Hash(), "err", err)
 		}
 	}
 	return nil
@@ -611,6 +632,32 @@ func (b *engineBackend) processBlockInternal(
 		b.node.triePruner.AddRoot(payload.BlockNumber, payload.StateRoot)
 	}
 
+	// Incremental MPT→BinaryTrie migration step (I+ EIP-7864, every MigrateEveryBlocks).
+	if b.node.trieMigrator != nil && bc.Config().IsIPlus(payload.Timestamp) {
+		every := uint64(b.node.config.MigrateEveryBlocks)
+		if every > 0 && payload.BlockNumber > 0 && payload.BlockNumber%every == 0 {
+			if count, complete := b.node.trieMigrator.MigrateBatch(); !complete {
+				slog.Debug("trie migration step", "keys", count, "block", payload.BlockNumber)
+			}
+		}
+	}
+
+	// Request blob data for this block from the beacon blob sync manager (EIP-7594).
+	// BlobGasUsed > 0 signals that blob transactions are present in the block.
+	// Each blob consumes GAS_PER_BLOB = 131072 gas (EIP-4844).
+	if b.node.blobSyncMgr != nil && payload.BlobGasUsed > 0 {
+		const gasPerBlob = uint64(131072)
+		blobCount := (payload.BlobGasUsed + gasPerBlob - 1) / gasPerBlob
+		indices := make([]uint64, blobCount)
+		for i := range indices {
+			indices[i] = uint64(i)
+		}
+		if err := b.node.blobSyncMgr.RequestBlobs(payload.BlockNumber, indices); err != nil {
+			slog.Debug("blob sync request", "block", payload.BlockNumber,
+				"blobs", blobCount, "err", err)
+		}
+	}
+
 	// Record MEV burn for ePBS bid tracking (Amsterdam EIP-7732).
 	if b.node.epbsMEVBurn != nil && bc.Config().IsAmsterdam(payload.Timestamp) {
 		epoch := payload.BlockNumber / 32
@@ -647,6 +694,15 @@ func (b *engineBackend) processBlockInternal(
 	}
 	if b.node.nonceTracker != nil {
 		b.node.nonceTracker.Reset(newState)
+	}
+
+	// Chunk the accepted payload for streaming delivery to the CL (Hegotá payload chunking).
+	if b.node.payloadChunker != nil {
+		if encoded, encErr := json.Marshal(payload); encErr == nil {
+			if chunks, chunkErr := b.node.payloadChunker.ChunkPayload(encoded); chunkErr == nil {
+				slog.Debug("payload chunked", "block", payload.BlockNumber, "chunks", len(chunks))
+			}
+		}
 	}
 
 	blockHash := block.Hash()
@@ -719,6 +775,9 @@ func (b *engineBackend) ForkchoiceUpdated(
 			}
 			if b.node.epbsEscrow != nil {
 				b.node.epbsEscrow.PruneBefore(headNum - 32)
+			}
+			if b.node.epbsCommit != nil {
+				b.node.epbsCommit.PruneSlot(headNum - 32)
 			}
 		}
 	}
