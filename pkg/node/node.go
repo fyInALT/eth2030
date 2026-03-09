@@ -38,6 +38,7 @@ import (
 	"github.com/eth2030/eth2030/light"
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/p2p/dnsdisc"
+	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/rpc"
 	gasrpc "github.com/eth2030/eth2030/rpc/gas"
@@ -724,10 +725,8 @@ func (n *Node) Start() error {
 	if n.config.Metrics {
 		mux := http.NewServeMux()
 		mux.Handle("/debug/vars", expvar.Handler())
-		mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-			// Simple text metrics endpoint: delegate to expvar for now.
-			expvar.Handler().ServeHTTP(w, r)
-		})
+		pe := metrics.NewPrometheusExporter(metrics.DefaultRegistry, metrics.PrometheusConfig{})
+		mux.Handle("/metrics", pe.Handler())
 		n.metricsServer = &http.Server{
 			Addr:    n.config.MetricsListenAddr(),
 			Handler: mux,
