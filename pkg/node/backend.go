@@ -16,6 +16,7 @@ import (
 	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/engine/vhash"
+	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
 	"github.com/eth2030/eth2030/rpc"
 	"github.com/eth2030/eth2030/trie"
 )
@@ -603,6 +604,17 @@ func (b *engineBackend) processBlockInternal(
 			Status:          engine.StatusInvalid,
 			LatestValidHash: &latestValid,
 		}, nil
+	}
+
+	// Track prunable state roots for binary trie / MPT state pruning.
+	if b.node.triePruner != nil {
+		b.node.triePruner.AddRoot(payload.BlockNumber, payload.StateRoot)
+	}
+
+	// Record MEV burn for ePBS bid tracking.
+	if b.node.epbsMEVBurn != nil {
+		epoch := payload.BlockNumber / 32
+		b.node.epbsMEVBurn.RecordBurn(epoch, epbsmevburn.MEVBurnResult{})
 	}
 
 	// Sync txpool state with the new head so pending/queued txs are re-evaluated.
