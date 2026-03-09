@@ -35,6 +35,9 @@ import (
 	ethsync "github.com/eth2030/eth2030/sync"
 	mevpkg "github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/gigagas"
+	"github.com/eth2030/eth2030/core/vops"
+	dasnetwork "github.com/eth2030/eth2030/das/network"
+	dasvalidator "github.com/eth2030/eth2030/das/validator"
 	"github.com/eth2030/eth2030/txpool"
 	"github.com/eth2030/eth2030/txpool/encrypted"
 	txjournal "github.com/eth2030/eth2030/txpool/journal"
@@ -85,6 +88,13 @@ type Node struct {
 
 	// RPC rate limiter for per-client/per-method protection.
 	rpcRateLimiter *rpcmiddleware.RPCRateLimiter
+
+	// VOPS: validity-only partial statelessness executor (I+ roadmap).
+	vopsExecutor *vops.PartialExecutor
+
+	// DAS: data availability network manager and validator (PeerDAS, EIP-7594).
+	dasNetMgr   *dasnetwork.DASNetworkManager
+	dasValidator *dasvalidator.DAValidator
 
 	// EP-6 BB-1.x: anonymous transaction transport manager.
 	transportMgr *p2p.TransportManager
@@ -192,6 +202,16 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize MEV protection (sandwich/frontrun detection + fair ordering).
 	n.mevConfig = mevpkg.DefaultMEVProtectionConfig()
+
+	// Initialize VOPS partial executor (I+ validity-only partial statelessness).
+	n.vopsExecutor = vops.NewPartialExecutor(vops.DefaultVOPSConfig())
+
+	// Initialize DAS network manager and DA validator (PeerDAS, EIP-7594).
+	n.dasNetMgr = dasnetwork.NewDASNetworkManager(
+		dasnetwork.DefaultNetworkConfig(),
+		&stubCustodyManager{},
+	)
+	n.dasValidator = dasvalidator.NewDAValidator(dasvalidator.DefaultDAValidatorConfig())
 
 	// Initialize tx journal for pending tx persistence across restarts.
 	journalPath := config.ResolvePath("transactions.rlp")
@@ -389,6 +409,12 @@ func (n *Node) Start() error {
 
 	slog.Info("starting ETH2030 node", "network", n.config.Network)
 
+	// Start DAS network manager (PeerDAS EIP-7594).
+	if n.dasNetMgr != nil {
+		n.dasNetMgr.Start()
+		slog.Info("DAS network manager started")
+	}
+
 	// Start STARK mempool aggregator.
 	if err := n.starkAgg.Start(); err != nil {
 		return fmt.Errorf("start stark aggregator: %w", err)
@@ -488,6 +514,11 @@ func (n *Node) Stop() error {
 	}
 
 	slog.Info("stopping ETH2030 node")
+
+	// Stop DAS network manager.
+	if n.dasNetMgr != nil {
+		n.dasNetMgr.Stop()
+	}
 
 	// Stop STARK mempool aggregator.
 	n.starkAgg.Stop()
@@ -837,6 +868,14 @@ func (n *Node) runDNSDiscovery(treeURL string) {
 			slog.Debug("DNS discovery: failed to add peer", "addr", addr, "err", err)
 		}
 	}
+}
+
+// stubCustodyManager is a no-op CustodyManager used until a real peer custody
+// backend is wired. It returns an empty peer list for every column.
+type stubCustodyManager struct{}
+
+func (s *stubCustodyManager) FindPeersForColumn(_ uint64) ([][32]byte, error) {
+	return nil, nil
 }
 
 // nodeSyncTrigger adapts the sync.Downloader to the eth.SyncNotifier interface.
