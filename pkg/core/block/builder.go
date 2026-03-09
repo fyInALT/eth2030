@@ -3,6 +3,7 @@ package block
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"sort"
 
@@ -541,6 +542,11 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		blockBAL.Sort()
 		h := blockBAL.Hash()
 		header.BlockAccessListHash = &h
+
+		// Score block parallelism for observability.
+		analyzer := bal.NewAdvancedConflictAnalyzer(bal.NewBALConflictDetector(bal.StrategySerialize))
+		score := analyzer.ScoreParallelism(blockBAL)
+		slog.Debug("block parallelism score", "score", score.Score, "clusters", score.ClusterCount)
 	}
 
 	block := types.NewBlock(header, body)
