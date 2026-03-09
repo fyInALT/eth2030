@@ -34,7 +34,7 @@ type TxLookupEntry struct {
 // Blockchain manages the canonical chain of blocks, applying state
 // transitions and persisting data to the underlying database.
 type Blockchain struct {
-	mu        sync.RWMutex
+	mu sync.RWMutex
 	// rcMu guards receiptCache independently of mu, allowing concurrent
 	// receipt reads while InsertBlock holds mu.Lock() for state execution.
 	rcMu      sync.RWMutex
@@ -262,6 +262,10 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
+	// Always cache the post-execution state so that reorgs to this block
+	// (canonical or side-chain) can recover state in O(1).
+	bc.sc.put(hash, num, statedb.(*state.MemoryStateDB))
+
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
 		bc.canonCache[num] = hash
@@ -278,11 +282,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 
 		// Update header chain.
 		bc.hc.InsertHeaders([]*types.Header{header})
-
-		// Cache state snapshot at regular intervals.
-		if shouldSnapshot(num) {
-			bc.sc.put(hash, num, bc.currentState)
-		}
 	}
 
 	return nil
@@ -1115,12 +1114,6 @@ func (bc *Blockchain) readReceiptsFromDB(num uint64, hash types.Hash, txs []*typ
 		}
 	}
 	return receipts
-}
-
-// shouldSnapshot returns true if a state snapshot should be cached at
-// the given block number.
-func shouldSnapshot(num uint64) bool {
-	return num%stateSnapshotInterval == 0
 }
 
 // EvictBlockFromCache removes a block from the in-memory block cache,

@@ -150,18 +150,3 @@ func TestStateCache_Clear(t *testing.T) {
 		t.Fatalf("expected 0 after clear, got %d", count)
 	}
 }
-
-func TestShouldSnapshot(t *testing.T) {
-	if !shouldSnapshot(0) {
-		t.Fatal("block 0 should trigger snapshot")
-	}
-	if !shouldSnapshot(16) {
-		t.Fatal("block 16 should trigger snapshot")
-	}
-	if shouldSnapshot(7) {
-		t.Fatal("block 7 should not trigger snapshot")
-	}
-	if !shouldSnapshot(32) {
-		t.Fatal("block 32 should trigger snapshot")
-	}
-}
