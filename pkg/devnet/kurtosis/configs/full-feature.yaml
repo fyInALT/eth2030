@@ -45,8 +45,8 @@ spamoor_params:
         max_pending: 20
         max_wallets: 15
         tip_fee: 2
-    - scenario: deploytx
-      name: "Contract Deployments"
+    - scenario: calltx
+      name: "Contract Call/Deploy"
       config:
         throughput: 5
         max_pending: 20

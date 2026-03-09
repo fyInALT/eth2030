@@ -82,6 +82,17 @@ type blobTxRLP struct {
 	S          *big.Int
 }
 
+// blobTxNetworkRLP is the EIP-4844 network/pooled encoding used in
+// eth_sendRawTransaction: [signed_tx, blobs, kzg_commitments, kzg_proofs].
+// Blobs/commitments/proofs are stripped after submission; only the signed tx
+// fields are retained.
+type blobTxNetworkRLP struct {
+	Tx          blobTxRLP
+	Blobs       [][]byte
+	Commitments [][]byte
+	Proofs      [][]byte
+}
+
 // setCodeTxRLP is the RLP encoding layout for SetCodeTx (EIP-7702).
 // Fields: [chainID, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList, authorizationList, v, r, s]
 type setCodeTxRLP struct {
@@ -423,7 +434,13 @@ func decodeDynamicFeeTx(data []byte) (*Transaction, error) {
 func decodeBlobTx(data []byte) (*Transaction, error) {
 	var dec blobTxRLP
 	if err := rlp.DecodeBytes(data, &dec); err != nil {
-		return nil, fmt.Errorf("decode blob tx: %w", err)
+		// Try the network/pooled format: [signed_tx, blobs, commitments, proofs].
+		// eth_sendRawTransaction sends blob txs in this form; strip the sidecar.
+		var net blobTxNetworkRLP
+		if netErr := rlp.DecodeBytes(data, &net); netErr != nil {
+			return nil, fmt.Errorf("decode blob tx: %w", err)
+		}
+		dec = net.Tx
 	}
 	inner := &BlobTx{
 		ChainID:    dec.ChainID,
