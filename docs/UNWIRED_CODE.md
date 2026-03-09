@@ -840,7 +840,7 @@ Items marked 🟢 were wired in branch `feat/check-pkg-ref`; remaining items sti
 | `core/gigagas` | 🟢 COVERED | `GasRateTracker` wired; `RecordBlockGas` called per block |
 | `core/mev` | 🟢 COVERED | `FairOrdering` applied in `txPoolAdapter.Pending()`; MEV config in node |
 | `core/state/pruner` | 🟢 COVERED | `Pruner` instantiated in node (256 MiB bloom) |
-| `core/state/snapshot` | 🟡 PARTIAL | Diff layers in core/state; disk layer (snapshot pkg) absent |
+| `core/state/snapshot` | 🟢 COVERED | `snapshot.Tree` (disk+diff layers) instantiated in `node.New()` from rawdb; updated per-block in `processBlockInternal` via `MemoryStateDB.SnapshotDiff()`; real `snapStateBackend` serves snap/1 `AccountIterator`/`StorageIterator` from the tree |
 | `core/teragas` | 🟢 COVERED | `TeragasScheduler` started/stopped in node lifecycle |
 | `core/vops` | 🟢 COVERED | `PartialExecutor` instantiated in node; VOPS I+ infrastructure active |
 | `das/blobpool` | 🟢 COVERED | `SparseBlobPool` instantiated in node (4 subnets) |

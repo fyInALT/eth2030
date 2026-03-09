@@ -638,6 +638,21 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
+	// Update the snapshot tree with the new block's state so snap-sync peers
+	// can retrieve accounts and storage slots at this root. SnapshotDiff exports
+	// the full MemoryStateDB as a diff layer on top of the disk layer.
+	if b.node.snapshotTree != nil {
+		if statedb, err := bc.StateAtRoot(payload.StateRoot); err == nil {
+			if mdb, ok := statedb.(*state.MemoryStateDB); ok {
+				accounts, storage := mdb.SnapshotDiff()
+				if uerr := b.node.snapshotTree.Update(payload.StateRoot, payload.ParentHash, accounts, storage); uerr == nil {
+					// Cap to 128 diff layers above the disk layer to bound memory growth.
+					b.node.snapshotTree.Cap(payload.StateRoot, 128)
+				}
+			}
+		}
+	}
+
 	// Track prunable state roots for binary trie / MPT state pruning (I+ EIP-7864).
 	if b.node.triePruner != nil && bc.Config().IsIPlus(payload.Timestamp) {
 		b.node.triePruner.AddRoot(payload.BlockNumber, payload.StateRoot)

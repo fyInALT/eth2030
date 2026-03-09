@@ -8,18 +8,10 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
-// snapshotDB is the database interface required by the snapshot disk layer.
-// It combines key-value store, batch writes, and iteration.
-type snapshotDB interface {
-	rawdb.KeyValueStore
-	NewBatch() rawdb.Batch
-	NewIterator(prefix []byte) rawdb.Iterator
-}
-
 // diskLayer is a low level persistent snapshot built on top of a key-value
 // store. It represents the base layer of the snapshot tree.
 type diskLayer struct {
-	diskdb snapshotDB // Key-value store containing the base snapshot
+	diskdb SnapshotDB // Key-value store containing the base snapshot
 	root   types.Hash // Root hash of the base snapshot
 	stale  bool       // Signals that the layer became stale (state progressed)
 	lock   sync.RWMutex

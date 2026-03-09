@@ -72,6 +72,7 @@ import (
 	rollupseq "github.com/eth2030/eth2030/rollup/sequencer"
 
 	trieprunestate "github.com/eth2030/eth2030/core/state/pruner"
+	"github.com/eth2030/eth2030/core/state/snapshot"
 	engineauction "github.com/eth2030/eth2030/engine/auction"
 	rpcregistry "github.com/eth2030/eth2030/rpc/registry"
 	trieannounce "github.com/eth2030/eth2030/trie/announce"
@@ -216,8 +217,9 @@ type Node struct {
 	portalDB     *p2pportal.ContentDB
 	portalRouter *p2pportal.DHTRouter
 
-	// Snap protocol server handler.
-	snapHandler *p2psnap.ServerHandler
+	// Snap protocol server handler + persistent snapshot tree (disk+diff layers).
+	snapHandler  *p2psnap.ServerHandler
+	snapshotTree *snapshot.Tree
 
 	// Beacon sync manager and blob recovery.
 	beaconSyncer *syncbeacon.BeaconSyncer
@@ -589,8 +591,19 @@ func New(config *Config) (*Node, error) {
 	portalKT := discover.NewKademliaTable(portalSelfID, discover.DefaultKademliaConfig())
 	n.portalRouter = p2pportal.NewDHTRouter(portalKT, p2pportal.DefaultDHTRouterConfig())
 
-	// Initialize snap protocol server handler (serve snap requests to syncing peers).
-	n.snapHandler = p2psnap.NewServerHandler(&stubSnapStateBackend{})
+	// Initialize snapshot tree (disk + diff layers) for snap-sync serving.
+	// The tree is seeded at the genesis state root and updated per-block in
+	// processBlockInternal. Both FileDB and MemoryDB satisfy snapshot.SnapshotDB.
+	var genesisRoot types.Hash
+	if genesis := bc.Genesis(); genesis != nil {
+		genesisRoot = genesis.Header().Root
+	}
+	if snapDB, ok := n.db.(snapshot.SnapshotDB); ok {
+		n.snapshotTree = snapshot.NewTree(snapDB, genesisRoot)
+		n.snapHandler = p2psnap.NewServerHandler(newSnapStateBackend(n.snapshotTree, n.db))
+	} else {
+		n.snapHandler = p2psnap.NewServerHandler(&stubSnapStateBackend{})
+	}
 
 	// Initialize beacon syncer and blob sync manager.
 	n.beaconSyncer = syncbeacon.NewBeaconSyncer(syncbeacon.DefaultBeaconSyncConfig())
@@ -1250,8 +1263,48 @@ func (s *stubBeamFetcher) FetchStorage(_ types.Address, _ types.Hash) (types.Has
 	return types.Hash{}, errors.New("beam: no network fetcher wired")
 }
 
-// stubSnapStateBackend is a no-op p2psnap.StateBackend used until the real
-// state snapshot layer is connected for snap protocol serving.
+// snapStateBackend implements p2psnap.StateBackend using the snapshot.Tree
+// for account/storage iteration and rawdb for code lookups.
+type snapStateBackend struct {
+	tree *snapshot.Tree
+	db   rawdb.Database
+}
+
+func newSnapStateBackend(tree *snapshot.Tree, db rawdb.Database) *snapStateBackend {
+	return &snapStateBackend{tree: tree, db: db}
+}
+
+func (b *snapStateBackend) AccountIterator(root, origin types.Hash, fn func(types.Hash, []byte) bool) error {
+	return b.tree.IterateAccounts(root, origin, fn)
+}
+
+func (b *snapStateBackend) StorageIterator(root, account types.Hash, origin []byte, fn func(types.Hash, []byte) bool) error {
+	return b.tree.IterateStorage(root, account, origin, fn)
+}
+
+// Code retrieves contract bytecode from the key-value store by code hash.
+// The code is stored under the "code:" prefix key by SetCode in MemoryStateDB.
+func (b *snapStateBackend) Code(hash types.Hash) ([]byte, error) {
+	key := append([]byte("code:"), hash[:]...)
+	data, err := b.db.Get(key)
+	if err != nil {
+		return nil, nil // not found — return nil without error
+	}
+	return data, nil
+}
+
+// TrieNode returns a trie node by path. Full proof generation requires the
+// underlying MPT; this returns nil until the MPT backend is wired.
+func (b *snapStateBackend) TrieNode(_ types.Hash, _ []byte) ([]byte, error) { return nil, nil }
+
+// AccountProof returns a Merkle proof for an account. Requires the MPT backend.
+func (b *snapStateBackend) AccountProof(_, _ types.Hash) ([][]byte, error) { return nil, nil }
+
+// StorageProof returns a Merkle proof for a storage slot. Requires the MPT backend.
+func (b *snapStateBackend) StorageProof(_, _, _ types.Hash) ([][]byte, error) { return nil, nil }
+
+// stubSnapStateBackend is a no-op fallback used when the database does not
+// implement snapshot.SnapshotDB (e.g. a minimal read-only adapter).
 type stubSnapStateBackend struct{}
 
 func (s *stubSnapStateBackend) AccountIterator(_ types.Hash, _ types.Hash, _ func(types.Hash, []byte) bool) error {
