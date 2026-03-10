@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/mev"
@@ -482,6 +483,8 @@ func (a *txPoolAdapter) Pending() []*types.Transaction {
 type pendingPayload struct {
 	block    *types.Block
 	receipts []*types.Receipt
+	err      error
+	done     chan struct{} // closed when block/receipts/err are populated
 }
 
 // engineBackend adapts the Node to the engine.Backend interface.
@@ -1056,7 +1059,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 		}, nil
 	}
 
-	// Step 3: payload attributes provided — build a new block.
+	// Step 3: payload attributes provided — start async payload build.
 	slog.Debug("engine_forkchoiceUpdated: step3 building payload",
 		"parentNum", headBlock.NumberU64(),
 		"parentHash", headBlock.Hash(),
@@ -1086,49 +1089,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 		GasLimit:     parentHeader.GasLimit, // keep parent gas limit
 	}
 
-	slog.Debug("engine_forkchoiceUpdated: step4 calling BuildBlock",
-		"parentNum", parentHeader.Number,
-		"parentHash", parentHeader.Hash(),
-	)
-	block, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
-	if err != nil {
-		slog.Warn("engine_forkchoiceUpdated: build block failed",
-			"parentNum", parentHeader.Number,
-			"err", err,
-		)
-		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: payloadStatus,
-		}, fmt.Errorf("build block: %w", err)
-	}
-	slog.Debug("engine_forkchoiceUpdated: step4 BuildBlock done",
-		"blockNum", block.NumberU64(),
-		"blockHash", block.Hash(),
-		"txCount", len(block.Transactions()),
-	)
-
-	// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
-	if prover := b.node.starkFrameProver; prover != nil {
-		if sealed, _, err := vm.ReplaceValidationFrames(block, prover); err != nil {
-			slog.Warn("frame stark replacement failed", "err", err)
-		} else {
-			block = sealed
-		}
-	}
-
-	// Step 5: generate payload ID and store the built block.
-	slog.Debug("engine_forkchoiceUpdated: step5 storing payload",
-		"blockNum", block.NumberU64(),
-		"blockHash", block.Hash(),
-	)
-	// Generate a payload ID from the block parameters.
+	// Generate payload ID immediately so we can return it before the block is built.
 	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
 
-	// Store the built payload, evicting the oldest when over cap.
+	// Register an in-progress slot; GetPayloadByID will wait on the done channel.
+	pp := &pendingPayload{done: make(chan struct{})}
 	b.mu.Lock()
-	b.payloads[payloadID] = &pendingPayload{
-		block:    block,
-		receipts: receipts,
-	}
+	b.payloads[payloadID] = pp
 	b.payloadOrder = append(b.payloadOrder, payloadID)
 	for len(b.payloads) > b.maxPayloads && len(b.payloadOrder) > 0 {
 		oldest := b.payloadOrder[0]
@@ -1137,11 +1104,52 @@ func (b *engineBackend) ForkchoiceUpdated(
 	}
 	b.mu.Unlock()
 
-	slog.Info("engine_forkchoiceUpdated: built payload",
+	// Build the block in the background; close done when finished.
+	go func() {
+		slog.Debug("engine_forkchoiceUpdated: step4 calling BuildBlock",
+			"parentNum", parentHeader.Number,
+			"parentHash", parentHeader.Hash(),
+		)
+		builtBlock, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
+		if err != nil {
+			slog.Warn("engine_forkchoiceUpdated: build block failed",
+				"parentNum", parentHeader.Number,
+				"err", err,
+			)
+			pp.err = fmt.Errorf("build block: %w", err)
+			close(pp.done)
+			return
+		}
+
+		// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
+		if prover := b.node.starkFrameProver; prover != nil {
+			if sealed, _, serr := vm.ReplaceValidationFrames(builtBlock, prover); serr != nil {
+				slog.Warn("frame stark replacement failed", "err", serr)
+			} else {
+				builtBlock = sealed
+			}
+		}
+
+		slog.Debug("engine_forkchoiceUpdated: step4 BuildBlock done",
+			"blockNum", builtBlock.NumberU64(),
+			"blockHash", builtBlock.Hash(),
+			"txCount", len(builtBlock.Transactions()),
+		)
+
+		pp.block = builtBlock
+		pp.receipts = receipts
+		close(pp.done)
+
+		slog.Info("engine_forkchoiceUpdated: built payload",
+			"payloadID", payloadID,
+			"blockNumber", builtBlock.NumberU64(),
+			"blockHash", builtBlock.Hash(),
+			"txCount", len(builtBlock.Transactions()),
+		)
+	}()
+
+	slog.Debug("engine_forkchoiceUpdated: step5 storing payload",
 		"payloadID", payloadID,
-		"blockNumber", block.NumberU64(),
-		"blockHash", block.Hash(),
-		"txCount", len(block.Transactions()),
 	)
 
 	return engine.ForkchoiceUpdatedResult{
@@ -1265,6 +1273,18 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 	if !ok {
 		slog.Warn("engine_getPayload: payload not found", "payloadID", id)
 		return nil, fmt.Errorf("payload %v not found", id)
+	}
+
+	// Wait for the async build to finish (8 s deadline — one full slot).
+	select {
+	case <-payload.done:
+	case <-time.After(8 * time.Second):
+		slog.Warn("engine_getPayload: build timed out", "payloadID", id)
+		return nil, fmt.Errorf("payload %v build timed out", id)
+	}
+
+	if payload.err != nil {
+		return nil, payload.err
 	}
 
 	block := payload.block
