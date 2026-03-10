@@ -298,7 +298,7 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize genesis state before resolving the genesis block so that
 	// SetupGenesisBlock can populate alloc accounts into it.
-	statedb := state.NewMemoryStateDB()
+	memStatedb := state.NewMemoryStateDB()
 
 	// Resolve chain config and genesis block.
 	var chainConfig *coreconfig.ChainConfig
@@ -311,7 +311,7 @@ func New(config *Config) (*Node, error) {
 		chainConfig = genSpec.Config
 		// SetupGenesisBlock applies alloc to statedb and sets the correct
 		// state root in the genesis header, so our hash matches the CL's.
-		genesis = genSpec.SetupGenesisBlock(statedb)
+		genesis = genSpec.SetupGenesisBlock(memStatedb)
 		// Derive network ID from genesis chain ID unless the user explicitly
 		// passed a non-default value (default is 1; 0 also means "auto").
 		if (config.NetworkID == 0 || config.NetworkID == 1) &&
@@ -323,6 +323,20 @@ func New(config *Config) (*Node, error) {
 		// Apply any fork overrides on top of the standard chain config.
 		applyForkOverrides(chainConfig, config)
 		genesis = makeGenesisBlock()
+	}
+
+	// Use a disk-backed TrieStateDB when a persistent DB is available.
+	// This bounds state memory to the working set of a single block.
+	// Fall back to the in-memory statedb for ephemeral (memdb) configurations.
+	var statedb state.StateDB
+	if n.db != nil {
+		ts := state.NewTrieStateDBFromMemory(n.db, memStatedb)
+		if _, err := ts.Commit(); err != nil {
+			return nil, fmt.Errorf("commit genesis state: %w", err)
+		}
+		statedb = ts
+	} else {
+		statedb = memStatedb
 	}
 
 	bc, err := chain.NewBlockchain(chainConfig, genesis, statedb, n.db, chain.BlockchainOpts{
