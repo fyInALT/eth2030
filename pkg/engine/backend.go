@@ -47,7 +47,7 @@ type pendingPayload struct {
 type EngineBackend struct {
 	mu            sync.RWMutex
 	config        *coreconfig.ChainConfig
-	statedb       *state.MemoryStateDB
+	statedb       state.StateDB
 	processor     *execution.StateProcessor
 	blocks        map[types.Hash]*types.Block
 	bals          map[types.Hash]*bal.BlockAccessList // stored BALs for getPayloadBodiesV2
@@ -61,7 +61,7 @@ type EngineBackend struct {
 }
 
 // NewEngineBackend creates a new Engine API backend.
-func NewEngineBackend(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, genesis *types.Block) *EngineBackend {
+func NewEngineBackend(config *coreconfig.ChainConfig, statedb state.StateDB, genesis *types.Block) *EngineBackend {
 	b := &EngineBackend{
 		config:    config,
 		statedb:   statedb,
@@ -197,7 +197,7 @@ func (b *EngineBackend) ProcessBlock(
 	}
 
 	// Run through the state processor.
-	stateCopy := b.statedb.Copy()
+	stateCopy := b.statedb.Dup()
 	_, err = b.processor.Process(blk, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
@@ -346,7 +346,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 		// Build an empty block (no pending transactions from txpool yet).
 		builder := block.NewBlockBuilder(b.config, nil, nil)
-		builder.SetState(b.statedb.Copy())
+		builder.SetState(b.statedb.Dup())
 		parentHeader := parentBlock.Header()
 
 		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
@@ -567,7 +567,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	}
 
 	// Run through the state processor with BAL computation.
-	stateCopy := b.statedb.Copy()
+	stateCopy := b.statedb.Dup()
 	result, err := b.processor.ProcessWithBAL(blk, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
@@ -712,7 +712,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		}
 
 		builder := block.NewBlockBuilder(b.config, nil, nil)
-		builder.SetState(b.statedb.Copy())
+		builder.SetState(b.statedb.Dup())
 		parentHeader := parentBlock.Header()
 
 		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
@@ -730,7 +730,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		// Compute BAL for the built block (EIP-7928).
 		var blockBAL *bal.BlockAccessList
 		if b.config.IsAmsterdam(attrs.Timestamp) {
-			stateCopy2 := b.statedb.Copy()
+			stateCopy2 := b.statedb.Dup()
 			balResult, err := b.processor.ProcessWithBAL(blk, stateCopy2)
 			if err == nil && balResult != nil {
 				blockBAL = balResult.BlockAccessList
