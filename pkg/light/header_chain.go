@@ -432,6 +432,26 @@ func (hc *HeaderChain) evictIfNeeded() {
 		delete(hc.headers, lowestHash)
 		delete(hc.td, lowestHash)
 		delete(hc.byNumber, lowestNum)
+		// Also remove from period tracking to prevent unbounded growth.
+		period := lowestNum / SlotsPerSyncCommitteePeriod
+		hc.removePeriodHashLocked(period, lowestHash)
+	}
+}
+
+// removePeriodHashLocked removes a single hash from periodHeaders[period].
+// Deletes the period entry entirely when it becomes empty.
+// Caller must hold hc.mu.
+func (hc *HeaderChain) removePeriodHashLocked(period uint64, hash types.Hash) {
+	hashes := hc.periodHeaders[period]
+	for i, h := range hashes {
+		if h == hash {
+			hashes[i] = hashes[len(hashes)-1]
+			hc.periodHeaders[period] = hashes[:len(hashes)-1]
+			break
+		}
+	}
+	if len(hc.periodHeaders[period]) == 0 {
+		delete(hc.periodHeaders, period)
 	}
 }
 

@@ -200,6 +200,11 @@ func (cd *ConflictDetector) ConflictCount() uint64 {
 	return cd.conflictCount
 }
 
+// maxAllocatedIDs is the cap on in-memory payload ID entries.
+// Each slot triggers at most a handful of FCU+getPayload pairs, so 512 is
+// well above any realistic burst while keeping the map small long-term.
+const maxAllocatedIDs = 512
+
 // PayloadIDAllocator assigns unique payload IDs for payload building.
 type PayloadIDAllocator struct {
 	mu        sync.Mutex
@@ -233,6 +238,22 @@ func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (pa
 
 	if _, exists := a.allocated[id]; exists {
 		return payload.PayloadID{}, ErrFCTPayloadIDExists
+	}
+
+	// Evict the oldest entry when the map is at capacity to prevent
+	// unbounded growth across long-running node operation.
+	if len(a.allocated) >= maxAllocatedIDs {
+		var oldestID payload.PayloadID
+		var oldestTS uint64
+		first := true
+		for pid, ts := range a.allocated {
+			if first || ts < oldestTS {
+				oldestID = pid
+				oldestTS = ts
+				first = false
+			}
+		}
+		delete(a.allocated, oldestID)
 	}
 
 	a.allocated[id] = timestamp
@@ -322,6 +343,17 @@ func (rt *ReorgTracker) ProcessHead(newHead types.Hash, newNum uint64) *TrackedR
 	oldNum := rt.lastNum
 	rt.lastHead = newHead
 	rt.lastNum = newNum
+
+	// Evict block entries more than 128 blocks behind the new head to
+	// prevent unbounded growth across long-running node operation.
+	if newNum > 128 {
+		cutoff := newNum - 128
+		for hash, info := range rt.blocks {
+			if info.Number < cutoff {
+				delete(rt.blocks, hash)
+			}
+		}
+	}
 
 	if oldHead == (types.Hash{}) || oldHead == newHead {
 		return nil

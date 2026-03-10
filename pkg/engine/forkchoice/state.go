@@ -236,6 +236,11 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 				Epoch: finInfo.Slot / 32, // slots per epoch
 				Root:  update.FinalizedBlockHash,
 			}
+			// Prune blocks well behind finality to bound memory usage.
+			// Keep 128 blocks of buffer for reorgs and ancestry walks.
+			if finInfo.Number > 128 {
+				m.pruneBeforeNumberLocked(finInfo.Number - 128)
+			}
 		}
 	}
 
@@ -404,11 +409,16 @@ func (m *ForkchoiceStateManager) GetForkchoiceState() payload.ForkchoiceStateV1 
 func (m *ForkchoiceStateManager) PruneBeforeNumber(n uint64) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.pruneBeforeNumberLocked(n)
+}
 
+// pruneBeforeNumberLocked is the lock-free inner implementation.
+// Caller must hold m.mu (write).
+func (m *ForkchoiceStateManager) pruneBeforeNumberLocked(n uint64) int {
 	pruned := 0
 	for hash, info := range m.blocks {
 		if info.Number < n {
-			// Do not prune referenced blocks.
+			// Do not prune blocks that are currently referenced.
 			if hash == m.headHash || hash == m.safeHash || hash == m.finalizedHash {
 				continue
 			}

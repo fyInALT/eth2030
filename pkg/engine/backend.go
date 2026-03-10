@@ -27,6 +27,10 @@ const (
 	// maxPayloads is the maximum number of pending payloads retained.
 	// The CL creates at most ~2 proposals per slot so 32 is generous.
 	maxPayloads = 32
+
+	// maxILs is the maximum number of inclusion lists retained in memory.
+	// ILs are only relevant for the current slot; older ones are evicted.
+	maxILs = 256
 )
 
 // pendingPayload holds a payload being built by the block builder.
@@ -650,6 +654,10 @@ func (b *EngineBackend) ProcessBlockV5(
 	b.evictOldBlocks()
 	b.statedb = stateCopy
 
+	// ILs are slot-scoped: once a block is accepted, the ILs for that slot
+	// are consumed. Clear them to prevent unbounded growth across slots.
+	b.ils = b.ils[:0]
+
 	backendLog.Info("payload_valid",
 		"event", "payload_valid",
 		"version", "V5",
@@ -816,6 +824,10 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.ils = append(b.ils, il)
+	// Bound the IL slice: drop oldest entries beyond maxILs.
+	if len(b.ils) > maxILs {
+		b.ils = b.ils[len(b.ils)-maxILs:]
+	}
 	return nil
 }
 

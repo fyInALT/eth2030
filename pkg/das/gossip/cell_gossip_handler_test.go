@@ -268,8 +268,10 @@ func TestCellGossipHandlerMarkReconstructed(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error for cell after reconstruction: %v", err)
 	}
-	if handler.ReceivedCellCount(0) != 2 {
-		t.Errorf("cell count should not increase after reconstruction, got %d",
+	// After reconstruction, cell data is freed (cells = nil) to reclaim memory.
+	// Count is 0 and no new cells are accepted.
+	if handler.ReceivedCellCount(0) != 0 {
+		t.Errorf("cell data should be freed after reconstruction, got count %d",
 			handler.ReceivedCellCount(0))
 	}
 }
