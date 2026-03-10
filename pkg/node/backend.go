@@ -647,7 +647,11 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
-	// Check if parent is known.
+	// Step 2: check if parent is known.
+	slog.Debug("engine_newPayload: step2 checking parent",
+		"blockNumber", payload.BlockNumber,
+		"parentHash", payload.ParentHash,
+	)
 	if !bc.HasBlock(payload.ParentHash) {
 		slog.Debug("engine_newPayload: parent unknown, returning SYNCING",
 			"parentHash", payload.ParentHash,
@@ -681,7 +685,12 @@ func (b *engineBackend) processBlockInternal(
 		}
 	}
 
-	// Insert the block.
+	// Step 3: insert the block (Phase 1: validate, Phase 2: execute, Phase 3: write).
+	slog.Debug("engine_newPayload: step3 calling InsertBlock",
+		"blockNumber", payload.BlockNumber,
+		"blockHash", payload.BlockHash,
+		"stateCached", bc.HasStateCached(payload.ParentHash),
+	)
 	if err := bc.InsertBlock(block); err != nil {
 		slog.Warn("engine_newPayload: insert failed", "err", err)
 		latestValid := payload.ParentHash
@@ -901,7 +910,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 		"genesisHash", bc.Genesis().Hash(),
 	)
 
-	// Check if we know the head block.
+	// Step 1: look up the forkchoice head block.
+	slog.Debug("engine_forkchoiceUpdated: step1 lookup head",
+		"headBlockHash", fcState.HeadBlockHash,
+		"genesisHash", bc.Genesis().Hash(),
+	)
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
 	var payloadStatus engine.PayloadStatusV1
 	if headBlock == nil {
@@ -910,7 +923,6 @@ func (b *engineBackend) ForkchoiceUpdated(
 			"genesisHash", bc.Genesis().Hash(),
 			"currentHead", bc.CurrentBlock().Hash(),
 		)
-		// We don't know this block yet; report syncing.
 		payloadStatus = engine.PayloadStatusV1{
 			Status: engine.StatusSyncing,
 		}
@@ -931,7 +943,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 		"number", headBlock.NumberU64(),
 	)
 
-	// Run forkchoice state manager: detects reorgs and fires registered listeners.
+	// Step 2: update forkchoice state manager (reorg detection).
+	slog.Debug("engine_forkchoiceUpdated: step2 fcstate update",
+		"headNum", headBlock.NumberU64(),
+		"hasPayloadAttrs", payloadAttributes != nil,
+	)
 	if b.node.fcStateManager != nil {
 		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(fcState); err != nil {
 			slog.Debug("fcStateManager update", "err", err)
@@ -1030,14 +1046,23 @@ func (b *engineBackend) ForkchoiceUpdated(
 		}
 	}
 
-	// If no payload attributes, just return the forkchoice acknowledgment.
+	// Step 3: if no payload attributes, return the FCU acknowledgment.
 	if payloadAttributes == nil {
+		slog.Debug("engine_forkchoiceUpdated: step3 no attrs, done",
+			"headNum", headBlock.NumberU64(),
+		)
 		return engine.ForkchoiceUpdatedResult{
 			PayloadStatus: payloadStatus,
 		}, nil
 	}
 
-	// Payload attributes provided: build a new block.
+	// Step 3: payload attributes provided — build a new block.
+	slog.Debug("engine_forkchoiceUpdated: step3 building payload",
+		"parentNum", headBlock.NumberU64(),
+		"parentHash", headBlock.Hash(),
+		"timestamp", payloadAttributes.Timestamp,
+		"feeRecipient", payloadAttributes.SuggestedFeeRecipient,
+	)
 	parentHeader := headBlock.Header()
 
 	// Convert engine withdrawals to core types.
@@ -1061,13 +1086,25 @@ func (b *engineBackend) ForkchoiceUpdated(
 		GasLimit:     parentHeader.GasLimit, // keep parent gas limit
 	}
 
+	slog.Debug("engine_forkchoiceUpdated: step4 calling BuildBlock",
+		"parentNum", parentHeader.Number,
+		"parentHash", parentHeader.Hash(),
+	)
 	block, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
 	if err != nil {
-		slog.Warn("engine_forkchoiceUpdated: build block failed", "err", err)
+		slog.Warn("engine_forkchoiceUpdated: build block failed",
+			"parentNum", parentHeader.Number,
+			"err", err,
+		)
 		return engine.ForkchoiceUpdatedResult{
 			PayloadStatus: payloadStatus,
 		}, fmt.Errorf("build block: %w", err)
 	}
+	slog.Debug("engine_forkchoiceUpdated: step4 BuildBlock done",
+		"blockNum", block.NumberU64(),
+		"blockHash", block.Hash(),
+		"txCount", len(block.Transactions()),
+	)
 
 	// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
 	if prover := b.node.starkFrameProver; prover != nil {
@@ -1078,6 +1115,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 		}
 	}
 
+	// Step 5: generate payload ID and store the built block.
+	slog.Debug("engine_forkchoiceUpdated: step5 storing payload",
+		"blockNum", block.NumberU64(),
+		"blockHash", block.Hash(),
+	)
 	// Generate a payload ID from the block parameters.
 	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
 

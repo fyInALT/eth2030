@@ -72,7 +72,12 @@ type Blockchain struct {
 	mu sync.RWMutex
 	// rcMu guards receiptCache independently of mu, allowing concurrent
 	// receipt reads while InsertBlock holds mu.Lock() for state execution.
-	rcMu      sync.RWMutex
+	rcMu sync.RWMutex
+	// insertMu serialises InsertBlock calls so that bc.mu is only held
+	// briefly for cache reads/writes, not during expensive state execution.
+	// This allows concurrent Engine API reads (HasBlock, GetBlock, etc.)
+	// to proceed without blocking while a block is being processed.
+	insertMu  sync.Mutex
 	config    *config.ChainConfig
 	db        rawdb.Database
 	hc        *HeaderChain
@@ -230,13 +235,74 @@ func (bc *Blockchain) evictOldestBlock() {
 }
 
 // InsertBlock validates, executes, and inserts a single block.
+//
+// To prevent long lock-holds from blocking concurrent Engine API reads,
+// InsertBlock uses a three-phase approach:
+//   - Phase 1 (brief bc.mu.Lock): skip-check, find parent, validate header/body,
+//     and snapshot the ancestor chain needed for state computation.
+//   - Phase 2 (no bc.mu held): expensive state re-execution and block processing.
+//     bc.insertMu serialises concurrent insertions so Phase 2 is still atomic
+//     with respect to other InsertBlock calls.
+//   - Phase 3 (brief bc.mu.Lock): write results to caches and update canonical chain.
+//
+// During Phase 2 all Engine API reads (HasBlock, GetBlock, CurrentBlock, etc.)
+// can proceed without waiting, eliminating HTTP timeouts under heavy load.
 func (bc *Blockchain) InsertBlock(blk *types.Block) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
+	bc.insertMu.Lock()
+	defer bc.insertMu.Unlock()
 	return bc.insertBlock(blk)
 }
 
-// insertBlock is the internal insert without locking.
+// collectAncestorsLocked builds the chain of blocks that must be re-executed
+// to produce the state after target. The chain is returned in execution order
+// (oldest first). Caller must hold bc.mu.Lock().
+//
+// With a state cache of 64 entries (defaultMaxCachedStates) and the SYNCING
+// guard in processBlockInternal, the ancestor walk never exceeds 64 steps and
+// never needs rawdb lookups for normal sequential processing.
+func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Block, state.StateDB) {
+	if target.Hash() == bc.genesis.Hash() {
+		return nil, bc.execGenesisState.Copy()
+	}
+
+	// Fast path: target state is already cached.
+	if cached, ok := bc.sc.get(target.Hash()); ok {
+		return nil, cached
+	}
+
+	var chain []*types.Block
+	current := target
+
+	for current.Hash() != bc.genesis.Hash() {
+		// If the parent's state is cached, use it as the base.
+		if cached, ok := bc.sc.get(current.ParentHash()); ok {
+			chain = append(chain, current)
+			// Reverse to execution order (oldest first).
+			for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+				chain[i], chain[j] = chain[j], chain[i]
+			}
+			return chain, cached
+		}
+		chain = append(chain, current)
+		p := bc.blockCache[current.ParentHash()]
+		if p == nil {
+			// rawdb fallback; only reached when ancestor is not in blockCache.
+			p = bc.readBlock(current.ParentHash())
+		}
+		if p == nil {
+			break
+		}
+		current = p
+	}
+
+	// Reached genesis or a missing ancestor — use genesis state as base.
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain, bc.execGenesisState.Copy()
+}
+
+// insertBlock is the internal three-phase insert. Caller must hold bc.insertMu.
 func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	hash := blk.Hash()
 	num := blk.NumberU64()
@@ -251,78 +317,95 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		"parentHash", header.ParentHash.Hex(),
 	)
 
-	// Skip if already known.
-	if _, ok := bc.blockCache[hash]; ok {
-		blockchainLog.Debug("block_known",
-			"event", "block_known",
-			"hash", hash.Hex(),
-			"num", num,
-		)
-		return nil
+	// ── Phase 1: validate and snapshot (brief bc.mu.Lock) ──────────────────
+	// Hold bc.mu only for in-memory reads — no expensive computation here.
+	var parent *types.Block
+	var ancestorChain []*types.Block
+	var baseState state.StateDB
+
+	{
+		bc.mu.Lock()
+
+		// Skip if already known.
+		if _, ok := bc.blockCache[hash]; ok {
+			bc.mu.Unlock()
+			blockchainLog.Debug("block_known",
+				"event", "block_known",
+				"hash", hash.Hex(),
+				"num", num,
+			)
+			return nil
+		}
+
+		// Find parent: cache first, then rawdb.
+		parent = bc.blockCache[header.ParentHash]
+		if parent == nil {
+			parent = bc.readBlock(header.ParentHash)
+			if parent != nil {
+				bc.blockCache[header.ParentHash] = parent
+			}
+		}
+		if parent == nil {
+			bc.mu.Unlock()
+			err := fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
+			blockchainLog.Warn("block_invalid",
+				"event", "block_invalid",
+				"hash", hash.Hex(),
+				"num", num,
+				"reason", "unknown parent",
+				"parentHash", header.ParentHash.Hex(),
+				"error", err,
+			)
+			return err
+		}
+
+		// Validate header against parent.
+		if err := bc.validator.ValidateHeader(header, parent.Header()); err != nil {
+			bc.mu.Unlock()
+			blockchainLog.Warn("block_invalid",
+				"event", "block_invalid",
+				"hash", hash.Hex(),
+				"num", num,
+				"reason", "header validation failed",
+				"parentHash", header.ParentHash.Hex(),
+				"parentNum", parent.NumberU64(),
+				"error", err,
+			)
+			return err
+		}
+
+		// Validate body.
+		if err := bc.validator.ValidateBody(blk); err != nil {
+			bc.mu.Unlock()
+			blockchainLog.Warn("block_invalid",
+				"event", "block_invalid",
+				"hash", hash.Hex(),
+				"num", num,
+				"reason", "body validation failed",
+				"error", err,
+			)
+			return err
+		}
+
+		// Collect the ancestor chain needed to build the parent's state.
+		// This reads blockCache (under bc.mu) and the state cache (own lock).
+		ancestorChain, baseState = bc.collectAncestorsLocked(parent)
+
+		bc.mu.Unlock() // ← release lock; Phase 2 runs without it
 	}
 
-	// Find parent: check cache first, then fall back to rawdb.
-	parent := bc.blockCache[header.ParentHash]
-	if parent == nil {
-		parent = bc.readBlock(header.ParentHash)
-		if parent != nil {
-			bc.blockCache[header.ParentHash] = parent
+	// ── Phase 2: compute state (no bc.mu held) ─────────────────────────────
+	// Re-execute ancestors from the cached base state. bc.insertMu ensures
+	// only one goroutine runs this phase at a time, so the computed state
+	// is always consistent. All concurrent readers can proceed freely.
+	statedb := baseState
+	for _, ancestor := range ancestorChain {
+		if _, err := bc.processor.Process(ancestor, statedb); err != nil {
+			return fmt.Errorf("re-execute block %d: %w", ancestor.NumberU64(), err)
 		}
 	}
-	if parent == nil {
-		err := fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
-		blockchainLog.Warn("block_invalid",
-			"event", "block_invalid",
-			"hash", hash.Hex(),
-			"num", num,
-			"reason", "unknown parent",
-			"parentHash", header.ParentHash.Hex(),
-			"error", err,
-		)
-		return err
-	}
 
-	// Validate header against parent.
-	parentHeader := parent.Header()
-	if err := bc.validator.ValidateHeader(header, parentHeader); err != nil {
-		blockchainLog.Warn("block_invalid",
-			"event", "block_invalid",
-			"hash", hash.Hex(),
-			"num", num,
-			"reason", "header validation failed",
-			"parentHash", header.ParentHash.Hex(),
-			"parentNum", parent.NumberU64(),
-			"error", err,
-		)
-		return err
-	}
-
-	// Validate body.
-	if err := bc.validator.ValidateBody(blk); err != nil {
-		blockchainLog.Warn("block_invalid",
-			"event", "block_invalid",
-			"hash", hash.Hex(),
-			"num", num,
-			"reason", "body validation failed",
-			"error", err,
-		)
-		return err
-	}
-
-	// Build state for execution by re-executing from genesis.
-	statedb, err := bc.stateAt(parent)
-	if err != nil {
-		blockchainLog.Error("block_state_error",
-			"event", "block_state_error",
-			"hash", hash.Hex(),
-			"num", num,
-			"parentNum", parent.NumberU64(),
-			"error", err,
-		)
-		return fmt.Errorf("state at parent %d: %w", parent.NumberU64(), err)
-	}
-
-	// Execute transactions (with BAL tracking when Amsterdam is active).
+	// Execute the target block.
 	blockStart := time.Now()
 	result, err := bc.processor.ProcessWithBAL(blk, statedb)
 	metrics.BlockProcessTime.Observe(float64(time.Since(blockStart).Milliseconds()))
@@ -338,7 +421,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	}
 	receipts := result.Receipts
 
-	// Validate gas used: the total gas consumed must match header.GasUsed.
+	// Validate gas used.
 	var totalGasUsed uint64
 	for _, r := range receipts {
 		totalGasUsed += r.GasUsed
@@ -356,8 +439,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// Validate receipt root: the Merkle trie hash of receipts must match
-	// header.ReceiptHash.
+	// Validate receipt root.
 	computedReceiptHash := block.ComputeReceiptsRoot(receipts)
 	if header.ReceiptHash != computedReceiptHash {
 		err := fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidReceiptRoot,
@@ -374,8 +456,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// Validate block bloom: the bloom in the header must match the computed
-	// bloom from all receipt logs.
+	// Validate bloom.
 	blockBloom := types.CreateBloom(receipts)
 	if header.Bloom != blockBloom {
 		err := fmt.Errorf("invalid bloom (remote: %x local: %x)", header.Bloom, blockBloom)
@@ -389,9 +470,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// EIP-7685: process execution layer requests (Prague+).
-	// ProcessRequests may modify state (e.g. clearing request count slots),
-	// so it must run before computing the state root.
+	// EIP-7685: process requests before state root (may modify state).
 	if bc.config != nil && bc.config.IsPrague(header.Time) {
 		if _, err := execution.ProcessRequests(bc.config, statedb, header); err != nil {
 			blockchainLog.Error("block_requests_fail",
@@ -404,7 +483,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Validate state root: the post-execution state root must match header.Root.
+	// Validate state root.
 	computedRoot := statedb.GetRoot()
 	if header.Root != computedRoot {
 		err := fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidStateRoot,
@@ -422,7 +501,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// Validate Block Access List hash (EIP-7928).
+	// Validate BAL hash (EIP-7928).
 	var computedBALHash *types.Hash
 	if result.BlockAccessList != nil {
 		h := result.BlockAccessList.Hash()
@@ -439,16 +518,9 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// Store in block cache (evict oldest when at capacity).
-	for len(bc.blockCache) >= bc.opts.BlockCacheSize {
-		bc.evictOldestBlock()
-	}
-	bc.blockCache[hash] = blk
-	bc.blockCacheOrder = append(bc.blockCacheOrder, hash)
-
 	txs := blk.Transactions()
 
-	// Populate derived fields on receipts and store tx lookup entries.
+	// Populate derived receipt fields (no lock needed; local data).
 	for i, receipt := range receipts {
 		receipt.BlockHash = hash
 		receipt.BlockNumber = new(big.Int).SetUint64(num)
@@ -456,7 +528,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		if i < len(txs) {
 			receipt.TxHash = txs[i].Hash()
 		}
-		// Set log context fields.
 		for j, logEntry := range receipt.Logs {
 			logEntry.BlockHash = hash
 			logEntry.BlockNumber = num
@@ -466,7 +537,32 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Cache receipts by block hash (rcMu allows concurrent readers in GetReceipts).
+	// ── Phase 3: write results (brief bc.mu.Lock) ──────────────────────────
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	// Guard against concurrent insertion (shouldn't occur with insertMu, but be safe).
+	if _, ok := bc.blockCache[hash]; ok {
+		return nil
+	}
+
+	// Store in block cache (evict oldest when at capacity).
+	for len(bc.blockCache) >= bc.opts.BlockCacheSize {
+		bc.evictOldestBlock()
+	}
+	bc.blockCache[hash] = blk
+	bc.blockCacheOrder = append(bc.blockCacheOrder, hash)
+
+	// Build tx lookup index.
+	for i, tx := range txs {
+		bc.txLookup[tx.Hash()] = TxLookupEntry{
+			BlockHash:   hash,
+			BlockNumber: num,
+			TxIndex:     uint64(i),
+		}
+	}
+
+	// Cache receipts (rcMu is independent of bc.mu).
 	bc.rcMu.Lock()
 	for len(bc.receiptCache) >= bc.opts.ReceiptCacheSize {
 		if len(bc.receiptCacheOrder) == 0 {
@@ -480,15 +576,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	bc.receiptCacheOrder = append(bc.receiptCacheOrder, hash)
 	bc.rcMu.Unlock()
 
-	// Build tx lookup index.
-	for i, tx := range txs {
-		bc.txLookup[tx.Hash()] = TxLookupEntry{
-			BlockHash:   hash,
-			BlockNumber: num,
-			TxIndex:     uint64(i),
-		}
-	}
-
 	// Cache the post-execution state BEFORE committing so side blocks keep
 	// their dirty mem layer (side block cache entries must NOT flush to the
 	// shared DB, as that would corrupt cached states for parent blocks).
@@ -497,10 +584,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
 		// Commit state to the backing store only for canonical blocks.
-		// Committing a TrieStateDB Dup flushes its dirty layer to the shared DB
-		// and resets mem, bounding per-block memory. Side blocks must NOT commit
-		// so that the DB always reflects the canonical chain's state (enabling
-		// correct state reads for subsequent canonical blocks via the cache).
 		if _, err := statedb.Commit(); err != nil {
 			return fmt.Errorf("commit state block %d: %w", num, err)
 		}
@@ -509,7 +592,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		bc.currentBlock = blk
 		bc.currentState = statedb
 
-		// Persist to rawdb.
 		bc.writeBlock(blk)
 		bc.writeReceipts(num, hash, receipts)
 		bc.writeTxLookups(txs, num)
@@ -517,7 +599,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		rawdb.WriteHeadBlockHash(bc.db, hash)
 		rawdb.WriteHeadHeaderHash(bc.db, hash)
 
-		// Update header chain.
 		bc.hc.InsertHeaders([]*types.Header{header})
 
 		metrics.BlocksInserted.Inc()
@@ -549,11 +630,8 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 // Blocks must be in ascending order but need not be contiguous with the head
 // at the time of the call (though each must connect to its parent).
 func (bc *Blockchain) InsertChain(blocks []*types.Block) (int, error) {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
 	for i, blk := range blocks {
-		if err := bc.insertBlock(blk); err != nil {
+		if err := bc.InsertBlock(blk); err != nil {
 			return i, err
 		}
 	}
