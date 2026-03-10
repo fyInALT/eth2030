@@ -556,12 +556,17 @@ func (bc *Blockchain) CurrentBlock() *types.Block {
 	return bc.currentBlock
 }
 
-// HasBlock checks if a block with the given hash exists.
+// HasBlock checks if a block with the given hash exists in cache or rawdb.
 func (bc *Blockchain) HasBlock(hash types.Hash) bool {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	_, ok := bc.blockCache[hash]
-	return ok
+	if _, ok := bc.blockCache[hash]; ok {
+		return true
+	}
+	// Fall back to rawdb: if the header number mapping exists, the block was
+	// persisted (written by writeBlock which calls WriteHeader).
+	_, err := rawdb.ReadHeaderNumber(bc.db, hash)
+	return err == nil
 }
 
 // SetHead rewinds the canonical chain to the given block number.
