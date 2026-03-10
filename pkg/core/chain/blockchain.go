@@ -30,6 +30,15 @@ var (
 	ErrStateNotFound = errors.New("state not found for block")
 )
 
+const (
+	// maxBlockCacheSize caps the in-memory block cache. Older blocks are
+	// dropped from the cache; rawdb remains the persistent source of truth.
+	maxBlockCacheSize = 256
+	// maxReceiptCacheSize caps the in-memory receipt cache independently of
+	// the block cache (protected by rcMu).
+	maxReceiptCacheSize = 128
+)
+
 // TxLookupEntry stores the location of a transaction within the chain.
 type TxLookupEntry struct {
 	BlockHash   types.Hash
@@ -50,16 +59,20 @@ type Blockchain struct {
 	processor *execution.StateProcessor
 	validator block.Validator
 
-	// Block cache: hash -> block.
-	blockCache map[types.Hash]*types.Block
+	// Block cache: hash -> block.  Bounded to maxBlockCacheSize entries;
+	// older entries are evicted (rawdb is the persistent fallback).
+	blockCache      map[types.Hash]*types.Block
+	blockCacheOrder []types.Hash // insertion order for LRU eviction
 
 	// Canonical number -> hash for quick lookups.
 	canonCache map[uint64]types.Hash
 
 	// Receipt cache: blockHash -> receipts.  Protected by rcMu.
-	receiptCache map[types.Hash][]*types.Receipt
+	receiptCache      map[types.Hash][]*types.Receipt
+	receiptCacheOrder []types.Hash // insertion order for LRU eviction (under rcMu)
 
 	// Transaction lookup: txHash -> location in chain.
+	// Entries are evicted together with their block from blockCache.
 	txLookup map[types.Hash]TxLookupEntry
 
 	// State snapshot cache to avoid re-execution from genesis.
@@ -124,6 +137,23 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *st
 	}
 
 	return bc, nil
+}
+
+// evictOldestBlock removes the oldest block from blockCache (LRU eviction).
+// It also removes the block's transactions from txLookup.
+// Must be called with bc.mu held for writing.
+func (bc *Blockchain) evictOldestBlock() {
+	if len(bc.blockCacheOrder) == 0 {
+		return
+	}
+	oldest := bc.blockCacheOrder[0]
+	bc.blockCacheOrder = bc.blockCacheOrder[1:]
+	if evBlk, ok := bc.blockCache[oldest]; ok {
+		delete(bc.blockCache, oldest)
+		for _, tx := range evBlk.Transactions() {
+			delete(bc.txLookup, tx.Hash())
+		}
+	}
 }
 
 // InsertBlock validates, executes, and inserts a single block.
@@ -336,8 +366,12 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		return err
 	}
 
-	// Store in block cache.
+	// Store in block cache (evict oldest when at capacity).
+	for len(bc.blockCache) >= maxBlockCacheSize {
+		bc.evictOldestBlock()
+	}
 	bc.blockCache[hash] = blk
+	bc.blockCacheOrder = append(bc.blockCacheOrder, hash)
 
 	txs := blk.Transactions()
 
@@ -361,7 +395,16 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 
 	// Cache receipts by block hash (rcMu allows concurrent readers in GetReceipts).
 	bc.rcMu.Lock()
+	for len(bc.receiptCache) >= maxReceiptCacheSize {
+		if len(bc.receiptCacheOrder) == 0 {
+			break
+		}
+		oldest := bc.receiptCacheOrder[0]
+		bc.receiptCacheOrder = bc.receiptCacheOrder[1:]
+		delete(bc.receiptCache, oldest)
+	}
 	bc.receiptCache[hash] = receipts
+	bc.receiptCacheOrder = append(bc.receiptCacheOrder, hash)
 	bc.rcMu.Unlock()
 
 	// Build tx lookup index.
