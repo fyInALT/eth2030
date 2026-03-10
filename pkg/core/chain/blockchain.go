@@ -696,8 +696,9 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	}
 
 	// Check if we have an exact cached state for this block.
+	// Dup() so callers (insertBlock, block builder) do not corrupt the cache.
 	if cached, ok := bc.sc.get(blk.Hash()); ok {
-		return cached, nil
+		return cached.Dup(), nil
 	}
 
 	// Collect the chain of blocks from genesis (or a cached snapshot) to this block.
@@ -708,8 +709,8 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	for current.Hash() != bc.genesis.Hash() {
 		// Check if we have a cached state for this ancestor.
 		if cached, ok := bc.sc.get(current.ParentHash()); ok {
-			// We have a cached state at the parent; re-execute from there.
-			baseState = cached
+			// Dup() so processor.Process does not mutate the cached state.
+			baseState = cached.Dup()
 			chain = append(chain, current)
 			break
 		}
