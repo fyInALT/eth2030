@@ -109,6 +109,10 @@ type Blockchain struct {
 	// safe to use as a re-execution base at any point in the chain's life.
 	execGenesisState *state.MemoryStateDB
 
+	// gcMode is forwarded from the genesis statedb (archive or full) so that
+	// reorg() can materialise a MemoryStateDB back into a TrieStateDB.
+	gcMode string
+
 	// Current state after processing the head block.
 	currentState state.StateDB
 
@@ -143,12 +147,14 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 	proc := execution.NewStateProcessor(config)
 
 	// Build a self-contained MemoryStateDB snapshot of the genesis state.
-	// This is used as the re-execution base in stateAt so that re-execution
-	// never reads from the (mutable) TrieStateDB shared db.
+	// Called BEFORE ts.Commit() in node.go so that ts.mem still holds the
+	// genesis alloc accounts (Commit resets mem to empty).
 	var execGenesis *state.MemoryStateDB
+	var gcMode string
 	switch s := statedb.(type) {
 	case *state.TrieStateDB:
 		execGenesis = s.GetMem().Copy()
+		gcMode = s.GCMode()
 	case *state.MemoryStateDB:
 		execGenesis = s.Copy()
 	default:
@@ -168,6 +174,7 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 		sc:               newStateCache(opts.StateCacheSize),
 		genesisState:     statedb,
 		execGenesisState: execGenesis,
+		gcMode:           gcMode,
 		currentState:     statedb.Dup(),
 		genesis:          genesis,
 		currentBlock:     genesis,
@@ -713,9 +720,10 @@ func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
 // re-executing the entire chain from genesis.
 func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	if blk.Hash() == bc.genesis.Hash() {
-		// Use the self-contained MemoryStateDB copy so that the returned state
-		// is independent of the shared TrieStateDB db.
-		return bc.execGenesisState.Copy(), nil
+		// genesisState is a TrieStateDB with genesis accounts persisted in db.
+		// Dup() gives a fresh state that reads from db (= genesis state) without
+		// accumulating dirty writes in the cached entry.
+		return bc.genesisState.Dup(), nil
 	}
 
 	// Check if we have an exact cached state for this block.
@@ -1126,11 +1134,12 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	bc.hc.mu.Unlock()
 
 	// Clear stale state cache entries: cached TrieStateDB Dups share the live
-	// db which now reflects the state after the new canonical chain. Re-using
-	// them as re-execution bases after a reorg would read wrong historical state.
+	// db which now reflects the state after the old canonical chain. Re-using
+	// them as re-execution bases for the new fork would read wrong state.
 	bc.sc.clear()
 
-	// Re-derive state for the new head.
+	// Re-derive state for the new head by re-executing from execGenesisState
+	// (a self-contained MemoryStateDB that never reads from the shared db).
 	statedb, err := bc.stateAt(newHead)
 	if err != nil {
 		blockchainLog.Error("reorg_state_fail",
@@ -1141,6 +1150,22 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 		)
 		return fmt.Errorf("re-derive state after reorg at %d: %w", newHead.NumberU64(), err)
 	}
+
+	// If we re-executed from genesis using MemoryStateDB, materialise the
+	// result back into a TrieStateDB so that future block processing stays
+	// memory-efficient (TrieStateDB flushes dirty writes to disk on each
+	// Commit, bounding per-block RAM to the working set of a single block).
+	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" {
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.db, mdb.Copy(), bc.gcMode)
+		if _, commitErr := ts.Commit(); commitErr == nil {
+			statedb = ts
+		}
+	}
+
+	// Cache the state at newHead so the first insertBlock after the reorg
+	// can skip re-execution and use this as its parent state.
+	bc.sc.put(newHead.Hash(), newHead.NumberU64(), statedb)
+
 	bc.currentState = statedb
 
 	return nil

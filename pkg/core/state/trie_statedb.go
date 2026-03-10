@@ -79,6 +79,11 @@ func (t *TrieStateDB) GetMem() *MemoryStateDB {
 	return t.mem
 }
 
+// GCMode returns the garbage-collection mode string ("archive" or "full").
+func (t *TrieStateDB) GCMode() string {
+	return t.gcMode
+}
+
 // NewTrieStateDB creates a TrieStateDB backed by db using archive GC mode.
 func NewTrieStateDB(db rawdb.Database) *TrieStateDB {
 	return NewTrieStateDBWithGCMode(db, GCModeArchive)
