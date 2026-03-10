@@ -25,6 +25,9 @@ type Config struct {
 	// MaxBatchSize is the maximum number of transactions per batch.
 	MaxBatchSize int
 
+	// MaxHistorySize caps how many sealed batches are retained in memory.
+	MaxHistorySize int
+
 	// BatchTimeout is the maximum duration before a batch is auto-sealed.
 	BatchTimeout time.Duration
 
@@ -39,6 +42,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxBatchSize:         1000,
+		MaxHistorySize:       128,
 		BatchTimeout:         2 * time.Second,
 		L1SubmissionInterval: 6 * time.Second,
 		CompressPayload:      false,
@@ -76,15 +80,22 @@ type Sequencer struct {
 
 // NewSequencer creates a new Sequencer with the given configuration.
 func NewSequencer(config Config) *Sequencer {
+	if config.MaxBatchSize <= 0 {
+		config.MaxBatchSize = 1000
+	}
+	if config.MaxHistorySize <= 0 {
+		config.MaxHistorySize = 128
+	}
 	return &Sequencer{
 		config:  config,
 		pending: make([][]byte, 0, config.MaxBatchSize),
-		history: make([]*Batch, 0),
+		history: make([]*Batch, 0, config.MaxHistorySize),
 	}
 }
 
 // AddTransaction appends a raw transaction to the current pending batch.
-// If the batch reaches MaxBatchSize, it is automatically sealed.
+// When the batch is full it is automatically sealed and a fresh batch started,
+// so callers are never permanently blocked by a full batch.
 func (s *Sequencer) AddTransaction(tx []byte) error {
 	if len(tx) == 0 {
 		return ErrTxEmpty
@@ -93,8 +104,9 @@ func (s *Sequencer) AddTransaction(tx []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Auto-seal when at capacity so pending never stays permanently full.
 	if len(s.pending) >= s.config.MaxBatchSize {
-		return ErrBatchFull
+		s.sealLocked()
 	}
 
 	// Copy the tx data to avoid external mutation.
@@ -103,6 +115,35 @@ func (s *Sequencer) AddTransaction(tx []byte) error {
 	s.pending = append(s.pending, txCopy)
 
 	return nil
+}
+
+// sealLocked finalises the pending batch and appends it to history, evicting
+// the oldest batch when MaxHistorySize is reached. Caller must hold s.mu.
+func (s *Sequencer) sealLocked() {
+	if len(s.pending) == 0 {
+		return
+	}
+	txs := s.pending
+	s.pending = make([][]byte, 0, s.config.MaxBatchSize)
+
+	var hashInput []byte
+	for _, rawTx := range txs {
+		h := crypto.Keccak256(rawTx)
+		hashInput = append(hashInput, h...)
+	}
+	id := crypto.Keccak256Hash(hashInput)
+
+	batch := &Batch{
+		ID:           id,
+		Transactions: txs,
+		Timestamp:    time.Now(),
+	}
+
+	if len(s.history) >= s.config.MaxHistorySize {
+		// Evict oldest batch.
+		s.history = s.history[1:]
+	}
+	s.history = append(s.history, batch)
 }
 
 // SealBatch finalizes the current pending transactions into a Batch.
@@ -142,6 +183,9 @@ func (s *Sequencer) SealBatch() (*Batch, error) {
 		batch.CompressedData = compressed
 	}
 
+	if len(s.history) >= s.config.MaxHistorySize {
+		s.history = s.history[1:]
+	}
 	s.history = append(s.history, batch)
 	return batch, nil
 }
