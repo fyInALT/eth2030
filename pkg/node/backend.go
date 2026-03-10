@@ -664,28 +664,22 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
-	// Guard against expensive state re-execution while holding bc.mu.Lock().
-	// InsertBlock acquires bc.mu.Lock() for the full duration of stateAt(),
-	// which re-executes all blocks from genesis if the parent state is not
-	// cached. For deep fork blocks whose parent state was evicted from the
-	// cache, this can block all concurrent FCU calls for tens of seconds.
-	// Return SYNCING instead so the CL can provide blocks in canonical order.
+	// Guard against expensive state re-execution. InsertBlock must walk the
+	// ancestor chain and re-execute all blocks back to the nearest cached
+	// state. For fork blocks, even if the block number is close to the head,
+	// the fork may have diverged many blocks ago — causing re-execution of
+	// hundreds of blocks and stalling the Engine API for tens of seconds.
 	//
-	// stateReExecMaxGap must not exceed defaultMaxCachedStates (64) so that
-	// normal sequential processing always has the parent state cached.
-	const stateReExecMaxGap = 64
+	// To prevent this, we only call InsertBlock when the parent state is
+	// already in the cache (O(1) lookup, no re-execution). Otherwise we
+	// return SYNCING; the CL will re-send ancestor blocks until the fork's
+	// parent state is eventually cached through sequential processing.
 	if !bc.HasStateCached(payload.ParentHash) {
-		if headBlk := bc.CurrentBlock(); headBlk != nil && payload.BlockNumber > 0 {
-			parentNum := payload.BlockNumber - 1
-			if parentNum+stateReExecMaxGap < headBlk.NumberU64() {
-				slog.Debug("engine_newPayload: parent state not cached, returning SYNCING",
-					"blockNumber", payload.BlockNumber,
-					"parentNum", parentNum,
-					"headNum", headBlk.NumberU64(),
-				)
-				return engine.PayloadStatusV1{Status: engine.StatusSyncing}, nil
-			}
-		}
+		slog.Debug("engine_newPayload: parent state not cached, returning SYNCING",
+			"blockNumber", payload.BlockNumber,
+			"parentHash", payload.ParentHash,
+		)
+		return engine.PayloadStatusV1{Status: engine.StatusSyncing}, nil
 	}
 
 	// Step 3: insert the block (Phase 1: validate, Phase 2: execute, Phase 3: write).
