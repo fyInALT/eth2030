@@ -398,3 +398,376 @@ func TestTrieStateDB_NewFromMemory(t *testing.T) {
 		t.Fatalf("expected 42 after commit from memory, got %v", bal)
 	}
 }
+
+// TestTrieStateDB_StorageSlotDeletion tests that setting a slot to zero after
+// a commit correctly removes it from the DB (Bug #6: zeroed slots were not
+// being deleted from DB because flush removes them from committedStorage).
+func TestTrieStateDB_StorageSlotDeletion(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xA1}
+	slot := types.Hash{0x01}
+	val := types.Hash{0x42}
+
+	// Block 1: write a non-zero storage slot.
+	s.CreateAccount(addr)
+	s.SetState(addr, slot, val)
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Block 2: zero the same slot (SSTORE 0).
+	s.SetState(addr, slot, types.Hash{})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	// Fresh reader: zeroed slot must read as zero, not stale value.
+	s2 := NewTrieStateDB(db)
+	if got := s2.GetState(addr, slot); got != (types.Hash{}) {
+		t.Fatalf("expected zero after slot deletion, got %v", got)
+	}
+	// GetCommittedState must also return zero.
+	if got := s2.GetCommittedState(addr, slot); got != (types.Hash{}) {
+		t.Fatalf("expected committed zero, got %v", got)
+	}
+}
+
+// TestTrieStateDB_StorageSlotDeletionSameBlock tests zeroing a slot that was
+// written in the same block (no prior commit for that slot).
+func TestTrieStateDB_StorageSlotDeletionSameBlock(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xA2}
+	slot := types.Hash{0x01}
+	val := types.Hash{0x42}
+
+	s.CreateAccount(addr)
+	s.SetState(addr, slot, val)
+	s.SetState(addr, slot, types.Hash{}) // zero in same block
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	s2 := NewTrieStateDB(db)
+	if got := s2.GetState(addr, slot); got != (types.Hash{}) {
+		t.Fatalf("expected zero, got %v", got)
+	}
+}
+
+// TestTrieStateDB_MultipleSlotDeletion tests zeroing multiple slots across
+// multiple blocks, including interleaved writes and deletes.
+func TestTrieStateDB_MultipleSlotDeletion(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xA3}
+	slot1 := types.Hash{0x01}
+	slot2 := types.Hash{0x02}
+	slot3 := types.Hash{0x03}
+
+	// Block 1: write three slots.
+	s.CreateAccount(addr)
+	s.SetState(addr, slot1, types.Hash{0x11})
+	s.SetState(addr, slot2, types.Hash{0x22})
+	s.SetState(addr, slot3, types.Hash{0x33})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Block 2: zero slot1 and slot2; keep slot3.
+	s.SetState(addr, slot1, types.Hash{})
+	s.SetState(addr, slot2, types.Hash{})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	// Block 3: zero slot3.
+	s.SetState(addr, slot3, types.Hash{})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block3 Commit: %v", err)
+	}
+
+	s2 := NewTrieStateDB(db)
+	for i, slot := range []types.Hash{slot1, slot2, slot3} {
+		if got := s2.GetState(addr, slot); got != (types.Hash{}) {
+			t.Fatalf("slot%d: expected zero, got %v", i+1, got)
+		}
+	}
+}
+
+// TestTrieStateDB_StorageRootAfterSlotDeletion tests that the storage root
+// returns EmptyRootHash after all slots are zeroed and committed.
+func TestTrieStateDB_StorageRootAfterSlotDeletion(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xA4}
+	slot := types.Hash{0x01}
+
+	s.CreateAccount(addr)
+	s.SetState(addr, slot, types.Hash{0x42})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	s.SetState(addr, slot, types.Hash{})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	// After zeroing the only slot, storage root should be EmptyRootHash.
+	s2 := NewTrieStateDB(db)
+	storRoot := s2.StorageRoot(addr)
+	if storRoot != types.EmptyRootHash {
+		t.Fatalf("expected EmptyRootHash after slot deletion, got %v", storRoot)
+	}
+}
+
+// TestTrieStateDB_CreateAccountOverExisting tests that CreateAccount called on
+// an address with existing DB state clears the old storage on Commit (Bug #1).
+func TestTrieStateDB_CreateAccountOverExisting(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xB1}
+	slot := types.Hash{0x01}
+	oldVal := types.Hash{0x99}
+
+	// Block 1: create account with storage.
+	s.CreateAccount(addr)
+	s.AddBalance(addr, big.NewInt(100))
+	s.SetState(addr, slot, oldVal)
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Block 2: re-create the account (simulates CREATE on existing addr).
+	s.CreateAccount(addr)
+	s.AddBalance(addr, big.NewInt(50))
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	// Fresh reader: old storage slot must be gone.
+	s2 := NewTrieStateDB(db)
+	if got := s2.GetState(addr, slot); got != (types.Hash{}) {
+		t.Fatalf("old storage should be cleared after CreateAccount, got %v", got)
+	}
+	// Balance should reflect new account value.
+	if bal := s2.GetBalance(addr); bal.Cmp(big.NewInt(50)) != 0 {
+		t.Fatalf("expected balance 50, got %v", bal)
+	}
+}
+
+// TestTrieStateDB_CreateAccountOverExistingPreservesNewStorage tests that new
+// storage written after CreateAccount is preserved (not incorrectly deleted).
+func TestTrieStateDB_CreateAccountOverExistingPreservesNewStorage(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xB2}
+	oldSlot := types.Hash{0x01}
+	newSlot := types.Hash{0x02}
+
+	// Block 1: create with old slot.
+	s.CreateAccount(addr)
+	s.SetState(addr, oldSlot, types.Hash{0x11})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Block 2: re-create; write new slot.
+	s.CreateAccount(addr)
+	s.SetState(addr, newSlot, types.Hash{0x22})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	s2 := NewTrieStateDB(db)
+	if got := s2.GetState(addr, oldSlot); got != (types.Hash{}) {
+		t.Fatalf("old slot should be gone, got %v", got)
+	}
+	if got := s2.GetState(addr, newSlot); got != (types.Hash{0x22}) {
+		t.Fatalf("new slot should be %v, got %v", types.Hash{0x22}, got)
+	}
+}
+
+// TestTrieStateDB_CommittedStateAfterCommit verifies that GetCommittedState
+// returns the previously committed value after a Commit.
+func TestTrieStateDB_CommittedStateAfterCommit(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xC1}
+	slot := types.Hash{0x01}
+	val := types.Hash{0x42}
+
+	s.CreateAccount(addr)
+	s.SetState(addr, slot, val)
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// After commit, GetCommittedState should reflect the committed value.
+	if got := s.GetCommittedState(addr, slot); got != val {
+		t.Fatalf("GetCommittedState after commit: expected %v, got %v", val, got)
+	}
+	// GetState should also return the committed value.
+	if got := s.GetState(addr, slot); got != val {
+		t.Fatalf("GetState after commit: expected %v, got %v", val, got)
+	}
+}
+
+// TestTrieStateDB_RevertStorageChange tests snapshot/revert with storage mods.
+func TestTrieStateDB_RevertStorageChange(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xC2}
+	slot := types.Hash{0x01}
+	val1 := types.Hash{0x11}
+	val2 := types.Hash{0x22}
+
+	s.CreateAccount(addr)
+	s.SetState(addr, slot, val1)
+
+	snap := s.Snapshot()
+	s.SetState(addr, slot, val2)
+	if got := s.GetState(addr, slot); got != val2 {
+		t.Fatalf("expected %v, got %v", val2, got)
+	}
+
+	s.RevertToSnapshot(snap)
+	if got := s.GetState(addr, slot); got != val1 {
+		t.Fatalf("after revert: expected %v, got %v", val1, got)
+	}
+}
+
+// TestTrieStateDB_RootMatchesMemoryStateDB verifies that TrieStateDB produces
+// the same state root as MemoryStateDB for equivalent state mutations.
+func TestTrieStateDB_RootMatchesMemoryStateDB(t *testing.T) {
+	setup := func(s StateDB) {
+		addr1 := types.Address{0xD1}
+		addr2 := types.Address{0xD2}
+		slot := types.Hash{0x01}
+		s.CreateAccount(addr1)
+		s.AddBalance(addr1, big.NewInt(12345))
+		s.SetNonce(addr1, 5)
+		s.CreateAccount(addr2)
+		s.SetState(addr2, slot, types.Hash{0xAB})
+	}
+
+	// Build via MemoryStateDB.
+	mem := NewMemoryStateDB()
+	setup(mem)
+	memRoot := mem.GetRoot()
+
+	// Build via TrieStateDB.
+	ts := NewTrieStateDB(rawdb.NewMemoryDB())
+	setup(ts)
+	tsRoot := ts.GetRoot()
+
+	if memRoot != tsRoot {
+		t.Fatalf("root mismatch: MemoryStateDB=%v TrieStateDB=%v", memRoot, tsRoot)
+	}
+}
+
+// TestTrieStateDB_RootConsistencyAfterSlotDeletion checks that the state root
+// changes correctly when a slot is deleted and remains stable across reloads.
+func TestTrieStateDB_RootConsistencyAfterSlotDeletion(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xD3}
+	slot := types.Hash{0x01}
+
+	s.CreateAccount(addr)
+	s.AddBalance(addr, big.NewInt(1))
+	s.SetState(addr, slot, types.Hash{0x42})
+	root1, err := s.Commit()
+	if err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Zero the slot — root should change.
+	s.SetState(addr, slot, types.Hash{})
+	root2, err := s.Commit()
+	if err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+	if root2 == root1 {
+		t.Fatal("root should change after slot deletion")
+	}
+
+	// A fresh reader must compute the same root2.
+	s2 := NewTrieStateDB(db)
+	freshRoot := s2.GetRoot()
+	if freshRoot != root2 {
+		t.Fatalf("fresh reader root %v != committed root %v", freshRoot, root2)
+	}
+}
+
+// TestTrieStateDB_WriteReadCycle tests a multi-block write→commit→read cycle
+// with overlapping accounts and storage modifications.
+func TestTrieStateDB_WriteReadCycle(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+
+	addr := types.Address{0xE1}
+	slot1 := types.Hash{0x01}
+	slot2 := types.Hash{0x02}
+
+	// Block 1.
+	s.CreateAccount(addr)
+	s.AddBalance(addr, big.NewInt(500))
+	s.SetState(addr, slot1, types.Hash{0x11})
+	s.SetState(addr, slot2, types.Hash{0x22})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Block 2: update balance, change slot1, zero slot2.
+	s.AddBalance(addr, big.NewInt(100))
+	s.SetState(addr, slot1, types.Hash{0xFF})
+	s.SetState(addr, slot2, types.Hash{})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	// Block 3: only read — no writes.
+	if bal := s.GetBalance(addr); bal.Cmp(big.NewInt(600)) != 0 {
+		t.Fatalf("expected balance 600, got %v", bal)
+	}
+	if got := s.GetState(addr, slot1); got != (types.Hash{0xFF}) {
+		t.Fatalf("slot1: expected 0xFF, got %v", got)
+	}
+	if got := s.GetState(addr, slot2); got != (types.Hash{}) {
+		t.Fatalf("slot2: expected zero, got %v", got)
+	}
+}
+
+// TestTrieStateDB_SelfDestructClearsStorage tests that self-destructing an
+// account also removes its storage from the DB.
+func TestTrieStateDB_SelfDestructClearsStorage(t *testing.T) {
+	db := rawdb.NewMemoryDB()
+	s := NewTrieStateDB(db)
+	addr := types.Address{0xF1}
+	slot := types.Hash{0x01}
+
+	// Block 1: create account with storage.
+	s.CreateAccount(addr)
+	s.AddBalance(addr, big.NewInt(100))
+	s.SetState(addr, slot, types.Hash{0x42})
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block1 Commit: %v", err)
+	}
+
+	// Block 2: self-destruct.
+	s.SelfDestruct(addr)
+	if _, err := s.Commit(); err != nil {
+		t.Fatalf("block2 Commit: %v", err)
+	}
+
+	// Fresh reader: account gone and storage gone.
+	s2 := NewTrieStateDB(db)
+	if s2.Exist(addr) {
+		t.Fatal("self-destructed account should not exist")
+	}
+	if got := s2.GetState(addr, slot); got != (types.Hash{}) {
+		t.Fatalf("storage should be empty after self-destruct, got %v", got)
+	}
+}
