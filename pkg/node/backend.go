@@ -1092,6 +1092,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 				"hash", fcState.FinalizedBlockHash,
 				"number", finalBlock.NumberU64(),
 			)
+			// Purge txpool entries whose nonce is below the finalized state,
+			// mirroring go-ethereum's miner/pool interaction on finalization.
+			if b.node.txPool != nil {
+				b.node.txPool.Reset(bc.State())
+			}
 		} else {
 			slog.Warn("engine_forkchoiceUpdated: finalized block unknown, skipping",
 				"hash", fcState.FinalizedBlockHash,
