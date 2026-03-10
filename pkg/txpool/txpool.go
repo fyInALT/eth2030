@@ -10,9 +10,12 @@ import (
 	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/log"
 	"github.com/eth2030/eth2030/txpool/frametx"
 	"github.com/eth2030/eth2030/txpool/pricing"
 )
+
+var txpoolLog = log.Default().Module("eth/txpool")
 
 // Type aliases re-exported from sub-packages for backward compatibility.
 type (
@@ -273,13 +276,31 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 
 	hash := tx.Hash()
 
+	txpoolLog.Debug("TX_RECEIVED",
+		"event", "TX_RECEIVED",
+		"hash", hash.Hex(),
+		"txType", tx.Type(),
+		"nonce", tx.Nonce(),
+	)
+
 	// Check for duplicates.
 	if pool.lookup.Get(hash) != nil {
+		txpoolLog.Debug("TX_DUPLICATE",
+			"event", "TX_DUPLICATE",
+			"hash", hash.Hex(),
+		)
 		return ErrAlreadyKnown
 	}
 
 	// Validate the transaction.
 	if err := pool.validateTx(tx); err != nil {
+		txpoolLog.Debug("TX_REJECTED",
+			"event", "TX_REJECTED",
+			"hash", hash.Hex(),
+			"txType", tx.Type(),
+			"nonce", tx.Nonce(),
+			"reason", err.Error(),
+		)
 		return err
 	}
 
@@ -290,19 +311,47 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	stateNonce := pool.state.GetNonce(from)
 
 	if tx.Nonce() < stateNonce {
+		txpoolLog.Debug("TX_REJECTED",
+			"event", "TX_REJECTED",
+			"hash", hash.Hex(),
+			"reason", "nonce too low",
+			"txNonce", tx.Nonce(),
+			"stateNonce", stateNonce,
+		)
 		return ErrNonceTooLow
 	}
 
 	// Nonce gap detection: reject transactions with nonces too far ahead
 	// of the current state nonce to prevent memory exhaustion attacks.
 	if tx.Nonce() > stateNonce+MaxNonceGap {
+		txpoolLog.Debug("TX_REJECTED",
+			"event", "TX_REJECTED",
+			"hash", hash.Hex(),
+			"reason", "nonce too high (gap)",
+			"txNonce", tx.Nonce(),
+			"stateNonce", stateNonce,
+			"maxGap", MaxNonceGap,
+		)
 		return ErrNonceTooHigh
 	}
 
 	// Check for replace-by-fee: existing tx from same sender with same nonce.
 	replaced, err := pool.checkReplacement(from, tx)
 	if err != nil {
+		txpoolLog.Debug("TX_REJECTED",
+			"event", "TX_REJECTED",
+			"hash", hash.Hex(),
+			"reason", err.Error(),
+			"nonce", tx.Nonce(),
+		)
 		return err
+	}
+	if replaced {
+		txpoolLog.Debug("TX_REPLACED",
+			"event", "TX_REPLACED",
+			"hash", hash.Hex(),
+			"nonce", tx.Nonce(),
+		)
 	}
 
 	// Per-sender limit: count all txs from this sender across pending + queue.
@@ -310,6 +359,13 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	if !replaced {
 		senderCount := pool.senderTxCount(from)
 		if senderCount >= pool.config.MaxPerSender {
+			txpoolLog.Debug("TX_REJECTED",
+				"event", "TX_REJECTED",
+				"hash", hash.Hex(),
+				"reason", "per-sender limit",
+				"senderCount", senderCount,
+				"limit", pool.config.MaxPerSender,
+			)
 			return ErrSenderLimitExceeded
 		}
 	}
@@ -318,6 +374,12 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	if !replaced && pool.lookup.Count() >= pool.config.MaxSize {
 		evicted := pool.evictLowest(pool.baseFee)
 		if evicted == 0 {
+			txpoolLog.Debug("TX_REJECTED",
+				"event", "TX_REJECTED",
+				"hash", hash.Hex(),
+				"reason", "pool full",
+				"poolSize", pool.lookup.Count(),
+			)
 			return ErrTxPoolFull
 		}
 	}
@@ -328,9 +390,21 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	if tx.Nonce() == stateNonce {
 		// This tx is immediately processable.
 		pool.addPending(from, tx)
+		txpoolLog.Debug("TX_PENDING",
+			"event", "TX_PENDING",
+			"hash", hash.Hex(),
+			"nonce", tx.Nonce(),
+			"poolSize", pool.lookup.Count(),
+		)
 	} else {
 		// Future tx, add to queue.
 		pool.addQueue(from, tx)
+		txpoolLog.Debug("TX_QUEUED",
+			"event", "TX_QUEUED",
+			"hash", hash.Hex(),
+			"nonce", tx.Nonce(),
+			"stateNonce", stateNonce,
+		)
 	}
 
 	// Promote queued txs that are now processable.
@@ -696,6 +770,11 @@ func (pool *TxPool) promoteQueue(from types.Address) {
 	for _, tx := range promoted {
 		pool.addPending(from, tx)
 		queueList.Remove(tx.Nonce())
+		txpoolLog.Debug("TX_PROMOTED",
+			"event", "TX_PROMOTED",
+			"hash", tx.Hash().Hex(),
+			"nonce", tx.Nonce(),
+		)
 	}
 
 	if queueList.Len() == 0 {
@@ -821,6 +900,7 @@ func (pool *TxPool) Reset(stateReader StateReader) {
 
 	pool.state = stateReader
 
+	var totalConfirmed, totalDemoted int
 	for addr, list := range pool.pending {
 		stateNonce := pool.state.GetNonce(addr)
 		var toRemove []uint64
@@ -840,14 +920,25 @@ func (pool *TxPool) Reset(stateReader StateReader) {
 		for _, n := range toRemove {
 			list.Remove(n)
 		}
+		totalConfirmed += len(toRemove)
 		for _, tx := range toQueue {
 			list.Remove(tx.Nonce())
 			pool.addQueue(addr, tx)
 		}
+		totalDemoted += len(toQueue)
 		if list.Len() == 0 {
 			delete(pool.pending, addr)
 		}
 	}
+
+	txpoolLog.Debug("POOL_RESET",
+		"event", "POOL_RESET",
+		"confirmed", totalConfirmed,
+		"reorgDemoted", totalDemoted,
+		"poolSize", pool.lookup.Count(),
+		"pending", len(pool.pending),
+		"queued", len(pool.queue),
+	)
 
 	// Re-promote queued txs (including those just demoted from pending).
 	for addr := range pool.queue {
@@ -1015,6 +1106,13 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 
 	// Evict the cheapest.
 	c := candidates[0]
+	txpoolLog.Debug("TX_EVICTED",
+		"event", "TX_EVICTED",
+		"hash", c.tx.Hash().Hex(),
+		"nonce", c.tx.Nonce(),
+		"effectivePrice", c.price.String(),
+		"wasQueued", c.queue,
+	)
 	pool.lookup.Remove(c.tx.Hash())
 	if c.queue {
 		if list, ok := pool.queue[c.from]; ok {
@@ -1040,9 +1138,15 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
+	txpoolLog.Debug("BASEFEE_UPDATE",
+		"event", "BASEFEE_UPDATE",
+		"newBaseFee", baseFee.String(),
+	)
+
 	pool.baseFee = new(big.Int).Set(baseFee)
 
 	// Demote pending txs whose max fee is below the new base fee.
+	var totalDemoted int
 	for addr, list := range pool.pending {
 		var demote []*types.Transaction
 		for _, tx := range list.items {
@@ -1057,10 +1161,25 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 		for _, tx := range demote {
 			list.Remove(tx.Nonce())
 			pool.addQueue(addr, tx)
+			txpoolLog.Debug("TX_DEMOTED",
+				"event", "TX_DEMOTED",
+				"hash", tx.Hash().Hex(),
+				"nonce", tx.Nonce(),
+				"feeCap", tx.GasFeeCap().String(),
+				"newBaseFee", baseFee.String(),
+			)
 		}
+		totalDemoted += len(demote)
 		if list.Len() == 0 {
 			delete(pool.pending, addr)
 		}
+	}
+	if totalDemoted > 0 {
+		txpoolLog.Debug("BASEFEE_DEMOTED",
+			"event", "BASEFEE_DEMOTED",
+			"count", totalDemoted,
+			"newBaseFee", baseFee.String(),
+		)
 	}
 }
 
