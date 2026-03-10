@@ -11,6 +11,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/txpool/frametx"
 	"github.com/eth2030/eth2030/txpool/pricing"
 )
@@ -410,6 +411,9 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	// Promote queued txs that are now processable.
 	pool.promoteQueue(from)
 
+	metrics.TxPoolAdded.Inc()
+	metrics.TxPoolPending.Set(int64(len(pool.pending)))
+	metrics.TxPoolQueued.Set(int64(len(pool.queue)))
 	return nil
 }
 
@@ -1129,6 +1133,9 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 			}
 		}
 	}
+	metrics.TxPoolDropped.Inc()
+	metrics.TxPoolPending.Set(int64(len(pool.pending)))
+	metrics.TxPoolQueued.Set(int64(len(pool.queue)))
 	return 1
 }
 

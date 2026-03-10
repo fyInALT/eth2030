@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 	rpcbatch "github.com/eth2030/eth2030/rpc/batch"
 	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
@@ -398,6 +399,7 @@ func (s *ExtServer) Handler() http.Handler {
 // handleRPC is the main request handler.
 func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	metrics.RPCRequests.Inc()
 	s.requestCount.Add(1)
 	s.setCORSHeaders(w, r)
 
@@ -488,8 +490,10 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	latency := time.Since(start)
+	metrics.RPCLatency.Observe(float64(latency.Milliseconds()))
 	hasErr := resp != nil && resp.Error != nil
 	if hasErr {
+		metrics.RPCErrors.Inc()
 		rpcLog.Debug("rpc_response",
 			"event", "rpc_response",
 			"method", req.Method,

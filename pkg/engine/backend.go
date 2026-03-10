@@ -18,6 +18,7 @@ import (
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
 	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 )
 
 var backendLog = log.Default().Module("engine/backend")
@@ -78,6 +79,7 @@ func (b *EngineBackend) ProcessBlock(
 	expectedBlobVersionedHashes []types.Hash,
 	parentBeaconBlockRoot types.Hash,
 ) (PayloadStatusV1, error) {
+	metrics.EngineNewPayload.Inc()
 	backendLog.Debug("payload_received",
 		"event", "payload_received",
 		"blockHash", payload.BlockHash.Hex(),
@@ -228,6 +230,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	fcState ForkchoiceStateV1,
 	attrs *PayloadAttributesV3,
 ) (ForkchoiceUpdatedResult, error) {
+	metrics.EngineFCU.Inc()
 	backendLog.Debug("fcu_received",
 		"event", "fcu_received",
 		"head", fcState.HeadBlockHash.Hex(),
@@ -472,6 +475,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (PayloadStatusV1, error) {
+	metrics.EngineNewPayload.Inc()
 	backendLog.Debug("payload_received",
 		"event", "payload_received",
 		"version", "V5",

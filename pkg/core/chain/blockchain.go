@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"sync"
 
+	"time"
+
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/execution"
@@ -13,6 +15,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/rlp"
 )
 
@@ -217,7 +220,9 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	}
 
 	// Execute transactions (with BAL tracking when Amsterdam is active).
+	blockStart := time.Now()
 	result, err := bc.processor.ProcessWithBAL(blk, statedb)
+	metrics.BlockProcessTime.Observe(float64(time.Since(blockStart).Milliseconds()))
 	if err != nil {
 		blockchainLog.Error("block_exec_fail",
 			"event", "block_exec_fail",
@@ -389,6 +394,8 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		// Update header chain.
 		bc.hc.InsertHeaders([]*types.Header{header})
 
+		metrics.BlocksInserted.Inc()
+		metrics.ChainHeight.Set(int64(num))
 		blockchainLog.Info("block_added",
 			"event", "block_added",
 			"hash", hash.Hex(),
@@ -894,6 +901,7 @@ func (bc *Blockchain) Reorg(newHead *types.Block) error {
 // reorg is the internal reorg implementation without locking.
 func (bc *Blockchain) reorg(newHead *types.Block) error {
 	prevHead := bc.currentBlock
+	metrics.ReorgsDetected.Inc()
 	blockchainLog.Info("block_reorganized",
 		"event", "block_reorganized",
 		"oldHash", prevHead.Hash().Hex(),

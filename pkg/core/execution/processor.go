@@ -14,6 +14,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/rlp"
 	"github.com/eth2030/eth2030/trie"
 )
@@ -325,6 +326,9 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				}
 			}
 		}
+
+		metrics.EVMExecutions.Inc()
+		metrics.EVMGasUsed.Add(int64(usedGas))
 
 		// Track cumulative gas across all transactions in the block.
 		cumulativeGasUsed += usedGas
