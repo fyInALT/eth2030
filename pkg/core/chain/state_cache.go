@@ -28,7 +28,7 @@ type stateCache struct {
 
 type stateCacheEntry struct {
 	blockNumber uint64
-	stateDB     *state.MemoryStateDB
+	stateDB     state.StateDB
 }
 
 func newStateCache(maxSize int) *stateCache {
@@ -42,18 +42,18 @@ func newStateCache(maxSize int) *stateCache {
 }
 
 // get returns a copy of the cached state for the given block hash.
-func (sc *stateCache) get(blockHash types.Hash) (*state.MemoryStateDB, bool) {
+func (sc *stateCache) get(blockHash types.Hash) (state.StateDB, bool) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	entry, ok := sc.snapshots[blockHash]
 	if !ok {
 		return nil, false
 	}
-	return entry.stateDB.Copy(), true
+	return entry.stateDB.Dup(), true
 }
 
 // put stores a state snapshot for the given block.
-func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *state.MemoryStateDB) {
+func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB state.StateDB) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
@@ -70,7 +70,7 @@ func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *sta
 
 	sc.snapshots[blockHash] = &stateCacheEntry{
 		blockNumber: blockNumber,
-		stateDB:     stateDB.Copy(),
+		stateDB:     stateDB.Dup(),
 	}
 	sc.order = append(sc.order, blockHash)
 }
@@ -78,7 +78,7 @@ func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *sta
 // closest finds the cached state snapshot closest to (but not after) the target
 // block number. Returns the state copy, the block number it corresponds to,
 // and whether a match was found.
-func (sc *stateCache) closest(targetNumber uint64) (*state.MemoryStateDB, uint64, bool) {
+func (sc *stateCache) closest(targetNumber uint64) (state.StateDB, uint64, bool) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 
@@ -93,7 +93,7 @@ func (sc *stateCache) closest(targetNumber uint64) (*state.MemoryStateDB, uint64
 	if best == nil {
 		return nil, 0, false
 	}
-	return best.stateDB.Copy(), best.blockNumber, true
+	return best.stateDB.Dup(), best.blockNumber, true
 }
 
 // remove deletes a cached state entry (e.g. during reorg).

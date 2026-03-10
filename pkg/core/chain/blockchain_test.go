@@ -24,13 +24,13 @@ func makeBlock(parent *types.Block, txs []*types.Transaction) *types.Block {
 }
 
 // makeBlockWithState builds a valid child block executing txs against statedb.
-func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *state.MemoryStateDB) *types.Block {
+func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb state.StateDB) *types.Block {
 	return testutil.MakeBlockWithState(parent, txs, statedb)
 }
 
 // makeChainBlocks builds a chain of empty blocks from the given parent using
 // the provided state (which is mutated in place).
-func makeChainBlocks(parent *types.Block, count int, statedb *state.MemoryStateDB) []*types.Block {
+func makeChainBlocks(parent *types.Block, count int, statedb state.StateDB) []*types.Block {
 	blocks := make([]*types.Block, count)
 	for i := 0; i < count; i++ {
 		blocks[i] = makeBlockWithState(parent, nil, statedb)

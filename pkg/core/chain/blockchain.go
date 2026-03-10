@@ -101,10 +101,10 @@ type Blockchain struct {
 	sc *stateCache
 
 	// config.Genesis state (used as base for re-execution).
-	genesisState *state.MemoryStateDB
+	genesisState state.StateDB
 
 	// Current state after processing the head block.
-	currentState *state.MemoryStateDB
+	currentState state.StateDB
 
 	// The genesis block.
 	genesis *types.Block
@@ -116,7 +116,7 @@ type Blockchain struct {
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
 // The statedb should contain the genesis state (pre-funded accounts, etc.).
 // opts is an optional BlockchainOpts; zero/absent values use package defaults.
-func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *state.MemoryStateDB, db rawdb.Database, optArgs ...BlockchainOpts) (*Blockchain, error) {
+func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb state.StateDB, db rawdb.Database, optArgs ...BlockchainOpts) (*Blockchain, error) {
 	if genesis == nil {
 		return nil, ErrNoGenesis
 	}
@@ -147,7 +147,7 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *st
 		txLookup:     make(map[types.Hash]TxLookupEntry),
 		sc:           newStateCache(opts.StateCacheSize),
 		genesisState: statedb,
-		currentState: statedb.Copy(),
+		currentState: statedb.Dup(),
 		genesis:      genesis,
 		currentBlock: genesis,
 	}
@@ -453,15 +453,22 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
+	// Commit state to the backing store (for TrieStateDB this flushes the
+	// dirty layer to the DB and resets it, bounding per-block memory).
+	// For MemoryStateDB this is a no-op beyond flushing dirty→committed.
+	if _, err := statedb.Commit(); err != nil {
+		return fmt.Errorf("commit state block %d: %w", num, err)
+	}
+
 	// Always cache the post-execution state so that reorgs to this block
 	// (canonical or side-chain) can recover state in O(1).
-	bc.sc.put(hash, num, statedb.(*state.MemoryStateDB))
+	bc.sc.put(hash, num, statedb)
 
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
 		bc.canonCache[num] = hash
 		bc.currentBlock = blk
-		bc.currentState = statedb.(*state.MemoryStateDB)
+		bc.currentState = statedb
 
 		// Persist to rawdb.
 		bc.writeBlock(blk)
@@ -593,7 +600,7 @@ func (bc *Blockchain) SetHead(number uint64) error {
 	if err != nil {
 		return fmt.Errorf("re-derive state at %d: %w", number, err)
 	}
-	bc.currentState = statedb.(*state.MemoryStateDB)
+	bc.currentState = statedb
 
 	// Update rawdb pointers.
 	hash := bc.currentBlock.Hash()
@@ -630,10 +637,10 @@ func (bc *Blockchain) Config() *config.ChainConfig {
 }
 
 // State returns a copy of the current state.
-func (bc *Blockchain) State() *state.MemoryStateDB {
+func (bc *Blockchain) State() state.StateDB {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	return bc.currentState.Copy()
+	return bc.currentState.Dup()
 }
 
 // StateAtRoot returns the state for the given state root hash.
@@ -645,12 +652,12 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 
 	// Fast path: check if root matches the current head state.
 	if bc.currentState.GetRoot() == root {
-		return bc.currentState.Copy(), nil
+		return bc.currentState.Dup(), nil
 	}
 
 	// Check if root matches the genesis state.
 	if bc.genesisState.GetRoot() == root {
-		return bc.genesisState.Copy(), nil
+		return bc.genesisState.Dup(), nil
 	}
 
 	// Search canonical blocks for a block with this state root.
@@ -677,7 +684,7 @@ func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
 // re-executing the entire chain from genesis.
 func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	if blk.Hash() == bc.genesis.Hash() {
-		return bc.genesisState.Copy(), nil
+		return bc.genesisState.Dup(), nil
 	}
 
 	// Check if we have an exact cached state for this block.
@@ -688,7 +695,7 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	// Collect the chain of blocks from genesis (or a cached snapshot) to this block.
 	var chain []*types.Block
 	current := blk
-	var baseState *state.MemoryStateDB
+	var baseState state.StateDB
 
 	for current.Hash() != bc.genesis.Hash() {
 		// Check if we have a cached state for this ancestor.
@@ -715,7 +722,7 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 
 	// Use genesis state as base if no cached snapshot was found.
 	if baseState == nil {
-		baseState = bc.genesisState.Copy()
+		baseState = bc.genesisState.Dup()
 	}
 
 	// Re-execute from the base state.
