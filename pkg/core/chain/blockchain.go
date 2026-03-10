@@ -492,6 +492,9 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			"gasLimit", header.GasLimit,
 		)
 	} else {
+		// Persist side blocks so stateAt can walk the ancestor chain even after
+		// the block is evicted from the in-memory blockCache.
+		bc.writeBlock(blk)
 		blockchainLog.Debug("block_side",
 			"event", "block_side",
 			"hash", hash.Hex(),
@@ -1016,7 +1019,12 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 		newChain = append(newChain, current)
 		parent, ok := bc.blockCache[current.ParentHash()]
 		if !ok {
-			return fmt.Errorf("%w: missing ancestor %v during reorg", ErrBlockNotFound, current.ParentHash())
+			// Fall back to rawdb for evicted ancestors.
+			parent = bc.readBlock(current.ParentHash())
+			if parent == nil {
+				return fmt.Errorf("%w: missing ancestor %v during reorg", ErrBlockNotFound, current.ParentHash())
+			}
+			bc.blockCache[current.ParentHash()] = parent
 		}
 		current = parent
 	}
