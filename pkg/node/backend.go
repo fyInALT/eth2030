@@ -488,18 +488,25 @@ type pendingPayload struct {
 type engineBackend struct {
 	node *Node
 
-	mu       sync.Mutex
-	payloads map[engine.PayloadID]*pendingPayload
-	builder  *block.BlockBuilder
+	mu           sync.Mutex
+	payloads     map[engine.PayloadID]*pendingPayload
+	payloadOrder []engine.PayloadID // insertion order for LRU eviction
+	maxPayloads  int                // cap from node config
+	builder      *block.BlockBuilder
 }
 
 func newEngineBackend(n *Node) engine.Backend {
 	pool := &txPoolAdapter{node: n}
 	builder := block.NewBlockBuilder(n.blockchain.Config(), n.blockchain, pool)
+	maxPayloads := n.config.CacheEnginePayloads
+	if maxPayloads <= 0 {
+		maxPayloads = 32
+	}
 	return &engineBackend{
-		node:     n,
-		payloads: make(map[engine.PayloadID]*pendingPayload),
-		builder:  builder,
+		node:        n,
+		payloads:    make(map[engine.PayloadID]*pendingPayload),
+		maxPayloads: maxPayloads,
+		builder:     builder,
 	}
 }
 
@@ -1050,11 +1057,17 @@ func (b *engineBackend) ForkchoiceUpdated(
 	// Generate a payload ID from the block parameters.
 	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
 
-	// Store the built payload.
+	// Store the built payload, evicting the oldest when over cap.
 	b.mu.Lock()
 	b.payloads[payloadID] = &pendingPayload{
 		block:    block,
 		receipts: receipts,
+	}
+	b.payloadOrder = append(b.payloadOrder, payloadID)
+	for len(b.payloads) > b.maxPayloads && len(b.payloadOrder) > 0 {
+		oldest := b.payloadOrder[0]
+		b.payloadOrder = b.payloadOrder[1:]
+		delete(b.payloads, oldest)
 	}
 	b.mu.Unlock()
 

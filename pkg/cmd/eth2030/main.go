@@ -237,6 +237,12 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	fs.IntVar(&cfg.CacheBlockSize, "cache.block", cfg.CacheBlockSize, "max blocks in the in-memory block cache (default 256)")
 	fs.IntVar(&cfg.CacheReceiptSize, "cache.receipts", cfg.CacheReceiptSize, "max receipt sets in the in-memory receipt cache (default 128)")
 	fs.IntVar(&cfg.CacheStateSize, "cache.state-snapshots", cfg.CacheStateSize, "max MemoryStateDB snapshots for fast reorg/payload-building (default 4)")
+	fs.IntVar(&cfg.CacheEnginePayloads, "cache.engine-payloads", cfg.CacheEnginePayloads, "max pending built payloads retained in the engine backend (default 32)")
+	fs.IntVar(&cfg.CacheEngineILs, "cache.engine-ils", cfg.CacheEngineILs, "max inclusion lists stored by the engine backend (default 256)")
+	fs.IntVar(&cfg.CacheFCPruneBuffer, "cache.fc-prune-buffer", cfg.CacheFCPruneBuffer, "blocks behind finalized head to keep in forkchoice state manager (default 128)")
+	fs.IntVar(&cfg.CacheFCHistory, "cache.fc-history", cfg.CacheFCHistory, "FCU debug history ring-buffer size in forkchoice tracker (default 256)")
+	fs.IntVar(&cfg.CacheFCReorgHistory, "cache.fc-reorg-history", cfg.CacheFCReorgHistory, "max reorg events retained by forkchoice tracker (default 128)")
+	fs.IntVar(&cfg.CacheAllocatedIDs, "cache.alloc-ids", cfg.CacheAllocatedIDs, "cap on payload ID allocator in-memory map (default 512)")
 
 	return fs
 }

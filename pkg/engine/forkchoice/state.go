@@ -96,6 +96,10 @@ type BlockInfo struct {
 	Slot       uint64
 }
 
+// defaultFCPruneBuffer is the default number of blocks retained behind the
+// finalized head before pruning. Covers short reorgs and ancestry walks.
+const defaultFCPruneBuffer = 128
+
 // ForkchoiceStateManager manages the fork choice state on the execution layer.
 // It tracks justified/finalized checkpoints, maintains the head/safe/finalized
 // block distinction, accounts for proposer boost, and detects reorgs.
@@ -119,6 +123,10 @@ type ForkchoiceStateManager struct {
 	// Block metadata store for ancestry checks and reorg depth.
 	blocks map[types.Hash]*BlockInfo
 
+	// pruneBuffer is the number of blocks behind finality kept in memory.
+	// Blocks older than finalized-pruneBuffer are pruned on finality advance.
+	pruneBuffer uint64
+
 	// chain is an optional fallback for block lookups not in the in-memory
 	// store. When set, isAncestor and reorgDepth walk the persistent DB
 	// instead of short-circuiting on a cache miss.
@@ -132,11 +140,19 @@ type ForkchoiceStateManager struct {
 	reorgCount  uint64
 }
 
-// NewForkchoiceStateManager creates a new fork choice state manager.
-// If genesis is non-nil, it is used as the initial head/safe/finalized block.
+// NewForkchoiceStateManager creates a new fork choice state manager with
+// the default prune buffer. If genesis is non-nil, it seeds head/safe/finalized.
 func NewForkchoiceStateManager(genesis *BlockInfo) *ForkchoiceStateManager {
+	return NewForkchoiceStateManagerWithBuffer(genesis, defaultFCPruneBuffer)
+}
+
+// NewForkchoiceStateManagerWithBuffer creates a fork choice state manager
+// that retains pruneBuffer blocks behind the finalized head before pruning.
+// Use 0 to disable automatic pruning.
+func NewForkchoiceStateManagerWithBuffer(genesis *BlockInfo, pruneBuffer uint64) *ForkchoiceStateManager {
 	m := &ForkchoiceStateManager{
-		blocks: make(map[types.Hash]*BlockInfo),
+		blocks:      make(map[types.Hash]*BlockInfo),
+		pruneBuffer: pruneBuffer,
 	}
 	if genesis != nil {
 		m.blocks[genesis.Hash] = genesis
@@ -237,9 +253,9 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 				Root:  update.FinalizedBlockHash,
 			}
 			// Prune blocks well behind finality to bound memory usage.
-			// Keep 128 blocks of buffer for reorgs and ancestry walks.
-			if finInfo.Number > 128 {
-				m.pruneBeforeNumberLocked(finInfo.Number - 128)
+			// m.pruneBuffer controls how many blocks to keep behind finality.
+			if m.pruneBuffer > 0 && finInfo.Number > m.pruneBuffer {
+				m.pruneBeforeNumberLocked(finInfo.Number - m.pruneBuffer)
 			}
 		}
 	}

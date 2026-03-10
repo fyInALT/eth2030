@@ -200,22 +200,31 @@ func (cd *ConflictDetector) ConflictCount() uint64 {
 	return cd.conflictCount
 }
 
-// maxAllocatedIDs is the cap on in-memory payload ID entries.
-// Each slot triggers at most a handful of FCU+getPayload pairs, so 512 is
-// well above any realistic burst while keeping the map small long-term.
-const maxAllocatedIDs = 512
+// defaultMaxAllocatedIDs is the default cap on in-memory payload ID entries.
+const defaultMaxAllocatedIDs = 512
 
 // PayloadIDAllocator assigns unique payload IDs for payload building.
 type PayloadIDAllocator struct {
-	mu        sync.Mutex
-	allocated map[payload.PayloadID]uint64 // payloadID -> timestamp
-	counter   uint64
+	mu           sync.Mutex
+	allocated    map[payload.PayloadID]uint64 // payloadID -> timestamp
+	counter      uint64
+	maxAllocated int // configurable cap; set from NewPayloadIDAllocatorWithCap
 }
 
-// NewPayloadIDAllocator creates a new allocator.
+// NewPayloadIDAllocator creates a new allocator with the default cap.
 func NewPayloadIDAllocator() *PayloadIDAllocator {
+	return NewPayloadIDAllocatorWithCap(defaultMaxAllocatedIDs)
+}
+
+// NewPayloadIDAllocatorWithCap creates a new allocator with an explicit cap.
+// cap <= 0 falls back to defaultMaxAllocatedIDs.
+func NewPayloadIDAllocatorWithCap(cap int) *PayloadIDAllocator {
+	if cap <= 0 {
+		cap = defaultMaxAllocatedIDs
+	}
 	return &PayloadIDAllocator{
-		allocated: make(map[payload.PayloadID]uint64),
+		allocated:    make(map[payload.PayloadID]uint64),
+		maxAllocated: cap,
 	}
 }
 
@@ -242,7 +251,7 @@ func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (pa
 
 	// Evict the oldest entry when the map is at capacity to prevent
 	// unbounded growth across long-running node operation.
-	if len(a.allocated) >= maxAllocatedIDs {
+	if len(a.allocated) >= a.maxAllocated {
 		var oldestID payload.PayloadID
 		var oldestTS uint64
 		first := true
@@ -457,13 +466,20 @@ type ForkchoiceTracker struct {
 	Reorgs    *ReorgTracker
 }
 
-// NewForkchoiceTracker creates a fully-initialized forkchoice tracker.
+// NewForkchoiceTracker creates a fully-initialized forkchoice tracker with
+// the default payload ID allocator cap.
 func NewForkchoiceTracker(historySize, reorgHistorySize int) *ForkchoiceTracker {
+	return NewForkchoiceTrackerWithCaps(historySize, reorgHistorySize, defaultMaxAllocatedIDs)
+}
+
+// NewForkchoiceTrackerWithCaps creates a forkchoice tracker with explicit
+// caps. allocIDCap <= 0 falls back to defaultMaxAllocatedIDs.
+func NewForkchoiceTrackerWithCaps(historySize, reorgHistorySize, allocIDCap int) *ForkchoiceTracker {
 	return &ForkchoiceTracker{
 		Chain:     NewHeadChain(),
 		History:   NewFCUHistory(historySize),
 		Conflicts: NewConflictDetector(),
-		Payloads:  NewPayloadIDAllocator(),
+		Payloads:  NewPayloadIDAllocatorWithCap(allocIDCap),
 		Reorgs:    NewReorgTracker(reorgHistorySize),
 	}
 }

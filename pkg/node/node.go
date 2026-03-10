@@ -763,9 +763,9 @@ func New(config *Config) (*Node, error) {
 		Number:     genesis.NumberU64(),
 		Slot:       genesis.NumberU64(),
 	}
-	n.fcStateManager = forkchoice.NewForkchoiceStateManager(genesisInfo)
+	n.fcStateManager = forkchoice.NewForkchoiceStateManagerWithBuffer(genesisInfo, uint64(config.CacheFCPruneBuffer))
 	n.fcStateManager.SetChain(bc)
-	n.fcTracker = forkchoice.NewForkchoiceTracker(256, 128)
+	n.fcTracker = forkchoice.NewForkchoiceTrackerWithCaps(config.CacheFCHistory, config.CacheFCReorgHistory, config.CacheAllocatedIDs)
 
 	// Register reorg listeners: log the event, reset txpool trackers, and
 	// clear the ePBS escrow for the orphaned slot.

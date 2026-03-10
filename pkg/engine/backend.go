@@ -24,13 +24,11 @@ import (
 var backendLog = log.Default().Module("engine/backend")
 
 const (
-	// maxPayloads is the maximum number of pending payloads retained.
-	// The CL creates at most ~2 proposals per slot so 32 is generous.
-	maxPayloads = 32
+	// defaultMaxPayloads is the default cap for pending built payloads.
+	defaultMaxPayloads = 32
 
-	// maxILs is the maximum number of inclusion lists retained in memory.
-	// ILs are only relevant for the current slot; older ones are evicted.
-	maxILs = 256
+	// defaultMaxILs is the default cap for inclusion lists stored per slot.
+	defaultMaxILs = 256
 )
 
 // pendingPayload holds a payload being built by the block builder.
@@ -44,6 +42,17 @@ type pendingPayload struct {
 	feeRecipient types.Address
 	prevRandao   types.Hash
 	withdrawals  []*Withdrawal
+}
+
+// EngineBackendConfig holds tunable memory limits for EngineBackend.
+type EngineBackendConfig struct {
+	// MaxPayloads caps the number of pending built payloads kept in memory.
+	// Defaults to defaultMaxPayloads when zero.
+	MaxPayloads int
+
+	// MaxILs caps the number of inclusion lists stored per slot.
+	// Defaults to defaultMaxILs when zero.
+	MaxILs int
 }
 
 // EngineBackend is the execution-layer backend that connects the Engine API
@@ -62,17 +71,33 @@ type EngineBackend struct {
 	payloads      map[PayloadID]*pendingPayload
 	payloadOrder  []PayloadID // insertion order for payload LRU eviction
 	nextPayloadID uint64
+	maxPayloads   int // configurable cap; set from EngineBackendConfig
+	maxILs        int // configurable cap; set from EngineBackendConfig
 }
 
-// NewEngineBackend creates a new Engine API backend.
+// NewEngineBackend creates a new Engine API backend with default memory limits.
 func NewEngineBackend(config *coreconfig.ChainConfig, statedb state.StateDB, genesis *types.Block) *EngineBackend {
+	return NewEngineBackendWithConfig(config, statedb, genesis, EngineBackendConfig{})
+}
+
+// NewEngineBackendWithConfig creates a new Engine API backend with explicit
+// memory limits. Zero values in cfg fall back to package defaults.
+func NewEngineBackendWithConfig(config *coreconfig.ChainConfig, statedb state.StateDB, genesis *types.Block, cfg EngineBackendConfig) *EngineBackend {
+	if cfg.MaxPayloads <= 0 {
+		cfg.MaxPayloads = defaultMaxPayloads
+	}
+	if cfg.MaxILs <= 0 {
+		cfg.MaxILs = defaultMaxILs
+	}
 	b := &EngineBackend{
-		config:    config,
-		statedb:   statedb,
-		processor: execution.NewStateProcessor(config),
-		blocks:    make(map[types.Hash]*types.Block),
-		bals:      make(map[types.Hash]*bal.BlockAccessList),
-		payloads:  make(map[PayloadID]*pendingPayload),
+		config:      config,
+		statedb:     statedb,
+		processor:   execution.NewStateProcessor(config),
+		blocks:      make(map[types.Hash]*types.Block),
+		bals:        make(map[types.Hash]*bal.BlockAccessList),
+		payloads:    make(map[PayloadID]*pendingPayload),
+		maxPayloads: cfg.MaxPayloads,
+		maxILs:      cfg.MaxILs,
 	}
 	if genesis != nil {
 		h := genesis.Hash()
@@ -101,9 +126,9 @@ func (b *EngineBackend) evictOldBlocks() {
 }
 
 // evictOldestPayload removes the oldest pending payload when the map exceeds
-// maxPayloads. Must be called with b.mu held.
+// b.maxPayloads. Must be called with b.mu held.
 func (b *EngineBackend) evictOldestPayload() {
-	for len(b.payloads) > maxPayloads {
+	for len(b.payloads) > b.maxPayloads {
 		if len(b.payloadOrder) == 0 {
 			break
 		}
@@ -824,9 +849,9 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.ils = append(b.ils, il)
-	// Bound the IL slice: drop oldest entries beyond maxILs.
-	if len(b.ils) > maxILs {
-		b.ils = b.ils[len(b.ils)-maxILs:]
+	// Bound the IL slice: drop oldest entries beyond b.maxILs.
+	if len(b.ils) > b.maxILs {
+		b.ils = b.ils[len(b.ils)-b.maxILs:]
 	}
 	return nil
 }
