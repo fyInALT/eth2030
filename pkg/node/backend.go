@@ -513,7 +513,9 @@ type engineBackend struct {
 
 	// Channel-based block processor: serialises newPayload execution on a
 	// dedicated goroutine so HTTP handler goroutines never fight over locks.
+	// Buffered to allow a small queue; warn when the queue grows too deep.
 	processCh chan blockProcReq
+	procChCap int // capacity of processCh, for warn threshold
 	stopCh    chan struct{}
 }
 
@@ -530,7 +532,8 @@ func newEngineBackend(n *Node) *engineBackend {
 		payloads:    make(map[engine.PayloadID]*pendingPayload),
 		maxPayloads: maxPayloads,
 		builder:     builder,
-		processCh:   make(chan blockProcReq), // unbuffered: backpressure on HTTP goroutines
+		processCh:   make(chan blockProcReq, 8), // buffered: absorbs burst; warn on depth
+		procChCap:   8,
 		stopCh:      make(chan struct{}),
 	}
 	go b.processLoop()
@@ -596,6 +599,14 @@ func (b *engineBackend) processBlockInternal(
 	parentBeaconBlockRoot types.Hash,
 	requestsHash *types.Hash,
 ) (engine.PayloadStatusV1, error) {
+	// Warn when the queue is more than half full — a sign the processor is
+	// falling behind the CL's slot cadence.
+	if depth := len(b.processCh); depth > b.procChCap/2 {
+		slog.Warn("engine_newPayload: block processor queue growing",
+			"depth", depth,
+			"capacity", b.procChCap,
+		)
+	}
 	replyCh := make(chan blockProcResp, 1)
 	b.processCh <- blockProcReq{
 		payload:               payload,
