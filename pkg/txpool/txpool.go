@@ -647,11 +647,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
 	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil)
 	intrinsicGas += AccessListGas(tx.AccessList())
-	// EIP-7702: per-authorization gas costs for SetCode transactions.
-	// Use worst-case (all auth targets empty) since the pool lacks Exist() access.
+	// EIP-7702: per-authorization base cost is always charged as intrinsic gas.
+	// PerEmptyAccountCost is charged during EVM execution (not here) because the
+	// pool cannot determine whether each auth target is an empty account.
 	if tx.Type() == types.SetCodeTxType {
 		authList := tx.AuthorizationList()
-		intrinsicGas += uint64(len(authList)) * (PerAuthBaseCost + PerEmptyAccountCost)
+		intrinsicGas += uint64(len(authList)) * PerAuthBaseCost
 	}
 	if tx.Gas() < intrinsicGas {
 		return ErrIntrinsicGas

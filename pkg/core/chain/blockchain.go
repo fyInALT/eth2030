@@ -1025,6 +1025,8 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	}
 
 	// Un-index all canonical blocks above genesis.
+	// Delete txLookup entries for any orphaned blocks so that rawdb lookups
+	// do not return stale block numbers after the canonical chain changes.
 	for n := maxHeight; n >= 1; n-- {
 		if hash, ok := bc.canonCache[n]; ok {
 			delete(bc.canonCache, n)
@@ -1036,11 +1038,20 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 				delete(bc.hc.headers, n)
 			}
 			bc.hc.mu.Unlock()
-			_ = hash
+
+			// Remove in-memory txLookup entries and rawdb txLookup entries
+			// for the orphaned block so stale lookups cannot be returned.
+			if orphan, ok := bc.blockCache[hash]; ok {
+				for _, tx := range orphan.Transactions() {
+					delete(bc.txLookup, tx.Hash())
+					rawdb.DeleteTxLookup(bc.db, tx.Hash())
+				}
+			}
 		}
 	}
 
 	// Re-index the new chain from lowest block to highest.
+	// Write txLookup entries for the incoming canonical blocks.
 	for i := len(newChain) - 1; i >= 0; i-- {
 		blk := newChain[i]
 		hash := blk.Hash()
@@ -1050,6 +1061,14 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 		bc.canonCache[num] = hash
 		bc.writeBlock(blk)
 		rawdb.WriteCanonicalHash(bc.db, num, hash)
+		bc.writeTxLookups(blk.Transactions(), num)
+		for idx, tx := range blk.Transactions() {
+			bc.txLookup[tx.Hash()] = TxLookupEntry{
+				BlockHash:   hash,
+				BlockNumber: num,
+				TxIndex:     uint64(idx),
+			}
+		}
 
 		h := blk.Header()
 		bc.hc.mu.Lock()
@@ -1078,7 +1097,7 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 		)
 		return fmt.Errorf("re-derive state after reorg at %d: %w", newHead.NumberU64(), err)
 	}
-	bc.currentState = statedb.(*state.MemoryStateDB)
+	bc.currentState = statedb
 
 	return nil
 }
