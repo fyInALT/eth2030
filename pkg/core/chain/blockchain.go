@@ -481,19 +481,22 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Commit state to the backing store (for TrieStateDB this flushes the
-	// dirty layer to the DB and resets it, bounding per-block memory).
-	// For MemoryStateDB this is a no-op beyond flushing dirty→committed.
-	if _, err := statedb.Commit(); err != nil {
-		return fmt.Errorf("commit state block %d: %w", num, err)
-	}
-
-	// Always cache the post-execution state so that reorgs to this block
-	// (canonical or side-chain) can recover state in O(1).
+	// Cache the post-execution state BEFORE committing so side blocks keep
+	// their dirty mem layer (side block cache entries must NOT flush to the
+	// shared DB, as that would corrupt cached states for parent blocks).
 	bc.sc.put(hash, num, statedb)
 
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
+		// Commit state to the backing store only for canonical blocks.
+		// Committing a TrieStateDB Dup flushes its dirty layer to the shared DB
+		// and resets mem, bounding per-block memory. Side blocks must NOT commit
+		// so that the DB always reflects the canonical chain's state (enabling
+		// correct state reads for subsequent canonical blocks via the cache).
+		if _, err := statedb.Commit(); err != nil {
+			return fmt.Errorf("commit state block %d: %w", num, err)
+		}
+
 		bc.canonCache[num] = hash
 		bc.currentBlock = blk
 		bc.currentState = statedb
