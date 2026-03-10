@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	// maxCachedStates is the maximum number of state snapshots to keep in memory.
-	// Kept at 4 to support small reorgs without holding many large deep-copies.
-	maxCachedStates = 4
+	// defaultMaxCachedStates is the default state snapshot cache capacity.
+	// Kept small to avoid holding many large MemoryStateDB deep-copies in RAM.
+	defaultMaxCachedStates = 4
 
 	// stateSnapshotInterval determines how often we cache a state snapshot.
 	// Every N blocks, a snapshot is taken to avoid re-execution from genesis.
@@ -21,6 +21,7 @@ const (
 // expensive re-execution from genesis when building state for arbitrary blocks.
 type stateCache struct {
 	mu        sync.RWMutex
+	maxSize   int                             // maximum number of snapshots to retain
 	snapshots map[types.Hash]*stateCacheEntry // block hash → state snapshot
 	order     []types.Hash                    // insertion order for eviction
 }
@@ -30,8 +31,12 @@ type stateCacheEntry struct {
 	stateDB     *state.MemoryStateDB
 }
 
-func newStateCache() *stateCache {
+func newStateCache(maxSize int) *stateCache {
+	if maxSize <= 0 {
+		maxSize = defaultMaxCachedStates
+	}
 	return &stateCache{
+		maxSize:   maxSize,
 		snapshots: make(map[types.Hash]*stateCacheEntry),
 	}
 }
@@ -57,7 +62,7 @@ func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *sta
 	}
 
 	// Evict oldest if at capacity.
-	for len(sc.snapshots) >= maxCachedStates {
+	for len(sc.snapshots) >= sc.maxSize {
 		oldest := sc.order[0]
 		sc.order = sc.order[1:]
 		delete(sc.snapshots, oldest)

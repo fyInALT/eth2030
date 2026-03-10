@@ -325,7 +325,11 @@ func New(config *Config) (*Node, error) {
 		genesis = makeGenesisBlock()
 	}
 
-	bc, err := chain.NewBlockchain(chainConfig, genesis, statedb, n.db)
+	bc, err := chain.NewBlockchain(chainConfig, genesis, statedb, n.db, chain.BlockchainOpts{
+		BlockCacheSize:   config.CacheBlockSize,
+		ReceiptCacheSize: config.CacheReceiptSize,
+		StateCacheSize:   config.CacheStateSize,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("init blockchain: %w", err)
 	}

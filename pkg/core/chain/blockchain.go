@@ -31,13 +31,33 @@ var (
 )
 
 const (
-	// maxBlockCacheSize caps the in-memory block cache. Older blocks are
-	// dropped from the cache; rawdb remains the persistent source of truth.
-	maxBlockCacheSize = 256
-	// maxReceiptCacheSize caps the in-memory receipt cache independently of
-	// the block cache (protected by rcMu).
-	maxReceiptCacheSize = 128
+	// defaultBlockCacheSize is the default in-memory block cache capacity.
+	defaultBlockCacheSize = 256
+	// defaultReceiptCacheSize is the default in-memory receipt cache capacity.
+	defaultReceiptCacheSize = 128
 )
+
+// BlockchainOpts configures optional memory-cache sizes for a Blockchain.
+// Zero values fall back to package defaults.
+type BlockchainOpts struct {
+	// BlockCacheSize is the maximum number of blocks kept in the memory cache.
+	// Older entries are evicted; rawdb is the persistent fallback.
+	BlockCacheSize int
+	// ReceiptCacheSize is the maximum number of receipt sets kept in memory.
+	ReceiptCacheSize int
+	// StateCacheSize is the maximum number of MemoryStateDB snapshots retained
+	// for fast reorg / payload-building (see state_cache.go).
+	StateCacheSize int
+}
+
+// DefaultBlockchainOpts returns BlockchainOpts populated with package defaults.
+func DefaultBlockchainOpts() BlockchainOpts {
+	return BlockchainOpts{
+		BlockCacheSize:   defaultBlockCacheSize,
+		ReceiptCacheSize: defaultReceiptCacheSize,
+		StateCacheSize:   defaultMaxCachedStates,
+	}
+}
 
 // TxLookupEntry stores the location of a transaction within the chain.
 type TxLookupEntry struct {
@@ -59,7 +79,9 @@ type Blockchain struct {
 	processor *execution.StateProcessor
 	validator block.Validator
 
-	// Block cache: hash -> block.  Bounded to maxBlockCacheSize entries;
+	opts BlockchainOpts // cache size limits, set at construction
+
+	// Block cache: hash -> block.  Bounded to opts.BlockCacheSize entries;
 	// older entries are evicted (rawdb is the persistent fallback).
 	blockCache      map[types.Hash]*types.Block
 	blockCacheOrder []types.Hash // insertion order for LRU eviction
@@ -93,22 +115,37 @@ type Blockchain struct {
 
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
 // The statedb should contain the genesis state (pre-funded accounts, etc.).
-func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *state.MemoryStateDB, db rawdb.Database) (*Blockchain, error) {
+// opts is an optional BlockchainOpts; zero/absent values use package defaults.
+func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *state.MemoryStateDB, db rawdb.Database, optArgs ...BlockchainOpts) (*Blockchain, error) {
 	if genesis == nil {
 		return nil, ErrNoGenesis
+	}
+	var opts BlockchainOpts
+	if len(optArgs) > 0 {
+		opts = optArgs[0]
+	}
+	if opts.BlockCacheSize <= 0 {
+		opts.BlockCacheSize = defaultBlockCacheSize
+	}
+	if opts.ReceiptCacheSize <= 0 {
+		opts.ReceiptCacheSize = defaultReceiptCacheSize
+	}
+	if opts.StateCacheSize <= 0 {
+		opts.StateCacheSize = defaultMaxCachedStates
 	}
 
 	proc := execution.NewStateProcessor(config)
 	bc := &Blockchain{
 		config:       config,
 		db:           db,
+		opts:         opts,
 		processor:    proc,
 		validator:    block.NewBlockValidator(config),
 		blockCache:   make(map[types.Hash]*types.Block),
 		canonCache:   make(map[uint64]types.Hash),
 		receiptCache: make(map[types.Hash][]*types.Receipt),
 		txLookup:     make(map[types.Hash]TxLookupEntry),
-		sc:           newStateCache(),
+		sc:           newStateCache(opts.StateCacheSize),
 		genesisState: statedb,
 		currentState: statedb.Copy(),
 		genesis:      genesis,
@@ -367,7 +404,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	}
 
 	// Store in block cache (evict oldest when at capacity).
-	for len(bc.blockCache) >= maxBlockCacheSize {
+	for len(bc.blockCache) >= bc.opts.BlockCacheSize {
 		bc.evictOldestBlock()
 	}
 	bc.blockCache[hash] = blk
@@ -395,7 +432,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 
 	// Cache receipts by block hash (rcMu allows concurrent readers in GetReceipts).
 	bc.rcMu.Lock()
-	for len(bc.receiptCache) >= maxReceiptCacheSize {
+	for len(bc.receiptCache) >= bc.opts.ReceiptCacheSize {
 		if len(bc.receiptCacheOrder) == 0 {
 			break
 		}

@@ -169,6 +169,19 @@ type Config struct {
 	// Matches go-ethereum's --cache.snapshot semantics (default 128).
 	SnapshotCapDepth int // --snapshot.cap-depth
 
+	// CacheBlockSize is the maximum number of blocks held in the in-memory
+	// block cache. Older entries are evicted; rawdb is the persistent fallback.
+	CacheBlockSize int // --cache.block
+
+	// CacheReceiptSize is the maximum number of receipt sets held in the
+	// in-memory receipt cache.
+	CacheReceiptSize int // --cache.receipts
+
+	// CacheStateSize is the maximum number of MemoryStateDB snapshots kept
+	// for fast reorg and payload-building. Each entry is a full deep-copy
+	// of the chain state; keep small to limit memory growth.
+	CacheStateSize int // --cache.state-snapshots
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -265,6 +278,11 @@ func DefaultConfig() Config {
 
 		// Snapshot: retain at most 128 in-memory diff layers (go-ethereum default).
 		SnapshotCapDepth: 128,
+
+		// Memory cache sizes (tune to trade RAM for lookup latency).
+		CacheBlockSize:   256,
+		CacheReceiptSize: 128,
+		CacheStateSize:   4,
 	}
 }
 

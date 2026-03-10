@@ -233,6 +233,11 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	// --- Snapshot ---
 	fs.IntVar(&cfg.SnapshotCapDepth, "snapshot.cap-depth", cfg.SnapshotCapDepth, "max in-memory snapshot diff layers before flushing to disk (0 = no flush, default 128)")
 
+	// --- Memory cache sizes ---
+	fs.IntVar(&cfg.CacheBlockSize, "cache.block", cfg.CacheBlockSize, "max blocks in the in-memory block cache (default 256)")
+	fs.IntVar(&cfg.CacheReceiptSize, "cache.receipts", cfg.CacheReceiptSize, "max receipt sets in the in-memory receipt cache (default 128)")
+	fs.IntVar(&cfg.CacheStateSize, "cache.state-snapshots", cfg.CacheStateSize, "max MemoryStateDB snapshots for fast reorg/payload-building (default 4)")
+
 	return fs
 }
 
