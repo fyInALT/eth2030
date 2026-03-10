@@ -330,7 +330,7 @@ func New(config *Config) (*Node, error) {
 	// Fall back to the in-memory statedb for ephemeral (memdb) configurations.
 	var statedb state.StateDB
 	if n.db != nil {
-		ts := state.NewTrieStateDBFromMemory(n.db, memStatedb)
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(n.db, memStatedb, config.GCMode)
 		if _, err := ts.Commit(); err != nil {
 			return nil, fmt.Errorf("commit genesis state: %w", err)
 		}

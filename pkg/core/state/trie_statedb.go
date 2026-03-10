@@ -48,6 +48,15 @@ func codeDBKey(codeHash []byte) []byte {
 	return key
 }
 
+// GCModeArchive and GCModeFull are the two supported garbage-collection modes.
+// GCModeArchive (default) retains all historical state — no state keys are
+// ever deleted beyond explicit zeroing or self-destruct. GCModeFull will in
+// future prune overwritten state keys after each Commit to save disk space.
+const (
+	GCModeArchive = "archive"
+	GCModeFull    = "full"
+)
+
 // TrieStateDB is a disk-backed StateDB implementation. It keeps a
 // MemoryStateDB as a dirty write buffer for the current block and persists
 // committed state to a rawdb.Database.
@@ -59,14 +68,27 @@ func codeDBKey(codeHash []byte) []byte {
 type TrieStateDB struct {
 	mem       *MemoryStateDB             // dirty write buffer for the current block
 	db        rawdb.Database             // persistent backing store
+	gcMode    string                     // GCModeArchive or GCModeFull
 	recreated map[types.Address]struct{} // accounts reset by CreateAccount this block
 }
 
-// NewTrieStateDB creates a TrieStateDB backed by db.
+// NewTrieStateDB creates a TrieStateDB backed by db using archive GC mode.
 func NewTrieStateDB(db rawdb.Database) *TrieStateDB {
+	return NewTrieStateDBWithGCMode(db, GCModeArchive)
+}
+
+// NewTrieStateDBWithGCMode creates a TrieStateDB with the specified GC mode.
+// Use GCModeArchive to retain all history or GCModeFull to prune overwritten
+// state after each Commit (pruning is a no-op in the current implementation;
+// the field is plumbed for future use).
+func NewTrieStateDBWithGCMode(db rawdb.Database, gcMode string) *TrieStateDB {
+	if gcMode != GCModeFull {
+		gcMode = GCModeArchive
+	}
 	return &TrieStateDB{
-		mem: NewMemoryStateDB(),
-		db:  db,
+		mem:    NewMemoryStateDB(),
+		db:     db,
+		gcMode: gcMode,
 	}
 }
 
@@ -75,9 +97,19 @@ func NewTrieStateDB(db rawdb.Database) *TrieStateDB {
 // to persist the in-memory state to the DB and free the dirty layer. This
 // is typically used to convert a genesis MemoryStateDB into a TrieStateDB.
 func NewTrieStateDBFromMemory(db rawdb.Database, mem *MemoryStateDB) *TrieStateDB {
+	return NewTrieStateDBFromMemoryWithGCMode(db, mem, GCModeArchive)
+}
+
+// NewTrieStateDBFromMemoryWithGCMode is like NewTrieStateDBFromMemory but
+// accepts an explicit GC mode.
+func NewTrieStateDBFromMemoryWithGCMode(db rawdb.Database, mem *MemoryStateDB, gcMode string) *TrieStateDB {
+	if gcMode != GCModeFull {
+		gcMode = GCModeArchive
+	}
 	return &TrieStateDB{
-		mem: mem,
-		db:  db,
+		mem:    mem,
+		db:     db,
+		gcMode: gcMode,
 	}
 }
 
@@ -530,6 +562,7 @@ func (t *TrieStateDB) Dup() StateDB {
 	return &TrieStateDB{
 		mem:       t.mem.Copy(),
 		db:        t.db,
+		gcMode:    t.gcMode,
 		recreated: recreatedCopy,
 	}
 }
