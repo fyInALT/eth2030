@@ -13,9 +13,12 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/log"
 	"github.com/eth2030/eth2030/rlp"
 	"github.com/eth2030/eth2030/trie"
 )
+
+var execLog = log.Default().Module("eth/execution")
 
 // balTrackerOrNil converts a typed *bal.AccessTracker to the vm.BALTracker
 // interface. When t is nil it returns a true nil interface, preventing the
@@ -111,6 +114,16 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		header   = block.Header()
 	)
 
+	execLog.Debug("BLOCK_PROCESS_START",
+		"event", "BLOCK_PROCESS_START",
+		"hash", block.Hash().Hex(),
+		"num", block.NumberU64(),
+		"txCount", len(block.Transactions()),
+		"gasLimit", header.GasLimit,
+		"baseFee", header.BaseFee,
+		"timestamp", header.Time,
+	)
+
 	// Determine if BAL tracking is active for this block.
 	balActive := p.config != nil && p.config.IsAmsterdam(header.Time)
 
@@ -198,6 +211,29 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	for i, tx := range block.Transactions() {
 		statedb.SetTxContext(tx.Hash(), i)
 
+		// Log TX execution start with key fields for traceability.
+		txFrom := tx.Sender()
+		fromHex := ""
+		if txFrom != nil {
+			fromHex = txFrom.Hex()
+		}
+		toHex := ""
+		if tx.To() != nil {
+			toHex = tx.To().Hex()
+		}
+		execLog.Debug("TX_EXEC_START",
+			"event", "TX_EXEC_START",
+			"blockNum", block.NumberU64(),
+			"txIndex", i,
+			"txHash", tx.Hash().Hex(),
+			"txType", tx.Type(),
+			"from", fromHex,
+			"to", toHex,
+			"nonce", tx.Nonce(),
+			"gas", tx.Gas(),
+			"value", tx.Value(),
+		)
+
 		// EIP-7928: create per-transaction BAL tracker and inject into EVM.
 		// The tracker is created BEFORE execution so opcodes record state
 		// accesses (storage reads, storage changes, address touches) during
@@ -218,6 +254,13 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				uo := buildAAUserOp(aatx)
 				// ValidateUserOpState checks balance, nonce, and paymaster allowance.
 				if err := eips.ValidateUserOpState(uo, statedb, header.BaseFee); err != nil {
+					execLog.Warn("TX_AA_STATE_INVALID",
+						"event", "TX_AA_STATE_INVALID",
+						"blockNum", block.NumberU64(),
+						"txIndex", i,
+						"txHash", tx.Hash().Hex(),
+						"error", err,
+					)
 					return nil, fmt.Errorf("aa: state validation failed tx %d: %w", i, err)
 				}
 				// EstimateUserOpGas provides recommended gas limits for observability.
@@ -227,7 +270,47 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		receipt, usedGas, err := applyTransactionFull(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker), p.slasher)
 		if err != nil {
+			execLog.Error("TX_EVM_ERROR",
+				"event", "TX_EVM_ERROR",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"from", fromHex,
+				"nonce", tx.Nonce(),
+				"error", err,
+			)
 			return nil, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx, err)
+		}
+
+		// Log execution outcome: TX_EXECUTED (success) or TX_REVERTED (EVM revert).
+		if receipt.Status == types.ReceiptStatusSuccessful {
+			contractHex := ""
+			if receipt.ContractAddress != (types.Address{}) {
+				contractHex = receipt.ContractAddress.Hex()
+			}
+			execLog.Debug("TX_EXECUTED",
+				"event", "TX_EXECUTED",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"from", fromHex,
+				"to", toHex,
+				"nonce", tx.Nonce(),
+				"gasUsed", usedGas,
+				"logCount", len(receipt.Logs),
+				"contractCreated", contractHex,
+			)
+		} else {
+			execLog.Debug("TX_REVERTED",
+				"event", "TX_REVERTED",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"from", fromHex,
+				"to", toHex,
+				"nonce", tx.Nonce(),
+				"gasUsed", usedGas,
+			)
 		}
 
 		// EIP-7701: post-execution AA lifecycle hooks for successful AA txs.
@@ -251,6 +334,15 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		if calldataGasActive {
 			txCalldataGas := tx.CalldataGas()
 			if cumulativeCalldataGasUsed+txCalldataGas > calldataGasLimit {
+				execLog.Warn("CALLDATA_GAS_EXCEEDED",
+					"event", "CALLDATA_GAS_EXCEEDED",
+					"blockNum", block.NumberU64(),
+					"txIndex", i,
+					"txHash", tx.Hash().Hex(),
+					"cumulative", cumulativeCalldataGasUsed,
+					"txCalldataGas", txCalldataGas,
+					"limit", calldataGasLimit,
+				)
 				return nil, fmt.Errorf("calldata gas limit exceeded: used %d + tx %d > limit %d",
 					cumulativeCalldataGasUsed, txCalldataGas, calldataGasLimit)
 			}
@@ -338,6 +430,21 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	if blockBAL != nil {
 		blockBAL.Sort()
 	}
+
+	execLog.Debug("BLOCK_PROCESS_DONE",
+		"event", "BLOCK_PROCESS_DONE",
+		"hash", block.Hash().Hex(),
+		"num", block.NumberU64(),
+		"txCount", len(block.Transactions()),
+		"gasUsed", cumulativeGasUsed,
+		"receiptCount", len(receipts),
+		"balEntries", func() int {
+			if blockBAL != nil {
+				return blockBAL.Len()
+			}
+			return 0
+		}(),
+	)
 
 	return &ProcessResult{
 		Receipts:        receipts,
