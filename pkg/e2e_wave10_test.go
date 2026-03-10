@@ -363,7 +363,12 @@ func (b *blockchainBackend) EVMCall(from types.Address, to *types.Address, data 
 }
 
 func (b *blockchainBackend) GetProof(addr types.Address, storageKeys []types.Hash, blockNumber rpc.BlockNumber) (*trie.AccountProof, error) {
-	memState := b.bc.State()
+	statedb := b.bc.State()
+	// Proof generation requires a MemoryStateDB for trie construction.
+	memState, ok := statedb.(*state.MemoryStateDB)
+	if !ok {
+		return nil, fmt.Errorf("state does not support proof generation")
+	}
 	stateTrie := memState.BuildStateTrie()
 	storageTrie := memState.BuildStorageTrie(addr)
 	return trie.ProveAccountWithStorage(stateTrie, addr, storageTrie, storageKeys)
