@@ -38,6 +38,10 @@ type Backend interface {
 	// GetHeadTimestamp returns the timestamp of the current head block.
 	GetHeadTimestamp() uint64
 
+	// GetBlockTimestamp returns the timestamp of the block with the given hash,
+	// or 0 if the block is not known.
+	GetBlockTimestamp(hash types.Hash) uint64
+
 	// IsCancun returns true if the given timestamp falls within the Cancun fork.
 	IsCancun(timestamp uint64) bool
 

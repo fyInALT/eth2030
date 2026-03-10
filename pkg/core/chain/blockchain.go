@@ -611,6 +611,17 @@ func (bc *Blockchain) HasBlock(hash types.Hash) bool {
 	return err == nil
 }
 
+// HasStateCached returns true if the state for the given block is held in the
+// in-memory state cache. Genesis is always considered cached. This is safe to
+// call without bc.mu — the stateCache has its own lock.
+func (bc *Blockchain) HasStateCached(blockHash types.Hash) bool {
+	if blockHash == bc.genesis.Hash() {
+		return true
+	}
+	_, ok := bc.sc.get(blockHash)
+	return ok
+}
+
 // SetHead rewinds the canonical chain to the given block number.
 // Blocks above the target number are removed from the canonical index.
 func (bc *Blockchain) SetHead(number uint64) error {

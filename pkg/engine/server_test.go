@@ -93,6 +93,10 @@ func (m *mockBackend) GetHeadTimestamp() uint64 {
 	return m.headTimestamp
 }
 
+func (m *mockBackend) GetBlockTimestamp(_ types.Hash) uint64 {
+	return 0
+}
+
 func (m *mockBackend) IsCancun(timestamp uint64) bool {
 	if m.isCancunFn != nil {
 		return m.isCancunFn(timestamp)

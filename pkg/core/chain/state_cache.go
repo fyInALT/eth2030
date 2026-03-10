@@ -9,8 +9,9 @@ import (
 
 const (
 	// defaultMaxCachedStates is the default state snapshot cache capacity.
-	// Kept small to avoid holding many large MemoryStateDB deep-copies in RAM.
-	defaultMaxCachedStates = 4
+	// 64 covers typical reorg depths and keeps fork-block processing fast by
+	// avoiding expensive stateAt re-execution while holding bc.mu.Lock().
+	defaultMaxCachedStates = 64
 
 	// stateSnapshotInterval determines how often we cache a state snapshot.
 	// Every N blocks, a snapshot is taken to avoid re-execution from genesis.

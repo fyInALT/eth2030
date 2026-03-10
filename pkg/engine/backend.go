@@ -286,6 +286,18 @@ func (b *EngineBackend) GetHeadTimestamp() uint64 {
 	return 0
 }
 
+// GetBlockTimestamp returns the timestamp of the block with the given hash,
+// or 0 if the block is not known.
+func (b *EngineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if blk, ok := b.blocks[hash]; ok {
+		return blk.Header().Time
+	}
+	return 0
+}
+
 // IsCancun returns true if the given timestamp falls within the Cancun fork.
 func (b *EngineBackend) IsCancun(timestamp uint64) bool {
 	return b.config.IsCancun(timestamp)

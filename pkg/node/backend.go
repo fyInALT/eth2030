@@ -657,6 +657,30 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
+	// Guard against expensive state re-execution while holding bc.mu.Lock().
+	// InsertBlock acquires bc.mu.Lock() for the full duration of stateAt(),
+	// which re-executes all blocks from genesis if the parent state is not
+	// cached. For deep fork blocks whose parent state was evicted from the
+	// cache, this can block all concurrent FCU calls for tens of seconds.
+	// Return SYNCING instead so the CL can provide blocks in canonical order.
+	//
+	// stateReExecMaxGap must not exceed defaultMaxCachedStates (64) so that
+	// normal sequential processing always has the parent state cached.
+	const stateReExecMaxGap = 64
+	if !bc.HasStateCached(payload.ParentHash) {
+		if headBlk := bc.CurrentBlock(); headBlk != nil && payload.BlockNumber > 0 {
+			parentNum := payload.BlockNumber - 1
+			if parentNum+stateReExecMaxGap < headBlk.NumberU64() {
+				slog.Debug("engine_newPayload: parent state not cached, returning SYNCING",
+					"blockNumber", payload.BlockNumber,
+					"parentNum", parentNum,
+					"headNum", headBlk.NumberU64(),
+				)
+				return engine.PayloadStatusV1{Status: engine.StatusSyncing}, nil
+			}
+		}
+	}
+
 	// Insert the block.
 	if err := bc.InsertBlock(block); err != nil {
 		slog.Warn("engine_newPayload: insert failed", "err", err)
@@ -1165,6 +1189,14 @@ func (b *engineBackend) GetHeadTimestamp() uint64 {
 	head := b.node.blockchain.CurrentBlock()
 	if head != nil {
 		return head.Time()
+	}
+	return 0
+}
+
+func (b *engineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
+	blk := b.node.blockchain.GetBlock(hash)
+	if blk != nil {
+		return blk.Time()
 	}
 	return 0
 }
