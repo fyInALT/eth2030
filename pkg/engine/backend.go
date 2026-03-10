@@ -17,7 +17,10 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
+	"github.com/eth2030/eth2030/log"
 )
+
+var backendLog = log.Default().Module("engine/backend")
 
 // pendingPayload holds a payload being built by the block builder.
 type pendingPayload struct {
@@ -75,9 +78,27 @@ func (b *EngineBackend) ProcessBlock(
 	expectedBlobVersionedHashes []types.Hash,
 	parentBeaconBlockRoot types.Hash,
 ) (PayloadStatusV1, error) {
-	block, err := payloadToBlock(payload)
+	backendLog.Debug("PAYLOAD_RECEIVED",
+		"event", "PAYLOAD_RECEIVED",
+		"blockHash", payload.BlockHash.Hex(),
+		"blockNum", payload.BlockNumber,
+		"parentHash", payload.ParentHash.Hex(),
+		"txCount", len(payload.Transactions),
+		"gasUsed", payload.GasUsed,
+		"gasLimit", payload.GasLimit,
+		"timestamp", payload.Timestamp,
+	)
+
+	blk, err := payloadToBlock(payload)
 	if err != nil {
 		errMsg := err.Error()
+		backendLog.Warn("PAYLOAD_INVALID",
+			"event", "PAYLOAD_INVALID",
+			"blockHash", payload.BlockHash.Hex(),
+			"blockNum", payload.BlockNumber,
+			"reason", "payload decode failed",
+			"error", errMsg,
+		)
 		return PayloadStatusV1{
 			Status:          StatusInvalid,
 			ValidationError: &errMsg,
@@ -86,9 +107,16 @@ func (b *EngineBackend) ProcessBlock(
 
 	// Validate block hash: the hash computed from the header fields must match
 	// the blockHash provided in the payload.
-	computedHash := block.Hash()
+	computedHash := blk.Hash()
 	if payload.BlockHash != (types.Hash{}) && computedHash != payload.BlockHash {
 		errMsg := fmt.Sprintf("block hash mismatch: computed %s, payload %s", computedHash, payload.BlockHash)
+		backendLog.Warn("PAYLOAD_INVALID",
+			"event", "PAYLOAD_INVALID",
+			"blockHash", payload.BlockHash.Hex(),
+			"blockNum", payload.BlockNumber,
+			"reason", "block hash mismatch",
+			"computedHash", computedHash.Hex(),
+		)
 		return PayloadStatusV1{
 			Status:          StatusInvalidBlockHash,
 			LatestValidHash: &computedHash,
@@ -100,8 +128,14 @@ func (b *EngineBackend) ProcessBlock(
 	defer b.mu.Unlock()
 
 	// Check that the parent exists.
-	parentHash := block.ParentHash()
+	parentHash := blk.ParentHash()
 	if _, ok := b.blocks[parentHash]; !ok {
+		backendLog.Debug("PAYLOAD_SYNCING",
+			"event", "PAYLOAD_SYNCING",
+			"blockHash", payload.BlockHash.Hex(),
+			"blockNum", payload.BlockNumber,
+			"parentHash", parentHash.Hex(),
+		)
 		return PayloadStatusV1{Status: StatusSyncing}, nil
 	}
 
@@ -109,6 +143,14 @@ func (b *EngineBackend) ProcessBlock(
 	parentBlock := b.blocks[parentHash]
 	if parentBlock != nil && payload.Timestamp <= parentBlock.Header().Time {
 		errMsg := fmt.Sprintf("invalid timestamp: block %d <= parent %d", payload.Timestamp, parentBlock.Header().Time)
+		backendLog.Warn("PAYLOAD_INVALID",
+			"event", "PAYLOAD_INVALID",
+			"blockHash", payload.BlockHash.Hex(),
+			"blockNum", payload.BlockNumber,
+			"reason", "timestamp not advancing",
+			"blockTs", payload.Timestamp,
+			"parentTs", parentBlock.Header().Time,
+		)
 		return PayloadStatusV1{
 			Status:          StatusInvalid,
 			LatestValidHash: &parentHash,
@@ -118,9 +160,16 @@ func (b *EngineBackend) ProcessBlock(
 
 	// Run through the state processor.
 	stateCopy := b.statedb.Copy()
-	_, err = b.processor.Process(block, stateCopy)
+	_, err = b.processor.Process(blk, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
+		backendLog.Error("PAYLOAD_EXEC_FAIL",
+			"event", "PAYLOAD_EXEC_FAIL",
+			"blockHash", payload.BlockHash.Hex(),
+			"blockNum", payload.BlockNumber,
+			"txCount", len(payload.Transactions),
+			"error", err,
+		)
 		return PayloadStatusV1{
 			Status:          StatusInvalid,
 			ValidationError: &errMsg,
@@ -128,9 +177,17 @@ func (b *EngineBackend) ProcessBlock(
 	}
 
 	// Store the block and update state.
-	blockHash := block.Hash()
-	b.blocks[blockHash] = block
+	blockHash := blk.Hash()
+	b.blocks[blockHash] = blk
 	b.statedb = stateCopy
+
+	backendLog.Info("PAYLOAD_VALID",
+		"event", "PAYLOAD_VALID",
+		"blockHash", blockHash.Hex(),
+		"blockNum", payload.BlockNumber,
+		"txCount", len(payload.Transactions),
+		"gasUsed", payload.GasUsed,
+	)
 
 	return PayloadStatusV1{
 		Status:          StatusValid,
@@ -171,12 +228,24 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	fcState ForkchoiceStateV1,
 	attrs *PayloadAttributesV3,
 ) (ForkchoiceUpdatedResult, error) {
+	backendLog.Debug("FCU_RECEIVED",
+		"event", "FCU_RECEIVED",
+		"head", fcState.HeadBlockHash.Hex(),
+		"safe", fcState.SafeBlockHash.Hex(),
+		"finalized", fcState.FinalizedBlockHash.Hex(),
+		"hasAttrs", attrs != nil,
+	)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	// Validate head block exists.
 	if fcState.HeadBlockHash != (types.Hash{}) {
 		if _, ok := b.blocks[fcState.HeadBlockHash]; !ok {
+			backendLog.Debug("FCU_SYNCING",
+				"event", "FCU_SYNCING",
+				"head", fcState.HeadBlockHash.Hex(),
+			)
 			return ForkchoiceUpdatedResult{
 				PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
 			}, nil
@@ -187,6 +256,19 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	b.headHash = fcState.HeadBlockHash
 	b.safeHash = fcState.SafeBlockHash
 	b.finalHash = fcState.FinalizedBlockHash
+
+	headNum := uint64(0)
+	if headBlock, ok := b.blocks[b.headHash]; ok {
+		headNum = headBlock.NumberU64()
+	}
+	backendLog.Info("FCU_UPDATED",
+		"event", "FCU_UPDATED",
+		"head", b.headHash.Hex(),
+		"headNum", headNum,
+		"safe", b.safeHash.Hex(),
+		"finalized", b.finalHash.Hex(),
+		"hasAttrs", attrs != nil,
+	)
 
 	status := PayloadStatusV1{
 		Status:          StatusValid,
@@ -213,6 +295,15 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
+		backendLog.Debug("PAYLOAD_BUILD_START",
+			"event", "PAYLOAD_BUILD_START",
+			"payloadID", fmt.Sprintf("%x", id),
+			"parentHash", fcState.HeadBlockHash.Hex(),
+			"parentNum", parentBlock.NumberU64(),
+			"timestamp", attrs.Timestamp,
+			"feeRecipient", attrs.SuggestedFeeRecipient.Hex(),
+		)
+
 		// Build an empty block (no pending transactions from txpool yet).
 		builder := block.NewBlockBuilder(b.config, nil, nil)
 		builder.SetState(b.statedb.Copy())
@@ -226,8 +317,24 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			Withdrawals:  WithdrawalsToCore(attrs.Withdrawals),
 		})
 		if err != nil {
+			backendLog.Error("PAYLOAD_BUILD_FAIL",
+				"event", "PAYLOAD_BUILD_FAIL",
+				"payloadID", fmt.Sprintf("%x", id),
+				"parentHash", fcState.HeadBlockHash.Hex(),
+				"error", err,
+			)
 			return ForkchoiceUpdatedResult{}, fmt.Errorf("payload build failed: %w", err)
 		}
+
+		backendLog.Debug("PAYLOAD_BUILD_DONE",
+			"event", "PAYLOAD_BUILD_DONE",
+			"payloadID", fmt.Sprintf("%x", id),
+			"blockHash", blk.Hash().Hex(),
+			"blockNum", blk.NumberU64(),
+			"txCount", len(blk.Transactions()),
+			"gasUsed", blk.Header().GasUsed,
+			"gasLimit", blk.Header().GasLimit,
+		)
 
 		b.payloads[id] = &pendingPayload{
 			block:        blk,
@@ -253,10 +360,23 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 
 	pending, ok := b.payloads[id]
 	if !ok {
+		backendLog.Warn("PAYLOAD_GET_MISS",
+			"event", "PAYLOAD_GET_MISS",
+			"payloadID", fmt.Sprintf("%x", id),
+		)
 		return nil, ErrUnknownPayload
 	}
 
 	ep := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+
+	backendLog.Debug("PAYLOAD_GET",
+		"event", "PAYLOAD_GET",
+		"payloadID", fmt.Sprintf("%x", id),
+		"blockHash", pending.block.Hash().Hex(),
+		"blockNum", pending.block.NumberU64(),
+		"txCount", len(pending.block.Transactions()),
+		"blockValue", pending.blockValue.String(),
+	)
 
 	return &GetPayloadResponse{
 		ExecutionPayload: ep,
@@ -352,10 +472,28 @@ func (b *EngineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (PayloadStatusV1, error) {
+	backendLog.Debug("PAYLOAD_RECEIVED",
+		"event", "PAYLOAD_RECEIVED",
+		"version", "V5",
+		"blockHash", payload.BlockHash.Hex(),
+		"blockNum", payload.BlockNumber,
+		"parentHash", payload.ParentHash.Hex(),
+		"txCount", len(payload.Transactions),
+		"gasUsed", payload.GasUsed,
+		"timestamp", payload.Timestamp,
+	)
+
 	// First, process the block through the standard path.
-	block, err := payloadToBlock(&payload.ExecutionPayloadV3)
+	blk, err := payloadToBlock(&payload.ExecutionPayloadV3)
 	if err != nil {
 		errMsg := err.Error()
+		backendLog.Warn("PAYLOAD_INVALID",
+			"event", "PAYLOAD_INVALID",
+			"version", "V5",
+			"blockHash", payload.BlockHash.Hex(),
+			"reason", "payload decode failed",
+			"error", errMsg,
+		)
 		return PayloadStatusV1{
 			Status:          StatusInvalid,
 			ValidationError: &errMsg,
@@ -366,8 +504,14 @@ func (b *EngineBackend) ProcessBlockV5(
 	defer b.mu.Unlock()
 
 	// Check that the parent exists.
-	parentHash := block.ParentHash()
+	parentHash := blk.ParentHash()
 	if _, ok := b.blocks[parentHash]; !ok {
+		backendLog.Debug("PAYLOAD_SYNCING",
+			"event", "PAYLOAD_SYNCING",
+			"version", "V5",
+			"blockHash", payload.BlockHash.Hex(),
+			"parentHash", parentHash.Hex(),
+		)
 		return PayloadStatusV1{Status: StatusSyncing}, nil
 	}
 
@@ -375,15 +519,22 @@ func (b *EngineBackend) ProcessBlockV5(
 	// engine API wire format. These fields are part of the header hash
 	// (EIP-7706) but not included in ExecutionPayloadV5. We recompute them
 	// from the block's transactions and the parent's calldata gas state.
-	if b.config != nil && b.config.IsGlamsterdan(block.Header().Time) {
-		block = restoreCalldataGasFields(block, b.blocks[parentHash], payload.BlockHash)
+	if b.config != nil && b.config.IsGlamsterdan(blk.Header().Time) {
+		blk = restoreCalldataGasFields(blk, b.blocks[parentHash], payload.BlockHash)
 	}
 
 	// Run through the state processor with BAL computation.
 	stateCopy := b.statedb.Copy()
-	result, err := b.processor.ProcessWithBAL(block, stateCopy)
+	result, err := b.processor.ProcessWithBAL(blk, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
+		backendLog.Error("PAYLOAD_EXEC_FAIL",
+			"event", "PAYLOAD_EXEC_FAIL",
+			"version", "V5",
+			"blockHash", payload.BlockHash.Hex(),
+			"blockNum", payload.BlockNumber,
+			"error", err,
+		)
 		return PayloadStatusV1{
 			Status:          StatusInvalid,
 			ValidationError: &errMsg,
@@ -403,6 +554,12 @@ func (b *EngineBackend) ProcessBlockV5(
 			// If the blockAccessList isn't valid JSON bytes, it may be null.
 			if string(payload.BlockAccessList) != "null" {
 				errMsg := fmt.Sprintf("invalid blockAccessList encoding: %v", err)
+				backendLog.Warn("PAYLOAD_BAL_INVALID",
+					"event", "PAYLOAD_BAL_INVALID",
+					"blockHash", payload.BlockHash.Hex(),
+					"reason", "BAL JSON decode failed",
+					"error", errMsg,
+				)
 				return PayloadStatusV1{
 					Status:          StatusInvalid,
 					ValidationError: &errMsg,
@@ -410,6 +567,11 @@ func (b *EngineBackend) ProcessBlockV5(
 			}
 		} else if !bytes.Equal(computedEncoded, providedBALBytes) {
 			errMsg := "blockAccessList mismatch: computed BAL does not match provided BAL"
+			backendLog.Warn("PAYLOAD_BAL_MISMATCH",
+				"event", "PAYLOAD_BAL_MISMATCH",
+				"blockHash", payload.BlockHash.Hex(),
+				"blockNum", payload.BlockNumber,
+			)
 			return PayloadStatusV1{
 				Status:          StatusInvalid,
 				ValidationError: &errMsg,
@@ -420,9 +582,14 @@ func (b *EngineBackend) ProcessBlockV5(
 	// EIP-7805: check IL satisfaction against block and stored ILs.
 	if len(b.ils) > 0 {
 		ils := b.ilsAsFocil()
-		gasRemaining := block.GasLimit() - block.GasUsed()
-		if result := focilCheckILSatisfaction(block, ils, gasRemaining); !result {
+		gasRemaining := blk.GasLimit() - blk.GasUsed()
+		if result := focilCheckILSatisfaction(blk, ils, gasRemaining); !result {
 			errMsg := focil.InclusionListUnsatisfied
+			backendLog.Warn("PAYLOAD_IL_UNSATISFIED",
+				"event", "PAYLOAD_IL_UNSATISFIED",
+				"blockHash", payload.BlockHash.Hex(),
+				"blockNum", payload.BlockNumber,
+			)
 			return PayloadStatusV1{
 				Status:          StatusInclusionListUnsatisfied,
 				ValidationError: &errMsg,
@@ -431,13 +598,22 @@ func (b *EngineBackend) ProcessBlockV5(
 	}
 
 	// Store the block and update state.
-	blockHash := block.Hash()
-	b.blocks[blockHash] = block
+	blockHash := blk.Hash()
+	b.blocks[blockHash] = blk
 	// Store BAL for engine_getPayloadBodiesByHashV2.
 	if result.BlockAccessList != nil {
 		b.bals[blockHash] = result.BlockAccessList
 	}
 	b.statedb = stateCopy
+
+	backendLog.Info("PAYLOAD_VALID",
+		"event", "PAYLOAD_VALID",
+		"version", "V5",
+		"blockHash", blockHash.Hex(),
+		"blockNum", payload.BlockNumber,
+		"txCount", len(payload.Transactions),
+		"gasUsed", payload.GasUsed,
+	)
 
 	return PayloadStatusV1{
 		Status:          StatusValid,
