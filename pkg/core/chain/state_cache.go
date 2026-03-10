@@ -9,7 +9,8 @@ import (
 
 const (
 	// maxCachedStates is the maximum number of state snapshots to keep in memory.
-	maxCachedStates = 128
+	// Kept at 4 to support small reorgs without holding many large deep-copies.
+	maxCachedStates = 4
 
 	// stateSnapshotInterval determines how often we cache a state snapshot.
 	// Every N blocks, a snapshot is taken to avoid re-execution from genesis.
