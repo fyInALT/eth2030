@@ -23,6 +23,12 @@ import (
 
 var backendLog = log.Default().Module("engine/backend")
 
+const (
+	// maxPayloads is the maximum number of pending payloads retained.
+	// The CL creates at most ~2 proposals per slot so 32 is generous.
+	maxPayloads = 32
+)
+
 // pendingPayload holds a payload being built by the block builder.
 type pendingPayload struct {
 	block        *types.Block
@@ -50,6 +56,7 @@ type EngineBackend struct {
 	safeHash      types.Hash
 	finalHash     types.Hash
 	payloads      map[PayloadID]*pendingPayload
+	payloadOrder  []PayloadID // insertion order for payload LRU eviction
 	nextPayloadID uint64
 }
 
@@ -71,6 +78,35 @@ func NewEngineBackend(config *coreconfig.ChainConfig, statedb *state.MemoryState
 		b.finalHash = h
 	}
 	return b
+}
+
+// evictOldBlocks removes block entries that are more than 64 blocks behind the
+// current head from b.blocks and b.bals. Must be called with b.mu held.
+func (b *EngineBackend) evictOldBlocks() {
+	head, ok := b.blocks[b.headHash]
+	if !ok || head.NumberU64() < 64 {
+		return
+	}
+	cutoff := head.NumberU64() - 64
+	for hash, blk := range b.blocks {
+		if blk.NumberU64() < cutoff {
+			delete(b.blocks, hash)
+			delete(b.bals, hash)
+		}
+	}
+}
+
+// evictOldestPayload removes the oldest pending payload when the map exceeds
+// maxPayloads. Must be called with b.mu held.
+func (b *EngineBackend) evictOldestPayload() {
+	for len(b.payloads) > maxPayloads {
+		if len(b.payloadOrder) == 0 {
+			break
+		}
+		oldest := b.payloadOrder[0]
+		b.payloadOrder = b.payloadOrder[1:]
+		delete(b.payloads, oldest)
+	}
 }
 
 // ProcessBlock validates and executes a new payload from the consensus layer.
@@ -178,9 +214,10 @@ func (b *EngineBackend) ProcessBlock(
 		}, nil
 	}
 
-	// Store the block and update state.
+	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
 	b.blocks[blockHash] = blk
+	b.evictOldBlocks()
 	b.statedb = stateCopy
 
 	backendLog.Info("payload_valid",
@@ -349,6 +386,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			prevRandao:   attrs.PrevRandao,
 			withdrawals:  attrs.Withdrawals,
 		}
+		b.payloadOrder = append(b.payloadOrder, id)
+		b.evictOldestPayload()
 
 		result.PayloadID = &id
 	}
@@ -601,13 +640,14 @@ func (b *EngineBackend) ProcessBlockV5(
 		}
 	}
 
-	// Store the block and update state.
+	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
 	b.blocks[blockHash] = blk
 	// Store BAL for engine_getPayloadBodiesByHashV2.
 	if result.BlockAccessList != nil {
 		b.bals[blockHash] = result.BlockAccessList
 	}
+	b.evictOldBlocks()
 	b.statedb = stateCopy
 
 	backendLog.Info("payload_valid",
@@ -708,6 +748,8 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			prevRandao:   attrs.PrevRandao,
 			withdrawals:  attrs.Withdrawals,
 		}
+		b.payloadOrder = append(b.payloadOrder, id)
+		b.evictOldestPayload()
 
 		result.PayloadID = &id
 	}
