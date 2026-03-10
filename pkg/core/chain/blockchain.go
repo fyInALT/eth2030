@@ -113,6 +113,11 @@ type Blockchain struct {
 	// reorg() can materialise a MemoryStateDB back into a TrieStateDB.
 	gcMode string
 
+	// stateDB is the database backend used by TrieStateDB for account/storage
+	// state. Separate from bc.db (which stores blocks/receipts) so that state
+	// can use a fast in-memory store while blocks use the persistent FileDB.
+	stateDB rawdb.Database
+
 	// Current state after processing the head block.
 	currentState state.StateDB
 
@@ -151,10 +156,12 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 	// genesis alloc accounts (Commit resets mem to empty).
 	var execGenesis *state.MemoryStateDB
 	var gcMode string
+	var stateDB rawdb.Database
 	switch s := statedb.(type) {
 	case *state.TrieStateDB:
 		execGenesis = s.GetMem().Copy()
 		gcMode = s.GCMode()
+		stateDB = s.DB()
 	case *state.MemoryStateDB:
 		execGenesis = s.Copy()
 	default:
@@ -164,6 +171,7 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 	bc := &Blockchain{
 		config:           config,
 		db:               db,
+		stateDB:          stateDB,
 		opts:             opts,
 		processor:        proc,
 		validator:        block.NewBlockValidator(config),
@@ -1157,8 +1165,8 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	// result back into a TrieStateDB so that future block processing stays
 	// memory-efficient (TrieStateDB flushes dirty writes to disk on each
 	// Commit, bounding per-block RAM to the working set of a single block).
-	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" {
-		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.db, mdb.Copy(), bc.gcMode)
+	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" && bc.stateDB != nil {
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.stateDB, mdb.Copy(), bc.gcMode)
 		// Purge ALL stale state from DB before committing the canonical snapshot.
 		// Without this, accounts/storage written by reverted side blocks would
 		// remain in the DB and corrupt the state root on the next block.

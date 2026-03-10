@@ -92,6 +92,11 @@ func (t *TrieStateDB) GCMode() string {
 	return t.gcMode
 }
 
+// DB returns the underlying database backing this TrieStateDB.
+func (t *TrieStateDB) DB() rawdb.Database {
+	return t.db
+}
+
 // NewTrieStateDB creates a TrieStateDB backed by db using archive GC mode.
 func NewTrieStateDB(db rawdb.Database) *TrieStateDB {
 	return NewTrieStateDBWithGCMode(db, GCModeArchive)

@@ -325,9 +325,11 @@ func New(config *Config) (*Node, error) {
 		genesis = makeGenesisBlock()
 	}
 
-	// Use a disk-backed TrieStateDB when a persistent DB is available.
-	// This bounds state memory to the working set of a single block.
-	// Fall back to the in-memory statedb for ephemeral (memdb) configurations.
+	// Use a TrieStateDB backed by a fast in-memory store when a block DB is
+	// available. State uses rawdb.NewMemoryDB() (a Go map) rather than the
+	// file-per-key FileDB so that Commit/ClearAllState are O(N) map ops
+	// instead of O(N) filesystem calls — critical for storagespam workloads.
+	// Falls back to MemoryStateDB if no persistent block DB is available.
 	//
 	// IMPORTANT: NewBlockchain is called BEFORE ts.Commit() so that the
 	// Blockchain can snapshot ts.mem (which still holds genesis accounts) into
@@ -336,7 +338,8 @@ func New(config *Config) (*Node, error) {
 	var statedb state.StateDB
 	var genesisTrieStateDB *state.TrieStateDB
 	if n.db != nil {
-		ts := state.NewTrieStateDBFromMemoryWithGCMode(n.db, memStatedb, config.GCMode)
+		stateBackend := rawdb.NewMemoryDB()
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(stateBackend, memStatedb, config.GCMode)
 		genesisTrieStateDB = ts
 		statedb = ts
 	} else {
