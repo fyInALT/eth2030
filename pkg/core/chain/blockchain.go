@@ -12,8 +12,11 @@ import (
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/log"
 	"github.com/eth2030/eth2030/rlp"
 )
+
+var blockchainLog = log.Default().Module("eth/blockchain")
 
 var (
 	ErrNoGenesis     = errors.New("genesis block not provided")
@@ -130,13 +133,27 @@ func (bc *Blockchain) InsertBlock(blk *types.Block) error {
 // insertBlock is the internal insert without locking.
 func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	hash := blk.Hash()
+	num := blk.NumberU64()
+	header := blk.Header()
+
+	blockchainLog.Debug("BLOCK_INSERT",
+		"event", "BLOCK_INSERT",
+		"hash", hash.Hex(),
+		"num", num,
+		"txCount", len(blk.Transactions()),
+		"gasLimit", header.GasLimit,
+		"parentHash", header.ParentHash.Hex(),
+	)
 
 	// Skip if already known.
 	if _, ok := bc.blockCache[hash]; ok {
+		blockchainLog.Debug("BLOCK_KNOWN",
+			"event", "BLOCK_KNOWN",
+			"hash", hash.Hex(),
+			"num", num,
+		)
 		return nil
 	}
-
-	header := blk.Header()
 
 	// Find parent: check cache first, then fall back to rawdb.
 	parent := bc.blockCache[header.ParentHash]
@@ -147,30 +164,69 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 	if parent == nil {
-		return fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
+		err := fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
+		blockchainLog.Warn("BLOCK_INVALID",
+			"event", "BLOCK_INVALID",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "unknown parent",
+			"parentHash", header.ParentHash.Hex(),
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate header against parent.
 	parentHeader := parent.Header()
 	if err := bc.validator.ValidateHeader(header, parentHeader); err != nil {
+		blockchainLog.Warn("BLOCK_INVALID",
+			"event", "BLOCK_INVALID",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "header validation failed",
+			"parentHash", header.ParentHash.Hex(),
+			"parentNum", parent.NumberU64(),
+			"error", err,
+		)
 		return err
 	}
 
 	// Validate body.
 	if err := bc.validator.ValidateBody(blk); err != nil {
+		blockchainLog.Warn("BLOCK_INVALID",
+			"event", "BLOCK_INVALID",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "body validation failed",
+			"error", err,
+		)
 		return err
 	}
 
 	// Build state for execution by re-executing from genesis.
 	statedb, err := bc.stateAt(parent)
 	if err != nil {
+		blockchainLog.Error("BLOCK_STATE_ERROR",
+			"event", "BLOCK_STATE_ERROR",
+			"hash", hash.Hex(),
+			"num", num,
+			"parentNum", parent.NumberU64(),
+			"error", err,
+		)
 		return fmt.Errorf("state at parent %d: %w", parent.NumberU64(), err)
 	}
 
 	// Execute transactions (with BAL tracking when Amsterdam is active).
 	result, err := bc.processor.ProcessWithBAL(blk, statedb)
 	if err != nil {
-		return fmt.Errorf("process block %d: %w", blk.NumberU64(), err)
+		blockchainLog.Error("BLOCK_EXEC_FAIL",
+			"event", "BLOCK_EXEC_FAIL",
+			"hash", hash.Hex(),
+			"num", num,
+			"txCount", len(blk.Transactions()),
+			"error", err,
+		)
+		return fmt.Errorf("process block %d: %w", num, err)
 	}
 	receipts := result.Receipts
 
@@ -180,22 +236,49 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		totalGasUsed += r.GasUsed
 	}
 	if header.GasUsed != totalGasUsed {
-		return fmt.Errorf("%w: header=%d computed=%d", block.ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
+		err := fmt.Errorf("%w: header=%d computed=%d", block.ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
+		blockchainLog.Warn("BLOCK_GAS_MISMATCH",
+			"event", "BLOCK_GAS_MISMATCH",
+			"hash", hash.Hex(),
+			"num", num,
+			"headerGasUsed", header.GasUsed,
+			"computedGasUsed", totalGasUsed,
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate receipt root: the Merkle trie hash of receipts must match
 	// header.ReceiptHash.
 	computedReceiptHash := block.ComputeReceiptsRoot(receipts)
 	if header.ReceiptHash != computedReceiptHash {
-		return fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidReceiptRoot,
+		err := fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidReceiptRoot,
 			header.ReceiptHash.Hex(), computedReceiptHash.Hex())
+		blockchainLog.Warn("BLOCK_INVALID",
+			"event", "BLOCK_INVALID",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "receipt root mismatch",
+			"headerReceiptHash", header.ReceiptHash.Hex(),
+			"computedReceiptHash", computedReceiptHash.Hex(),
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate block bloom: the bloom in the header must match the computed
 	// bloom from all receipt logs.
 	blockBloom := types.CreateBloom(receipts)
 	if header.Bloom != blockBloom {
-		return fmt.Errorf("invalid bloom (remote: %x local: %x)", header.Bloom, blockBloom)
+		err := fmt.Errorf("invalid bloom (remote: %x local: %x)", header.Bloom, blockBloom)
+		blockchainLog.Warn("BLOCK_INVALID",
+			"event", "BLOCK_INVALID",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "bloom mismatch",
+			"error", err,
+		)
+		return err
 	}
 
 	// EIP-7685: process execution layer requests (Prague+).
@@ -203,15 +286,32 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// so it must run before computing the state root.
 	if bc.config != nil && bc.config.IsPrague(header.Time) {
 		if _, err := execution.ProcessRequests(bc.config, statedb, header); err != nil {
-			return fmt.Errorf("process requests block %d: %w", blk.NumberU64(), err)
+			blockchainLog.Error("BLOCK_REQUESTS_FAIL",
+				"event", "BLOCK_REQUESTS_FAIL",
+				"hash", hash.Hex(),
+				"num", num,
+				"error", err,
+			)
+			return fmt.Errorf("process requests block %d: %w", num, err)
 		}
 	}
 
 	// Validate state root: the post-execution state root must match header.Root.
 	computedRoot := statedb.GetRoot()
 	if header.Root != computedRoot {
-		return fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidStateRoot,
+		err := fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidStateRoot,
 			header.Root.Hex(), computedRoot.Hex())
+		blockchainLog.Warn("BLOCK_ROOT_MISMATCH",
+			"event", "BLOCK_ROOT_MISMATCH",
+			"hash", hash.Hex(),
+			"num", num,
+			"headerRoot", header.Root.Hex(),
+			"computedRoot", computedRoot.Hex(),
+			"txCount", len(blk.Transactions()),
+			"gasUsed", totalGasUsed,
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate Block Access List hash (EIP-7928).
@@ -221,13 +321,19 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		computedBALHash = &h
 	}
 	if err := bc.validator.ValidateBlockAccessList(header, computedBALHash); err != nil {
+		blockchainLog.Warn("BLOCK_INVALID",
+			"event", "BLOCK_INVALID",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "BAL hash mismatch",
+			"error", err,
+		)
 		return err
 	}
 
 	// Store in block cache.
 	bc.blockCache[hash] = blk
 
-	num := blk.NumberU64()
 	txs := blk.Transactions()
 
 	// Populate derived fields on receipts and store tx lookup entries.
@@ -239,12 +345,12 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			receipt.TxHash = txs[i].Hash()
 		}
 		// Set log context fields.
-		for j, log := range receipt.Logs {
-			log.BlockHash = hash
-			log.BlockNumber = num
-			log.TxHash = receipt.TxHash
-			log.TxIndex = uint(i)
-			log.Index = uint(j)
+		for j, logEntry := range receipt.Logs {
+			logEntry.BlockHash = hash
+			logEntry.BlockNumber = num
+			logEntry.TxHash = receipt.TxHash
+			logEntry.TxIndex = uint(i)
+			logEntry.Index = uint(j)
 		}
 	}
 
@@ -282,6 +388,22 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 
 		// Update header chain.
 		bc.hc.InsertHeaders([]*types.Header{header})
+
+		blockchainLog.Info("BLOCK_ADDED",
+			"event", "BLOCK_ADDED",
+			"hash", hash.Hex(),
+			"num", num,
+			"txCount", len(txs),
+			"gasUsed", totalGasUsed,
+			"gasLimit", header.GasLimit,
+		)
+	} else {
+		blockchainLog.Debug("BLOCK_SIDE",
+			"event", "BLOCK_SIDE",
+			"hash", hash.Hex(),
+			"num", num,
+			"canonHead", bc.currentBlock.NumberU64(),
+		)
 	}
 
 	return nil
@@ -353,6 +475,12 @@ func (bc *Blockchain) HasBlock(hash types.Hash) bool {
 func (bc *Blockchain) SetHead(number uint64) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
+
+	blockchainLog.Info("CHAIN_SETHEAD",
+		"event", "CHAIN_SETHEAD",
+		"from", bc.currentBlock.NumberU64(),
+		"to", number,
+	)
 
 	target, ok := bc.canonCache[number]
 	if !ok {
@@ -765,6 +893,15 @@ func (bc *Blockchain) Reorg(newHead *types.Block) error {
 
 // reorg is the internal reorg implementation without locking.
 func (bc *Blockchain) reorg(newHead *types.Block) error {
+	prevHead := bc.currentBlock
+	blockchainLog.Info("BLOCK_REORGANIZED",
+		"event", "BLOCK_REORGANIZED",
+		"oldHash", prevHead.Hash().Hex(),
+		"oldNum", prevHead.NumberU64(),
+		"newHash", newHead.Hash().Hex(),
+		"newNum", newHead.NumberU64(),
+	)
+
 	// Build the new chain's ancestry: walk from newHead to genesis.
 	// Collect blocks in reverse order (head first).
 	var newChain []*types.Block
@@ -838,6 +975,12 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	// Re-derive state for the new head.
 	statedb, err := bc.stateAt(newHead)
 	if err != nil {
+		blockchainLog.Error("REORG_STATE_FAIL",
+			"event", "REORG_STATE_FAIL",
+			"newHash", newHead.Hash().Hex(),
+			"newNum", newHead.NumberU64(),
+			"error", err,
+		)
 		return fmt.Errorf("re-derive state after reorg at %d: %w", newHead.NumberU64(), err)
 	}
 	bc.currentState = statedb.(*state.MemoryStateDB)
