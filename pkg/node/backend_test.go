@@ -255,7 +255,8 @@ func TestEngineBackendIsCancun(t *testing.T) {
 		t.Fatalf("New node error: %v", err)
 	}
 
-	eb := newEngineBackend(n).(*engineBackend)
+	eb := newEngineBackend(n)
+	defer eb.Close()
 
 	// Check that IsCancun does not panic with various timestamps.
 	_ = eb.IsCancun(0)
@@ -270,7 +271,8 @@ func TestEngineBackendIsPrague(t *testing.T) {
 		t.Fatalf("New node error: %v", err)
 	}
 
-	eb := newEngineBackend(n).(*engineBackend)
+	eb := newEngineBackend(n)
+	defer eb.Close()
 	_ = eb.IsPrague(0)
 	_ = eb.IsPrague(1_800_000_000)
 }
@@ -283,7 +285,8 @@ func TestEngineBackendIsAmsterdam(t *testing.T) {
 		t.Fatalf("New node error: %v", err)
 	}
 
-	eb := newEngineBackend(n).(*engineBackend)
+	eb := newEngineBackend(n)
+	defer eb.Close()
 	_ = eb.IsAmsterdam(0)
 	_ = eb.IsAmsterdam(1_900_000_000)
 }
@@ -296,7 +299,8 @@ func TestEngineBackendGetHeadTimestamp(t *testing.T) {
 		t.Fatalf("New node error: %v", err)
 	}
 
-	eb := newEngineBackend(n).(*engineBackend)
+	eb := newEngineBackend(n)
+	defer eb.Close()
 	ts := eb.GetHeadTimestamp()
 	// Genesis timestamp is 0.
 	if ts != 0 {
@@ -312,7 +316,8 @@ func TestEngineBackendGetPayloadNotFound(t *testing.T) {
 		t.Fatalf("New node error: %v", err)
 	}
 
-	eb := newEngineBackend(n).(*engineBackend)
+	eb := newEngineBackend(n)
+	defer eb.Close()
 	_, err = eb.GetPayloadByID([8]byte{0xFF})
 	if err == nil {
 		t.Error("expected error for non-existent payload")

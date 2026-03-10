@@ -487,6 +487,20 @@ type pendingPayload struct {
 	done     chan struct{} // closed when block/receipts/err are populated
 }
 
+// blockProcReq is a work item for the block processor goroutine.
+type blockProcReq struct {
+	payload               *engine.ExecutionPayloadV3
+	parentBeaconBlockRoot types.Hash
+	requestsHash          *types.Hash
+	replyCh               chan blockProcResp
+}
+
+// blockProcResp carries the result of a processed block.
+type blockProcResp struct {
+	status engine.PayloadStatusV1
+	err    error
+}
+
 // engineBackend adapts the Node to the engine.Backend interface.
 type engineBackend struct {
 	node *Node
@@ -496,21 +510,51 @@ type engineBackend struct {
 	payloadOrder []engine.PayloadID // insertion order for LRU eviction
 	maxPayloads  int                // cap from node config
 	builder      *block.BlockBuilder
+
+	// Channel-based block processor: serialises newPayload execution on a
+	// dedicated goroutine so HTTP handler goroutines never fight over locks.
+	processCh chan blockProcReq
+	stopCh    chan struct{}
 }
 
-func newEngineBackend(n *Node) engine.Backend {
+// newEngineBackend creates and starts the engine backend.
+func newEngineBackend(n *Node) *engineBackend {
 	pool := &txPoolAdapter{node: n}
 	builder := block.NewBlockBuilder(n.blockchain.Config(), n.blockchain, pool)
 	maxPayloads := n.config.CacheEnginePayloads
 	if maxPayloads <= 0 {
 		maxPayloads = 32
 	}
-	return &engineBackend{
+	b := &engineBackend{
 		node:        n,
 		payloads:    make(map[engine.PayloadID]*pendingPayload),
 		maxPayloads: maxPayloads,
 		builder:     builder,
+		processCh:   make(chan blockProcReq), // unbuffered: backpressure on HTTP goroutines
+		stopCh:      make(chan struct{}),
 	}
+	go b.processLoop()
+	return b
+}
+
+// processLoop is the dedicated block processor goroutine. It receives newPayload
+// requests one at a time, executes them, and sends results back through the
+// per-request reply channel.
+func (b *engineBackend) processLoop() {
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case req := <-b.processCh:
+			status, err := b.execBlockInternal(req.payload, req.parentBeaconBlockRoot, req.requestsHash)
+			req.replyCh <- blockProcResp{status: status, err: err}
+		}
+	}
+}
+
+// Close stops the processor goroutine. Must be called during node shutdown.
+func (b *engineBackend) Close() {
+	close(b.stopCh)
 }
 
 func (b *engineBackend) GetHeadHash() types.Hash {
@@ -544,10 +588,30 @@ func (b *engineBackend) ProcessBlock(
 	return b.processBlockInternal(payload, parentBeaconBlockRoot, nil)
 }
 
-// processBlockInternal reconstructs the block from an Engine API payload and
-// inserts it. parentBeaconBlockRoot is included in the header hash (EIP-4788).
-// requestsHash is non-nil only for Prague (V4) payloads.
+// processBlockInternal submits a newPayload request to the processor goroutine
+// and blocks until the result is ready. parentBeaconBlockRoot is used for
+// EIP-4788; requestsHash is non-nil only for Prague (V4) payloads.
 func (b *engineBackend) processBlockInternal(
+	payload *engine.ExecutionPayloadV3,
+	parentBeaconBlockRoot types.Hash,
+	requestsHash *types.Hash,
+) (engine.PayloadStatusV1, error) {
+	replyCh := make(chan blockProcResp, 1)
+	b.processCh <- blockProcReq{
+		payload:               payload,
+		parentBeaconBlockRoot: parentBeaconBlockRoot,
+		requestsHash:          requestsHash,
+		replyCh:               replyCh,
+	}
+	resp := <-replyCh
+	return resp.status, resp.err
+}
+
+// execBlockInternal reconstructs the block from an Engine API payload and
+// inserts it. Called only by the processor goroutine (processLoop).
+// parentBeaconBlockRoot is included in the header hash (EIP-4788).
+// requestsHash is non-nil only for Prague (V4) payloads.
+func (b *engineBackend) execBlockInternal(
 	payload *engine.ExecutionPayloadV3,
 	parentBeaconBlockRoot types.Hash,
 	requestsHash *types.Hash,

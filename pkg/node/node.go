@@ -109,6 +109,7 @@ type Node struct {
 	rpcServer     *rpc.ExtServer
 	rpcHandler    *rpc.Server
 	engineServer  *engine.EngineAPI
+	engBackend    *engineBackend // processor goroutine owner; closed on Stop
 	p2pServer     *p2p.Server
 	metricsServer *http.Server
 	wsServer      *http.Server
@@ -793,8 +794,8 @@ func New(config *Config) (*Node, error) {
 	})
 
 	// Initialize Engine API server.
-	engineBackend := newEngineBackend(n)
-	n.engineServer = engine.NewEngineAPI(engineBackend)
+	n.engBackend = newEngineBackend(n)
+	n.engineServer = engine.NewEngineAPI(n.engBackend)
 	// Forward eth_/web3_/net_/admin_ methods on the engine port to the RPC handler.
 	n.engineServer.SetEthHandler(n.rpcHandler.Handler())
 	n.engineServer.SetMaxRequestSize(config.EngineMaxRequestSize)
@@ -971,6 +972,11 @@ func (n *Node) Stop() error {
 	// Stop Engine API.
 	if err := n.engineServer.Stop(); err != nil {
 		slog.Warn("Engine API stop error", "err", err)
+	}
+
+	// Stop the block processor goroutine.
+	if n.engBackend != nil {
+		n.engBackend.Close()
 	}
 
 	// Stop RPC server.
