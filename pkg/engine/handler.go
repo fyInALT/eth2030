@@ -46,8 +46,8 @@ func (api *EngineAPI) HandleRequest(data []byte) []byte {
 
 	var req jsonrpcRequest
 	if err := json.Unmarshal(data, &req); err != nil {
-		engineLog.Debug("ENGINE_PARSE_ERROR",
-			"event", "ENGINE_PARSE_ERROR",
+		engineLog.Debug("engine_parse_error",
+			"event", "engine_parse_error",
 			"error", err,
 		)
 		resp := jsonrpcResponse{
@@ -75,8 +75,8 @@ func (api *EngineAPI) HandleRequest(data []byte) []byte {
 		return out
 	}
 
-	engineLog.Debug("ENGINE_REQUEST",
-		"event", "ENGINE_REQUEST",
+	engineLog.Debug("engine_request",
+		"event", "engine_request",
 		"method", req.Method,
 	)
 
@@ -84,8 +84,8 @@ func (api *EngineAPI) HandleRequest(data []byte) []byte {
 	latency := time.Since(start)
 
 	if rpcErr != nil {
-		engineLog.Debug("ENGINE_RESPONSE",
-			"event", "ENGINE_RESPONSE",
+		engineLog.Debug("engine_response",
+			"event", "engine_response",
 			"method", req.Method,
 			"latency_ms", latency.Milliseconds(),
 			"error", true,
@@ -93,8 +93,8 @@ func (api *EngineAPI) HandleRequest(data []byte) []byte {
 			"err_msg", rpcErr.Message,
 		)
 	} else {
-		engineLog.Debug("ENGINE_RESPONSE",
-			"event", "ENGINE_RESPONSE",
+		engineLog.Debug("engine_response",
+			"event", "engine_response",
 			"method", req.Method,
 			"latency_ms", latency.Milliseconds(),
 			"error", false,

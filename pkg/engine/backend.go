@@ -78,8 +78,8 @@ func (b *EngineBackend) ProcessBlock(
 	expectedBlobVersionedHashes []types.Hash,
 	parentBeaconBlockRoot types.Hash,
 ) (PayloadStatusV1, error) {
-	backendLog.Debug("PAYLOAD_RECEIVED",
-		"event", "PAYLOAD_RECEIVED",
+	backendLog.Debug("payload_received",
+		"event", "payload_received",
 		"blockHash", payload.BlockHash.Hex(),
 		"blockNum", payload.BlockNumber,
 		"parentHash", payload.ParentHash.Hex(),
@@ -92,8 +92,8 @@ func (b *EngineBackend) ProcessBlock(
 	blk, err := payloadToBlock(payload)
 	if err != nil {
 		errMsg := err.Error()
-		backendLog.Warn("PAYLOAD_INVALID",
-			"event", "PAYLOAD_INVALID",
+		backendLog.Warn("payload_invalid",
+			"event", "payload_invalid",
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
 			"reason", "payload decode failed",
@@ -110,8 +110,8 @@ func (b *EngineBackend) ProcessBlock(
 	computedHash := blk.Hash()
 	if payload.BlockHash != (types.Hash{}) && computedHash != payload.BlockHash {
 		errMsg := fmt.Sprintf("block hash mismatch: computed %s, payload %s", computedHash, payload.BlockHash)
-		backendLog.Warn("PAYLOAD_INVALID",
-			"event", "PAYLOAD_INVALID",
+		backendLog.Warn("payload_invalid",
+			"event", "payload_invalid",
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
 			"reason", "block hash mismatch",
@@ -130,8 +130,8 @@ func (b *EngineBackend) ProcessBlock(
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
 	if _, ok := b.blocks[parentHash]; !ok {
-		backendLog.Debug("PAYLOAD_SYNCING",
-			"event", "PAYLOAD_SYNCING",
+		backendLog.Debug("payload_syncing",
+			"event", "payload_syncing",
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
 			"parentHash", parentHash.Hex(),
@@ -143,8 +143,8 @@ func (b *EngineBackend) ProcessBlock(
 	parentBlock := b.blocks[parentHash]
 	if parentBlock != nil && payload.Timestamp <= parentBlock.Header().Time {
 		errMsg := fmt.Sprintf("invalid timestamp: block %d <= parent %d", payload.Timestamp, parentBlock.Header().Time)
-		backendLog.Warn("PAYLOAD_INVALID",
-			"event", "PAYLOAD_INVALID",
+		backendLog.Warn("payload_invalid",
+			"event", "payload_invalid",
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
 			"reason", "timestamp not advancing",
@@ -163,8 +163,8 @@ func (b *EngineBackend) ProcessBlock(
 	_, err = b.processor.Process(blk, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
-		backendLog.Error("PAYLOAD_EXEC_FAIL",
-			"event", "PAYLOAD_EXEC_FAIL",
+		backendLog.Error("payload_exec_fail",
+			"event", "payload_exec_fail",
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
 			"txCount", len(payload.Transactions),
@@ -181,8 +181,8 @@ func (b *EngineBackend) ProcessBlock(
 	b.blocks[blockHash] = blk
 	b.statedb = stateCopy
 
-	backendLog.Info("PAYLOAD_VALID",
-		"event", "PAYLOAD_VALID",
+	backendLog.Info("payload_valid",
+		"event", "payload_valid",
 		"blockHash", blockHash.Hex(),
 		"blockNum", payload.BlockNumber,
 		"txCount", len(payload.Transactions),
@@ -228,8 +228,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	fcState ForkchoiceStateV1,
 	attrs *PayloadAttributesV3,
 ) (ForkchoiceUpdatedResult, error) {
-	backendLog.Debug("FCU_RECEIVED",
-		"event", "FCU_RECEIVED",
+	backendLog.Debug("fcu_received",
+		"event", "fcu_received",
 		"head", fcState.HeadBlockHash.Hex(),
 		"safe", fcState.SafeBlockHash.Hex(),
 		"finalized", fcState.FinalizedBlockHash.Hex(),
@@ -242,8 +242,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	// Validate head block exists.
 	if fcState.HeadBlockHash != (types.Hash{}) {
 		if _, ok := b.blocks[fcState.HeadBlockHash]; !ok {
-			backendLog.Debug("FCU_SYNCING",
-				"event", "FCU_SYNCING",
+			backendLog.Debug("fcu_syncing",
+				"event", "fcu_syncing",
 				"head", fcState.HeadBlockHash.Hex(),
 			)
 			return ForkchoiceUpdatedResult{
@@ -261,8 +261,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	if headBlock, ok := b.blocks[b.headHash]; ok {
 		headNum = headBlock.NumberU64()
 	}
-	backendLog.Info("FCU_UPDATED",
-		"event", "FCU_UPDATED",
+	backendLog.Info("fcu_updated",
+		"event", "fcu_updated",
 		"head", b.headHash.Hex(),
 		"headNum", headNum,
 		"safe", b.safeHash.Hex(),
@@ -295,8 +295,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
-		backendLog.Debug("PAYLOAD_BUILD_START",
-			"event", "PAYLOAD_BUILD_START",
+		backendLog.Debug("payload_build_start",
+			"event", "payload_build_start",
 			"payloadID", fmt.Sprintf("%x", id),
 			"parentHash", fcState.HeadBlockHash.Hex(),
 			"parentNum", parentBlock.NumberU64(),
@@ -317,8 +317,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			Withdrawals:  WithdrawalsToCore(attrs.Withdrawals),
 		})
 		if err != nil {
-			backendLog.Error("PAYLOAD_BUILD_FAIL",
-				"event", "PAYLOAD_BUILD_FAIL",
+			backendLog.Error("payload_build_fail",
+				"event", "payload_build_fail",
 				"payloadID", fmt.Sprintf("%x", id),
 				"parentHash", fcState.HeadBlockHash.Hex(),
 				"error", err,
@@ -326,8 +326,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			return ForkchoiceUpdatedResult{}, fmt.Errorf("payload build failed: %w", err)
 		}
 
-		backendLog.Debug("PAYLOAD_BUILD_DONE",
-			"event", "PAYLOAD_BUILD_DONE",
+		backendLog.Debug("payload_build_done",
+			"event", "payload_build_done",
 			"payloadID", fmt.Sprintf("%x", id),
 			"blockHash", blk.Hash().Hex(),
 			"blockNum", blk.NumberU64(),
@@ -360,8 +360,8 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 
 	pending, ok := b.payloads[id]
 	if !ok {
-		backendLog.Warn("PAYLOAD_GET_MISS",
-			"event", "PAYLOAD_GET_MISS",
+		backendLog.Warn("payload_get_miss",
+			"event", "payload_get_miss",
 			"payloadID", fmt.Sprintf("%x", id),
 		)
 		return nil, ErrUnknownPayload
@@ -369,8 +369,8 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 
 	ep := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
 
-	backendLog.Debug("PAYLOAD_GET",
-		"event", "PAYLOAD_GET",
+	backendLog.Debug("payload_get",
+		"event", "payload_get",
 		"payloadID", fmt.Sprintf("%x", id),
 		"blockHash", pending.block.Hash().Hex(),
 		"blockNum", pending.block.NumberU64(),
@@ -472,8 +472,8 @@ func (b *EngineBackend) ProcessBlockV5(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (PayloadStatusV1, error) {
-	backendLog.Debug("PAYLOAD_RECEIVED",
-		"event", "PAYLOAD_RECEIVED",
+	backendLog.Debug("payload_received",
+		"event", "payload_received",
 		"version", "V5",
 		"blockHash", payload.BlockHash.Hex(),
 		"blockNum", payload.BlockNumber,
@@ -487,8 +487,8 @@ func (b *EngineBackend) ProcessBlockV5(
 	blk, err := payloadToBlock(&payload.ExecutionPayloadV3)
 	if err != nil {
 		errMsg := err.Error()
-		backendLog.Warn("PAYLOAD_INVALID",
-			"event", "PAYLOAD_INVALID",
+		backendLog.Warn("payload_invalid",
+			"event", "payload_invalid",
 			"version", "V5",
 			"blockHash", payload.BlockHash.Hex(),
 			"reason", "payload decode failed",
@@ -506,8 +506,8 @@ func (b *EngineBackend) ProcessBlockV5(
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
 	if _, ok := b.blocks[parentHash]; !ok {
-		backendLog.Debug("PAYLOAD_SYNCING",
-			"event", "PAYLOAD_SYNCING",
+		backendLog.Debug("payload_syncing",
+			"event", "payload_syncing",
 			"version", "V5",
 			"blockHash", payload.BlockHash.Hex(),
 			"parentHash", parentHash.Hex(),
@@ -528,8 +528,8 @@ func (b *EngineBackend) ProcessBlockV5(
 	result, err := b.processor.ProcessWithBAL(blk, stateCopy)
 	if err != nil {
 		errMsg := fmt.Sprintf("state processing failed: %v", err)
-		backendLog.Error("PAYLOAD_EXEC_FAIL",
-			"event", "PAYLOAD_EXEC_FAIL",
+		backendLog.Error("payload_exec_fail",
+			"event", "payload_exec_fail",
 			"version", "V5",
 			"blockHash", payload.BlockHash.Hex(),
 			"blockNum", payload.BlockNumber,
@@ -554,8 +554,8 @@ func (b *EngineBackend) ProcessBlockV5(
 			// If the blockAccessList isn't valid JSON bytes, it may be null.
 			if string(payload.BlockAccessList) != "null" {
 				errMsg := fmt.Sprintf("invalid blockAccessList encoding: %v", err)
-				backendLog.Warn("PAYLOAD_BAL_INVALID",
-					"event", "PAYLOAD_BAL_INVALID",
+				backendLog.Warn("payload_bal_invalid",
+					"event", "payload_bal_invalid",
 					"blockHash", payload.BlockHash.Hex(),
 					"reason", "BAL JSON decode failed",
 					"error", errMsg,
@@ -567,8 +567,8 @@ func (b *EngineBackend) ProcessBlockV5(
 			}
 		} else if !bytes.Equal(computedEncoded, providedBALBytes) {
 			errMsg := "blockAccessList mismatch: computed BAL does not match provided BAL"
-			backendLog.Warn("PAYLOAD_BAL_MISMATCH",
-				"event", "PAYLOAD_BAL_MISMATCH",
+			backendLog.Warn("payload_bal_mismatch",
+				"event", "payload_bal_mismatch",
 				"blockHash", payload.BlockHash.Hex(),
 				"blockNum", payload.BlockNumber,
 			)
@@ -585,8 +585,8 @@ func (b *EngineBackend) ProcessBlockV5(
 		gasRemaining := blk.GasLimit() - blk.GasUsed()
 		if result := focilCheckILSatisfaction(blk, ils, gasRemaining); !result {
 			errMsg := focil.InclusionListUnsatisfied
-			backendLog.Warn("PAYLOAD_IL_UNSATISFIED",
-				"event", "PAYLOAD_IL_UNSATISFIED",
+			backendLog.Warn("payload_il_unsatisfied",
+				"event", "payload_il_unsatisfied",
 				"blockHash", payload.BlockHash.Hex(),
 				"blockNum", payload.BlockNumber,
 			)
@@ -606,8 +606,8 @@ func (b *EngineBackend) ProcessBlockV5(
 	}
 	b.statedb = stateCopy
 
-	backendLog.Info("PAYLOAD_VALID",
-		"event", "PAYLOAD_VALID",
+	backendLog.Info("payload_valid",
+		"event", "payload_valid",
 		"version", "V5",
 		"blockHash", blockHash.Hex(),
 		"blockNum", payload.BlockNumber,

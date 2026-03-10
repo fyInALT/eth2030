@@ -276,8 +276,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 
 	hash := tx.Hash()
 
-	txpoolLog.Debug("TX_RECEIVED",
-		"event", "TX_RECEIVED",
+	txpoolLog.Debug("tx_received",
+		"event", "tx_received",
 		"hash", hash.Hex(),
 		"txType", tx.Type(),
 		"nonce", tx.Nonce(),
@@ -285,8 +285,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 
 	// Check for duplicates.
 	if pool.lookup.Get(hash) != nil {
-		txpoolLog.Debug("TX_DUPLICATE",
-			"event", "TX_DUPLICATE",
+		txpoolLog.Debug("tx_duplicate",
+			"event", "tx_duplicate",
 			"hash", hash.Hex(),
 		)
 		return ErrAlreadyKnown
@@ -294,8 +294,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 
 	// Validate the transaction.
 	if err := pool.validateTx(tx); err != nil {
-		txpoolLog.Debug("TX_REJECTED",
-			"event", "TX_REJECTED",
+		txpoolLog.Debug("tx_rejected",
+			"event", "tx_rejected",
 			"hash", hash.Hex(),
 			"txType", tx.Type(),
 			"nonce", tx.Nonce(),
@@ -311,8 +311,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	stateNonce := pool.state.GetNonce(from)
 
 	if tx.Nonce() < stateNonce {
-		txpoolLog.Debug("TX_REJECTED",
-			"event", "TX_REJECTED",
+		txpoolLog.Debug("tx_rejected",
+			"event", "tx_rejected",
 			"hash", hash.Hex(),
 			"reason", "nonce too low",
 			"txNonce", tx.Nonce(),
@@ -324,8 +324,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	// Nonce gap detection: reject transactions with nonces too far ahead
 	// of the current state nonce to prevent memory exhaustion attacks.
 	if tx.Nonce() > stateNonce+MaxNonceGap {
-		txpoolLog.Debug("TX_REJECTED",
-			"event", "TX_REJECTED",
+		txpoolLog.Debug("tx_rejected",
+			"event", "tx_rejected",
 			"hash", hash.Hex(),
 			"reason", "nonce too high (gap)",
 			"txNonce", tx.Nonce(),
@@ -338,8 +338,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	// Check for replace-by-fee: existing tx from same sender with same nonce.
 	replaced, err := pool.checkReplacement(from, tx)
 	if err != nil {
-		txpoolLog.Debug("TX_REJECTED",
-			"event", "TX_REJECTED",
+		txpoolLog.Debug("tx_rejected",
+			"event", "tx_rejected",
 			"hash", hash.Hex(),
 			"reason", err.Error(),
 			"nonce", tx.Nonce(),
@@ -347,8 +347,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 		return err
 	}
 	if replaced {
-		txpoolLog.Debug("TX_REPLACED",
-			"event", "TX_REPLACED",
+		txpoolLog.Debug("tx_replaced",
+			"event", "tx_replaced",
 			"hash", hash.Hex(),
 			"nonce", tx.Nonce(),
 		)
@@ -359,8 +359,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	if !replaced {
 		senderCount := pool.senderTxCount(from)
 		if senderCount >= pool.config.MaxPerSender {
-			txpoolLog.Debug("TX_REJECTED",
-				"event", "TX_REJECTED",
+			txpoolLog.Debug("tx_rejected",
+				"event", "tx_rejected",
 				"hash", hash.Hex(),
 				"reason", "per-sender limit",
 				"senderCount", senderCount,
@@ -374,8 +374,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	if !replaced && pool.lookup.Count() >= pool.config.MaxSize {
 		evicted := pool.evictLowest(pool.baseFee)
 		if evicted == 0 {
-			txpoolLog.Debug("TX_REJECTED",
-				"event", "TX_REJECTED",
+			txpoolLog.Debug("tx_rejected",
+				"event", "tx_rejected",
 				"hash", hash.Hex(),
 				"reason", "pool full",
 				"poolSize", pool.lookup.Count(),
@@ -390,8 +390,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	if tx.Nonce() == stateNonce {
 		// This tx is immediately processable.
 		pool.addPending(from, tx)
-		txpoolLog.Debug("TX_PENDING",
-			"event", "TX_PENDING",
+		txpoolLog.Debug("tx_pending",
+			"event", "tx_pending",
 			"hash", hash.Hex(),
 			"nonce", tx.Nonce(),
 			"poolSize", pool.lookup.Count(),
@@ -399,8 +399,8 @@ func (pool *TxPool) add(tx *types.Transaction) error {
 	} else {
 		// Future tx, add to queue.
 		pool.addQueue(from, tx)
-		txpoolLog.Debug("TX_QUEUED",
-			"event", "TX_QUEUED",
+		txpoolLog.Debug("tx_queued",
+			"event", "tx_queued",
 			"hash", hash.Hex(),
 			"nonce", tx.Nonce(),
 			"stateNonce", stateNonce,
@@ -770,8 +770,8 @@ func (pool *TxPool) promoteQueue(from types.Address) {
 	for _, tx := range promoted {
 		pool.addPending(from, tx)
 		queueList.Remove(tx.Nonce())
-		txpoolLog.Debug("TX_PROMOTED",
-			"event", "TX_PROMOTED",
+		txpoolLog.Debug("tx_promoted",
+			"event", "tx_promoted",
 			"hash", tx.Hash().Hex(),
 			"nonce", tx.Nonce(),
 		)
@@ -931,8 +931,8 @@ func (pool *TxPool) Reset(stateReader StateReader) {
 		}
 	}
 
-	txpoolLog.Debug("POOL_RESET",
-		"event", "POOL_RESET",
+	txpoolLog.Debug("pool_reset",
+		"event", "pool_reset",
 		"confirmed", totalConfirmed,
 		"reorgDemoted", totalDemoted,
 		"poolSize", pool.lookup.Count(),
@@ -1106,8 +1106,8 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 
 	// Evict the cheapest.
 	c := candidates[0]
-	txpoolLog.Debug("TX_EVICTED",
-		"event", "TX_EVICTED",
+	txpoolLog.Debug("tx_evicted",
+		"event", "tx_evicted",
 		"hash", c.tx.Hash().Hex(),
 		"nonce", c.tx.Nonce(),
 		"effectivePrice", c.price.String(),
@@ -1138,8 +1138,8 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	txpoolLog.Debug("BASEFEE_UPDATE",
-		"event", "BASEFEE_UPDATE",
+	txpoolLog.Debug("basefee_update",
+		"event", "basefee_update",
 		"newBaseFee", baseFee.String(),
 	)
 
@@ -1161,8 +1161,8 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 		for _, tx := range demote {
 			list.Remove(tx.Nonce())
 			pool.addQueue(addr, tx)
-			txpoolLog.Debug("TX_DEMOTED",
-				"event", "TX_DEMOTED",
+			txpoolLog.Debug("tx_demoted",
+				"event", "tx_demoted",
 				"hash", tx.Hash().Hex(),
 				"nonce", tx.Nonce(),
 				"feeCap", tx.GasFeeCap().String(),
@@ -1175,8 +1175,8 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 		}
 	}
 	if totalDemoted > 0 {
-		txpoolLog.Debug("BASEFEE_DEMOTED",
-			"event", "BASEFEE_DEMOTED",
+		txpoolLog.Debug("basefee_demoted",
+			"event", "basefee_demoted",
 			"count", totalDemoted,
 			"newBaseFee", baseFee.String(),
 		)

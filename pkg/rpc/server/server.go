@@ -413,8 +413,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if s.config.AuthSecret != "" {
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(s.config.AuthSecret)) != 1 {
-			rpcLog.Warn("RPC_AUTH_FAILED",
-				"event", "RPC_AUTH_FAILED",
+			rpcLog.Warn("rpc_auth_failed",
+				"event", "rpc_auth_failed",
 				"remote", r.RemoteAddr,
 			)
 			w.Header().Set("Content-Type", "application/json")
@@ -425,8 +425,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.rateLimiter != nil && !s.rateLimiter.Allow() {
-		rpcLog.Debug("RPC_RATE_LIMITED",
-			"event", "RPC_RATE_LIMITED",
+		rpcLog.Debug("rpc_rate_limited",
+			"event", "rpc_rate_limited",
 			"remote", r.RemoteAddr,
 		)
 		w.Header().Set("Content-Type", "application/json")
@@ -437,8 +437,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	defer r.Body.Close()
 	if r.ContentLength > s.config.MaxRequestSize {
-		rpcLog.Debug("RPC_REQUEST_TOO_LARGE",
-			"event", "RPC_REQUEST_TOO_LARGE",
+		rpcLog.Debug("rpc_request_too_large",
+			"event", "rpc_request_too_large",
 			"remote", r.RemoteAddr,
 			"contentLength", r.ContentLength,
 			"maxSize", s.config.MaxRequestSize,
@@ -466,8 +466,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	var req rpctypes.Request
 	if err := json.Unmarshal(body, &req); err != nil {
-		rpcLog.Debug("RPC_PARSE_ERROR",
-			"event", "RPC_PARSE_ERROR",
+		rpcLog.Debug("rpc_parse_error",
+			"event", "rpc_parse_error",
 			"remote", r.RemoteAddr,
 			"error", err,
 		)
@@ -490,8 +490,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	latency := time.Since(start)
 	hasErr := resp != nil && resp.Error != nil
 	if hasErr {
-		rpcLog.Debug("RPC_RESPONSE",
-			"event", "RPC_RESPONSE",
+		rpcLog.Debug("rpc_response",
+			"event", "rpc_response",
 			"method", req.Method,
 			"remote", r.RemoteAddr,
 			"latency_ms", latency.Milliseconds(),
@@ -500,8 +500,8 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 			"err_msg", resp.Error.Message,
 		)
 	} else {
-		rpcLog.Debug("RPC_RESPONSE",
-			"event", "RPC_RESPONSE",
+		rpcLog.Debug("rpc_response",
+			"event", "rpc_response",
 			"method", req.Method,
 			"remote", r.RemoteAddr,
 			"latency_ms", latency.Milliseconds(),

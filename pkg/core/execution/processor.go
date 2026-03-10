@@ -114,8 +114,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		header   = block.Header()
 	)
 
-	execLog.Debug("BLOCK_PROCESS_START",
-		"event", "BLOCK_PROCESS_START",
+	execLog.Debug("block_process_start",
+		"event", "block_process_start",
 		"hash", block.Hash().Hex(),
 		"num", block.NumberU64(),
 		"txCount", len(block.Transactions()),
@@ -221,8 +221,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		if tx.To() != nil {
 			toHex = tx.To().Hex()
 		}
-		execLog.Debug("TX_EXEC_START",
-			"event", "TX_EXEC_START",
+		execLog.Debug("tx_exec_start",
+			"event", "tx_exec_start",
 			"blockNum", block.NumberU64(),
 			"txIndex", i,
 			"txHash", tx.Hash().Hex(),
@@ -254,8 +254,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				uo := buildAAUserOp(aatx)
 				// ValidateUserOpState checks balance, nonce, and paymaster allowance.
 				if err := eips.ValidateUserOpState(uo, statedb, header.BaseFee); err != nil {
-					execLog.Warn("TX_AA_STATE_INVALID",
-						"event", "TX_AA_STATE_INVALID",
+					execLog.Warn("tx_aa_state_invalid",
+						"event", "tx_aa_state_invalid",
 						"blockNum", block.NumberU64(),
 						"txIndex", i,
 						"txHash", tx.Hash().Hex(),
@@ -270,8 +270,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		receipt, usedGas, err := applyTransactionFull(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker), p.slasher)
 		if err != nil {
-			execLog.Error("TX_EVM_ERROR",
-				"event", "TX_EVM_ERROR",
+			execLog.Error("tx_evm_error",
+				"event", "tx_evm_error",
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
@@ -288,8 +288,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 			if receipt.ContractAddress != (types.Address{}) {
 				contractHex = receipt.ContractAddress.Hex()
 			}
-			execLog.Debug("TX_EXECUTED",
-				"event", "TX_EXECUTED",
+			execLog.Debug("tx_executed",
+				"event", "tx_executed",
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
@@ -301,8 +301,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				"contractCreated", contractHex,
 			)
 		} else {
-			execLog.Debug("TX_REVERTED",
-				"event", "TX_REVERTED",
+			execLog.Debug("tx_reverted",
+				"event", "tx_reverted",
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
@@ -334,8 +334,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		if calldataGasActive {
 			txCalldataGas := tx.CalldataGas()
 			if cumulativeCalldataGasUsed+txCalldataGas > calldataGasLimit {
-				execLog.Warn("CALLDATA_GAS_EXCEEDED",
-					"event", "CALLDATA_GAS_EXCEEDED",
+				execLog.Warn("calldata_gas_exceeded",
+					"event", "calldata_gas_exceeded",
 					"blockNum", block.NumberU64(),
 					"txIndex", i,
 					"txHash", tx.Hash().Hex(),
@@ -431,8 +431,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		blockBAL.Sort()
 	}
 
-	execLog.Debug("BLOCK_PROCESS_DONE",
-		"event", "BLOCK_PROCESS_DONE",
+	execLog.Debug("block_process_done",
+		"event", "block_process_done",
 		"hash", block.Hash().Hex(),
 		"num", block.NumberU64(),
 		"txCount", len(block.Transactions()),
