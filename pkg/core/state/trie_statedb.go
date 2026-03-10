@@ -70,6 +70,14 @@ type TrieStateDB struct {
 	db        rawdb.Database             // persistent backing store
 	gcMode    string                     // GCModeArchive or GCModeFull
 	recreated map[types.Address]struct{} // accounts reset by CreateAccount this block
+
+	// frozenAccounts is a read-only snapshot of every account RLP in the DB
+	// as it was at the end of the most recent Commit(). buildStateTrie() uses
+	// this map instead of iterating the live DB so that concurrent commits from
+	// other goroutines (e.g. a newPayload running in parallel with a block
+	// builder) cannot corrupt the state-root computation.
+	// The map is shared across Dup() copies; callers must not mutate it.
+	frozenAccounts map[types.Address][]byte
 }
 
 // GetMem returns a reference to the internal MemoryStateDB dirty buffer.
@@ -398,23 +406,39 @@ func (t *TrieStateDB) buildStateTrie() *trie.Trie {
 		stateTrie.Put(crypto.Keccak256(addr[:]), encoded)
 	}
 
-	// Insert DB accounts not present in the dirty buffer. The stored RLP
-	// already contains the correct storage root from last Commit, so we
-	// insert it verbatim — no need to reload all storage slots.
-	iter := t.db.NewIterator(dbPrefixAccount)
-	for iter.Next() {
-		key := iter.Key()
-		if len(key) != 2+20 {
-			continue
+	// Insert committed accounts not present in the dirty buffer.
+	//
+	// Prefer the frozen snapshot (captured at the last Commit) over a live DB
+	// scan. The frozen snapshot is a stable, read-only copy that cannot be
+	// corrupted by concurrent Commit calls from other goroutines (e.g. a
+	// newPayload handler committing while a block builder is computing a root).
+	//
+	// Fall back to a live DB scan for TrieStateDB instances that have never
+	// been committed (frozenAccounts == nil), such as a freshly-constructed
+	// reader or the genesis-initialisation path.
+	if t.frozenAccounts != nil {
+		for addr, rlpBytes := range t.frozenAccounts {
+			if memAddrs[addr] {
+				continue // dirty mem overrides frozen snapshot
+			}
+			stateTrie.Put(crypto.Keccak256(addr[:]), rlpBytes)
 		}
-		var addr types.Address
-		copy(addr[:], key[2:])
-		if memAddrs[addr] {
-			continue // handled above (dirty or selfDestructed)
+	} else {
+		iter := t.db.NewIterator(dbPrefixAccount)
+		for iter.Next() {
+			key := iter.Key()
+			if len(key) != 2+20 {
+				continue
+			}
+			var addr types.Address
+			copy(addr[:], key[2:])
+			if memAddrs[addr] {
+				continue
+			}
+			stateTrie.Put(crypto.Keccak256(addr[:]), iter.Value())
 		}
-		stateTrie.Put(crypto.Keccak256(addr[:]), iter.Value())
+		iter.Release()
 	}
-	iter.Release()
 
 	return stateTrie
 }
@@ -551,11 +575,55 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		return types.Hash{}, fmt.Errorf("flush state to db: %w", err)
 	}
 
+	// Capture a frozen snapshot of all committed account RLPs.
+	// This snapshot is used by buildStateTrie() on subsequent Dup() copies so
+	// that concurrent DB writes from other goroutines cannot corrupt the
+	// state-root computation. We iterate the DB immediately after the batch
+	// write so the snapshot is consistent with the just-committed state.
+	frozen := make(map[types.Address][]byte)
+	frozenIter := t.db.NewIterator(dbPrefixAccount)
+	for frozenIter.Next() {
+		key := frozenIter.Key()
+		if len(key) != 2+20 {
+			continue
+		}
+		var addr types.Address
+		copy(addr[:], key[2:])
+		val := make([]byte, len(frozenIter.Value()))
+		copy(val, frozenIter.Value())
+		frozen[addr] = val
+	}
+	frozenIter.Release()
+	t.frozenAccounts = frozen
+
 	// Reset dirty buffer and recreated tracking: memory drops to near-zero.
 	t.mem = NewMemoryStateDB()
 	t.recreated = nil
 
 	return root, nil
+}
+
+// ClearAllState deletes every account, storage-slot, and code entry from the
+// underlying DB. Call this before committing a full canonical snapshot (e.g.
+// during a reorg) so that stale entries from reverted blocks are removed.
+func (t *TrieStateDB) ClearAllState() error {
+	prefixes := [][]byte{dbPrefixAccount, dbPrefixStorage, dbPrefixCode}
+	for _, pfx := range prefixes {
+		iter := t.db.NewIterator(pfx)
+		var keys [][]byte
+		for iter.Next() {
+			k := make([]byte, len(iter.Key()))
+			copy(k, iter.Key())
+			keys = append(keys, k)
+		}
+		iter.Release()
+		for _, k := range keys {
+			if err := t.db.Delete(k); err != nil {
+				return fmt.Errorf("clear state key: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // --- StateDB interface: copy ---
@@ -572,10 +640,11 @@ func (t *TrieStateDB) Dup() StateDB {
 		}
 	}
 	return &TrieStateDB{
-		mem:       t.mem.Copy(),
-		db:        t.db,
-		gcMode:    t.gcMode,
-		recreated: recreatedCopy,
+		mem:            t.mem.Copy(),
+		db:             t.db,
+		gcMode:         t.gcMode,
+		recreated:      recreatedCopy,
+		frozenAccounts: t.frozenAccounts, // shared read-only; never mutated by callers
 	}
 }
 

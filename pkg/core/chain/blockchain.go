@@ -1159,6 +1159,15 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	// Commit, bounding per-block RAM to the working set of a single block).
 	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" {
 		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.db, mdb.Copy(), bc.gcMode)
+		// Purge ALL stale state from DB before committing the canonical snapshot.
+		// Without this, accounts/storage written by reverted side blocks would
+		// remain in the DB and corrupt the state root on the next block.
+		if err := ts.ClearAllState(); err != nil {
+			blockchainLog.Warn("reorg_clear_state_failed",
+				"event", "reorg_clear_state_failed",
+				"error", err,
+			)
+		}
 		if _, commitErr := ts.Commit(); commitErr == nil {
 			statedb = ts
 		}
