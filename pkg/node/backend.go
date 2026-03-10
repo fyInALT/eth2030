@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/block"
+	coregas "github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -775,6 +776,31 @@ func (b *engineBackend) execBlockInternal(
 	// EIP-7685: set RequestsHash for Prague blocks.
 	if requestsHash != nil {
 		header.RequestsHash = requestsHash
+	}
+
+	// EIP-7706: reconstruct CalldataExcessGas and CalldataGasUsed from the
+	// parent header. These fields are included in the header RLP and therefore
+	// affect the block hash. The block builder always sets them when Glamsterdan
+	// is active, so newPayload must reproduce them to avoid a hash mismatch.
+	if bc.Config().IsGlamsterdan(payload.Timestamp) {
+		if parentBlock := bc.GetBlock(payload.ParentHash); parentBlock != nil {
+			ph := parentBlock.Header()
+			var pCalldataExcess, pCalldataUsed uint64
+			if ph.CalldataExcessGas != nil {
+				pCalldataExcess = *ph.CalldataExcessGas
+			}
+			if ph.CalldataGasUsed != nil {
+				pCalldataUsed = *ph.CalldataGasUsed
+			}
+			calldataExcessGas := coregas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, ph.GasLimit)
+			header.CalldataExcessGas = &calldataExcessGas
+			// CalldataGasUsed is the sum of CalldataGas() for all txs.
+			var calldataGasUsed uint64
+			for _, tx := range txs {
+				calldataGasUsed += tx.CalldataGas()
+			}
+			header.CalldataGasUsed = &calldataGasUsed
+		}
 	}
 
 	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
