@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	ethlog "github.com/eth2030/eth2030/log"
 	"github.com/eth2030/eth2030/node"
 )
 
@@ -261,7 +262,9 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".eth2030")
 }
 
-// setupLogging configures the slog default logger based on verbosity.
+// setupLogging configures both the slog default and the pkg/log default based
+// on verbosity so that all subsystem loggers (blockchainLog, txpoolLog, …)
+// respect the -verbosity flag.
 func setupLogging(verbosity int) {
 	var level slog.Level
 	switch {
@@ -275,4 +278,7 @@ func setupLogging(verbosity int) {
 		level = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	// Also update the pkg/log default so module-scoped loggers (blockchainLog,
+	// txpoolLog, rpcLog, …) inherit the chosen level.
+	ethlog.SetLevel(level)
 }

@@ -42,6 +42,14 @@ func SetDefault(l *Logger) {
 	}
 }
 
+// SetLevel recreates the default logger at the given slog level. All
+// module-scoped loggers obtained via Default().Module() after this call will
+// inherit the new level. Loggers that were obtained before this call retain
+// their original level because they hold a reference to the old handler.
+func SetLevel(level slog.Level) {
+	defaultLogger = New(level)
+}
+
 // Default returns the current package-level default logger.
 func Default() *Logger {
 	return defaultLogger
