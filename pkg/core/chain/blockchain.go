@@ -136,6 +136,11 @@ type Blockchain struct {
 	// Protected by mu; persisted to rawdb on every update.
 	currentFinalBlock *types.Block
 	currentSafeBlock  *types.Block
+
+	// ancientStore is an optional freezer for cold block storage. When set,
+	// SetFinalized migrates newly-finalized blocks from the live DB into cold
+	// storage, matching go-ethereum's freezer behaviour.
+	ancientStore *rawdb.AncientStore
 }
 
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
@@ -707,18 +712,56 @@ func (bc *Blockchain) CurrentSafeBlock() *types.Block {
 	return bc.currentSafeBlock
 }
 
+// SetAncientStore wires an AncientStore to the blockchain. When set,
+// SetFinalized will migrate newly-finalized blocks from the live DB to cold
+// storage in the background.
+func (bc *Blockchain) SetAncientStore(as *rawdb.AncientStore) {
+	bc.mu.Lock()
+	bc.ancientStore = as
+	bc.mu.Unlock()
+}
+
+// AncientStore returns the wired AncientStore, or nil if none.
+func (bc *Blockchain) AncientStore() *rawdb.AncientStore {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.ancientStore
+}
+
 // SetFinalized records the given block as the latest finalized block.
 // It updates the in-memory pointer and persists the hash to the database so
-// that the value survives a node restart.
+// that the value survives a node restart. If an AncientStore is wired, it
+// triggers a background migration of all blocks up to the finalized number.
 func (bc *Blockchain) SetFinalized(blk *types.Block) {
 	bc.mu.Lock()
 	bc.currentFinalBlock = blk
+	as := bc.ancientStore
 	bc.mu.Unlock()
 	if blk != nil {
 		rawdb.WriteFinalizedBlockHash(bc.db, blk.Hash())
+		metrics.ChainHeadFinalized.Set(int64(blk.NumberU64()))
+		if as != nil {
+			go bc.migrateToAncient(as, blk.NumberU64())
+		}
 	} else {
 		rawdb.WriteFinalizedBlockHash(bc.db, types.Hash{})
+		metrics.ChainHeadFinalized.Set(0)
 	}
+}
+
+// migrateToAncient moves finalized blocks from the live DB to the AncientStore.
+// It runs in a goroutine to avoid blocking Engine API calls.
+func (bc *Blockchain) migrateToAncient(as *rawdb.AncientStore, finalNum uint64) {
+	frozen := as.Frozen()
+	if finalNum <= frozen {
+		return // nothing new to freeze
+	}
+	migrated, err := as.MigrateFromDB(bc.db, frozen, finalNum)
+	if err != nil {
+		blockchainLog.Error("ancient migration failed", "from", frozen, "to", finalNum, "migrated", migrated, "err", err)
+		return
+	}
+	blockchainLog.Debug("ancient migration complete", "migrated", migrated, "frozen_now", as.Frozen())
 }
 
 // SetSafe records the given block as the latest safe block.
@@ -728,6 +771,11 @@ func (bc *Blockchain) SetSafe(blk *types.Block) {
 	bc.mu.Lock()
 	bc.currentSafeBlock = blk
 	bc.mu.Unlock()
+	if blk != nil {
+		metrics.ChainHeadSafe.Set(int64(blk.NumberU64()))
+	} else {
+		metrics.ChainHeadSafe.Set(0)
+	}
 }
 
 // HasBlock checks if a block with the given hash exists in cache or rawdb.

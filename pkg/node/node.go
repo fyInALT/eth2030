@@ -365,6 +365,20 @@ func New(config *Config) (*Node, error) {
 	}
 	n.blockchain = bc
 
+	// Wire the ancient store (freezer) for finalized block cold storage.
+	// Only opened when a persistent data directory is configured, because the
+	// freezer writes append-only flat files that require a real filesystem.
+	if config.DataDir != "" {
+		as, err := rawdb.NewAncientStore(rawdb.AncientStoreConfig{
+			DataDir: config.ResolvePath("ancient"),
+		})
+		if err != nil {
+			slog.Warn("ancient store unavailable, finalized blocks stay in live DB", "err", err)
+		} else {
+			bc.SetAncientStore(as)
+		}
+	}
+
 	// Initialize gas oracle for EIP-1559-aware gas price suggestions.
 	n.gasOracle = gasrpc.NewGasOracle(gasrpc.DefaultGasOracleConfig())
 
@@ -1023,6 +1037,15 @@ func (n *Node) Stop() error {
 
 	// Stop P2P server.
 	n.p2pServer.Stop()
+
+	// Close ancient store before the live DB.
+	if n.blockchain != nil {
+		if as := n.blockchain.AncientStore(); as != nil {
+			if err := as.Close(); err != nil {
+				slog.Warn("ancient store close error", "err", err)
+			}
+		}
+	}
 
 	// Close database.
 	if err := n.db.Close(); err != nil {
