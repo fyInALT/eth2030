@@ -751,11 +751,10 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 		chain = append(chain, current)
 		parent, ok := bc.blockCache[current.ParentHash()]
 		if !ok {
-			// Fallback: try rawdb.
+			// Fallback: try rawdb. Do NOT write blockCache here — stateAt
+			// may be called under RLock (from StateAtBlock), and writing a
+			// shared map under RLock causes concurrent map write panics.
 			parent = bc.readBlock(current.ParentHash())
-			if parent != nil {
-				bc.blockCache[current.ParentHash()] = parent
-			}
 		}
 		if parent == nil {
 			return nil, fmt.Errorf("%w: missing ancestor at %v", ErrStateNotFound, current.ParentHash())
