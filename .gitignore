@@ -47,3 +47,7 @@ pkg/devnet/kurtosis/results/
 CLAUDE.md
 .claude/
 .vercel
+
+docs/plans/memory/
+
+pkg/eth2030

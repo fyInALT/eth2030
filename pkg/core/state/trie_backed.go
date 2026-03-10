@@ -188,6 +188,11 @@ func (s *TrieBackedStateDB) Copy() *TrieBackedStateDB {
 	}
 }
 
+// Dup returns a deep copy of the TrieBackedStateDB as a StateDB interface.
+func (s *TrieBackedStateDB) Dup() StateDB {
+	return s.Copy()
+}
+
 // Verify interface compliance at compile time.
 var _ StateDB = (*TrieBackedStateDB)(nil)
 
