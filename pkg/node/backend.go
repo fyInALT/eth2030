@@ -93,6 +93,26 @@ func (b *nodeBackend) HeaderByNumber(number rpc.BlockNumber) *types.Header {
 			return blk.Header()
 		}
 		return nil
+	case rpc.FinalizedBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetFinalizedHash(); h != (types.Hash{}) {
+				blk := bc.GetBlock(h)
+				if blk != nil {
+					return blk.Header()
+				}
+			}
+		}
+		return nil
+	case rpc.SafeBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetSafeHash(); h != (types.Hash{}) {
+				blk := bc.GetBlock(h)
+				if blk != nil {
+					return blk.Header()
+				}
+			}
+		}
+		return nil
 	default:
 		blk := bc.GetBlockByNumber(uint64(number))
 		if blk != nil {
@@ -117,6 +137,20 @@ func (b *nodeBackend) BlockByNumber(number rpc.BlockNumber) *types.Block {
 		return bc.CurrentBlock()
 	case rpc.EarliestBlockNumber:
 		return bc.GetBlockByNumber(0)
+	case rpc.FinalizedBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetFinalizedHash(); h != (types.Hash{}) {
+				return bc.GetBlock(h)
+			}
+		}
+		return nil
+	case rpc.SafeBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetSafeHash(); h != (types.Hash{}) {
+				return bc.GetBlock(h)
+			}
+		}
+		return nil
 	default:
 		return bc.GetBlockByNumber(uint64(number))
 	}
@@ -511,6 +545,11 @@ type engineBackend struct {
 	maxPayloads  int                // cap from node config
 	builder      *block.BlockBuilder
 
+	// Forkchoice state: updated on every engine_forkchoiceUpdated call.
+	fcMu          sync.RWMutex
+	safeHash      types.Hash
+	finalizedHash types.Hash
+
 	// Channel-based block processor: serialises newPayload execution on a
 	// dedicated goroutine so HTTP handler goroutines never fight over locks.
 	// Buffered to allow a small queue; warn when the queue grows too deep.
@@ -567,8 +606,17 @@ func (b *engineBackend) GetHeadHash() types.Hash {
 	return types.Hash{}
 }
 
-func (b *engineBackend) GetSafeHash() types.Hash      { return types.Hash{} }
-func (b *engineBackend) GetFinalizedHash() types.Hash { return types.Hash{} }
+func (b *engineBackend) GetSafeHash() types.Hash {
+	b.fcMu.RLock()
+	defer b.fcMu.RUnlock()
+	return b.safeHash
+}
+
+func (b *engineBackend) GetFinalizedHash() types.Hash {
+	b.fcMu.RLock()
+	defer b.fcMu.RUnlock()
+	return b.finalizedHash
+}
 
 func (b *engineBackend) ProcessBlock(
 	payload *engine.ExecutionPayloadV3,
@@ -1022,6 +1070,17 @@ func (b *engineBackend) ForkchoiceUpdated(
 		Status:          engine.StatusValid,
 		LatestValidHash: &headHash,
 	}
+
+	// Persist safe and finalized hashes so eth_getBlockByNumber("finalized")
+	// and ("safe") can resolve them via GetFinalizedHash/GetSafeHash.
+	b.fcMu.Lock()
+	if fcState.SafeBlockHash != (types.Hash{}) {
+		b.safeHash = fcState.SafeBlockHash
+	}
+	if fcState.FinalizedBlockHash != (types.Hash{}) {
+		b.finalizedHash = fcState.FinalizedBlockHash
+	}
+	b.fcMu.Unlock()
 
 	slog.Debug("engine_forkchoiceUpdated: head known",
 		"headBlockHash", headHash,
