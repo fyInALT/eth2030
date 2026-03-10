@@ -4,6 +4,7 @@
 participants:
   - el_type: geth
     el_image: eth2030:local
+    el_log_level: debug
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
     count: 2
