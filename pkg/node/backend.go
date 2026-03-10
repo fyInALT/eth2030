@@ -607,12 +607,18 @@ func (b *engineBackend) GetHeadHash() types.Hash {
 }
 
 func (b *engineBackend) GetSafeHash() types.Hash {
+	if blk := b.node.blockchain.CurrentSafeBlock(); blk != nil {
+		return blk.Hash()
+	}
 	b.fcMu.RLock()
 	defer b.fcMu.RUnlock()
 	return b.safeHash
 }
 
 func (b *engineBackend) GetFinalizedHash() types.Hash {
+	if blk := b.node.blockchain.CurrentFinalBlock(); blk != nil {
+		return blk.Hash()
+	}
 	b.fcMu.RLock()
 	defer b.fcMu.RUnlock()
 	return b.finalizedHash
@@ -1071,16 +1077,39 @@ func (b *engineBackend) ForkchoiceUpdated(
 		LatestValidHash: &headHash,
 	}
 
-	// Persist safe and finalized hashes so eth_getBlockByNumber("finalized")
-	// and ("safe") can resolve them via GetFinalizedHash/GetSafeHash.
-	b.fcMu.Lock()
-	if fcState.SafeBlockHash != (types.Hash{}) {
-		b.safeHash = fcState.SafeBlockHash
-	}
+	// Update finalized and safe block pointers on the blockchain, mirroring
+	// go-ethereum catalyst behaviour. Blocks are validated before being set:
+	// an unknown finalized/safe block is non-fatal here (the CL may send the
+	// FCU before we have imported that block) — we simply skip the update and
+	// log a warning. Persisting to rawdb is handled by bc.SetFinalized.
 	if fcState.FinalizedBlockHash != (types.Hash{}) {
-		b.finalizedHash = fcState.FinalizedBlockHash
+		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
+			bc.SetFinalized(finalBlock)
+			b.fcMu.Lock()
+			b.finalizedHash = fcState.FinalizedBlockHash
+			b.fcMu.Unlock()
+			slog.Debug("engine_forkchoiceUpdated: finalized updated",
+				"hash", fcState.FinalizedBlockHash,
+				"number", finalBlock.NumberU64(),
+			)
+		} else {
+			slog.Warn("engine_forkchoiceUpdated: finalized block unknown, skipping",
+				"hash", fcState.FinalizedBlockHash,
+			)
+		}
 	}
-	b.fcMu.Unlock()
+	if fcState.SafeBlockHash != (types.Hash{}) {
+		if safeBlock := bc.GetBlock(fcState.SafeBlockHash); safeBlock != nil {
+			bc.SetSafe(safeBlock)
+			b.fcMu.Lock()
+			b.safeHash = fcState.SafeBlockHash
+			b.fcMu.Unlock()
+		} else {
+			slog.Warn("engine_forkchoiceUpdated: safe block unknown, skipping",
+				"hash", fcState.SafeBlockHash,
+			)
+		}
+	}
 
 	slog.Debug("engine_forkchoiceUpdated: head known",
 		"headBlockHash", headHash,

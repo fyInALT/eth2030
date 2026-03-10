@@ -19,9 +19,11 @@ var (
 	txLookupPrefix = []byte("l") // l + tx hash -> block num (8 bytes BE)
 
 	// Canonical chain
-	canonicalPrefix = []byte("c")  // c + num (8 bytes BE) -> canonical hash
-	headHeaderKey   = []byte("hh") // -> hash of the current head header
-	headBlockKey    = []byte("hb") // -> hash of the current head block
+	canonicalPrefix  = []byte("c")  // c + num (8 bytes BE) -> canonical hash
+	headHeaderKey    = []byte("hh") // -> hash of the current head header
+	headBlockKey     = []byte("hb") // -> hash of the current head block
+	headFinalizedKey = []byte("hf") // -> hash of the latest finalized block
+	headSafeKey      = []byte("hs") // -> hash of the latest safe block
 
 	// Contract code
 	codePrefix = []byte("C") // C + code hash -> contract bytecode

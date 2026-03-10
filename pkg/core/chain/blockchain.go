@@ -131,6 +131,11 @@ type Blockchain struct {
 
 	// Current head block.
 	currentBlock *types.Block
+
+	// Latest finalized and safe blocks as signalled by the CL via FCU.
+	// Protected by mu; persisted to rawdb on every update.
+	currentFinalBlock *types.Block
+	currentSafeBlock  *types.Block
 }
 
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
@@ -212,6 +217,16 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 		rawdb.WriteCanonicalHash(db, genesis.NumberU64(), hash)
 		rawdb.WriteHeadBlockHash(db, hash)
 		rawdb.WriteHeadHeaderHash(db, hash)
+	}
+
+	// Restore finalized and safe block pointers from the database.
+	// The safe block is not persisted (spec note) so it mirrors finalized on
+	// startup, matching go-ethereum behaviour.
+	if fh := rawdb.ReadFinalizedBlockHash(db); fh != (types.Hash{}) {
+		if blk := bc.GetBlock(fh); blk != nil {
+			bc.currentFinalBlock = blk
+			bc.currentSafeBlock = blk
+		}
 	}
 
 	return bc, nil
@@ -674,6 +689,45 @@ func (bc *Blockchain) CurrentBlock() *types.Block {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 	return bc.currentBlock
+}
+
+// CurrentFinalBlock returns the latest block that the CL has finalized, or nil
+// if no finalized block has been signalled yet.
+func (bc *Blockchain) CurrentFinalBlock() *types.Block {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.currentFinalBlock
+}
+
+// CurrentSafeBlock returns the latest block that the CL has declared safe, or
+// nil if no safe block has been signalled yet.
+func (bc *Blockchain) CurrentSafeBlock() *types.Block {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.currentSafeBlock
+}
+
+// SetFinalized records the given block as the latest finalized block.
+// It updates the in-memory pointer and persists the hash to the database so
+// that the value survives a node restart.
+func (bc *Blockchain) SetFinalized(blk *types.Block) {
+	bc.mu.Lock()
+	bc.currentFinalBlock = blk
+	bc.mu.Unlock()
+	if blk != nil {
+		rawdb.WriteFinalizedBlockHash(bc.db, blk.Hash())
+	} else {
+		rawdb.WriteFinalizedBlockHash(bc.db, types.Hash{})
+	}
+}
+
+// SetSafe records the given block as the latest safe block.
+// The safe block is not persisted to disk (it is reconstructed from the
+// finalized block on startup, following go-ethereum convention).
+func (bc *Blockchain) SetSafe(blk *types.Block) {
+	bc.mu.Lock()
+	bc.currentSafeBlock = blk
+	bc.mu.Unlock()
 }
 
 // HasBlock checks if a block with the given hash exists in cache or rawdb.
