@@ -783,24 +783,32 @@ func (b *engineBackend) execBlockInternal(
 	// affect the block hash. The block builder always sets them when Glamsterdan
 	// is active, so newPayload must reproduce them to avoid a hash mismatch.
 	if bc.Config().IsGlamsterdan(payload.Timestamp) {
-		if parentBlock := bc.GetBlock(payload.ParentHash); parentBlock != nil {
-			ph := parentBlock.Header()
-			var pCalldataExcess, pCalldataUsed uint64
-			if ph.CalldataExcessGas != nil {
-				pCalldataExcess = *ph.CalldataExcessGas
-			}
-			if ph.CalldataGasUsed != nil {
-				pCalldataUsed = *ph.CalldataGasUsed
-			}
-			calldataExcessGas := coregas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, ph.GasLimit)
-			header.CalldataExcessGas = &calldataExcessGas
-			// CalldataGasUsed is the sum of CalldataGas() for all txs.
-			var calldataGasUsed uint64
-			for _, tx := range txs {
-				calldataGasUsed += tx.CalldataGas()
-			}
-			header.CalldataGasUsed = &calldataGasUsed
+		parentBlock := bc.GetBlock(payload.ParentHash)
+		if parentBlock == nil {
+			// Parent must be present to compute EIP-7706 fields; HasBlock
+			// returned true earlier so this is a transient rawdb read failure.
+			slog.Warn("engine_newPayload: parent block unavailable for EIP-7706, returning SYNCING",
+				"blockNumber", payload.BlockNumber,
+				"parentHash", payload.ParentHash,
+			)
+			return engine.PayloadStatusV1{Status: engine.StatusSyncing}, nil
 		}
+		ph := parentBlock.Header()
+		var pCalldataExcess, pCalldataUsed uint64
+		if ph.CalldataExcessGas != nil {
+			pCalldataExcess = *ph.CalldataExcessGas
+		}
+		if ph.CalldataGasUsed != nil {
+			pCalldataUsed = *ph.CalldataGasUsed
+		}
+		calldataExcessGas := coregas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, ph.GasLimit)
+		header.CalldataExcessGas = &calldataExcessGas
+		// CalldataGasUsed is the sum of CalldataGas() for all txs.
+		var calldataGasUsed uint64
+		for _, tx := range txs {
+			calldataGasUsed += tx.CalldataGas()
+		}
+		header.CalldataGasUsed = &calldataGasUsed
 	}
 
 	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
@@ -1492,6 +1500,13 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 	header := block.Header()
 
 	// Convert block to execution payload.
+	var blobGasUsed, excessBlobGas uint64
+	if header.BlobGasUsed != nil {
+		blobGasUsed = *header.BlobGasUsed
+	}
+	if header.ExcessBlobGas != nil {
+		excessBlobGas = *header.ExcessBlobGas
+	}
 	execPayload := &engine.ExecutionPayloadV4{
 		ExecutionPayloadV3: engine.ExecutionPayloadV3{
 			ExecutionPayloadV2: engine.ExecutionPayloadV2{
@@ -1512,6 +1527,8 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 					Transactions:  encodeTxsRLP(block.Transactions()),
 				},
 			},
+			BlobGasUsed:   blobGasUsed,
+			ExcessBlobGas: excessBlobGas,
 		},
 	}
 
@@ -1556,20 +1573,37 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 }
 
 // generatePayloadID creates a deterministic PayloadID from the parent hash
-// and build attributes.
+// and build attributes. Uses all four differentiating fields (parentHash,
+// timestamp, feeRecipient, prevRandao) to avoid collisions when two FCUs
+// arrive for the same parent/timestamp with different attributes.
 func generatePayloadID(parentHash types.Hash, attrs *block.BuildBlockAttributes) engine.PayloadID {
+	// Mix parent hash, timestamp, fee recipient, and prevRandao via XOR.
+	// Each source contributes 8 bytes so the full ID space is covered.
+	var buf [8]byte
+	// Parent hash: first 8 bytes.
+	copy(buf[:], parentHash[:8])
+	// XOR timestamp (big-endian 8 bytes).
+	var tsBytes [8]byte
+	binary.BigEndian.PutUint64(tsBytes[:], attrs.Timestamp)
+	for i := range buf {
+		buf[i] ^= tsBytes[i]
+	}
+	// XOR fee recipient (20 bytes; take first 8).
+	for i := 0; i < 8; i++ {
+		buf[i] ^= attrs.FeeRecipient[i]
+	}
+	// XOR prevRandao (32 bytes; take bytes 8-15 to maximise spread).
+	for i := 0; i < 8; i++ {
+		buf[i] ^= attrs.Random[8+i]
+	}
+
 	var id engine.PayloadID
+	copy(id[:], buf[:])
 
-	// Mix parent hash, timestamp, and fee recipient into the ID.
-	// Use a simple approach: take bytes from parent hash + timestamp.
-	copy(id[:], parentHash[:4])
-	binary.BigEndian.PutUint32(id[4:], uint32(attrs.Timestamp))
-
-	// If the ID collides (unlikely), add some randomness.
+	// If all bits cancelled out (astronomically unlikely), add randomness.
 	if id == (engine.PayloadID{}) {
 		rand.Read(id[:])
 	}
-
 	return id
 }
 
