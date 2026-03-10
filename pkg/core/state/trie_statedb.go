@@ -72,6 +72,13 @@ type TrieStateDB struct {
 	recreated map[types.Address]struct{} // accounts reset by CreateAccount this block
 }
 
+// GetMem returns a reference to the internal MemoryStateDB dirty buffer.
+// Callers must not modify the returned value; use it only for snapshotting
+// the in-memory state (e.g. at genesis, before any Commit has been called).
+func (t *TrieStateDB) GetMem() *MemoryStateDB {
+	return t.mem
+}
+
 // NewTrieStateDB creates a TrieStateDB backed by db using archive GC mode.
 func NewTrieStateDB(db rawdb.Database) *TrieStateDB {
 	return NewTrieStateDBWithGCMode(db, GCModeArchive)

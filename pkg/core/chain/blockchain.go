@@ -103,6 +103,12 @@ type Blockchain struct {
 	// config.Genesis state (used as base for re-execution).
 	genesisState state.StateDB
 
+	// execGenesisState is a self-contained MemoryStateDB snapshot of the
+	// genesis state. Unlike genesisState (which may be a TrieStateDB sharing
+	// a mutable db), this copy is never mutated after construction and is
+	// safe to use as a re-execution base at any point in the chain's life.
+	execGenesisState *state.MemoryStateDB
+
 	// Current state after processing the head block.
 	currentState state.StateDB
 
@@ -135,21 +141,36 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 	}
 
 	proc := execution.NewStateProcessor(config)
+
+	// Build a self-contained MemoryStateDB snapshot of the genesis state.
+	// This is used as the re-execution base in stateAt so that re-execution
+	// never reads from the (mutable) TrieStateDB shared db.
+	var execGenesis *state.MemoryStateDB
+	switch s := statedb.(type) {
+	case *state.TrieStateDB:
+		execGenesis = s.GetMem().Copy()
+	case *state.MemoryStateDB:
+		execGenesis = s.Copy()
+	default:
+		execGenesis = state.NewMemoryStateDB()
+	}
+
 	bc := &Blockchain{
-		config:       config,
-		db:           db,
-		opts:         opts,
-		processor:    proc,
-		validator:    block.NewBlockValidator(config),
-		blockCache:   make(map[types.Hash]*types.Block),
-		canonCache:   make(map[uint64]types.Hash),
-		receiptCache: make(map[types.Hash][]*types.Receipt),
-		txLookup:     make(map[types.Hash]TxLookupEntry),
-		sc:           newStateCache(opts.StateCacheSize),
-		genesisState: statedb,
-		currentState: statedb.Dup(),
-		genesis:      genesis,
-		currentBlock: genesis,
+		config:           config,
+		db:               db,
+		opts:             opts,
+		processor:        proc,
+		validator:        block.NewBlockValidator(config),
+		blockCache:       make(map[types.Hash]*types.Block),
+		canonCache:       make(map[uint64]types.Hash),
+		receiptCache:     make(map[types.Hash][]*types.Receipt),
+		txLookup:         make(map[types.Hash]TxLookupEntry),
+		sc:               newStateCache(opts.StateCacheSize),
+		genesisState:     statedb,
+		execGenesisState: execGenesis,
+		currentState:     statedb.Dup(),
+		genesis:          genesis,
+		currentBlock:     genesis,
 	}
 
 	// Wire up GetHash for BLOCKHASH opcode support.
@@ -692,7 +713,9 @@ func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
 // re-executing the entire chain from genesis.
 func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	if blk.Hash() == bc.genesis.Hash() {
-		return bc.genesisState.Dup(), nil
+		// Use the self-contained MemoryStateDB copy so that the returned state
+		// is independent of the shared TrieStateDB db.
+		return bc.execGenesisState.Copy(), nil
 	}
 
 	// Check if we have an exact cached state for this block.
@@ -729,9 +752,11 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 		current = parent
 	}
 
-	// Use genesis state as base if no cached snapshot was found.
+	// Use the self-contained genesis MemoryStateDB as base if no cached
+	// snapshot was found. This avoids reading from the (mutable) TrieStateDB
+	// shared db, which reflects the current head state rather than genesis.
 	if baseState == nil {
-		baseState = bc.genesisState.Dup()
+		baseState = bc.execGenesisState.Copy()
 	}
 
 	// Re-execute from the base state.
@@ -1099,6 +1124,11 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	bc.hc.mu.Lock()
 	bc.hc.currentHeader = newHead.Header()
 	bc.hc.mu.Unlock()
+
+	// Clear stale state cache entries: cached TrieStateDB Dups share the live
+	// db which now reflects the state after the new canonical chain. Re-using
+	// them as re-execution bases after a reorg would read wrong historical state.
+	bc.sc.clear()
 
 	// Re-derive state for the new head.
 	statedb, err := bc.stateAt(newHead)
