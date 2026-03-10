@@ -562,6 +562,19 @@ func (b *engineBackend) processBlockInternal(
 		"txCount", len(payload.Transactions),
 	)
 
+	// Short-circuit for already-known blocks (e.g. Lighthouse sends the same
+	// block via both the Engine API proposer path and P2P gossip). Returning
+	// VALID immediately avoids redundant RLP decode, InsertBlock execution,
+	// and duplicate "accepted" log spam.
+	if bc.HasBlock(payload.BlockHash) {
+		h := payload.BlockHash
+		slog.Debug("engine_newPayload: already known, returning VALID",
+			"blockNumber", payload.BlockNumber,
+			"blockHash", payload.BlockHash,
+		)
+		return engine.PayloadStatusV1{Status: engine.StatusValid, LatestValidHash: &h}, nil
+	}
+
 	// Decode transactions from raw bytes.
 	var txs []*types.Transaction
 	for _, raw := range payload.Transactions {
