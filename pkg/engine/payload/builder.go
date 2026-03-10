@@ -36,7 +36,7 @@ type BuiltPayload struct {
 type PayloadBuilder struct {
 	mu       sync.RWMutex
 	config   *coreconfig.ChainConfig
-	statedb  *state.MemoryStateDB
+	statedb  state.StateDB
 	txPool   block.TxPoolReader
 	payloads map[PayloadID]*BuiltPayload
 	// prover is an optional STARK prover for VERIFY frame transactions (US-PQ-5b).
@@ -44,7 +44,7 @@ type PayloadBuilder struct {
 }
 
 // NewPayloadBuilder creates a new PayloadBuilder.
-func NewPayloadBuilder(config *coreconfig.ChainConfig, statedb *state.MemoryStateDB, txPool block.TxPoolReader) *PayloadBuilder {
+func NewPayloadBuilder(config *coreconfig.ChainConfig, statedb state.StateDB, txPool block.TxPoolReader) *PayloadBuilder {
 	return &PayloadBuilder{
 		config:   config,
 		statedb:  statedb,
@@ -72,7 +72,7 @@ func (pb *PayloadBuilder) StartBuild(
 	defer pb.mu.Unlock()
 
 	builder := block.NewBlockBuilder(pb.config, nil, pb.txPool)
-	builder.SetState(pb.statedb.Copy())
+	builder.SetState(pb.statedb.Dup())
 	parentHeader := parentBlock.Header()
 
 	var beaconRoot *types.Hash

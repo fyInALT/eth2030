@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	ethlog "github.com/eth2030/eth2030/log"
 	"github.com/eth2030/eth2030/node"
 )
 
@@ -232,6 +233,11 @@ func newFlagSet(cfg *node.Config) *flagSet {
 	// --- Snapshot ---
 	fs.IntVar(&cfg.SnapshotCapDepth, "snapshot.cap-depth", cfg.SnapshotCapDepth, "max in-memory snapshot diff layers before flushing to disk (0 = no flush, default 128)")
 
+	// --- Memory cache sizes ---
+	fs.IntVar(&cfg.CacheBlockSize, "cache.block", cfg.CacheBlockSize, "max blocks in the in-memory block cache (default 256)")
+	fs.IntVar(&cfg.CacheReceiptSize, "cache.receipts", cfg.CacheReceiptSize, "max receipt sets in the in-memory receipt cache (default 128)")
+	fs.IntVar(&cfg.CacheStateSize, "cache.state-snapshots", cfg.CacheStateSize, "max MemoryStateDB snapshots for fast reorg/payload-building (default 4)")
+
 	return fs
 }
 
@@ -261,7 +267,9 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".eth2030")
 }
 
-// setupLogging configures the slog default logger based on verbosity.
+// setupLogging configures both the slog default and the pkg/log default based
+// on verbosity so that all subsystem loggers (blockchainLog, txpoolLog, …)
+// respect the -verbosity flag.
 func setupLogging(verbosity int) {
 	var level slog.Level
 	switch {
@@ -275,4 +283,7 @@ func setupLogging(verbosity int) {
 		level = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	// Also update the pkg/log default so module-scoped loggers (blockchainLog,
+	// txpoolLog, rpcLog, …) inherit the chosen level.
+	ethlog.SetLevel(level)
 }

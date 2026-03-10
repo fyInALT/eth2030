@@ -546,5 +546,12 @@ func (s *StatelessStateDB) Verify(expectedRoot types.Hash) error {
 	return s.witness.Verify(expectedRoot)
 }
 
+// Dup returns a copy of the StatelessStateDB as a StateDB interface.
+// StatelessStateDB is read-only (witness-backed); Dup panics to prevent
+// accidental mutation of a witness-backed state.
+func (s *StatelessStateDB) Dup() StateDB {
+	panic("StatelessStateDB: Dup not supported (read-only witness-backed state)")
+}
+
 // Verify interface compliance at compile time.
 var _ StateDB = (*StatelessStateDB)(nil)

@@ -64,4 +64,8 @@ type StateDB interface {
 
 	// Commit
 	Commit() (types.Hash, error)
+
+	// Dup returns a copy of the state for independent mutation.
+	// The copy shares no mutable data with the original.
+	Dup() StateDB
 }

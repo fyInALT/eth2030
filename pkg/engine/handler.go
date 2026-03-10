@@ -3,9 +3,13 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/log"
 )
+
+var engineLog = log.Default().Module("engine/api")
 
 // jsonrpcRequest represents a JSON-RPC 2.0 request.
 type jsonrpcRequest struct {
@@ -38,8 +42,14 @@ var (
 
 // HandleRequest processes a raw JSON-RPC request and returns the raw JSON response.
 func (api *EngineAPI) HandleRequest(data []byte) []byte {
+	start := time.Now()
+
 	var req jsonrpcRequest
 	if err := json.Unmarshal(data, &req); err != nil {
+		engineLog.Debug("engine_parse_error",
+			"event", "engine_parse_error",
+			"error", err,
+		)
 		resp := jsonrpcResponse{
 			JSONRPC: "2.0",
 			Error: &jsonrpcError{
@@ -65,7 +75,32 @@ func (api *EngineAPI) HandleRequest(data []byte) []byte {
 		return out
 	}
 
+	engineLog.Debug("engine_request",
+		"event", "engine_request",
+		"method", req.Method,
+	)
+
 	result, rpcErr := api.dispatch(req.Method, req.Params)
+	latency := time.Since(start)
+
+	if rpcErr != nil {
+		engineLog.Debug("engine_response",
+			"event", "engine_response",
+			"method", req.Method,
+			"latency_ms", latency.Milliseconds(),
+			"error", true,
+			"err_code", rpcErr.Code,
+			"err_msg", rpcErr.Message,
+		)
+	} else {
+		engineLog.Debug("engine_response",
+			"event", "engine_response",
+			"method", req.Method,
+			"latency_ms", latency.Milliseconds(),
+			"error", false,
+		)
+	}
+
 	resp := jsonrpcResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,

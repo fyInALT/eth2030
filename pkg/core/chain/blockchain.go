@@ -6,14 +6,20 @@ import (
 	"math/big"
 	"sync"
 
+	"time"
+
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 	"github.com/eth2030/eth2030/rlp"
 )
+
+var blockchainLog = log.Default().Module("eth/blockchain")
 
 var (
 	ErrNoGenesis     = errors.New("genesis block not provided")
@@ -23,6 +29,35 @@ var (
 	ErrFutureBlock2  = errors.New("block number too high")
 	ErrStateNotFound = errors.New("state not found for block")
 )
+
+const (
+	// defaultBlockCacheSize is the default in-memory block cache capacity.
+	defaultBlockCacheSize = 256
+	// defaultReceiptCacheSize is the default in-memory receipt cache capacity.
+	defaultReceiptCacheSize = 128
+)
+
+// BlockchainOpts configures optional memory-cache sizes for a Blockchain.
+// Zero values fall back to package defaults.
+type BlockchainOpts struct {
+	// BlockCacheSize is the maximum number of blocks kept in the memory cache.
+	// Older entries are evicted; rawdb is the persistent fallback.
+	BlockCacheSize int
+	// ReceiptCacheSize is the maximum number of receipt sets kept in memory.
+	ReceiptCacheSize int
+	// StateCacheSize is the maximum number of MemoryStateDB snapshots retained
+	// for fast reorg / payload-building (see state_cache.go).
+	StateCacheSize int
+}
+
+// DefaultBlockchainOpts returns BlockchainOpts populated with package defaults.
+func DefaultBlockchainOpts() BlockchainOpts {
+	return BlockchainOpts{
+		BlockCacheSize:   defaultBlockCacheSize,
+		ReceiptCacheSize: defaultReceiptCacheSize,
+		StateCacheSize:   defaultMaxCachedStates,
+	}
+}
 
 // TxLookupEntry stores the location of a transaction within the chain.
 type TxLookupEntry struct {
@@ -44,26 +79,47 @@ type Blockchain struct {
 	processor *execution.StateProcessor
 	validator block.Validator
 
-	// Block cache: hash -> block.
-	blockCache map[types.Hash]*types.Block
+	opts BlockchainOpts // cache size limits, set at construction
+
+	// Block cache: hash -> block.  Bounded to opts.BlockCacheSize entries;
+	// older entries are evicted (rawdb is the persistent fallback).
+	blockCache      map[types.Hash]*types.Block
+	blockCacheOrder []types.Hash // insertion order for LRU eviction
 
 	// Canonical number -> hash for quick lookups.
 	canonCache map[uint64]types.Hash
 
 	// Receipt cache: blockHash -> receipts.  Protected by rcMu.
-	receiptCache map[types.Hash][]*types.Receipt
+	receiptCache      map[types.Hash][]*types.Receipt
+	receiptCacheOrder []types.Hash // insertion order for LRU eviction (under rcMu)
 
 	// Transaction lookup: txHash -> location in chain.
+	// Entries are evicted together with their block from blockCache.
 	txLookup map[types.Hash]TxLookupEntry
 
 	// State snapshot cache to avoid re-execution from genesis.
 	sc *stateCache
 
 	// config.Genesis state (used as base for re-execution).
-	genesisState *state.MemoryStateDB
+	genesisState state.StateDB
+
+	// execGenesisState is a self-contained MemoryStateDB snapshot of the
+	// genesis state. Unlike genesisState (which may be a TrieStateDB sharing
+	// a mutable db), this copy is never mutated after construction and is
+	// safe to use as a re-execution base at any point in the chain's life.
+	execGenesisState *state.MemoryStateDB
+
+	// gcMode is forwarded from the genesis statedb (archive or full) so that
+	// reorg() can materialise a MemoryStateDB back into a TrieStateDB.
+	gcMode string
+
+	// stateDB is the database backend used by TrieStateDB for account/storage
+	// state. Separate from bc.db (which stores blocks/receipts) so that state
+	// can use a fast in-memory store while blocks use the persistent FileDB.
+	stateDB rawdb.Database
 
 	// Current state after processing the head block.
-	currentState *state.MemoryStateDB
+	currentState state.StateDB
 
 	// The genesis block.
 	genesis *types.Block
@@ -74,26 +130,62 @@ type Blockchain struct {
 
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
 // The statedb should contain the genesis state (pre-funded accounts, etc.).
-func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *state.MemoryStateDB, db rawdb.Database) (*Blockchain, error) {
+// opts is an optional BlockchainOpts; zero/absent values use package defaults.
+func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb state.StateDB, db rawdb.Database, optArgs ...BlockchainOpts) (*Blockchain, error) {
 	if genesis == nil {
 		return nil, ErrNoGenesis
 	}
+	var opts BlockchainOpts
+	if len(optArgs) > 0 {
+		opts = optArgs[0]
+	}
+	if opts.BlockCacheSize <= 0 {
+		opts.BlockCacheSize = defaultBlockCacheSize
+	}
+	if opts.ReceiptCacheSize <= 0 {
+		opts.ReceiptCacheSize = defaultReceiptCacheSize
+	}
+	if opts.StateCacheSize <= 0 {
+		opts.StateCacheSize = defaultMaxCachedStates
+	}
 
 	proc := execution.NewStateProcessor(config)
+
+	// Build a self-contained MemoryStateDB snapshot of the genesis state.
+	// Called BEFORE ts.Commit() in node.go so that ts.mem still holds the
+	// genesis alloc accounts (Commit resets mem to empty).
+	var execGenesis *state.MemoryStateDB
+	var gcMode string
+	var stateDB rawdb.Database
+	switch s := statedb.(type) {
+	case *state.TrieStateDB:
+		execGenesis = s.GetMem().Copy()
+		gcMode = s.GCMode()
+		stateDB = s.DB()
+	case *state.MemoryStateDB:
+		execGenesis = s.Copy()
+	default:
+		execGenesis = state.NewMemoryStateDB()
+	}
+
 	bc := &Blockchain{
-		config:       config,
-		db:           db,
-		processor:    proc,
-		validator:    block.NewBlockValidator(config),
-		blockCache:   make(map[types.Hash]*types.Block),
-		canonCache:   make(map[uint64]types.Hash),
-		receiptCache: make(map[types.Hash][]*types.Receipt),
-		txLookup:     make(map[types.Hash]TxLookupEntry),
-		sc:           newStateCache(),
-		genesisState: statedb,
-		currentState: statedb.Copy(),
-		genesis:      genesis,
-		currentBlock: genesis,
+		config:           config,
+		db:               db,
+		stateDB:          stateDB,
+		opts:             opts,
+		processor:        proc,
+		validator:        block.NewBlockValidator(config),
+		blockCache:       make(map[types.Hash]*types.Block),
+		canonCache:       make(map[uint64]types.Hash),
+		receiptCache:     make(map[types.Hash][]*types.Receipt),
+		txLookup:         make(map[types.Hash]TxLookupEntry),
+		sc:               newStateCache(opts.StateCacheSize),
+		genesisState:     statedb,
+		execGenesisState: execGenesis,
+		gcMode:           gcMode,
+		currentState:     statedb.Dup(),
+		genesis:          genesis,
+		currentBlock:     genesis,
 	}
 
 	// Wire up GetHash for BLOCKHASH opcode support.
@@ -120,6 +212,23 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb *st
 	return bc, nil
 }
 
+// evictOldestBlock removes the oldest block from blockCache (LRU eviction).
+// It also removes the block's transactions from txLookup.
+// Must be called with bc.mu held for writing.
+func (bc *Blockchain) evictOldestBlock() {
+	if len(bc.blockCacheOrder) == 0 {
+		return
+	}
+	oldest := bc.blockCacheOrder[0]
+	bc.blockCacheOrder = bc.blockCacheOrder[1:]
+	if evBlk, ok := bc.blockCache[oldest]; ok {
+		delete(bc.blockCache, oldest)
+		for _, tx := range evBlk.Transactions() {
+			delete(bc.txLookup, tx.Hash())
+		}
+	}
+}
+
 // InsertBlock validates, executes, and inserts a single block.
 func (bc *Blockchain) InsertBlock(blk *types.Block) error {
 	bc.mu.Lock()
@@ -130,13 +239,27 @@ func (bc *Blockchain) InsertBlock(blk *types.Block) error {
 // insertBlock is the internal insert without locking.
 func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	hash := blk.Hash()
+	num := blk.NumberU64()
+	header := blk.Header()
+
+	blockchainLog.Debug("block_insert",
+		"event", "block_insert",
+		"hash", hash.Hex(),
+		"num", num,
+		"txCount", len(blk.Transactions()),
+		"gasLimit", header.GasLimit,
+		"parentHash", header.ParentHash.Hex(),
+	)
 
 	// Skip if already known.
 	if _, ok := bc.blockCache[hash]; ok {
+		blockchainLog.Debug("block_known",
+			"event", "block_known",
+			"hash", hash.Hex(),
+			"num", num,
+		)
 		return nil
 	}
-
-	header := blk.Header()
 
 	// Find parent: check cache first, then fall back to rawdb.
 	parent := bc.blockCache[header.ParentHash]
@@ -147,30 +270,71 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 	if parent == nil {
-		return fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
+		err := fmt.Errorf("%w: parent %v", block.ErrUnknownParent, header.ParentHash)
+		blockchainLog.Warn("block_invalid",
+			"event", "block_invalid",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "unknown parent",
+			"parentHash", header.ParentHash.Hex(),
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate header against parent.
 	parentHeader := parent.Header()
 	if err := bc.validator.ValidateHeader(header, parentHeader); err != nil {
+		blockchainLog.Warn("block_invalid",
+			"event", "block_invalid",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "header validation failed",
+			"parentHash", header.ParentHash.Hex(),
+			"parentNum", parent.NumberU64(),
+			"error", err,
+		)
 		return err
 	}
 
 	// Validate body.
 	if err := bc.validator.ValidateBody(blk); err != nil {
+		blockchainLog.Warn("block_invalid",
+			"event", "block_invalid",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "body validation failed",
+			"error", err,
+		)
 		return err
 	}
 
 	// Build state for execution by re-executing from genesis.
 	statedb, err := bc.stateAt(parent)
 	if err != nil {
+		blockchainLog.Error("block_state_error",
+			"event", "block_state_error",
+			"hash", hash.Hex(),
+			"num", num,
+			"parentNum", parent.NumberU64(),
+			"error", err,
+		)
 		return fmt.Errorf("state at parent %d: %w", parent.NumberU64(), err)
 	}
 
 	// Execute transactions (with BAL tracking when Amsterdam is active).
+	blockStart := time.Now()
 	result, err := bc.processor.ProcessWithBAL(blk, statedb)
+	metrics.BlockProcessTime.Observe(float64(time.Since(blockStart).Milliseconds()))
 	if err != nil {
-		return fmt.Errorf("process block %d: %w", blk.NumberU64(), err)
+		blockchainLog.Error("block_exec_fail",
+			"event", "block_exec_fail",
+			"hash", hash.Hex(),
+			"num", num,
+			"txCount", len(blk.Transactions()),
+			"error", err,
+		)
+		return fmt.Errorf("process block %d: %w", num, err)
 	}
 	receipts := result.Receipts
 
@@ -180,22 +344,49 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		totalGasUsed += r.GasUsed
 	}
 	if header.GasUsed != totalGasUsed {
-		return fmt.Errorf("%w: header=%d computed=%d", block.ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
+		err := fmt.Errorf("%w: header=%d computed=%d", block.ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
+		blockchainLog.Warn("block_gas_mismatch",
+			"event", "block_gas_mismatch",
+			"hash", hash.Hex(),
+			"num", num,
+			"headerGasUsed", header.GasUsed,
+			"computedGasUsed", totalGasUsed,
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate receipt root: the Merkle trie hash of receipts must match
 	// header.ReceiptHash.
 	computedReceiptHash := block.ComputeReceiptsRoot(receipts)
 	if header.ReceiptHash != computedReceiptHash {
-		return fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidReceiptRoot,
+		err := fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidReceiptRoot,
 			header.ReceiptHash.Hex(), computedReceiptHash.Hex())
+		blockchainLog.Warn("block_invalid",
+			"event", "block_invalid",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "receipt root mismatch",
+			"headerReceiptHash", header.ReceiptHash.Hex(),
+			"computedReceiptHash", computedReceiptHash.Hex(),
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate block bloom: the bloom in the header must match the computed
 	// bloom from all receipt logs.
 	blockBloom := types.CreateBloom(receipts)
 	if header.Bloom != blockBloom {
-		return fmt.Errorf("invalid bloom (remote: %x local: %x)", header.Bloom, blockBloom)
+		err := fmt.Errorf("invalid bloom (remote: %x local: %x)", header.Bloom, blockBloom)
+		blockchainLog.Warn("block_invalid",
+			"event", "block_invalid",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "bloom mismatch",
+			"error", err,
+		)
+		return err
 	}
 
 	// EIP-7685: process execution layer requests (Prague+).
@@ -203,15 +394,32 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// so it must run before computing the state root.
 	if bc.config != nil && bc.config.IsPrague(header.Time) {
 		if _, err := execution.ProcessRequests(bc.config, statedb, header); err != nil {
-			return fmt.Errorf("process requests block %d: %w", blk.NumberU64(), err)
+			blockchainLog.Error("block_requests_fail",
+				"event", "block_requests_fail",
+				"hash", hash.Hex(),
+				"num", num,
+				"error", err,
+			)
+			return fmt.Errorf("process requests block %d: %w", num, err)
 		}
 	}
 
 	// Validate state root: the post-execution state root must match header.Root.
 	computedRoot := statedb.GetRoot()
 	if header.Root != computedRoot {
-		return fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidStateRoot,
+		err := fmt.Errorf("%w: header=%s computed=%s", block.ErrInvalidStateRoot,
 			header.Root.Hex(), computedRoot.Hex())
+		blockchainLog.Warn("block_root_mismatch",
+			"event", "block_root_mismatch",
+			"hash", hash.Hex(),
+			"num", num,
+			"headerRoot", header.Root.Hex(),
+			"computedRoot", computedRoot.Hex(),
+			"txCount", len(blk.Transactions()),
+			"gasUsed", totalGasUsed,
+			"error", err,
+		)
+		return err
 	}
 
 	// Validate Block Access List hash (EIP-7928).
@@ -221,13 +429,23 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		computedBALHash = &h
 	}
 	if err := bc.validator.ValidateBlockAccessList(header, computedBALHash); err != nil {
+		blockchainLog.Warn("block_invalid",
+			"event", "block_invalid",
+			"hash", hash.Hex(),
+			"num", num,
+			"reason", "BAL hash mismatch",
+			"error", err,
+		)
 		return err
 	}
 
-	// Store in block cache.
+	// Store in block cache (evict oldest when at capacity).
+	for len(bc.blockCache) >= bc.opts.BlockCacheSize {
+		bc.evictOldestBlock()
+	}
 	bc.blockCache[hash] = blk
+	bc.blockCacheOrder = append(bc.blockCacheOrder, hash)
 
-	num := blk.NumberU64()
 	txs := blk.Transactions()
 
 	// Populate derived fields on receipts and store tx lookup entries.
@@ -239,18 +457,27 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			receipt.TxHash = txs[i].Hash()
 		}
 		// Set log context fields.
-		for j, log := range receipt.Logs {
-			log.BlockHash = hash
-			log.BlockNumber = num
-			log.TxHash = receipt.TxHash
-			log.TxIndex = uint(i)
-			log.Index = uint(j)
+		for j, logEntry := range receipt.Logs {
+			logEntry.BlockHash = hash
+			logEntry.BlockNumber = num
+			logEntry.TxHash = receipt.TxHash
+			logEntry.TxIndex = uint(i)
+			logEntry.Index = uint(j)
 		}
 	}
 
 	// Cache receipts by block hash (rcMu allows concurrent readers in GetReceipts).
 	bc.rcMu.Lock()
+	for len(bc.receiptCache) >= bc.opts.ReceiptCacheSize {
+		if len(bc.receiptCacheOrder) == 0 {
+			break
+		}
+		oldest := bc.receiptCacheOrder[0]
+		bc.receiptCacheOrder = bc.receiptCacheOrder[1:]
+		delete(bc.receiptCache, oldest)
+	}
 	bc.receiptCache[hash] = receipts
+	bc.receiptCacheOrder = append(bc.receiptCacheOrder, hash)
 	bc.rcMu.Unlock()
 
 	// Build tx lookup index.
@@ -262,15 +489,25 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Always cache the post-execution state so that reorgs to this block
-	// (canonical or side-chain) can recover state in O(1).
-	bc.sc.put(hash, num, statedb.(*state.MemoryStateDB))
+	// Cache the post-execution state BEFORE committing so side blocks keep
+	// their dirty mem layer (side block cache entries must NOT flush to the
+	// shared DB, as that would corrupt cached states for parent blocks).
+	bc.sc.put(hash, num, statedb)
 
 	// Update canonical chain if this extends the head.
 	if num > bc.currentBlock.NumberU64() {
+		// Commit state to the backing store only for canonical blocks.
+		// Committing a TrieStateDB Dup flushes its dirty layer to the shared DB
+		// and resets mem, bounding per-block memory. Side blocks must NOT commit
+		// so that the DB always reflects the canonical chain's state (enabling
+		// correct state reads for subsequent canonical blocks via the cache).
+		if _, err := statedb.Commit(); err != nil {
+			return fmt.Errorf("commit state block %d: %w", num, err)
+		}
+
 		bc.canonCache[num] = hash
 		bc.currentBlock = blk
-		bc.currentState = statedb.(*state.MemoryStateDB)
+		bc.currentState = statedb
 
 		// Persist to rawdb.
 		bc.writeBlock(blk)
@@ -282,6 +519,27 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 
 		// Update header chain.
 		bc.hc.InsertHeaders([]*types.Header{header})
+
+		metrics.BlocksInserted.Inc()
+		metrics.ChainHeight.Set(int64(num))
+		blockchainLog.Info("block_added",
+			"event", "block_added",
+			"hash", hash.Hex(),
+			"num", num,
+			"txCount", len(txs),
+			"gasUsed", totalGasUsed,
+			"gasLimit", header.GasLimit,
+		)
+	} else {
+		// Persist side blocks so stateAt can walk the ancestor chain even after
+		// the block is evicted from the in-memory blockCache.
+		bc.writeBlock(blk)
+		blockchainLog.Debug("block_side",
+			"event", "block_side",
+			"hash", hash.Hex(),
+			"num", num,
+			"canonHead", bc.currentBlock.NumberU64(),
+		)
 	}
 
 	return nil
@@ -340,12 +598,17 @@ func (bc *Blockchain) CurrentBlock() *types.Block {
 	return bc.currentBlock
 }
 
-// HasBlock checks if a block with the given hash exists.
+// HasBlock checks if a block with the given hash exists in cache or rawdb.
 func (bc *Blockchain) HasBlock(hash types.Hash) bool {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	_, ok := bc.blockCache[hash]
-	return ok
+	if _, ok := bc.blockCache[hash]; ok {
+		return true
+	}
+	// Fall back to rawdb: if the header number mapping exists, the block was
+	// persisted (written by writeBlock which calls WriteHeader).
+	_, err := rawdb.ReadHeaderNumber(bc.db, hash)
+	return err == nil
 }
 
 // SetHead rewinds the canonical chain to the given block number.
@@ -353,6 +616,12 @@ func (bc *Blockchain) HasBlock(hash types.Hash) bool {
 func (bc *Blockchain) SetHead(number uint64) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
+
+	blockchainLog.Info("chain_sethead",
+		"event", "chain_sethead",
+		"from", bc.currentBlock.NumberU64(),
+		"to", number,
+	)
 
 	target, ok := bc.canonCache[number]
 	if !ok {
@@ -378,7 +647,7 @@ func (bc *Blockchain) SetHead(number uint64) error {
 	if err != nil {
 		return fmt.Errorf("re-derive state at %d: %w", number, err)
 	}
-	bc.currentState = statedb.(*state.MemoryStateDB)
+	bc.currentState = statedb
 
 	// Update rawdb pointers.
 	hash := bc.currentBlock.Hash()
@@ -415,10 +684,10 @@ func (bc *Blockchain) Config() *config.ChainConfig {
 }
 
 // State returns a copy of the current state.
-func (bc *Blockchain) State() *state.MemoryStateDB {
+func (bc *Blockchain) State() state.StateDB {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	return bc.currentState.Copy()
+	return bc.currentState.Dup()
 }
 
 // StateAtRoot returns the state for the given state root hash.
@@ -430,12 +699,12 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 
 	// Fast path: check if root matches the current head state.
 	if bc.currentState.GetRoot() == root {
-		return bc.currentState.Copy(), nil
+		return bc.currentState.Dup(), nil
 	}
 
 	// Check if root matches the genesis state.
 	if bc.genesisState.GetRoot() == root {
-		return bc.genesisState.Copy(), nil
+		return bc.genesisState.Dup(), nil
 	}
 
 	// Search canonical blocks for a block with this state root.
@@ -462,35 +731,38 @@ func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
 // re-executing the entire chain from genesis.
 func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	if blk.Hash() == bc.genesis.Hash() {
-		return bc.genesisState.Copy(), nil
+		// genesisState is a TrieStateDB with genesis accounts persisted in db.
+		// Dup() gives a fresh state that reads from db (= genesis state) without
+		// accumulating dirty writes in the cached entry.
+		return bc.genesisState.Dup(), nil
 	}
 
 	// Check if we have an exact cached state for this block.
+	// Dup() so callers (insertBlock, block builder) do not corrupt the cache.
 	if cached, ok := bc.sc.get(blk.Hash()); ok {
-		return cached, nil
+		return cached.Dup(), nil
 	}
 
 	// Collect the chain of blocks from genesis (or a cached snapshot) to this block.
 	var chain []*types.Block
 	current := blk
-	var baseState *state.MemoryStateDB
+	var baseState state.StateDB
 
 	for current.Hash() != bc.genesis.Hash() {
 		// Check if we have a cached state for this ancestor.
 		if cached, ok := bc.sc.get(current.ParentHash()); ok {
-			// We have a cached state at the parent; re-execute from there.
-			baseState = cached
+			// Dup() so processor.Process does not mutate the cached state.
+			baseState = cached.Dup()
 			chain = append(chain, current)
 			break
 		}
 		chain = append(chain, current)
 		parent, ok := bc.blockCache[current.ParentHash()]
 		if !ok {
-			// Fallback: try rawdb.
+			// Fallback: try rawdb. Do NOT write blockCache here — stateAt
+			// may be called under RLock (from StateAtBlock), and writing a
+			// shared map under RLock causes concurrent map write panics.
 			parent = bc.readBlock(current.ParentHash())
-			if parent != nil {
-				bc.blockCache[current.ParentHash()] = parent
-			}
 		}
 		if parent == nil {
 			return nil, fmt.Errorf("%w: missing ancestor at %v", ErrStateNotFound, current.ParentHash())
@@ -498,9 +770,11 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 		current = parent
 	}
 
-	// Use genesis state as base if no cached snapshot was found.
+	// Use the self-contained genesis MemoryStateDB as base if no cached
+	// snapshot was found. This avoids reading from the (mutable) TrieStateDB
+	// shared db, which reflects the current head state rather than genesis.
 	if baseState == nil {
-		baseState = bc.genesisState.Copy()
+		baseState = bc.execGenesisState.Copy()
 	}
 
 	// Re-execute from the base state.
@@ -765,6 +1039,16 @@ func (bc *Blockchain) Reorg(newHead *types.Block) error {
 
 // reorg is the internal reorg implementation without locking.
 func (bc *Blockchain) reorg(newHead *types.Block) error {
+	prevHead := bc.currentBlock
+	metrics.ReorgsDetected.Inc()
+	blockchainLog.Info("block_reorganized",
+		"event", "block_reorganized",
+		"oldHash", prevHead.Hash().Hex(),
+		"oldNum", prevHead.NumberU64(),
+		"newHash", newHead.Hash().Hex(),
+		"newNum", newHead.NumberU64(),
+	)
+
 	// Build the new chain's ancestry: walk from newHead to genesis.
 	// Collect blocks in reverse order (head first).
 	var newChain []*types.Block
@@ -779,7 +1063,12 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 		newChain = append(newChain, current)
 		parent, ok := bc.blockCache[current.ParentHash()]
 		if !ok {
-			return fmt.Errorf("%w: missing ancestor %v during reorg", ErrBlockNotFound, current.ParentHash())
+			// Fall back to rawdb for evicted ancestors.
+			parent = bc.readBlock(current.ParentHash())
+			if parent == nil {
+				return fmt.Errorf("%w: missing ancestor %v during reorg", ErrBlockNotFound, current.ParentHash())
+			}
+			bc.blockCache[current.ParentHash()] = parent
 		}
 		current = parent
 	}
@@ -793,6 +1082,8 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	}
 
 	// Un-index all canonical blocks above genesis.
+	// Delete txLookup entries for any orphaned blocks so that rawdb lookups
+	// do not return stale block numbers after the canonical chain changes.
 	for n := maxHeight; n >= 1; n-- {
 		if hash, ok := bc.canonCache[n]; ok {
 			delete(bc.canonCache, n)
@@ -804,11 +1095,20 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 				delete(bc.hc.headers, n)
 			}
 			bc.hc.mu.Unlock()
-			_ = hash
+
+			// Remove in-memory txLookup entries and rawdb txLookup entries
+			// for the orphaned block so stale lookups cannot be returned.
+			if orphan, ok := bc.blockCache[hash]; ok {
+				for _, tx := range orphan.Transactions() {
+					delete(bc.txLookup, tx.Hash())
+					rawdb.DeleteTxLookup(bc.db, tx.Hash())
+				}
+			}
 		}
 	}
 
 	// Re-index the new chain from lowest block to highest.
+	// Write txLookup entries for the incoming canonical blocks.
 	for i := len(newChain) - 1; i >= 0; i-- {
 		blk := newChain[i]
 		hash := blk.Hash()
@@ -818,6 +1118,14 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 		bc.canonCache[num] = hash
 		bc.writeBlock(blk)
 		rawdb.WriteCanonicalHash(bc.db, num, hash)
+		bc.writeTxLookups(blk.Transactions(), num)
+		for idx, tx := range blk.Transactions() {
+			bc.txLookup[tx.Hash()] = TxLookupEntry{
+				BlockHash:   hash,
+				BlockNumber: num,
+				TxIndex:     uint64(idx),
+			}
+		}
 
 		h := blk.Header()
 		bc.hc.mu.Lock()
@@ -835,12 +1143,49 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	bc.hc.currentHeader = newHead.Header()
 	bc.hc.mu.Unlock()
 
-	// Re-derive state for the new head.
+	// Clear stale state cache entries: cached TrieStateDB Dups share the live
+	// db which now reflects the state after the old canonical chain. Re-using
+	// them as re-execution bases for the new fork would read wrong state.
+	bc.sc.clear()
+
+	// Re-derive state for the new head by re-executing from execGenesisState
+	// (a self-contained MemoryStateDB that never reads from the shared db).
 	statedb, err := bc.stateAt(newHead)
 	if err != nil {
+		blockchainLog.Error("reorg_state_fail",
+			"event", "reorg_state_fail",
+			"newHash", newHead.Hash().Hex(),
+			"newNum", newHead.NumberU64(),
+			"error", err,
+		)
 		return fmt.Errorf("re-derive state after reorg at %d: %w", newHead.NumberU64(), err)
 	}
-	bc.currentState = statedb.(*state.MemoryStateDB)
+
+	// If we re-executed from genesis using MemoryStateDB, materialise the
+	// result back into a TrieStateDB so that future block processing stays
+	// memory-efficient (TrieStateDB flushes dirty writes to disk on each
+	// Commit, bounding per-block RAM to the working set of a single block).
+	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" && bc.stateDB != nil {
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.stateDB, mdb.Copy(), bc.gcMode)
+		// Purge ALL stale state from DB before committing the canonical snapshot.
+		// Without this, accounts/storage written by reverted side blocks would
+		// remain in the DB and corrupt the state root on the next block.
+		if err := ts.ClearAllState(); err != nil {
+			blockchainLog.Warn("reorg_clear_state_failed",
+				"event", "reorg_clear_state_failed",
+				"error", err,
+			)
+		}
+		if _, commitErr := ts.Commit(); commitErr == nil {
+			statedb = ts
+		}
+	}
+
+	// Cache the state at newHead so the first insertBlock after the reorg
+	// can skip re-execution and use this as its parent state.
+	bc.sc.put(newHead.Hash(), newHead.NumberU64(), statedb)
+
+	bc.currentState = statedb
 
 	return nil
 }

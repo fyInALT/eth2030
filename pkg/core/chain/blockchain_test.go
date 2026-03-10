@@ -24,13 +24,13 @@ func makeBlock(parent *types.Block, txs []*types.Transaction) *types.Block {
 }
 
 // makeBlockWithState builds a valid child block executing txs against statedb.
-func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *state.MemoryStateDB) *types.Block {
+func makeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb state.StateDB) *types.Block {
 	return testutil.MakeBlockWithState(parent, txs, statedb)
 }
 
 // makeChainBlocks builds a chain of empty blocks from the given parent using
 // the provided state (which is mutated in place).
-func makeChainBlocks(parent *types.Block, count int, statedb *state.MemoryStateDB) []*types.Block {
+func makeChainBlocks(parent *types.Block, count int, statedb state.StateDB) []*types.Block {
 	blocks := make([]*types.Block, count)
 	for i := 0; i < count; i++ {
 		blocks[i] = makeBlockWithState(parent, nil, statedb)
@@ -595,12 +595,25 @@ func TestBlockchain_StateCachePopulated(t *testing.T) {
 }
 
 func TestBlockchain_StateCachePopulatedForEveryBlock(t *testing.T) {
-	bc, statedb := testChain(t)
+	// Use a cache large enough to hold all inserted blocks so that we can
+	// verify every block is cached.  The default cache (4) would evict old
+	// entries once the 5th block is inserted.
+	const nBlocks = 5
+	statedb := state.NewMemoryStateDB()
+	genesis := makeGenesis(30_000_000, big.NewInt(1))
+	db := rawdb.NewMemoryDB()
+	bc, err := NewBlockchain(config.TestConfig, genesis, statedb, db, BlockchainOpts{
+		BlockCacheSize:   256,
+		ReceiptCacheSize: 128,
+		StateCacheSize:   nBlocks + 1, // room for genesis + nBlocks
+	})
+	if err != nil {
+		t.Fatalf("NewBlockchain: %v", err)
+	}
 
-	// Insert a few blocks (less than stateSnapshotInterval).
 	buildState := statedb.Copy()
 	parent := bc.Genesis()
-	for i := 0; i < 5; i++ {
+	for i := 0; i < nBlocks; i++ {
 		b := makeBlockWithState(parent, nil, buildState)
 		if err := bc.InsertBlock(b); err != nil {
 			t.Fatalf("InsertBlock %d: %v", i+1, err)
@@ -609,8 +622,8 @@ func TestBlockchain_StateCachePopulatedForEveryBlock(t *testing.T) {
 	}
 
 	// Every inserted block should have a cached state (we cache all blocks
-	// to make reorg state recovery O(1)).
-	for i := uint64(1); i <= 5; i++ {
+	// to make reorg state recovery O(1) within the cache window).
+	for i := uint64(1); i <= nBlocks; i++ {
 		b := bc.GetBlockByNumber(i)
 		if b == nil {
 			t.Fatalf("block %d not found", i)

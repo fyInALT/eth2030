@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	// maxCachedStates is the maximum number of state snapshots to keep in memory.
-	maxCachedStates = 128
+	// defaultMaxCachedStates is the default state snapshot cache capacity.
+	// Kept small to avoid holding many large MemoryStateDB deep-copies in RAM.
+	defaultMaxCachedStates = 4
 
 	// stateSnapshotInterval determines how often we cache a state snapshot.
 	// Every N blocks, a snapshot is taken to avoid re-execution from genesis.
@@ -20,34 +21,39 @@ const (
 // expensive re-execution from genesis when building state for arbitrary blocks.
 type stateCache struct {
 	mu        sync.RWMutex
+	maxSize   int                             // maximum number of snapshots to retain
 	snapshots map[types.Hash]*stateCacheEntry // block hash → state snapshot
 	order     []types.Hash                    // insertion order for eviction
 }
 
 type stateCacheEntry struct {
 	blockNumber uint64
-	stateDB     *state.MemoryStateDB
+	stateDB     state.StateDB
 }
 
-func newStateCache() *stateCache {
+func newStateCache(maxSize int) *stateCache {
+	if maxSize <= 0 {
+		maxSize = defaultMaxCachedStates
+	}
 	return &stateCache{
+		maxSize:   maxSize,
 		snapshots: make(map[types.Hash]*stateCacheEntry),
 	}
 }
 
 // get returns a copy of the cached state for the given block hash.
-func (sc *stateCache) get(blockHash types.Hash) (*state.MemoryStateDB, bool) {
+func (sc *stateCache) get(blockHash types.Hash) (state.StateDB, bool) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	entry, ok := sc.snapshots[blockHash]
 	if !ok {
 		return nil, false
 	}
-	return entry.stateDB.Copy(), true
+	return entry.stateDB.Dup(), true
 }
 
 // put stores a state snapshot for the given block.
-func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *state.MemoryStateDB) {
+func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB state.StateDB) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
@@ -56,7 +62,7 @@ func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *sta
 	}
 
 	// Evict oldest if at capacity.
-	for len(sc.snapshots) >= maxCachedStates {
+	for len(sc.snapshots) >= sc.maxSize {
 		oldest := sc.order[0]
 		sc.order = sc.order[1:]
 		delete(sc.snapshots, oldest)
@@ -64,7 +70,7 @@ func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *sta
 
 	sc.snapshots[blockHash] = &stateCacheEntry{
 		blockNumber: blockNumber,
-		stateDB:     stateDB.Copy(),
+		stateDB:     stateDB.Dup(),
 	}
 	sc.order = append(sc.order, blockHash)
 }
@@ -72,7 +78,7 @@ func (sc *stateCache) put(blockHash types.Hash, blockNumber uint64, stateDB *sta
 // closest finds the cached state snapshot closest to (but not after) the target
 // block number. Returns the state copy, the block number it corresponds to,
 // and whether a match was found.
-func (sc *stateCache) closest(targetNumber uint64) (*state.MemoryStateDB, uint64, bool) {
+func (sc *stateCache) closest(targetNumber uint64) (state.StateDB, uint64, bool) {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 
@@ -87,7 +93,7 @@ func (sc *stateCache) closest(targetNumber uint64) (*state.MemoryStateDB, uint64
 	if best == nil {
 		return nil, 0, false
 	}
-	return best.stateDB.Copy(), best.blockNumber, true
+	return best.stateDB.Dup(), best.blockNumber, true
 }
 
 // remove deletes a cached state entry (e.g. during reorg).

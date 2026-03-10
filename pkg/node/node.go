@@ -298,7 +298,7 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize genesis state before resolving the genesis block so that
 	// SetupGenesisBlock can populate alloc accounts into it.
-	statedb := state.NewMemoryStateDB()
+	memStatedb := state.NewMemoryStateDB()
 
 	// Resolve chain config and genesis block.
 	var chainConfig *coreconfig.ChainConfig
@@ -311,7 +311,7 @@ func New(config *Config) (*Node, error) {
 		chainConfig = genSpec.Config
 		// SetupGenesisBlock applies alloc to statedb and sets the correct
 		// state root in the genesis header, so our hash matches the CL's.
-		genesis = genSpec.SetupGenesisBlock(statedb)
+		genesis = genSpec.SetupGenesisBlock(memStatedb)
 		// Derive network ID from genesis chain ID unless the user explicitly
 		// passed a non-default value (default is 1; 0 also means "auto").
 		if (config.NetworkID == 0 || config.NetworkID == 1) &&
@@ -325,9 +325,42 @@ func New(config *Config) (*Node, error) {
 		genesis = makeGenesisBlock()
 	}
 
-	bc, err := chain.NewBlockchain(chainConfig, genesis, statedb, n.db)
+	// Use a TrieStateDB backed by a fast in-memory store when a block DB is
+	// available. State uses rawdb.NewMemoryDB() (a Go map) rather than the
+	// file-per-key FileDB so that Commit/ClearAllState are O(N) map ops
+	// instead of O(N) filesystem calls — critical for storagespam workloads.
+	// Falls back to MemoryStateDB if no persistent block DB is available.
+	//
+	// IMPORTANT: NewBlockchain is called BEFORE ts.Commit() so that the
+	// Blockchain can snapshot ts.mem (which still holds genesis accounts) into
+	// execGenesisState. After Commit(), ts.mem is reset to empty and the
+	// snapshot would be empty as well.
+	var statedb state.StateDB
+	var genesisTrieStateDB *state.TrieStateDB
+	if n.db != nil {
+		stateBackend := rawdb.NewMemoryDB()
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(stateBackend, memStatedb, config.GCMode)
+		genesisTrieStateDB = ts
+		statedb = ts
+	} else {
+		statedb = memStatedb
+	}
+
+	bc, err := chain.NewBlockchain(chainConfig, genesis, statedb, n.db, chain.BlockchainOpts{
+		BlockCacheSize:   config.CacheBlockSize,
+		ReceiptCacheSize: config.CacheReceiptSize,
+		StateCacheSize:   config.CacheStateSize,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("init blockchain: %w", err)
+	}
+
+	// Now commit genesis state to db (after NewBlockchain has snapshotted the
+	// genesis accounts into execGenesisState).
+	if genesisTrieStateDB != nil {
+		if _, err := genesisTrieStateDB.Commit(); err != nil {
+			return nil, fmt.Errorf("commit genesis state: %w", err)
+		}
 	}
 	n.blockchain = bc
 

@@ -15,7 +15,7 @@ func makeTestState(balance int64) *state.MemoryStateDB {
 }
 
 func TestStateCache_PutAndGet(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 
 	hash := types.Hash{0xAA}
 	sdb := makeTestState(100)
@@ -32,7 +32,7 @@ func TestStateCache_PutAndGet(t *testing.T) {
 }
 
 func TestStateCache_NotFound(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 	_, ok := sc.get(types.Hash{0xFF})
 	if ok {
 		t.Fatal("expected cache miss")
@@ -40,7 +40,7 @@ func TestStateCache_NotFound(t *testing.T) {
 }
 
 func TestStateCache_Isolation(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 	hash := types.Hash{0xBB}
 	sdb := makeTestState(200)
 	sc.put(hash, 5, sdb)
@@ -58,10 +58,10 @@ func TestStateCache_Isolation(t *testing.T) {
 }
 
 func TestStateCache_Eviction(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 
 	// Fill beyond max.
-	for i := 0; i < maxCachedStates+10; i++ {
+	for i := 0; i < defaultMaxCachedStates+10; i++ {
 		hash := types.Hash{byte(i)}
 		sc.put(hash, uint64(i), makeTestState(int64(i)))
 	}
@@ -70,8 +70,8 @@ func TestStateCache_Eviction(t *testing.T) {
 	sc.mu.RLock()
 	count := len(sc.snapshots)
 	sc.mu.RUnlock()
-	if count > maxCachedStates {
-		t.Fatalf("expected at most %d cached states, got %d", maxCachedStates, count)
+	if count > defaultMaxCachedStates {
+		t.Fatalf("expected at most %d cached states, got %d", defaultMaxCachedStates, count)
 	}
 
 	// Oldest entries should have been evicted.
@@ -81,14 +81,14 @@ func TestStateCache_Eviction(t *testing.T) {
 	}
 
 	// Newest entries should still be present.
-	_, ok = sc.get(types.Hash{byte(maxCachedStates + 9)})
+	_, ok = sc.get(types.Hash{byte(defaultMaxCachedStates + 9)})
 	if !ok {
 		t.Fatal("expected newest entry to be present")
 	}
 }
 
 func TestStateCache_Closest(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 
 	sc.put(types.Hash{0x10}, 0, makeTestState(0))
 	sc.put(types.Hash{0x20}, 16, makeTestState(16))
@@ -124,7 +124,7 @@ func TestStateCache_Closest(t *testing.T) {
 }
 
 func TestStateCache_Remove(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 	hash := types.Hash{0xCC}
 	sc.put(hash, 10, makeTestState(100))
 
@@ -137,7 +137,7 @@ func TestStateCache_Remove(t *testing.T) {
 }
 
 func TestStateCache_Clear(t *testing.T) {
-	sc := newStateCache()
+	sc := newStateCache(defaultMaxCachedStates)
 	for i := 0; i < 10; i++ {
 		sc.put(types.Hash{byte(i)}, uint64(i), makeTestState(int64(i)))
 	}

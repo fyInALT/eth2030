@@ -1,11 +1,13 @@
 participants:
   - el_type: geth
     el_image: eth2030:local
+    el_log_level: debug
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
     count: 1
   - el_type: geth
     el_image: ethereum/client-go:latest
+    el_log_level: debug
     cl_type: prysm
     cl_image: gcr.io/prysmaticlabs/prysm/beacon-chain:latest
     count: 1

@@ -723,5 +723,12 @@ func (s *MemoryStateDB) SnapshotDiff() (map[types.Hash][]byte, map[types.Hash]ma
 	return accounts, storage
 }
 
+// Dup returns a deep copy of the MemoryStateDB as a StateDB interface.
+// This implements the StateDB.Dup method for use by state caches and
+// callers that work with the StateDB interface.
+func (s *MemoryStateDB) Dup() StateDB {
+	return s.Copy()
+}
+
 // Verify interface compliance at compile time.
 var _ StateDB = (*MemoryStateDB)(nil)

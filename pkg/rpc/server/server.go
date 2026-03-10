@@ -16,9 +16,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/eth2030/eth2030/log"
+	"github.com/eth2030/eth2030/metrics"
 	rpcbatch "github.com/eth2030/eth2030/rpc/batch"
 	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
+
+var rpcLog = log.Default().Module("rpc/server")
 
 // AdminRequestHandler dispatches admin_ namespace JSON-RPC requests.
 // *rpc.AdminDispatchAPI satisfies this interface.
@@ -394,6 +398,8 @@ func (s *ExtServer) Handler() http.Handler {
 
 // handleRPC is the main request handler.
 func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	metrics.RPCRequests.Inc()
 	s.requestCount.Add(1)
 	s.setCORSHeaders(w, r)
 
@@ -409,6 +415,10 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if s.config.AuthSecret != "" {
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(s.config.AuthSecret)) != 1 {
+			rpcLog.Warn("rpc_auth_failed",
+				"event", "rpc_auth_failed",
+				"remote", r.RemoteAddr,
+			)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			writeError(w, nil, rpctypes.ErrCodeInvalidRequest, "unauthorized")
@@ -417,6 +427,10 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.rateLimiter != nil && !s.rateLimiter.Allow() {
+		rpcLog.Debug("rpc_rate_limited",
+			"event", "rpc_rate_limited",
+			"remote", r.RemoteAddr,
+		)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		writeError(w, nil, rpctypes.ErrCodeInternal, "rate limited")
@@ -425,6 +439,12 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	defer r.Body.Close()
 	if r.ContentLength > s.config.MaxRequestSize {
+		rpcLog.Debug("rpc_request_too_large",
+			"event", "rpc_request_too_large",
+			"remote", r.RemoteAddr,
+			"contentLength", r.ContentLength,
+			"maxSize", s.config.MaxRequestSize,
+		)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
 		writeError(w, nil, rpctypes.ErrCodeInvalidRequest, "request body too large")
@@ -448,6 +468,11 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	var req rpctypes.Request
 	if err := json.Unmarshal(body, &req); err != nil {
+		rpcLog.Debug("rpc_parse_error",
+			"event", "rpc_parse_error",
+			"remote", r.RemoteAddr,
+			"error", err,
+		)
 		writeError(w, nil, rpctypes.ErrCodeParse, "invalid JSON")
 		return
 	}
@@ -462,6 +487,30 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		resp = s.beaconAPI.HandleBeaconRequest(&req)
 	default:
 		resp = s.api.HandleRequest(&req)
+	}
+
+	latency := time.Since(start)
+	metrics.RPCLatency.Observe(float64(latency.Milliseconds()))
+	hasErr := resp != nil && resp.Error != nil
+	if hasErr {
+		metrics.RPCErrors.Inc()
+		rpcLog.Debug("rpc_response",
+			"event", "rpc_response",
+			"method", req.Method,
+			"remote", r.RemoteAddr,
+			"latency_ms", latency.Milliseconds(),
+			"error", true,
+			"err_code", resp.Error.Code,
+			"err_msg", resp.Error.Message,
+		)
+	} else {
+		rpcLog.Debug("rpc_response",
+			"event", "rpc_response",
+			"method", req.Method,
+			"remote", r.RemoteAddr,
+			"latency_ms", latency.Milliseconds(),
+			"error", false,
+		)
 	}
 	writeJSON(w, resp)
 }

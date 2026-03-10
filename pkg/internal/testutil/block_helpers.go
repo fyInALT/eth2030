@@ -44,7 +44,7 @@ func MakeGenesis(gasLimit uint64, baseFee *big.Int) *types.Block {
 // MakeBlockWithState builds a valid child block and computes the correct header
 // fields by executing the transactions against the provided state. The state is
 // mutated in place so callers can chain multiple blocks.
-func MakeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb *state.MemoryStateDB) *types.Block {
+func MakeBlockWithState(parent *types.Block, txs []*types.Transaction, statedb state.StateDB) *types.Block {
 	parentHeader := parent.Header()
 	blobGasUsed := uint64(0)
 	var pExcess, pUsed uint64

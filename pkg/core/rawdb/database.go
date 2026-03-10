@@ -61,4 +61,5 @@ type Batcher interface {
 type Database interface {
 	KeyValueStore
 	Batcher
+	NewIterator(prefix []byte) Iterator
 }
