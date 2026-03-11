@@ -1337,27 +1337,20 @@ func (b *engineBackend) ForkchoiceUpdated(
 		pp.receipts = receipts
 
 		// Pre-insert the built block so GetBlock finds it when the CL calls FCU
-		// with this hash as head. Without this, FCU returns SYNCING.
-		// Guard: only insert if the parent state is still cached. If a concurrent
-		// build already inserted a sibling block for the same slot, it may have
-		// evicted the parent state from the bounded state cache, causing InsertBlock
-		// to walk back hundreds of blocks and re-execute them — potentially hitting
-		// stale state and panicking. Skipping in that case is safe: the CL will
-		// call engine_newPayload which will also check HasStateCached and return
-		// SYNCING if the parent state is unavailable.
-		bc := b.node.blockchain
-		if bc.HasStateCached(builtBlock.Header().ParentHash) {
-			if insertErr := bc.InsertBlock(builtBlock); insertErr != nil {
-				slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
-					"blockNum", builtBlock.NumberU64(),
-					"blockHash", builtBlock.Hash(),
-					"err", insertErr,
-				)
-			}
-		} else {
-			slog.Debug("engine_forkchoiceUpdated: skip pre-insert, parent state not cached",
+		// with this hash as head. Without this, FCU returns "unknown head block"
+		// (SYNCING) and the chain stalls permanently — the CL has already proposed
+		// this block and will never stop asking for it.
+		//
+		// Duplicate builds are prevented by the idempotency check above, so the
+		// parent state will always be in the state cache at this point (it was
+		// loaded by BuildBlock ~1 second ago). If InsertBlock fails for any other
+		// reason (e.g. validation error), log a warning but keep pp.err nil so
+		// the CL can still retrieve the payload via engine_getPayload.
+		if insertErr := b.node.blockchain.InsertBlock(builtBlock); insertErr != nil {
+			slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
 				"blockNum", builtBlock.NumberU64(),
 				"blockHash", builtBlock.Hash(),
+				"err", insertErr,
 			)
 		}
 
