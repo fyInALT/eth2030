@@ -59,7 +59,11 @@ spamoor_params:
         throughput: 5
         max_pending: 20
         max_wallets: 20
+        min_authorizations: 1
         max_authorizations: 5
+        # Each auth adds 12500 (base) + 25000 (empty authority) = 37500 gas.
+        # Worst case: 21000 + 5*37500 = 208500; use 300000 for headroom.
+        gas_limit: 300000
         random_code_addr: true
         random_target: true
         tip_fee: 2
