@@ -536,6 +536,27 @@ type blockProcResp struct {
 	err    error
 }
 
+const fcuCacheSize = 8
+
+// fcuCacheEntry records a (head,safe,finalized) triple from a processed FCU.
+// A fixed-size ring buffer of these entries lets ForkchoiceUpdated return
+// immediately when the CL re-sends an identical FCU without payload attrs.
+type fcuCacheEntry struct {
+	head      types.Hash
+	safe      types.Hash
+	finalized types.Hash
+}
+
+// postFCUWork carries the slow state-update work deferred from
+// ForkchoiceUpdated to the background goroutine.
+type postFCUWork struct {
+	fcState    engine.ForkchoiceStateV1
+	headBlock  *types.Block
+	finalBlock *types.Block // nil when unchanged or block not found
+	safeBlock  *types.Block // nil when unchanged or block not found
+	hasAttrs   bool         // true when the originating FCU had payload attrs
+}
+
 // engineBackend adapts the Node to the engine.Backend interface.
 type engineBackend struct {
 	node *Node
@@ -557,6 +578,17 @@ type engineBackend struct {
 	processCh chan blockProcReq
 	procChCap int // capacity of processCh, for warn threshold
 	stopCh    chan struct{}
+
+	// FCU result cache: ring buffer of the fcuCacheSize most recently processed
+	// (head,safe,finalized) triples. Re-sends without payload attrs are returned
+	// immediately from the cache, skipping all rawdb and txpool operations.
+	fcuCache   [fcuCacheSize]fcuCacheEntry
+	fcuCacheWr int        // next write position (wraps mod fcuCacheSize)
+	fcuCacheMu sync.Mutex // guards fcuCache and fcuCacheWr
+
+	// postFCUCh delivers slow post-processing to a dedicated background goroutine.
+	// Capacity 1: a pending item is evicted when a newer FCU arrives (latest wins).
+	postFCUCh chan postFCUWork
 }
 
 // newEngineBackend creates and starts the engine backend.
@@ -575,8 +607,10 @@ func newEngineBackend(n *Node) *engineBackend {
 		processCh:   make(chan blockProcReq, 8), // buffered: absorbs burst; warn on depth
 		procChCap:   8,
 		stopCh:      make(chan struct{}),
+		postFCUCh:   make(chan postFCUWork, 1), // capacity 1: latest FCU work always wins
 	}
 	go b.processLoop()
+	go b.postFCULoop()
 	return b
 }
 
@@ -1083,193 +1117,105 @@ func (b *engineBackend) ForkchoiceUpdated(
 		"genesisHash", bc.Genesis().Hash(),
 	)
 
-	// Step 1: look up the forkchoice head block.
-	slog.Debug("engine_forkchoiceUpdated: step1 lookup head",
-		"headBlockHash", fcState.HeadBlockHash,
-		"genesisHash", bc.Genesis().Hash(),
-	)
+	// Step 1: look up the forkchoice head block (fast RLock path).
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
-	var payloadStatus engine.PayloadStatusV1
 	if headBlock == nil {
 		slog.Warn("engine_forkchoiceUpdated: unknown head block, returning SYNCING",
 			"headBlockHash", fcState.HeadBlockHash,
 			"genesisHash", bc.Genesis().Hash(),
 			"currentHead", bc.CurrentBlock().Hash(),
 		)
-		payloadStatus = engine.PayloadStatusV1{
-			Status: engine.StatusSyncing,
-		}
 		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: payloadStatus,
+			PayloadStatus: engine.PayloadStatusV1{Status: engine.StatusSyncing},
 		}, nil
 	}
 
-	// Head is known. Report valid.
 	headHash := headBlock.Hash()
-	payloadStatus = engine.PayloadStatusV1{
+	payloadStatus := engine.PayloadStatusV1{
 		Status:          engine.StatusValid,
 		LatestValidHash: &headHash,
 	}
 
-	// Update finalized and safe block pointers on the blockchain, mirroring
-	// go-ethereum catalyst behaviour. Blocks are validated before being set:
-	// an unknown finalized/safe block is non-fatal here (the CL may send the
-	// FCU before we have imported that block) — we simply skip the update and
-	// log a warning. Persisting to rawdb is handled by bc.SetFinalized.
+	// Step 2: update in-memory safe/finalized hashes eagerly (no I/O).
+	// Rawdb persistence and txpool reset are deferred to the background worker.
+	b.fcMu.Lock()
+	finalHashChanged := fcState.FinalizedBlockHash != (types.Hash{}) &&
+		fcState.FinalizedBlockHash != b.finalizedHash
+	safeHashChanged := fcState.SafeBlockHash != (types.Hash{}) &&
+		fcState.SafeBlockHash != b.safeHash
 	if fcState.FinalizedBlockHash != (types.Hash{}) {
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			bc.SetFinalized(finalBlock)
-			b.fcMu.Lock()
-			b.finalizedHash = fcState.FinalizedBlockHash
-			b.fcMu.Unlock()
-			slog.Debug("engine_forkchoiceUpdated: finalized updated",
-				"hash", fcState.FinalizedBlockHash,
-				"number", finalBlock.NumberU64(),
+		b.finalizedHash = fcState.FinalizedBlockHash
+	}
+	if fcState.SafeBlockHash != (types.Hash{}) {
+		b.safeHash = fcState.SafeBlockHash
+	}
+	b.fcMu.Unlock()
+
+	// Step 3: FCU cache check.
+	// The CL frequently re-sends the same (head,safe,finalized) triple without
+	// payload attrs to acknowledge a head without requesting a new build.
+	// If we've already processed this exact triple and nothing has changed,
+	// return immediately — no rawdb, no txpool, no ePBS, no trie ops.
+	triple := fcuCacheEntry{
+		head:      headHash,
+		safe:      fcState.SafeBlockHash,
+		finalized: fcState.FinalizedBlockHash,
+	}
+	if payloadAttributes == nil && !finalHashChanged && !safeHashChanged {
+		b.fcuCacheMu.Lock()
+		hit := b.fcuCacheContains(triple)
+		b.fcuCacheMu.Unlock()
+		if hit {
+			slog.Debug("engine_forkchoiceUpdated: cache hit, returning immediately",
+				"headBlockHash", headHash,
 			)
-			// Purge txpool entries whose nonce is below the finalized state,
-			// mirroring go-ethereum's miner/pool interaction on finalization.
-			if b.node.txPool != nil {
-				b.node.txPool.Reset(bc.State())
-			}
-		} else {
+			return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
+		}
+	}
+
+	// Step 4: resolve finalized/safe blocks when their hashes changed (RLock only).
+	var finalBlock, safeBlock *types.Block
+	if finalHashChanged {
+		if finalBlock = bc.GetBlock(fcState.FinalizedBlockHash); finalBlock == nil {
 			slog.Warn("engine_forkchoiceUpdated: finalized block unknown, skipping",
 				"hash", fcState.FinalizedBlockHash,
 			)
 		}
 	}
-	if fcState.SafeBlockHash != (types.Hash{}) {
-		if safeBlock := bc.GetBlock(fcState.SafeBlockHash); safeBlock != nil {
-			bc.SetSafe(safeBlock)
-			b.fcMu.Lock()
-			b.safeHash = fcState.SafeBlockHash
-			b.fcMu.Unlock()
-		} else {
+	if safeHashChanged {
+		if safeBlock = bc.GetBlock(fcState.SafeBlockHash); safeBlock == nil {
 			slog.Warn("engine_forkchoiceUpdated: safe block unknown, skipping",
 				"hash", fcState.SafeBlockHash,
 			)
 		}
 	}
 
-	slog.Debug("engine_forkchoiceUpdated: head known",
-		"headBlockHash", headHash,
-		"number", headBlock.NumberU64(),
-	)
+	// Step 5: push slow work (rawdb writes, txpool reset, ePBS, trie ops) to
+	// the background goroutine so this HTTP handler returns without blocking.
+	b.sendPostFCUWork(postFCUWork{
+		fcState:    fcState,
+		headBlock:  headBlock,
+		finalBlock: finalBlock,
+		safeBlock:  safeBlock,
+		hasAttrs:   payloadAttributes != nil,
+	})
 
-	// Step 2: update forkchoice state manager (reorg detection).
-	slog.Debug("engine_forkchoiceUpdated: step2 fcstate update",
-		"headNum", headBlock.NumberU64(),
-		"hasPayloadAttrs", payloadAttributes != nil,
-	)
-	if b.node.fcStateManager != nil {
-		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(fcState); err != nil {
-			slog.Debug("fcStateManager update", "err", err)
-		}
-	}
+	// Step 6: store triple in FCU cache so the next identical re-send is a hit.
+	b.fcuCacheMu.Lock()
+	b.fcuCache[b.fcuCacheWr] = triple
+	b.fcuCacheWr = (b.fcuCacheWr + 1) % fcuCacheSize
+	b.fcuCacheMu.Unlock()
 
-	// Update the high-level tracker: conflict detection, FCU history, reorg analytics.
-	if b.node.fcTracker != nil {
-		safeNum := uint64(0)
-		finalNum := uint64(0)
-		if safeBlock := bc.GetBlock(fcState.SafeBlockHash); safeBlock != nil {
-			safeNum = safeBlock.NumberU64()
-		}
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			finalNum = finalBlock.NumberU64()
-		}
-		conflict, reason, reorg := b.node.fcTracker.ProcessUpdate(
-			fcState, payloadAttributes != nil, headBlock.NumberU64(), safeNum, finalNum,
-		)
-		if conflict {
-			slog.Warn("forkchoice conflict detected", "reason", reason)
-		}
-		if reorg != nil {
-			slog.Warn("forkchoice tracker: reorg",
-				"depth", reorg.Depth,
-				"oldHead", reorg.OldHead,
-				"newHead", reorg.NewHead,
-			)
-		}
-	}
-
-	// ePBS auction lifecycle: open a new auction slot and prune stale bids/escrow.
-	// Only active after Amsterdam fork (EIP-7732 ePBS).
-	headNum := headBlock.NumberU64()
-	if bc.Config().IsAmsterdam(headBlock.Time()) {
-		if b.node.epbsAuction != nil {
-			if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
-				slog.Debug("epbs: open auction", "slot", headNum, "err", err)
-			}
-		}
-		if headNum > 32 {
-			if b.node.epbsBuilder != nil {
-				b.node.epbsBuilder.PruneBefore(headNum - 32)
-			}
-			if b.node.epbsEscrow != nil {
-				b.node.epbsEscrow.PruneBefore(headNum - 32)
-			}
-			if b.node.epbsCommit != nil {
-				b.node.epbsCommit.PruneSlot(headNum - 32)
-			}
-		}
-		// Score current builder bids for the auction slot using composite metrics.
-		if b.node.epbsBid != nil {
-			components := epbsbid.ScoreComponents{
-				BidAmount:        0,    // no live bids yet; zero baseline
-				ReputationScore:  50.0, // neutral starting reputation
-				InclusionQuality: 1.0,  // full IL compliance assumed
-				LatencyMs:        0,
-			}
-			score := b.node.epbsBid.ComputeScore(components)
-			slog.Debug("epbs: bid baseline score", "slot", headNum, "score", score)
-		}
-		// Run the EL-side builder auction to close bids for this slot.
-		if b.node.engineAuction != nil {
-			if result, aErr := b.node.engineAuction.RunAuction(headNum); aErr != nil {
-				slog.Debug("engine auction run", "slot", headNum, "err", aErr)
-			} else {
-				slog.Debug("engine auction result", "slot", headNum, "bids", result.TotalBids)
-			}
-		}
-	}
-
-	// Prune stale state roots when the finalized block advances (I+ EIP-7864).
-	if b.node.triePruner != nil && bc.Config().IsIPlus(headBlock.Time()) {
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			pruned := b.node.triePruner.Prune(128)
-			if len(pruned) > 0 {
-				slog.Debug("trie pruner: pruned stale roots", "count", len(pruned))
-			}
-		}
-	}
-
-	// Drive trie-healing gap detection on each forkchoice update.
-	// DetectGaps scans for missing trie nodes that need to be fetched from peers.
-	if b.node.stateHealer != nil {
-		if n, err := b.node.stateHealer.DetectGaps(); err == nil && n > 0 {
-			slog.Debug("state healer: trie gaps detected", "count", n)
-		}
-	}
-
-	// Configure state-sync pivot to the latest finalized block header.
-	// This enables snap-sync to resume from a finalized checkpoint.
-	if b.node.stateSyncSched != nil {
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			b.node.stateSyncSched.SetPivot(finalBlock.Header())
-		}
-	}
-
-	// Step 3: if no payload attributes, return the FCU acknowledgment.
+	// Step 7: no payload attributes — return the FCU acknowledgment immediately.
 	if payloadAttributes == nil {
-		slog.Debug("engine_forkchoiceUpdated: step3 no attrs, done",
+		slog.Debug("engine_forkchoiceUpdated: no attrs, done",
 			"headNum", headBlock.NumberU64(),
 		)
-		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: payloadStatus,
-		}, nil
+		return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 	}
 
-	// Step 3: payload attributes provided — start async payload build.
-	slog.Debug("engine_forkchoiceUpdated: step3 building payload",
+	// Step 7b: payload attributes provided — start async block build.
+	slog.Debug("engine_forkchoiceUpdated: building payload",
 		"parentNum", headBlock.NumberU64(),
 		"parentHash", headBlock.Hash(),
 		"timestamp", payloadAttributes.Timestamp,
@@ -1295,7 +1241,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 		Random:       payloadAttributes.PrevRandao,
 		Withdrawals:  withdrawals,
 		BeaconRoot:   &beaconRoot,
-		GasLimit:     parentHeader.GasLimit, // keep parent gas limit
+		GasLimit:     parentHeader.GasLimit,
 	}
 
 	// Generate payload ID immediately so we can return it before the block is built.
@@ -1315,7 +1261,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 	// Build the block in the background; close done when finished.
 	go func() {
-		slog.Debug("engine_forkchoiceUpdated: step4 calling BuildBlock",
+		slog.Debug("engine_forkchoiceUpdated: calling BuildBlock",
 			"parentNum", parentHeader.Number,
 			"parentHash", parentHeader.Hash(),
 		)
@@ -1330,7 +1276,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 			return
 		}
 
-		// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
+		// Replace VERIFY frame calldata with STARK proof when enabled.
 		if prover := b.node.starkFrameProver; prover != nil {
 			if sealed, _, serr := vm.ReplaceValidationFrames(builtBlock, prover); serr != nil {
 				slog.Warn("frame stark replacement failed", "err", serr)
@@ -1339,7 +1285,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 			}
 		}
 
-		slog.Debug("engine_forkchoiceUpdated: step4 BuildBlock done",
+		slog.Debug("engine_forkchoiceUpdated: BuildBlock done",
 			"blockNum", builtBlock.NumberU64(),
 			"blockHash", builtBlock.Hash(),
 			"txCount", len(builtBlock.Transactions()),
@@ -1357,14 +1303,168 @@ func (b *engineBackend) ForkchoiceUpdated(
 		)
 	}()
 
-	slog.Debug("engine_forkchoiceUpdated: step5 storing payload",
-		"payloadID", payloadID,
-	)
-
 	return engine.ForkchoiceUpdatedResult{
 		PayloadStatus: payloadStatus,
 		PayloadID:     &payloadID,
 	}, nil
+}
+
+// fcuCacheContains reports whether e is present in the FCU cache.
+// Must be called with fcuCacheMu held.
+func (b *engineBackend) fcuCacheContains(e fcuCacheEntry) bool {
+	for _, c := range b.fcuCache {
+		if c == e {
+			return true
+		}
+	}
+	return false
+}
+
+// sendPostFCUWork dispatches work to the background goroutine non-blocking.
+// If the goroutine is busy, the stale pending item is evicted so the latest
+// FCU state is always the one that gets processed.
+func (b *engineBackend) sendPostFCUWork(work postFCUWork) {
+	select {
+	case b.postFCUCh <- work:
+	default:
+		// Background goroutine is busy. Evict the stale item and enqueue fresh.
+		select {
+		case <-b.postFCUCh:
+		default:
+		}
+		select {
+		case b.postFCUCh <- work:
+		default:
+		}
+	}
+}
+
+// postFCULoop is the dedicated background goroutine for slow FCU side-effects.
+func (b *engineBackend) postFCULoop() {
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case work := <-b.postFCUCh:
+			b.doPostFCUWork(work)
+		}
+	}
+}
+
+// doPostFCUWork executes the slow operations formerly in ForkchoiceUpdated:
+// rawdb persistence, txpool reset, ePBS bookkeeping, and trie maintenance.
+func (b *engineBackend) doPostFCUWork(work postFCUWork) {
+	bc := b.node.blockchain
+	headBlock := work.headBlock
+	headNum := headBlock.NumberU64()
+
+	// Persist finalized block to rawdb and evict pre-finalized txpool entries.
+	if work.finalBlock != nil {
+		bc.SetFinalized(work.finalBlock)
+		slog.Debug("engine_forkchoiceUpdated: finalized persisted",
+			"hash", work.finalBlock.Hash(),
+			"number", work.finalBlock.NumberU64(),
+		)
+		if b.node.txPool != nil {
+			b.node.txPool.Reset(bc.State())
+		}
+	}
+
+	// Persist safe block to rawdb.
+	if work.safeBlock != nil {
+		bc.SetSafe(work.safeBlock)
+	}
+
+	// Forkchoice state manager (reorg detection).
+	if b.node.fcStateManager != nil {
+		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(work.fcState); err != nil {
+			slog.Debug("fcStateManager update", "err", err)
+		}
+	}
+
+	// High-level tracker: conflict detection, FCU history, reorg analytics.
+	if b.node.fcTracker != nil {
+		safeNum := uint64(0)
+		finalNum := uint64(0)
+		if work.safeBlock != nil {
+			safeNum = work.safeBlock.NumberU64()
+		}
+		if work.finalBlock != nil {
+			finalNum = work.finalBlock.NumberU64()
+		}
+		conflict, reason, reorg := b.node.fcTracker.ProcessUpdate(
+			work.fcState, work.hasAttrs, headNum, safeNum, finalNum,
+		)
+		if conflict {
+			slog.Warn("forkchoice conflict detected", "reason", reason)
+		}
+		if reorg != nil {
+			slog.Warn("forkchoice tracker: reorg",
+				"depth", reorg.Depth,
+				"oldHead", reorg.OldHead,
+				"newHead", reorg.NewHead,
+			)
+		}
+	}
+
+	// ePBS auction lifecycle (Amsterdam EIP-7732).
+	if bc.Config().IsAmsterdam(headBlock.Time()) {
+		if b.node.epbsAuction != nil {
+			if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
+				slog.Debug("epbs: open auction", "slot", headNum, "err", err)
+			}
+		}
+		if headNum > 32 {
+			if b.node.epbsBuilder != nil {
+				b.node.epbsBuilder.PruneBefore(headNum - 32)
+			}
+			if b.node.epbsEscrow != nil {
+				b.node.epbsEscrow.PruneBefore(headNum - 32)
+			}
+			if b.node.epbsCommit != nil {
+				b.node.epbsCommit.PruneSlot(headNum - 32)
+			}
+		}
+		if b.node.epbsBid != nil {
+			components := epbsbid.ScoreComponents{
+				BidAmount:        0,
+				ReputationScore:  50.0,
+				InclusionQuality: 1.0,
+				LatencyMs:        0,
+			}
+			score := b.node.epbsBid.ComputeScore(components)
+			slog.Debug("epbs: bid baseline score", "slot", headNum, "score", score)
+		}
+		if b.node.engineAuction != nil {
+			if result, aErr := b.node.engineAuction.RunAuction(headNum); aErr != nil {
+				slog.Debug("engine auction run", "slot", headNum, "err", aErr)
+			} else {
+				slog.Debug("engine auction result", "slot", headNum, "bids", result.TotalBids)
+			}
+		}
+	}
+
+	// Trie pruner (I+ EIP-7864): only when finalized block advances.
+	if b.node.triePruner != nil && bc.Config().IsIPlus(headBlock.Time()) {
+		if work.finalBlock != nil {
+			pruned := b.node.triePruner.Prune(128)
+			if len(pruned) > 0 {
+				slog.Debug("trie pruner: pruned stale roots", "count", len(pruned))
+			}
+		}
+	}
+
+	// State healer (trie gap detection).
+	if b.node.stateHealer != nil {
+		if n, err := b.node.stateHealer.DetectGaps(); err == nil && n > 0 {
+			slog.Debug("state healer: trie gaps detected", "count", n)
+		}
+	}
+
+	// Snap-sync pivot (update to finalized block header).
+	if b.node.stateSyncSched != nil && work.finalBlock != nil {
+		b.node.stateSyncSched.SetPivot(work.finalBlock.Header())
+	}
 }
 
 func (b *engineBackend) ProcessBlockV4(
