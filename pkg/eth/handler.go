@@ -40,6 +40,10 @@ type Handler struct {
 	// Optional providers for eth/70 and eth/71 message handling.
 	receiptProvider    ReceiptProvider
 	accessListProvider AccessListProvider
+
+	// onBlockInserted is called after a P2P block is successfully inserted.
+	// Used to reset the tx pool so stale confirmed txs are evicted.
+	onBlockInserted func()
 }
 
 // NewHandler creates a new eth protocol handler.
@@ -55,6 +59,12 @@ func NewHandler(chain Blockchain, txPool TxPool, networkID uint64) *Handler {
 // SetSyncNotifier configures an optional callback for new block events.
 func (h *Handler) SetSyncNotifier(sn SyncNotifier) {
 	h.syncNotifier = sn
+}
+
+// SetOnBlockInserted registers a callback invoked after a P2P block is
+// successfully inserted. Typically used to reset the tx pool.
+func (h *Handler) SetOnBlockInserted(fn func()) {
+	h.onBlockInserted = fn
 }
 
 // SetDownloader configures the downloader for the handler.
@@ -370,6 +380,11 @@ func (h *Handler) handleNewBlock(ep *EthPeer, msg p2p.Msg) error {
 	if err := h.chain.InsertBlock(data.Block); err != nil {
 		log.Printf("eth: failed to insert block #%d from %s: %v", data.Block.NumberU64(), ep.ID(), err)
 		return nil // don't disconnect on insert failure
+	}
+
+	// Evict confirmed transactions so the pool stays in sync with the new head.
+	if h.onBlockInserted != nil {
+		h.onBlockInserted()
 	}
 
 	log.Printf("eth: imported block #%d from %s", data.Block.NumberU64(), ep.ID())

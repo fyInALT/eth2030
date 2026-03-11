@@ -542,6 +542,10 @@ func New(config *Config) (*Node, error) {
 	// Wire the sync notifier so new block announcements trigger sync.
 	n.ethHandler.SetSyncNotifier(&nodeSyncTrigger{dl: n.syncer})
 	n.ethHandler.SetDownloader(n.syncer)
+	// Reset the tx pool after P2P block insertion to evict confirmed txs.
+	n.ethHandler.SetOnBlockInserted(func() {
+		n.txPool.Reset(n.blockchain.State())
+	})
 
 	// Initialize P2P server with bootnodes, discovery port, and NAT.
 	// Register the ETH protocol so peers can exchange blocks and transactions.

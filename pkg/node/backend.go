@@ -762,6 +762,8 @@ func (b *engineBackend) execBlockInternal(
 				b.node.fcTracker.Reorgs.AddBlock(bi)
 			}
 		}
+		// Reset tx pool so confirmed txs (e.g. inserted via ETH P2P) are evicted.
+		b.node.txPool.Reset(bc.State())
 		return engine.PayloadStatusV1{Status: engine.StatusValid, LatestValidHash: &h}, nil
 	}
 
