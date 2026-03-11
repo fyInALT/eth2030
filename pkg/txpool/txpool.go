@@ -43,9 +43,19 @@ const (
 	// ahead are rejected to prevent memory exhaustion from nonce-gap attacks.
 	MaxNonceGap = 64
 
-	// EIP-2930 access list gas costs.
+	// EIP-2930 access list gas costs (pre-Glamsterdam).
 	AccessListAddressCost = 2400 // per address in access list
 	AccessListStorageCost = 1900 // per storage key in access list
+
+	// Glamsterdam (EIP-8038/7981) access list gas costs.
+	AccessListAddressCostGlamst = 3200 // per address (EIP-8038)
+	AccessListStorageCostGlamst = 2500 // per storage key (EIP-8038)
+	// TotalCostFloorPerTokenGlamst is the data-token cost multiplier for
+	// access list entries under EIP-7981 (must match execution/processor.go).
+	TotalCostFloorPerTokenGlamst = 16
+
+	// TxCreateGas is the extra gas for contract creation (added to TxBase).
+	TxCreateGas = 32000
 
 	// EIP-7702 SetCode authorization gas costs (must match execution/processor.go).
 	PerAuthBaseCost     = 12500 // base cost per authorization entry
@@ -648,8 +658,13 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
+	// Use Glamsterdam costs when active to match the builder's intrinsic gas check.
 	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan)
-	intrinsicGas += AccessListGas(tx.AccessList())
+	if pool.config.IsGlamsterdan {
+		intrinsicGas += AccessListGasGlamst(tx.AccessList())
+	} else {
+		intrinsicGas += AccessListGas(tx.AccessList())
+	}
 	// EIP-7702: charge both base cost and empty-account cost per authorization.
 	// The pool cannot recover each authority from state, so it conservatively
 	// charges PerEmptyAccountCost for every entry. This matches the worst case
@@ -1227,16 +1242,18 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 }
 
 // IntrinsicGas computes the intrinsic gas for a transaction (excluding access list).
-// On Glamsterdam (EIP-2780) the base tx cost dropped from 21000 to 4500; the
-// new-account surcharge is NOT included here because the pool cannot inspect
-// destination account existence — that is validated at execution time.
+// On Glamsterdam (EIP-2780) the base tx cost dropped from 21000 to 4500; for
+// contract creation the cost is base + TxCreateGas. The new-account surcharge is
+// NOT included here because the pool cannot inspect destination account existence.
 func IntrinsicGas(data []byte, isContractCreation bool, isGlamsterdan bool) uint64 {
-	gas := uint64(21000)
+	var gas uint64
 	if isGlamsterdan {
 		gas = 4500
+	} else {
+		gas = 21000
 	}
 	if isContractCreation {
-		gas = 53000
+		gas += TxCreateGas // 32000 — added to base, not overriding it
 	}
 
 	if len(data) > 0 {
@@ -1253,7 +1270,7 @@ func IntrinsicGas(data []byte, isContractCreation bool, isGlamsterdan bool) uint
 	return gas
 }
 
-// AccessListGas computes the gas cost of an EIP-2930 access list.
+// AccessListGas computes the gas cost of an EIP-2930 access list (pre-Glamsterdam).
 // Each address costs 2400 gas and each storage key costs 1900 gas.
 func AccessListGas(al types.AccessList) uint64 {
 	if len(al) == 0 {
@@ -1264,6 +1281,41 @@ func AccessListGas(al types.AccessList) uint64 {
 		gas += AccessListAddressCost
 		gas += uint64(len(tuple.StorageKeys)) * AccessListStorageCost
 	}
+	return gas
+}
+
+// AccessListGasGlamst computes the gas cost of an access list under Glamsterdam.
+// Per EIP-8038: address cost 3200, storage key cost 2500.
+// Per EIP-7981: also charges TotalCostFloorPerTokenGlamst per data token
+// (zero_bytes*1 + nonzero_bytes*4) for each address (20 bytes) and storage key (32 bytes).
+func AccessListGasGlamst(al types.AccessList) uint64 {
+	if len(al) == 0 {
+		return 0
+	}
+	var gas, tokens uint64
+	for _, tuple := range al {
+		gas += AccessListAddressCostGlamst
+		gas += uint64(len(tuple.StorageKeys)) * AccessListStorageCostGlamst
+		// EIP-7981: data token cost for address bytes (20 bytes).
+		for _, b := range tuple.Address {
+			if b == 0 {
+				tokens++
+			} else {
+				tokens += 4
+			}
+		}
+		// EIP-7981: data token cost for each storage key (32 bytes).
+		for _, key := range tuple.StorageKeys {
+			for _, b := range key {
+				if b == 0 {
+					tokens++
+				} else {
+					tokens += 4
+				}
+			}
+		}
+	}
+	gas += tokens * TotalCostFloorPerTokenGlamst
 	return gas
 }
 

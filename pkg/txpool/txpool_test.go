@@ -417,9 +417,14 @@ func TestIntrinsicGasFunction(t *testing.T) {
 		t.Errorf("glamsterdan transfer gas = %d, want 4500", gas)
 	}
 
-	// Contract creation: 53000 (unchanged)
+	// Contract creation (pre-Glamsterdam): 21000 + 32000 = 53000
 	if gas := IntrinsicGas(nil, true, false); gas != 53000 {
 		t.Errorf("creation gas = %d, want 53000", gas)
+	}
+
+	// Contract creation (Glamsterdam, EIP-2780): base 4500 + 32000 = 36500
+	if gas := IntrinsicGas(nil, true, true); gas != 36500 {
+		t.Errorf("glamsterdan creation gas = %d, want 36500", gas)
 	}
 
 	// Data with non-zero and zero bytes.
