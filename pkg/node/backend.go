@@ -222,11 +222,16 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 		}
 		signer := types.LatestSigner(chainID)
 		sender, _ := signer.Sender(tx)
+		// GasFeeCap can be nil for legacy txs with a zero GasPrice field.
+		var gasPrice uint64
+		if fc := tx.GasFeeCap(); fc != nil {
+			gasPrice = fc.Uint64()
+		}
 		smTx := shared.SharedMempoolTx{
 			Hash:     tx.Hash(),
 			Sender:   sender,
 			Nonce:    tx.Nonce(),
-			GasPrice: tx.GasFeeCap().Uint64(),
+			GasPrice: gasPrice,
 			Data:     tx.Data(),
 		}
 		if err := b.node.sharedPool.AddTransaction(smTx); err != nil {
