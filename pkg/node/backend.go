@@ -238,12 +238,17 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 			slog.Debug("shared mempool add", "hash", tx.Hash(), "err", err)
 		}
 	}
-	// Feed calldata to native rollup sequencer for L2 batch assembly (EIP-8079).
+	// Feed the full encoded transaction to the native rollup sequencer for
+	// L2 batch assembly (EIP-8079). The sequencer stores raw encoded txs so
+	// L2 nodes can reconstruct and verify them; passing only tx.Data() (calldata)
+	// would produce an incomplete batch with an incorrect batch-ID hash.
 	if b.node.rollupSeq != nil {
-		if data := tx.Data(); len(data) > 0 {
-			if seqErr := b.node.rollupSeq.AddTransaction(data); seqErr != nil {
+		if encoded, encErr := tx.EncodeRLP(); encErr == nil {
+			if seqErr := b.node.rollupSeq.AddTransaction(encoded); seqErr != nil {
 				slog.Debug("rollup sequencer add", "hash", tx.Hash(), "err", seqErr)
 			}
+		} else {
+			slog.Debug("rollup sequencer: tx encode failed", "hash", tx.Hash(), "err", encErr)
 		}
 	}
 	return nil
