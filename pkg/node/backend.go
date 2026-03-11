@@ -1273,9 +1273,25 @@ func (b *engineBackend) ForkchoiceUpdated(
 	// Generate payload ID immediately so we can return it before the block is built.
 	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
 
-	// Register an in-progress slot; GetPayloadByID will wait on the done channel.
-	pp := &pendingPayload{done: make(chan struct{})}
+	// Idempotency: if the same payloadID is already being built (identical FCU
+	// attrs produce the same deterministic ID), return the existing slot without
+	// starting a second goroutine. Two concurrent builds for the same ID would
+	// race to write pp.block, and the second build's pre-insert would fail
+	// because the first build already evicted the parent state from the cache.
 	b.mu.Lock()
+	if existing, ok := b.payloads[payloadID]; ok && existing != nil {
+		b.mu.Unlock()
+		slog.Debug("engine_forkchoiceUpdated: payload already building, reusing slot",
+			"payloadID", payloadID,
+		)
+		return engine.ForkchoiceUpdatedResult{
+			PayloadStatus: payloadStatus,
+			PayloadID:     &payloadID,
+		}, nil
+	}
+
+	// Register a fresh in-progress slot; GetPayloadByID will wait on the done channel.
+	pp := &pendingPayload{done: make(chan struct{})}
 	b.payloads[payloadID] = pp
 	b.payloadOrder = append(b.payloadOrder, payloadID)
 	for len(b.payloads) > b.maxPayloads && len(b.payloadOrder) > 0 {
@@ -1320,20 +1336,29 @@ func (b *engineBackend) ForkchoiceUpdated(
 		pp.block = builtBlock
 		pp.receipts = receipts
 
-		// Insert the built block into the chain now so that GetBlock can find it
-		// when the CL calls engine_forkchoiceUpdated with this block's hash as head.
-		// Without this, the built block exists only in the pending payload map;
-		// FCU returns SYNCING ("unknown head block") because blockCache and rawdb
-		// have no entry for it. Pre-inserting here also makes the subsequent
-		// engine_newPayload call a no-op (HasBlock fast path), saving re-execution.
-		if insertErr := b.node.blockchain.InsertBlock(builtBlock); insertErr != nil {
-			slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
+		// Pre-insert the built block so GetBlock finds it when the CL calls FCU
+		// with this hash as head. Without this, FCU returns SYNCING.
+		// Guard: only insert if the parent state is still cached. If a concurrent
+		// build already inserted a sibling block for the same slot, it may have
+		// evicted the parent state from the bounded state cache, causing InsertBlock
+		// to walk back hundreds of blocks and re-execute them — potentially hitting
+		// stale state and panicking. Skipping in that case is safe: the CL will
+		// call engine_newPayload which will also check HasStateCached and return
+		// SYNCING if the parent state is unavailable.
+		bc := b.node.blockchain
+		if bc.HasStateCached(builtBlock.Header().ParentHash) {
+			if insertErr := bc.InsertBlock(builtBlock); insertErr != nil {
+				slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
+					"blockNum", builtBlock.NumberU64(),
+					"blockHash", builtBlock.Hash(),
+					"err", insertErr,
+				)
+			}
+		} else {
+			slog.Debug("engine_forkchoiceUpdated: skip pre-insert, parent state not cached",
 				"blockNum", builtBlock.NumberU64(),
 				"blockHash", builtBlock.Hash(),
-				"err", insertErr,
 			)
-			// Not fatal: the CL can still retrieve the payload; engine_newPayload
-			// will attempt insertion again when the CL sends it back.
 		}
 
 		close(pp.done)
