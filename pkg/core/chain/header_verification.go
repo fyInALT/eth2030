@@ -290,6 +290,9 @@ func (v *HeaderVerifier) verifyCalldataGas(header, parent *types.Header) error {
 		return fmt.Errorf("%w: CalldataGasUsed=%v, CalldataExcessGas=%v",
 			ErrCalldataFieldsMissing, header.CalldataGasUsed, header.CalldataExcessGas)
 	}
+	if !types.EIP7706HashFields && (header.CalldataGasUsed == nil || header.CalldataExcessGas == nil) {
+		return nil
+	}
 
 	return gas.ValidateCalldataGasFields(header, parent)
 }

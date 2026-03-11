@@ -166,6 +166,11 @@ func CalcCalldataGasUsed(data []byte) uint64 {
 // It checks that CalldataGasUsed and CalldataExcessGas are present and
 // that the excess gas matches the expected value derived from the parent.
 func ValidateCalldataGasFields(header, parent *types.Header) error {
+	// When EIP7706HashFields is disabled (default), calldata gas fields are not
+	// part of the canonical block hash and may be absent in external blocks.
+	if !types.EIP7706HashFields && (header.CalldataGasUsed == nil || header.CalldataExcessGas == nil) {
+		return nil
+	}
 	// Post-Glamsterdan: calldata gas fields must be present.
 	if header.CalldataGasUsed == nil {
 		return fmt.Errorf("%w: missing CalldataGasUsed", ErrInvalidCalldataGas)
