@@ -407,19 +407,24 @@ func TestReset(t *testing.T) {
 }
 
 func TestIntrinsicGasFunction(t *testing.T) {
-	// Transfer: 21000
-	if gas := IntrinsicGas(nil, false); gas != 21000 {
+	// Transfer (pre-Glamsterdan): 21000
+	if gas := IntrinsicGas(nil, false, false); gas != 21000 {
 		t.Errorf("transfer gas = %d, want 21000", gas)
 	}
 
-	// Contract creation: 53000
-	if gas := IntrinsicGas(nil, true); gas != 53000 {
+	// Transfer (Glamsterdan, EIP-2780): base drops to 4500
+	if gas := IntrinsicGas(nil, false, true); gas != 4500 {
+		t.Errorf("glamsterdan transfer gas = %d, want 4500", gas)
+	}
+
+	// Contract creation: 53000 (unchanged)
+	if gas := IntrinsicGas(nil, true, false); gas != 53000 {
 		t.Errorf("creation gas = %d, want 53000", gas)
 	}
 
 	// Data with non-zero and zero bytes.
 	data := []byte{0x00, 0x01, 0x02, 0x00}
-	gas := IntrinsicGas(data, false)
+	gas := IntrinsicGas(data, false, false)
 	expected := uint64(21000 + 2*4 + 2*16) // 2 zero bytes, 2 non-zero bytes
 	if gas != expected {
 		t.Errorf("data gas = %d, want %d", gas, expected)

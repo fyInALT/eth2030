@@ -439,6 +439,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
+			slog.Debug("builder: skipped tx", "hash", tx.Hash(), "err", err)
 			continue
 		}
 
@@ -784,6 +785,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
+			slog.Debug("builder: skipped tx (legacy)", "hash", tx.Hash(), "err", err)
 			continue
 		}
 

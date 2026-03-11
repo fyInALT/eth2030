@@ -440,6 +440,15 @@ func New(config *Config) (*Node, error) {
 	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
 	// EIP-7701: propagate AA tx acceptance flag into pool config (--txpool.allow-aa).
 	poolCfg.AllowAATx = config.AllowAATx
+	// EIP-2780: tell the pool whether the chain runs Glamsterdan so it uses
+	// the correct (lower) base intrinsic gas for validation.
+	if chainCfg := bc.Config(); chainCfg != nil {
+		var genesisTime uint64
+		if gen := bc.Genesis(); gen != nil {
+			genesisTime = gen.Header().Time
+		}
+		poolCfg.IsGlamsterdan = chainCfg.IsGlamsterdan(genesisTime)
+	}
 	// --txpool.price-history: number of blocks for the gas-price suggestor.
 	if config.TxpoolPriceHistory > 0 {
 		poolCfg.PriceHistoryBlocks = config.TxpoolPriceHistory

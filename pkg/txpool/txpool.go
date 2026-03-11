@@ -33,7 +33,7 @@ const (
 	MaxPoolSize = 4096
 
 	// MaxPerSender is the maximum number of transactions per sender.
-	MaxPerSender = 16
+	MaxPerSender = 64
 
 	// MaxTxSize is the maximum allowed encoded transaction size (128KB).
 	MaxTxSize = 128 * 1024
@@ -92,6 +92,9 @@ type Config struct {
 	// AllowAATx enables acceptance of EIP-7701 type-0x05 AA transactions (--txpool.allow-aa).
 	// Defaults to true; set false to disable AA tx acceptance on networks without Glamsterdam.
 	AllowAATx bool
+	// IsGlamsterdan indicates the chain is at or past the Glamsterdam fork (EIP-2780).
+	// When true, the base tx gas cost is 4500 instead of 21000 for intrinsic validation.
+	IsGlamsterdan bool
 	// PriceHistoryBlocks is the number of recent blocks the gas price suggestor
 	// uses to compute fee recommendations (--txpool.price-history, default 20).
 	PriceHistoryBlocks int
@@ -645,7 +648,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
-	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil)
+	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan)
 	intrinsicGas += AccessListGas(tx.AccessList())
 	// EIP-7702: per-authorization base cost is always charged as intrinsic gas.
 	// PerEmptyAccountCost is charged during EVM execution (not here) because the
@@ -801,19 +804,39 @@ func (pool *TxPool) Pending() map[types.Address][]*types.Transaction {
 	return result
 }
 
-// PendingFlat returns all pending transactions as a flat slice, sorted by gas price (desc).
+// senderGroup holds a sender's nonce-ordered pending txs and the effective
+// gas price of the head (lowest-nonce) tx, used for cross-sender ordering.
+type senderGroup struct {
+	txs       []*types.Transaction
+	headPrice *big.Int
+}
+
+// PendingFlat returns all pending transactions as a flat slice.
+// Senders are ordered by the effective gas price of their lowest-nonce tx
+// (descending), and each sender's txs are kept in ascending nonce order.
+// This preserves per-sender nonce continuity so the block builder can
+// include a full nonce sequence without gaps.
 func (pool *TxPool) PendingFlat() []*types.Transaction {
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
 
-	var all []*types.Transaction
+	groups := make([]senderGroup, 0, len(pool.pending))
 	for _, list := range pool.pending {
-		all = append(all, list.items...)
+		if list.Len() == 0 {
+			continue
+		}
+		txs := make([]*types.Transaction, len(list.items))
+		copy(txs, list.items) // list.items is already nonce-sorted
+		groups = append(groups, senderGroup{
+			txs:       txs,
+			headPrice: EffectiveGasPrice(txs[0], pool.baseFee),
+		})
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		pi := all[i].GasPrice()
-		pj := all[j].GasPrice()
+	// Sort senders by head-tx effective gas price, highest first.
+	sort.SliceStable(groups, func(i, j int) bool {
+		pi := groups[i].headPrice
+		pj := groups[j].headPrice
 		if pi == nil {
 			return false
 		}
@@ -822,6 +845,11 @@ func (pool *TxPool) PendingFlat() []*types.Transaction {
 		}
 		return pi.Cmp(pj) > 0
 	})
+
+	var all []*types.Transaction
+	for _, g := range groups {
+		all = append(all, g.txs...)
+	}
 	return all
 }
 
@@ -1192,8 +1220,14 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 }
 
 // IntrinsicGas computes the intrinsic gas for a transaction (excluding access list).
-func IntrinsicGas(data []byte, isContractCreation bool) uint64 {
+// On Glamsterdam (EIP-2780) the base tx cost dropped from 21000 to 4500; the
+// new-account surcharge is NOT included here because the pool cannot inspect
+// destination account existence — that is validated at execution time.
+func IntrinsicGas(data []byte, isContractCreation bool, isGlamsterdan bool) uint64 {
 	gas := uint64(21000)
+	if isGlamsterdan {
+		gas = 4500
+	}
 	if isContractCreation {
 		gas = 53000
 	}
