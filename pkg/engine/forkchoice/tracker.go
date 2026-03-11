@@ -154,10 +154,11 @@ func (h *FCUHistory) All() []FCURecord {
 }
 
 // ConflictDetector detects when the CL sends conflicting forkchoice updates
-// (e.g., safe hash regresses to a non-ancestor, or finalized hash changes).
+// (e.g., finalized block number regresses to a lower value).
 type ConflictDetector struct {
 	mu            sync.RWMutex
 	lastState     *payload.ForkchoiceStateV1
+	lastFinalNum  uint64
 	conflictCount uint64
 }
 
@@ -167,29 +168,35 @@ func NewConflictDetector() *ConflictDetector {
 }
 
 // Check compares a new update against the previous one and returns a conflict
-// description if the finalized hash regressed (changed to a different non-zero value).
-func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1) (bool, string) {
+// description if the finalized block number regresses (new < old).
+// Finalized hash advancing to a new hash each epoch is normal and not flagged.
+func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1, finalNum uint64) (bool, string) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 
 	if cd.lastState == nil {
 		cd.lastState = &update
+		cd.lastFinalNum = finalNum
 		return false, ""
 	}
 
 	prev := cd.lastState
+	prevFinalNum := cd.lastFinalNum
+	cd.lastState = &update
+	cd.lastFinalNum = finalNum
 
-	// Finalized hash regression: it changed to a different non-zero hash.
+	// Flag only when the finalized block NUMBER regresses (not when the hash
+	// changes — hash advancing every epoch is the normal finalization flow).
 	if prev.FinalizedBlockHash != (types.Hash{}) &&
 		update.FinalizedBlockHash != (types.Hash{}) &&
-		update.FinalizedBlockHash != prev.FinalizedBlockHash {
+		update.FinalizedBlockHash != prev.FinalizedBlockHash &&
+		finalNum > 0 && finalNum < prevFinalNum {
 		cd.conflictCount++
-		cd.lastState = &update
-		return true, fmt.Sprintf("finalized changed: %s -> %s",
-			prev.FinalizedBlockHash.Hex(), update.FinalizedBlockHash.Hex())
+		return true, fmt.Sprintf("finalized regressed: block %d (%s) -> block %d (%s)",
+			prevFinalNum, prev.FinalizedBlockHash.Hex(),
+			finalNum, update.FinalizedBlockHash.Hex())
 	}
 
-	cd.lastState = &update
 	return false, ""
 }
 
@@ -492,7 +499,7 @@ func (ft *ForkchoiceTracker) ProcessUpdate(
 	headNum, safeNum, finalNum uint64,
 ) (conflict bool, conflictReason string, reorg *TrackedReorg) {
 	// Detect conflicts.
-	conflict, conflictReason = ft.Conflicts.Check(state)
+	conflict, conflictReason = ft.Conflicts.Check(state, finalNum)
 
 	// Update head chain.
 	ft.Chain.Update(state.HeadBlockHash, state.SafeBlockHash,
