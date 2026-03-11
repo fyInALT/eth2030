@@ -284,7 +284,9 @@ func (v *HeaderVerifier) verifyCalldataGas(header, parent *types.Header) error {
 		return nil
 	}
 
-	if header.CalldataGasUsed == nil || header.CalldataExcessGas == nil {
+	// When EIP7706HashFields is disabled (default), these fields are not part
+	// of the canonical block hash and may be absent in blocks from external peers.
+	if types.EIP7706HashFields && (header.CalldataGasUsed == nil || header.CalldataExcessGas == nil) {
 		return fmt.Errorf("%w: CalldataGasUsed=%v, CalldataExcessGas=%v",
 			ErrCalldataFieldsMissing, header.CalldataGasUsed, header.CalldataExcessGas)
 	}

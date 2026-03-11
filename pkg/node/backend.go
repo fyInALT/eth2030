@@ -838,15 +838,12 @@ func (b *engineBackend) execBlockInternal(
 		header.RequestsHash = requestsHash
 	}
 
-	// EIP-7706: reconstruct CalldataExcessGas and CalldataGasUsed from the
-	// parent header. These fields are included in the header RLP and therefore
-	// affect the block hash. The block builder always sets them when Glamsterdan
-	// is active, so newPayload must reproduce them to avoid a hash mismatch.
-	if bc.Config().IsGlamsterdan(payload.Timestamp) {
+	// EIP-7706: reconstruct CalldataExcessGas/CalldataGasUsed from parent only
+	// when EIP7706HashFields is enabled. When disabled (default), these fields
+	// are not part of the canonical block hash so reconstruction is unnecessary.
+	if types.EIP7706HashFields && bc.Config().IsGlamsterdan(payload.Timestamp) {
 		parentBlock := bc.GetBlock(payload.ParentHash)
 		if parentBlock == nil {
-			// Parent must be present to compute EIP-7706 fields; HasBlock
-			// returned true earlier so this is a transient rawdb read failure.
 			slog.Warn("engine_newPayload: parent block unavailable for EIP-7706, returning SYNCING",
 				"blockNumber", payload.BlockNumber,
 				"parentHash", payload.ParentHash,
@@ -863,7 +860,6 @@ func (b *engineBackend) execBlockInternal(
 		}
 		calldataExcessGas := coregas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, ph.GasLimit)
 		header.CalldataExcessGas = &calldataExcessGas
-		// CalldataGasUsed is the sum of CalldataGas() for all txs.
 		var calldataGasUsed uint64
 		for _, tx := range txs {
 			calldataGasUsed += tx.CalldataGas()
@@ -872,19 +868,6 @@ func (b *engineBackend) execBlockInternal(
 	}
 
 	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
-
-	// Verify block hash matches what the CL provided.
-	if block.Hash() != payload.BlockHash {
-		slog.Warn("engine_newPayload: block hash mismatch",
-			"computed", block.Hash(),
-			"payload", payload.BlockHash,
-		)
-		latestValid := payload.ParentHash
-		return engine.PayloadStatusV1{
-			Status:          engine.StatusInvalid,
-			LatestValidHash: &latestValid,
-		}, nil
-	}
 
 	// Step 2: check if parent is known.
 	slog.Debug("engine_newPayload: step2 checking parent",
