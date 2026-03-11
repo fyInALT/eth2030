@@ -17,7 +17,6 @@ package forkchoice
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -225,18 +224,6 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 				NewHeadNumber: headInfo.Number,
 			}
 			m.reorgCount++
-			logFn := slog.Warn
-			if depth > 63 {
-				logFn = slog.Error
-			}
-			logFn("chain reorg detected",
-				"depth", depth,
-				"oldHead", oldHead,
-				"newHead", update.HeadBlockHash,
-				"oldNum", oldInfo.Number,
-				"newNum", headInfo.Number,
-				"slot", headInfo.Slot,
-			)
 		}
 	}
 
