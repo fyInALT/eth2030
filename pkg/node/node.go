@@ -545,14 +545,21 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize P2P server with bootnodes, discovery port, and NAT.
 	// Register the ETH protocol so peers can exchange blocks and transactions.
-	n.p2pServer = p2p.NewServer(p2p.Config{
+	p2pCfg := p2p.Config{
 		ListenAddr:     config.P2PAddr(),
 		MaxPeers:       config.MaxPeers,
 		BootstrapNodes: config.Bootnodes,
 		DiscoveryPort:  config.EffectiveDiscoveryPort(),
 		NAT:            config.NAT,
 		Protocols:      []p2p.Protocol{n.ethHandler.Protocol(), n.snapHandler.Protocol()},
-	})
+	}
+	// Resolve external IP from --nat=extip:<ip> so NodeInfo enode is reachable.
+	if strings.HasPrefix(config.NAT, "extip:") {
+		if ip := net.ParseIP(strings.TrimPrefix(config.NAT, "extip:")); ip != nil {
+			p2pCfg.ExternalIP = ip
+		}
+	}
+	n.p2pServer = p2p.NewServer(p2pCfg)
 
 	// EP-6 BB-1.1/1.2/1.3: initialize anonymous transport manager.
 	// Parse --mixnet mode; default to simulated when unset.
@@ -706,10 +713,18 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize P2P sub-systems: NAT traversal, message dispatch, nonce
 	// announcer (EIP-8077), and request/response framing.
-	n.natMgr = p2pnat.NewNATManager(p2pnat.NATManagerConfig{
+	natCfg := p2pnat.NATManagerConfig{
 		MappingLifetime: 20 * time.Minute,
 		RenewInterval:   10 * time.Minute,
-	})
+	}
+	// Propagate extip:<ip> from --nat into the NAT manager so ExternalIP() works
+	// without doing gateway discovery.
+	if strings.HasPrefix(config.NAT, "extip:") {
+		if ip := net.ParseIP(strings.TrimPrefix(config.NAT, "extip:")); ip != nil {
+			natCfg.ManualExternalIP = ip
+		}
+	}
+	n.natMgr = p2pnat.NewNATManager(natCfg)
 	n.p2pDispatch = p2pdispatch.NewMessageRouter(p2pdispatch.RouterConfig{})
 	n.nonceAnnouncer = p2pnonce.NewNonceAnnouncer()
 	rrProto := p2preqresp.NewReqRespProtocol(p2preqresp.DefaultProtocolConfig())

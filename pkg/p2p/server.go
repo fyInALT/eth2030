@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/p2p/peermgr"
 	"github.com/eth2030/eth2030/p2p/scoring"
@@ -62,6 +64,10 @@ type Config struct {
 	// NAT is the NAT traversal method string (e.g. "extip:1.2.3.4").
 	// An empty string disables NAT traversal.
 	NAT string
+
+	// ExternalIP is the resolved external IP to advertise in the enode URL.
+	// Populated by the node from the NAT configuration before passing to Server.
+	ExternalIP net.IP
 
 	// BootstrapNodes is a comma-separated list of enode URLs used for initial
 	// peer discovery. When non-empty, these are dialed before StaticNodes.
@@ -121,7 +127,10 @@ func NewServer(cfg Config) *Server {
 	}
 }
 
-// Start begins listening for incoming connections.
+// dialRetryInterval is how long to wait before re-dialing a failed peer.
+const dialRetryInterval = 30 * time.Second
+
+// Start begins listening for incoming connections and dials static/bootstrap nodes.
 func (srv *Server) Start() error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
@@ -155,9 +164,61 @@ func (srv *Server) Start() error {
 		}
 	}
 
-	srv.wg.Add(1)
+	// Load bootstrap nodes as static peers so the dial loop reaches them.
+	for _, rawurl := range strings.Split(srv.config.BootstrapNodes, ",") {
+		rawurl = strings.TrimSpace(rawurl)
+		if rawurl == "" {
+			continue
+		}
+		if node, err := ParseEnode(rawurl); err == nil {
+			srv.nodes.AddStatic(node)
+		}
+	}
+
+	srv.wg.Add(2)
 	go srv.listenLoop()
+	go srv.dialLoop()
 	return nil
+}
+
+// dialLoop periodically dials all static nodes that are not currently connected.
+// It retries on the dialRetryInterval until the server stops.
+func (srv *Server) dialLoop() {
+	defer srv.wg.Done()
+
+	ticker := time.NewTicker(dialRetryInterval)
+	defer ticker.Stop()
+
+	// Dial immediately on start, then on each tick.
+	srv.dialStaticNodes()
+	for {
+		select {
+		case <-ticker.C:
+			srv.dialStaticNodes()
+		case <-srv.quit:
+			return
+		}
+	}
+}
+
+// dialStaticNodes dials any static nodes that are not already connected.
+func (srv *Server) dialStaticNodes() {
+	nodes := srv.nodes.StaticNodes()
+	for _, node := range nodes {
+		if srv.peers.Get(string(node.ID)) != nil {
+			continue
+		}
+		addr := node.Addr()
+		srv.wg.Add(1)
+		go func(addr string) {
+			defer srv.wg.Done()
+			ct, err := srv.dialer.Dial(addr)
+			if err != nil {
+				return
+			}
+			srv.setupConn(ct, true)
+		}(addr)
+	}
 }
 
 // Stop shuts down the server and disconnects all peers.
@@ -236,6 +297,12 @@ func (srv *Server) Running() bool {
 // LocalID returns the local node identifier used in the devp2p handshake.
 func (srv *Server) LocalID() string {
 	return srv.localID
+}
+
+// ExternalIP returns the configured external IP for this node, if any.
+// Used by admin_nodeInfo to build a reachable enode URL.
+func (srv *Server) ExternalIP() net.IP {
+	return srv.config.ExternalIP
 }
 
 func (srv *Server) listenLoop() {

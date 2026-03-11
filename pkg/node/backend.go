@@ -1788,18 +1788,26 @@ func newNodeAdminBackend(n *Node) rpc.AdminBackend {
 
 // NodeInfo returns information about the running node.
 func (b *nodeAdminBackend) NodeInfo() rpc.NodeInfoData {
-	p2p := b.node.p2pServer
-	nodeID := p2p.LocalID()
+	p2pSrv := b.node.p2pServer
+	nodeID := p2pSrv.LocalID()
+
+	// Use configured P2P port for the enode (listen port is always correct).
+	port := b.node.config.P2PPort
 
 	listenAddr := ""
-	ip := ""
-	port := 0
-	if addr := p2p.ListenAddr(); addr != nil {
+	if addr := p2pSrv.ListenAddr(); addr != nil {
 		listenAddr = addr.String()
-		host, portStr, err := net.SplitHostPort(listenAddr)
-		if err == nil {
+	}
+
+	// Prefer the NAT external IP so the enode is reachable from other nodes.
+	// Fall back to the listen address host (e.g. for loopback/localhost setups).
+	ip := ""
+	if extIP := p2pSrv.ExternalIP(); extIP != nil {
+		ip = extIP.String()
+	} else if listenAddr != "" {
+		host, _, err := net.SplitHostPort(listenAddr)
+		if err == nil && host != "::" && host != "" {
 			ip = host
-			fmt.Sscanf(portStr, "%d", &port)
 		}
 	}
 
