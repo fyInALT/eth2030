@@ -442,10 +442,14 @@ func New(config *Config) (*Node, error) {
 	poolCfg.AllowAATx = config.AllowAATx
 	// EIP-2780: tell the pool whether the chain runs Glamsterdan so it uses
 	// the correct (lower) base intrinsic gas for validation.
+	// Also read the genesis block gas limit so the pool accepts txs up to that size.
 	if chainCfg := bc.Config(); chainCfg != nil {
 		var genesisTime uint64
 		if gen := bc.Genesis(); gen != nil {
 			genesisTime = gen.Header().Time
+			if gen.Header().GasLimit > 0 {
+				poolCfg.BlockGasLimit = gen.Header().GasLimit
+			}
 		}
 		poolCfg.IsGlamsterdan = chainCfg.IsGlamsterdan(genesisTime)
 	}
