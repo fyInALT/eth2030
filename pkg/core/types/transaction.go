@@ -17,13 +17,30 @@ const (
 	// PQTransactionType is defined in pq_transaction.go as 0x07.
 )
 
+// BlobSidecarData holds the raw blob data, KZG commitments, and proofs for a
+// blob transaction (EIP-4844). Stored out-of-band alongside the tx so it does
+// not affect the signing hash or on-chain RLP encoding.
+type BlobSidecarData struct {
+	Blobs       [][]byte
+	Commitments [][]byte
+	Proofs      [][]byte
+}
+
 // Transaction represents an Ethereum transaction.
 type Transaction struct {
-	inner TxData
-	hash  atomic.Pointer[Hash]
-	size  atomic.Uint64
-	from  atomic.Pointer[Address] // cached sender address
+	inner   TxData
+	hash    atomic.Pointer[Hash]
+	size    atomic.Uint64
+	from    atomic.Pointer[Address]   // cached sender address
+	sidecar *BlobSidecarData          // EIP-4844: blob sidecar (nil for non-blob txs)
 }
+
+// SetBlobSidecar attaches KZG blob sidecar data to the transaction.
+// Only meaningful for blob transactions (type 0x03).
+func (tx *Transaction) SetBlobSidecar(s *BlobSidecarData) { tx.sidecar = s }
+
+// BlobSidecar returns the attached blob sidecar, or nil if absent.
+func (tx *Transaction) BlobSidecar() *BlobSidecarData { return tx.sidecar }
 
 // SetSender caches the sender address on the transaction.
 func (tx *Transaction) SetSender(addr Address) {

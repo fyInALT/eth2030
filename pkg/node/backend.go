@@ -1703,10 +1703,27 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 		"blockValue", blockValue,
 	)
 
+	// Build BlobsBundle from blob tx sidecars carried on the in-memory block.
+	// Sidecars are attached to Transaction objects when decoded from the network
+	// format (eth_sendRawTransaction) and survive until getPayload is called.
+	blobsBundle := &engine.BlobsBundleV1{}
+	for _, tx := range block.Transactions() {
+		if tx.Type() != types.BlobTxType {
+			continue
+		}
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		blobsBundle.Commitments = append(blobsBundle.Commitments, sc.Commitments...)
+		blobsBundle.Proofs = append(blobsBundle.Proofs, sc.Proofs...)
+		blobsBundle.Blobs = append(blobsBundle.Blobs, sc.Blobs...)
+	}
+
 	return &engine.GetPayloadResponse{
 		ExecutionPayload: execPayload,
 		BlockValue:       blockValue,
-		BlobsBundle:      &engine.BlobsBundleV1{},
+		BlobsBundle:      blobsBundle,
 		Override:         false,
 	}, nil
 }

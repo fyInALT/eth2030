@@ -440,20 +440,40 @@ func decodeDynamicFeeTx(data []byte) (*Transaction, error) {
 }
 
 func decodeBlobTx(data []byte) (*Transaction, error) {
+	tx, _, err := decodeBlobTxFull(data)
+	return tx, err
+}
+
+// decodeBlobTxFull decodes a blob transaction (plain or network format) and
+// returns the sidecar data if present. The sidecar is non-nil only when the
+// raw bytes include blobs, commitments, and proofs (network/pooled format).
+func decodeBlobTxFull(data []byte) (*Transaction, *BlobSidecarData, error) {
 	var dec blobTxRLP
+	var sidecar *BlobSidecarData
+
 	if err := rlp.DecodeBytes(data, &dec); err != nil {
-		// Try network/pooled format (sidecar stripped after submission).
+		// Try network/pooled format (sidecar preserved).
 		// V0: [signed_tx, blobs, commitments, proofs]
 		// V1 (go-ethereum v1.17+): [signed_tx, version, blobs, commitments, proofs]
 		var v0 blobTxNetworkV0RLP
 		if err0 := rlp.DecodeBytes(data, &v0); err0 == nil {
 			dec = v0.Tx
+			sidecar = &BlobSidecarData{
+				Blobs:       v0.Blobs,
+				Commitments: v0.Commitments,
+				Proofs:      v0.Proofs,
+			}
 		} else {
 			var v1 blobTxNetworkV1RLP
 			if err1 := rlp.DecodeBytes(data, &v1); err1 != nil {
-				return nil, fmt.Errorf("decode blob tx: %w", err)
+				return nil, nil, fmt.Errorf("decode blob tx: %w", err)
 			}
 			dec = v1.Tx
+			sidecar = &BlobSidecarData{
+				Blobs:       v1.Blobs,
+				Commitments: v1.Commitments,
+				Proofs:      v1.Proofs,
+			}
 		}
 	}
 	inner := &BlobTx{
@@ -472,7 +492,11 @@ func decodeBlobTx(data []byte) (*Transaction, error) {
 		R:          dec.R,
 		S:          dec.S,
 	}
-	return NewTransaction(inner), nil
+	tx := NewTransaction(inner)
+	if sidecar != nil {
+		tx.SetBlobSidecar(sidecar)
+	}
+	return tx, sidecar, nil
 }
 
 func decodeSetCodeTx(data []byte) (*Transaction, error) {
