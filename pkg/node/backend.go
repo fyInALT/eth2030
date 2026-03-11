@@ -900,29 +900,10 @@ func (b *engineBackend) execBlockInternal(
 		}, nil
 	}
 
-	// Guard against expensive state re-execution. InsertBlock must walk the
-	// ancestor chain and re-execute all blocks back to the nearest cached
-	// state. For fork blocks, even if the block number is close to the head,
-	// the fork may have diverged many blocks ago — causing re-execution of
-	// hundreds of blocks and stalling the Engine API for tens of seconds.
-	//
-	// To prevent this, we only call InsertBlock when the parent state is
-	// already in the cache (O(1) lookup, no re-execution). Otherwise we
-	// return SYNCING; the CL will re-send ancestor blocks until the fork's
-	// parent state is eventually cached through sequential processing.
-	if !bc.HasStateCached(payload.ParentHash) {
-		slog.Debug("engine_newPayload: parent state not cached, returning SYNCING",
-			"blockNumber", payload.BlockNumber,
-			"parentHash", payload.ParentHash,
-		)
-		return engine.PayloadStatusV1{Status: engine.StatusSyncing}, nil
-	}
-
 	// Step 3: insert the block (Phase 1: validate, Phase 2: execute, Phase 3: write).
 	slog.Debug("engine_newPayload: step3 calling InsertBlock",
 		"blockNumber", payload.BlockNumber,
 		"blockHash", payload.BlockHash,
-		"stateCached", bc.HasStateCached(payload.ParentHash),
 	)
 	if err := bc.InsertBlock(block); err != nil {
 		slog.Warn("engine_newPayload: insert failed", "err", err)

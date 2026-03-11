@@ -309,7 +309,7 @@ func DefaultConfig() Config {
 		// Memory cache sizes (tune to trade RAM for lookup latency).
 		CacheBlockSize:   256,
 		CacheReceiptSize: 128,
-		CacheStateSize:   4,
+		CacheStateSize:   32,
 
 		// Engine API memory limits.
 		CacheEnginePayloads: 32,
