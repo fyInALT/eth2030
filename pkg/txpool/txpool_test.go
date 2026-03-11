@@ -728,8 +728,8 @@ func TestPerSenderLimit(t *testing.T) {
 	}
 }
 
-// TestPoolEviction verifies that when the pool reaches capacity, the lowest-priced
-// transaction is evicted to make room for higher-priced ones.
+// TestPoolEviction verifies that when the pool reaches capacity, the tail
+// (highest-nonce) pending tx is evicted to avoid creating nonce gaps.
 func TestPoolEviction(t *testing.T) {
 	config := DefaultConfig()
 	config.MaxSize = 5
@@ -753,8 +753,8 @@ func TestPoolEviction(t *testing.T) {
 		t.Fatalf("pool count = %d, want 5", pool.Count())
 	}
 
-	// Now add a 6th tx from a different sender with higher price.
-	// This should evict the cheapest tx (nonce 0, price 100).
+	// Add a 6th tx from a different sender with higher price than the tail.
+	// Only the tail (nonce 4, price 500) is evictable without creating a nonce gap.
 	sender2 := types.BytesToAddress([]byte{0x04, 0x05, 0x06})
 	state.balances[sender2] = new(big.Int).Set(richBalance)
 	highTx := makeTxFrom(sender2, 0, 600, 21000)
@@ -763,18 +763,19 @@ func TestPoolEviction(t *testing.T) {
 		t.Fatalf("AddLocal high-priced tx: %v", err)
 	}
 
-	// Pool should still be at capacity.
+	// Pool should still be at capacity: nonces 0-3 from testSender + sender2 tx.
 	if pool.Count() != 5 {
 		t.Errorf("pool count = %d, want 5 after eviction", pool.Count())
 	}
 
-	// The cheapest tx (nonce 0, price 100) should have been evicted.
-	// Note: nonce 4 (price 500) is the highest-nonce pending tx for testSender
-	// and is protected. The cheapest unprotected is nonce 0 (price 100).
-	if pool.Get(txs[0].Hash()) != nil {
-		t.Error("cheapest tx (nonce 0) should have been evicted")
+	// The tail tx (nonce 4, price 500) should have been evicted.
+	if pool.Get(txs[4].Hash()) != nil {
+		t.Error("tail tx (nonce 4) should have been evicted")
 	}
-
+	// Lower-nonce txs must remain — they form a valid contiguous sequence.
+	if pool.Get(txs[0].Hash()) == nil {
+		t.Error("nonce 0 should still be in pool")
+	}
 	// The high-priced tx should be in the pool.
 	if pool.Get(highTx.Hash()) == nil {
 		t.Error("high-priced tx should be in pool")

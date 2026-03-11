@@ -1110,27 +1110,22 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 
 	var candidates []candidate
 
-	// Gather pending txs. Protect the highest-nonce tx per sender.
+	// Gather pending txs. Only the highest-nonce (tail) tx per sender is
+	// evictable: removing the tail leaves the remaining sequence intact with
+	// no nonce gap, so no cascade is needed. Evicting a lower-nonce tx would
+	// orphan all higher-nonce txs, stranding them in queue permanently.
+	// Single-tx senders are protected (they are the sole pool anchor).
 	for addr, list := range pool.pending {
-		if list.Len() == 0 {
+		if list.Len() <= 1 {
 			continue
 		}
-		for i, tx := range list.items {
-			// Protect the last (highest-nonce) tx if it's the only one.
-			if list.Len() == 1 {
-				continue
-			}
-			// Protect the highest-nonce pending tx.
-			if i == list.Len()-1 {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				tx:    tx,
-				from:  addr,
-				price: EffectiveGasPrice(tx, baseFee),
-				queue: false,
-			})
-		}
+		last := list.items[list.Len()-1]
+		candidates = append(candidates, candidate{
+			tx:    last,
+			from:  addr,
+			price: EffectiveGasPrice(last, baseFee),
+			queue: false,
+		})
 	}
 
 	// All queued txs are eviction candidates.
@@ -1172,16 +1167,13 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 			}
 		}
 	} else {
+		// Evicting the tail pending tx: just remove it. The remaining lower-nonce
+		// txs form a valid contiguous sequence — no cascade needed.
 		if list, ok := pool.pending[c.from]; ok {
 			list.Remove(c.tx.Nonce())
-			// Cascade-demote all higher-nonce pending txs to queue to
-			// avoid leaving a nonce gap in the pending list.
-			// Do NOT remove from lookup — txs remain in pool, just re-queued.
-			for _, orphan := range list.items {
-				pool.addQueue(c.from, orphan)
+			if list.Len() == 0 {
+				delete(pool.pending, c.from)
 			}
-			// Clear the pending list for this sender; queue now holds the orphans.
-			delete(pool.pending, c.from)
 		}
 	}
 	metrics.TxPoolDropped.Inc()
