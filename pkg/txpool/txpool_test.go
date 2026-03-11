@@ -1603,22 +1603,26 @@ func makeSetCodeTx(from types.Address, nonce uint64, gas uint64, authCount int) 
 
 // TestSetCodeTxIntrinsicGas verifies that the pool rejects SetCode txs whose gas
 // limit is too low to cover per-authorization costs.
-// Per EIP-7702: only PerAuthBaseCost (12500) is intrinsic; PerEmptyAccountCost
-// (25000) is charged during EVM execution and cannot be evaluated by the pool.
+// Per EIP-7702: the pool conservatively charges both PerAuthBaseCost (12500) and
+// PerEmptyAccountCost (25000) per authorization, because it cannot check state to
+// determine which authorities are empty. This prevents permanently-unmireable txs
+// from polluting the pool.
+// 1 auth minimum: 21000 + 12500 + 25000 = 58500
+// 5 auth minimum: 21000 + 5*(12500+25000) = 208500
 func TestSetCodeTxIntrinsicGas(t *testing.T) {
 	from := types.BytesToAddress([]byte{0xAB})
 	state := newMockState()
 	state.balances[from] = new(big.Int).Set(richBalance)
 	pool := New(DefaultConfig(), state)
 
-	// 1 auth: 21000 + 12500 = 33500 — gas=34000 is sufficient.
-	tx1 := makeSetCodeTx(from, 0, 34000, 1)
+	// 1 auth: 21000 + 12500 + 25000 = 58500 — gas=59000 is sufficient.
+	tx1 := makeSetCodeTx(from, 0, 59000, 1)
 	if err := pool.AddLocal(tx1); err != nil {
 		t.Errorf("1-auth SetCode with sufficient gas rejected: %v", err)
 	}
 
-	// 1 auth with gas=33000 — too low.
-	tx1low := makeSetCodeTx(from, 1, 33000, 1)
+	// 1 auth with gas=58000 — too low.
+	tx1low := makeSetCodeTx(from, 1, 58000, 1)
 	if err := pool.AddLocal(tx1low); err == nil {
 		t.Error("1-auth SetCode with insufficient gas should be rejected")
 	}
@@ -1626,14 +1630,14 @@ func TestSetCodeTxIntrinsicGas(t *testing.T) {
 	from2 := types.BytesToAddress([]byte{0xCD})
 	state.balances[from2] = new(big.Int).Set(richBalance)
 
-	// 5 auths: 21000 + 5*12500 = 83500 — gas=84000 is sufficient.
-	tx5ok := makeSetCodeTx(from2, 0, 84000, 5)
+	// 5 auths: 21000 + 5*37500 = 208500 — gas=209000 is sufficient.
+	tx5ok := makeSetCodeTx(from2, 0, 209000, 5)
 	if err := pool.AddLocal(tx5ok); err != nil {
 		t.Errorf("5-auth SetCode with sufficient gas rejected: %v", err)
 	}
 
-	// 5 auths with gas=83000 — too low.
-	tx5low := makeSetCodeTx(from2, 1, 83000, 5)
+	// 5 auths with gas=208000 — too low.
+	tx5low := makeSetCodeTx(from2, 1, 208000, 5)
 	if err := pool.AddLocal(tx5low); err == nil {
 		t.Error("5-auth SetCode with insufficient gas should be rejected")
 	}
