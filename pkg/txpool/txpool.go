@@ -1157,9 +1157,14 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 	} else {
 		if list, ok := pool.pending[c.from]; ok {
 			list.Remove(c.tx.Nonce())
-			if list.Len() == 0 {
-				delete(pool.pending, c.from)
+			// Cascade-demote all higher-nonce pending txs to queue to
+			// avoid leaving a nonce gap in the pending list.
+			// Do NOT remove from lookup — txs remain in pool, just re-queued.
+			for _, orphan := range list.items {
+				pool.addQueue(c.from, orphan)
 			}
+			// Clear the pending list for this sender; queue now holds the orphans.
+			delete(pool.pending, c.from)
 		}
 	}
 	metrics.TxPoolDropped.Inc()
