@@ -1303,6 +1303,23 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 		pp.block = builtBlock
 		pp.receipts = receipts
+
+		// Insert the built block into the chain now so that GetBlock can find it
+		// when the CL calls engine_forkchoiceUpdated with this block's hash as head.
+		// Without this, the built block exists only in the pending payload map;
+		// FCU returns SYNCING ("unknown head block") because blockCache and rawdb
+		// have no entry for it. Pre-inserting here also makes the subsequent
+		// engine_newPayload call a no-op (HasBlock fast path), saving re-execution.
+		if insertErr := b.node.blockchain.InsertBlock(builtBlock); insertErr != nil {
+			slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
+				"blockNum", builtBlock.NumberU64(),
+				"blockHash", builtBlock.Hash(),
+				"err", insertErr,
+			)
+			// Not fatal: the CL can still retrieve the payload; engine_newPayload
+			// will attempt insertion again when the CL sends it back.
+		}
+
 		close(pp.done)
 
 		slog.Info("engine_forkchoiceUpdated: built payload",
