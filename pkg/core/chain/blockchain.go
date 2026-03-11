@@ -286,8 +286,9 @@ func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Bloc
 	}
 
 	// Fast path: target state is already cached.
+	// Dup so insertBlock's Process call cannot mutate the cached entry.
 	if cached, ok := bc.sc.get(target.Hash()); ok {
-		return nil, cached
+		return nil, cached.Dup()
 	}
 
 	var chain []*types.Block
@@ -295,13 +296,14 @@ func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Bloc
 
 	for current.Hash() != bc.genesis.Hash() {
 		// If the parent's state is cached, use it as the base.
+		// Dup so Process cannot corrupt the cached entry.
 		if cached, ok := bc.sc.get(current.ParentHash()); ok {
 			chain = append(chain, current)
 			// Reverse to execution order (oldest first).
 			for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
 				chain[i], chain[j] = chain[j], chain[i]
 			}
-			return chain, cached
+			return chain, cached.Dup()
 		}
 		chain = append(chain, current)
 		p := bc.blockCache[current.ParentHash()]
