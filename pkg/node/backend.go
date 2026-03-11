@@ -746,6 +746,22 @@ func (b *engineBackend) execBlockInternal(
 			"blockNumber", payload.BlockNumber,
 			"blockHash", payload.BlockHash,
 		)
+		// Register in forkchoice state manager so ProcessForkchoiceUpdate
+		// succeeds when the CL calls FCU with this block as head. This path
+		// is taken for blocks pre-inserted by the payload builder goroutine,
+		// which bypass the normal execBlockInternal AddBlock call.
+		if b.node.fcStateManager != nil {
+			bi := &forkchoice.BlockInfo{
+				Hash:       payload.BlockHash,
+				ParentHash: payload.ParentHash,
+				Number:     payload.BlockNumber,
+				Slot:       payload.BlockNumber,
+			}
+			b.node.fcStateManager.AddBlock(bi)
+			if b.node.fcTracker != nil {
+				b.node.fcTracker.Reorgs.AddBlock(bi)
+			}
+		}
 		return engine.PayloadStatusV1{Status: engine.StatusValid, LatestValidHash: &h}, nil
 	}
 
@@ -1404,6 +1420,20 @@ func (b *engineBackend) doPostFCUWork(work postFCUWork) {
 
 	// Forkchoice state manager (reorg detection).
 	if b.node.fcStateManager != nil {
+		// Ensure the head block is registered before updating fork choice.
+		// If newPayload took the HasBlock fast-path (pre-inserted by the builder
+		// goroutine), AddBlock was skipped in execBlockInternal. Registering here
+		// guarantees ProcessForkchoiceUpdate never sees "head block not found".
+		headInfo := &forkchoice.BlockInfo{
+			Hash:       headBlock.Hash(),
+			ParentHash: headBlock.Header().ParentHash,
+			Number:     headBlock.NumberU64(),
+			Slot:       headBlock.NumberU64(),
+		}
+		b.node.fcStateManager.AddBlock(headInfo)
+		if b.node.fcTracker != nil {
+			b.node.fcTracker.Reorgs.AddBlock(headInfo)
+		}
 		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(work.fcState); err != nil {
 			slog.Debug("fcStateManager update", "err", err)
 		}
