@@ -513,8 +513,13 @@ func (api *EngineAPI) handleGetBlobsV1(params []json.RawMessage) (any, *jsonrpcE
 				found++
 			}
 		}
-		engineLog.Debug("engine_getBlobsV1: serving blobs",
-			"requested", len(hashes), "found", found)
+		if found == 0 {
+			engineLog.Info("engine_getBlobsV1: no blobs in local pool, CL uses P2P fallback",
+				"requested", len(hashes))
+		} else {
+			engineLog.Debug("engine_getBlobsV1: serving blobs",
+				"requested", len(hashes), "found", found)
+		}
 		return result, nil
 	}
 	// Fallback: return null for each hash.

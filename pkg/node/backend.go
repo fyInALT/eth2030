@@ -1156,6 +1156,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 	}
 	b.fcMu.Unlock()
 
+	if finalHashChanged {
+		slog.Info("engine_forkchoiceUpdated: finalized block advanced",
+			"finalizedHash", fcState.FinalizedBlockHash,
+			"headNum", headBlock.NumberU64(),
+		)
+	}
+
 	// Step 3: FCU cache check.
 	// The CL frequently re-sends the same (head,safe,finalized) triple without
 	// payload attrs to acknowledge a head without requesting a new build.
