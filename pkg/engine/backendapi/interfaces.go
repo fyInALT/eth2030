@@ -120,6 +120,31 @@ type PayloadBodiesBackend interface {
 	GetPayloadBodiesByRange(start, count uint64) ([]*payload.ExecutionPayloadBodyV2, error)
 }
 
+// BlobsV1Backend provides blob retrieval by versioned hash for engine_getBlobsV1.
+// Backends that store blob sidecar data implement this interface.
+type BlobsV1Backend interface {
+	// GetBlobsByVersionedHashes returns blob data for each requested versioned hash.
+	// Returns nil for each entry not found in the txpool (EIP-4844 behaviour).
+	GetBlobsByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV1
+}
+
+// BlobsV2Backend provides blob+cell-proof retrieval for engine_getBlobsV2 (Osaka/Fulu PeerDAS).
+// Each non-nil entry contains the full blob and 128 per-cell KZG proofs.
+// Per the Osaka spec, the handler returns null for the entire result if any blob is absent.
+type BlobsV2Backend interface {
+	// GetBlobsV2ByVersionedHashes returns blob+cell-proofs for each hash.
+	// Returns nil at a position if that blob is not in the local txpool.
+	GetBlobsV2ByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV2
+}
+
+// BlobsV3Backend provides sparse blob+cell-proof retrieval for engine_getBlobsV3 (Osaka/Fulu PeerDAS).
+// Unlike V2, V3 returns a sparse array: nil at positions not in the local pool.
+type BlobsV3Backend interface {
+	// GetBlobsV3ByVersionedHashes returns blob+cell-proofs for each hash.
+	// Returns nil at positions not found in the local txpool.
+	GetBlobsV3ByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV2
+}
+
 // UncoupledBackend is the backend interface for EIP-7898 uncoupled execution payloads.
 // Implementations provide uncoupled payload handling; left minimal for extensibility.
 type UncoupledBackend interface{} //nolint:revive

@@ -103,6 +103,43 @@ func (ep *EthPeer) SendTransactions(txs []*types.Transaction) error {
 	return ep.transport.WriteMsg(msg)
 }
 
+// SendNewPooledTransactionHashes announces transaction hashes to the peer via
+// the eth/68 NewPooledTransactionHashes message (0x08). Peers that don't have
+// these transactions will follow up with GetPooledTransactions (0x09).
+func (ep *EthPeer) SendNewPooledTransactionHashes(txs []*types.Transaction) error {
+	ann := &NewPooledTxHashesMsg68{
+		Types:  make([]byte, len(txs)),
+		Sizes:  make([]uint32, len(txs)),
+		Hashes: make([]types.Hash, len(txs)),
+	}
+	for i, tx := range txs {
+		ann.Types[i] = tx.Type()
+		encoded, err := tx.EncodeRLP()
+		if err != nil {
+			return fmt.Errorf("eth: encode tx for hash announcement: %w", err)
+		}
+		ann.Sizes[i] = uint32(len(encoded))
+		ann.Hashes[i] = tx.Hash()
+	}
+	return ep.sendMessage(MsgNewPooledTransactionHashes, ann)
+}
+
+// SendGetPooledTransactions requests the full bodies of the given transaction
+// hashes from the peer via the eth/68 GetPooledTransactions message (0x09).
+func (ep *EthPeer) SendGetPooledTransactions(hashes []types.Hash) error {
+	return ep.sendMessage(MsgGetPooledTransactions, &GetPooledTransactionsMessage{Hashes: hashes})
+}
+
+// SendPooledTransactions responds to a GetPooledTransactions request by sending
+// the full transaction bodies via the eth/68 PooledTransactions message (0x0a).
+func (ep *EthPeer) SendPooledTransactions(txs []*types.Transaction) error {
+	msg, err := encodePooledTransactions(txs)
+	if err != nil {
+		return fmt.Errorf("eth: encode pooled transactions: %w", err)
+	}
+	return ep.transport.WriteMsg(msg)
+}
+
 // SendNewBlockHashes announces new block hashes to the peer.
 func (ep *EthPeer) SendNewBlockHashes(entries []p2p.NewBlockHashesEntry) error {
 	return ep.sendMessage(p2p.NewBlockHashesMsg, entries)

@@ -81,6 +81,9 @@ func (m *mockBeaconBackend) TraceTransaction(coretypes.Hash) (*vm.StructLogTrace
 	return nil, nil
 }
 func (m *mockBeaconBackend) HistoryOldestBlock() uint64 { return 0 }
+func (m *mockBeaconBackend) BlobSchedule(_ uint64) (target, max, updateFraction uint64) {
+	return 3, 6, 3338477
+}
 
 func makeBeaconAPI(t *testing.T) *BeaconAPI {
 	t.Helper()

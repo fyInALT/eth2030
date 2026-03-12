@@ -75,6 +75,17 @@ func decodeTransactions(msg p2p.Msg) ([]*types.Transaction, error) {
 	return txs, nil
 }
 
+// encodePooledTransactions encodes a PooledTransactions (0x0a) message.
+// The wire encoding is identical to TransactionsMsg but uses code 0x0a.
+func encodePooledTransactions(txs []*types.Transaction) (p2p.Msg, error) {
+	msg, err := encodeTransactions(txs)
+	if err != nil {
+		return p2p.Msg{}, err
+	}
+	msg.Code = p2p.PooledTransactionsMsg
+	return msg, nil
+}
+
 // encodeNewBlock encodes a NewBlockData message.
 // Format: RLP([block_rlp, td])
 func encodeNewBlock(data *p2p.NewBlockData) (p2p.Msg, error) {

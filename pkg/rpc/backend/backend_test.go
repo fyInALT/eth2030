@@ -129,6 +129,9 @@ func (m *localMock) TraceTransaction(_ types.Hash) (*vm.StructLogTracer, error) 
 	return vm.NewStructLogTracer(), nil
 }
 func (m *localMock) HistoryOldestBlock() uint64 { return m.historyOldest }
+func (m *localMock) BlobSchedule(_ uint64) (target, max, updateFraction uint64) {
+	return 3, 6, 3338477
+}
 
 // --- tests ---
 

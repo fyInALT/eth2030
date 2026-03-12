@@ -146,6 +146,10 @@ func TestCalcCalldataGasUsedMultidim(t *testing.T) {
 }
 
 func TestCalldataGasValidation(t *testing.T) {
+	old := types.EIP7706HashFields
+	types.EIP7706HashFields = true
+	defer func() { types.EIP7706HashFields = old }()
+
 	gasLimit := uint64(30_000_000)
 	zeroExcess := uint64(0)
 	zeroUsed := uint64(0)

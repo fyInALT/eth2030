@@ -17,6 +17,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vm"
+	"github.com/eth2030/eth2030/crypto/bls"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/engine/forkchoice"
 	"github.com/eth2030/eth2030/engine/vhash"
@@ -208,6 +209,10 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 	if err := b.node.txPool.AddLocal(tx); err != nil {
 		return err
 	}
+	// Broadcast to connected peers via eth/68.
+	if h := b.node.ethHandler; h != nil {
+		h.BroadcastTransactions([]*types.Transaction{tx})
+	}
 	// Persist to journal for crash recovery.
 	if b.node.txJournal != nil {
 		if jerr := b.node.txJournal.Insert(tx, true); jerr != nil {
@@ -385,6 +390,14 @@ func (b *nodeBackend) EVMCall(from types.Address, to *types.Address, data []byte
 func (b *nodeBackend) HistoryOldestBlock() uint64 {
 	// Delegate to the blockchain's configured history oldest block.
 	return b.node.blockchain.HistoryOldestBlock()
+}
+
+// BlobSchedule returns the blob schedule parameters for the given block time.
+// Implements rpcbackend.Backend.
+func (b *nodeBackend) BlobSchedule(blockTime uint64) (target, max, updateFraction uint64) {
+	chainCfg := b.node.blockchain.Config()
+	sched := coregas.GetBlobSchedule(chainCfg, blockTime)
+	return sched.Target, sched.Max, sched.UpdateFraction
 }
 
 // TraceTransaction re-executes a transaction with a StructLogTracer attached.
@@ -576,6 +589,7 @@ type engineBackend struct {
 	payloadOrder []engine.PayloadID // insertion order for LRU eviction
 	maxPayloads  int                // cap from node config
 	builder      *block.BlockBuilder
+	buildMu      sync.Mutex // serialises concurrent block builds
 
 	// Forkchoice state: updated on every engine_forkchoiceUpdated call.
 	fcMu          sync.RWMutex
@@ -1143,6 +1157,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 	}
 	b.fcMu.Unlock()
 
+	if finalHashChanged {
+		slog.Info("engine_forkchoiceUpdated: finalized block advanced",
+			"finalizedHash", fcState.FinalizedBlockHash,
+			"headNum", headBlock.NumberU64(),
+		)
+	}
+
 	// Step 3: FCU cache check.
 	// The CL frequently re-sends the same (head,safe,finalized) triple without
 	// payload attrs to acknowledge a head without requesting a new build.
@@ -1268,7 +1289,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 	b.mu.Unlock()
 
 	// Build the block in the background; close done when finished.
+	// buildMu serialises concurrent builds so they don't contend on bc.mu.
 	go func() {
+		b.buildMu.Lock()
+		defer b.buildMu.Unlock()
+
 		slog.Debug("engine_forkchoiceUpdated: calling BuildBlock",
 			"parentNum", parentHeader.Number,
 			"parentHash", parentHeader.Hash(),
@@ -1575,12 +1600,23 @@ func (b *engineBackend) GetPayloadV6ByID(id engine.PayloadID) (*engine.GetPayloa
 	if err != nil {
 		return nil, err
 	}
+	// Convert V1 blobs bundle (one proof per blob) to V2 format.
+	// For V6, the proofs field will contain 128 cell proofs per blob once
+	// ComputeCellsAndProofs is invoked; here we pass through the sidecar proofs.
+	var blobsBundleV2 *engine.BlobsBundleV2
+	if b1 := resp.BlobsBundle; b1 != nil {
+		blobsBundleV2 = &engine.BlobsBundleV2{
+			Commitments: b1.Commitments,
+			Proofs:      b1.Proofs,
+			Blobs:       b1.Blobs,
+		}
+	}
 	return &engine.GetPayloadV6Response{
 		ExecutionPayload: &engine.ExecutionPayloadV5{
 			ExecutionPayloadV4: *resp.ExecutionPayload,
 		},
 		BlockValue:        resp.BlockValue,
-		BlobsBundle:       resp.BlobsBundle,
+		BlobsBundle:       blobsBundleV2,
 		ExecutionRequests: [][]byte{},
 	}, nil
 }
@@ -1709,17 +1745,30 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 	// Sidecars are attached to Transaction objects when decoded from the network
 	// format (eth_sendRawTransaction) and survive until getPayload is called.
 	blobsBundle := &engine.BlobsBundleV1{}
+	blobTxCount := 0
 	for _, tx := range block.Transactions() {
 		if tx.Type() != types.BlobTxType {
 			continue
 		}
+		blobTxCount++
 		sc := tx.BlobSidecar()
 		if sc == nil {
+			slog.Debug("engine_getPayload: blob tx missing sidecar",
+				"txHash", tx.Hash(),
+				"blockNumber", block.NumberU64(),
+			)
 			continue
 		}
 		blobsBundle.Commitments = append(blobsBundle.Commitments, sc.Commitments...)
 		blobsBundle.Proofs = append(blobsBundle.Proofs, sc.Proofs...)
 		blobsBundle.Blobs = append(blobsBundle.Blobs, sc.Blobs...)
+	}
+	if blobTxCount > 0 {
+		slog.Debug("engine_getPayload: blobsBundle",
+			"blobTxCount", blobTxCount,
+			"blobCount", len(blobsBundle.Blobs),
+			"blockNumber", block.NumberU64(),
+		)
 	}
 
 	return &engine.GetPayloadResponse{
@@ -1728,6 +1777,74 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 		BlobsBundle:      blobsBundle,
 		Override:         false,
 	}, nil
+}
+
+// GetBlobsByVersionedHashes looks up blob sidecar data in the txpool for the
+// requested versioned hashes. Implements backendapi.BlobsV1Backend.
+func (b *engineBackend) GetBlobsByVersionedHashes(hashes []types.Hash) []*engine.BlobAndProofV1 {
+	if b.node.txPool == nil {
+		return make([]*engine.BlobAndProofV1, len(hashes))
+	}
+	raw := b.node.txPool.GetBlobsByVersionedHashes(hashes)
+	result := make([]*engine.BlobAndProofV1, len(raw))
+	for i, r := range raw {
+		if r != nil {
+			result[i] = &engine.BlobAndProofV1{
+				Blob:       r.Blob,
+				Commitment: r.Commitment,
+				Proof:      r.Proof,
+			}
+		}
+	}
+	return result
+}
+
+// GetBlobsV2ByVersionedHashes retrieves blobs with 128 per-cell KZG proofs for
+// engine_getBlobsV2 (Osaka/Fulu PeerDAS). Per the Osaka spec, returns nil at
+// positions where the blob is not in the local txpool. The handler enforces
+// all-or-nothing semantics (returns null if any entry is nil).
+func (b *engineBackend) GetBlobsV2ByVersionedHashes(hashes []types.Hash) []*engine.BlobAndProofV2 {
+	return b.computeBlobsV2(hashes)
+}
+
+// GetBlobsV3ByVersionedHashes retrieves blobs with 128 per-cell KZG proofs for
+// engine_getBlobsV3 (Osaka/Fulu PeerDAS). Returns a sparse array with nil at
+// positions not in the local txpool (unlike V2, the handler does NOT apply
+// all-or-nothing; missing entries stay null in the response).
+func (b *engineBackend) GetBlobsV3ByVersionedHashes(hashes []types.Hash) []*engine.BlobAndProofV2 {
+	return b.computeBlobsV2(hashes)
+}
+
+// computeBlobsV2 looks up blobs from the txpool and computes 128 per-cell KZG
+// proofs for each. Returns nil at positions where the blob is not found.
+func (b *engineBackend) computeBlobsV2(hashes []types.Hash) []*engine.BlobAndProofV2 {
+	result := make([]*engine.BlobAndProofV2, len(hashes))
+	if b.node.txPool == nil {
+		return result
+	}
+	raw := b.node.txPool.GetBlobsByVersionedHashes(hashes)
+	kzg := bls.DefaultKZGBackend()
+	for i, r := range raw {
+		if r == nil || len(r.Blob) == 0 {
+			continue
+		}
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(r.Blob)
+		if err != nil {
+			slog.Warn("computeBlobsV2: ComputeCellsAndProofs failed",
+				"hash", hashes[i], "err", err)
+			continue
+		}
+		proofs := make([][]byte, len(cellProofs))
+		for j, p := range cellProofs {
+			cp := p // copy fixed array
+			proofs[j] = cp[:]
+		}
+		result[i] = &engine.BlobAndProofV2{
+			Blob:   r.Blob,
+			Proofs: proofs,
+		}
+	}
+	return result
 }
 
 // generatePayloadID creates a deterministic PayloadID from the parent hash

@@ -102,6 +102,9 @@ type Config struct {
 	// AllowAATx enables acceptance of EIP-7701 type-0x05 AA transactions (--txpool.allow-aa).
 	// Defaults to true; set false to disable AA tx acceptance on networks without Glamsterdam.
 	AllowAATx bool
+	// IsPrague indicates the chain is at or past the Prague fork.
+	// When true, the EIP-7623 calldata floor is applied during validation.
+	IsPrague bool
 	// IsGlamsterdan indicates the chain is at or past the Glamsterdam fork (EIP-2780).
 	// When true, the base tx gas cost is 4500 instead of 21000 for intrinsic validation.
 	IsGlamsterdan bool
@@ -678,6 +681,16 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		return ErrIntrinsicGas
 	}
 
+	// EIP-7623 / EIP-7976: enforce calldata floor gas (Prague+).
+	// The block processor enforces this floor; txs that fail it are
+	// silently skipped by the builder, wasting pool space. Reject them here.
+	if pool.config.IsPrague {
+		floor := CalldataFloorGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan, tx.AccessList())
+		if tx.Gas() < floor {
+			return ErrIntrinsicGas
+		}
+	}
+
 	// Minimum gas price check.
 	if pool.config.MinGasPrice != nil {
 		effectivePrice := tx.GasPrice()
@@ -1095,6 +1108,88 @@ func (pool *TxPool) PendingSorted() []*types.Transaction {
 	return all
 }
 
+// GetBlobsByVersionedHashes returns blob sidecar data for each requested versioned
+// hash. For each hash the corresponding entry is non-nil only when a pending blob
+// transaction carries that versioned hash and its sidecar is still attached.
+// Returns a slice parallel to hashes (nil entry = not found).
+func (pool *TxPool) GetBlobsByVersionedHashes(hashes []types.Hash) []*BlobAndProof {
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
+
+	// Build an index: versioned_hash -> (commitment, proof, blob).
+	type entry struct {
+		blob       []byte
+		commitment []byte
+		proof      []byte
+	}
+	index := make(map[types.Hash]*entry)
+
+	for _, list := range pool.pending {
+		for _, tx := range list.items {
+			if tx.Type() != types.BlobTxType {
+				continue
+			}
+			sc := tx.BlobSidecar()
+			if sc == nil {
+				continue
+			}
+			for i, h := range tx.BlobHashes() {
+				if i >= len(sc.Blobs) || i >= len(sc.Commitments) || i >= len(sc.Proofs) {
+					break
+				}
+				index[h] = &entry{
+					blob:       sc.Blobs[i],
+					commitment: sc.Commitments[i],
+					proof:      sc.Proofs[i],
+				}
+			}
+		}
+	}
+	// Also check the queue.
+	for _, list := range pool.queue {
+		for _, tx := range list.items {
+			if tx.Type() != types.BlobTxType {
+				continue
+			}
+			sc := tx.BlobSidecar()
+			if sc == nil {
+				continue
+			}
+			for i, h := range tx.BlobHashes() {
+				if i >= len(sc.Blobs) || i >= len(sc.Commitments) || i >= len(sc.Proofs) {
+					break
+				}
+				if _, found := index[h]; !found {
+					index[h] = &entry{
+						blob:       sc.Blobs[i],
+						commitment: sc.Commitments[i],
+						proof:      sc.Proofs[i],
+					}
+				}
+			}
+		}
+	}
+
+	result := make([]*BlobAndProof, len(hashes))
+	for i, h := range hashes {
+		if e, ok := index[h]; ok {
+			result[i] = &BlobAndProof{
+				Blob:       e.blob,
+				Commitment: e.commitment,
+				Proof:      e.proof,
+			}
+		}
+	}
+	return result
+}
+
+// BlobAndProof is a single blob with its KZG commitment and proof.
+type BlobAndProof struct {
+	Blob       []byte
+	Commitment []byte
+	Proof      []byte
+}
+
 // evictLowest removes the transaction with the lowest effective gas price from
 // the pool. It protects the highest-nonce pending tx for each sender (so every
 // sender keeps at least one tx). Returns the number of evicted transactions.
@@ -1309,6 +1404,56 @@ func AccessListGasGlamst(al types.AccessList) uint64 {
 	}
 	gas += tokens * TotalCostFloorPerTokenGlamst
 	return gas
+}
+
+// CalldataFloorGas computes the EIP-7623/EIP-7976 calldata floor gas for a
+// transaction. The block processor enforces this floor; txs that fail it are
+// silently skipped, so we reject them at pool entry.
+//
+// Prague/EIP-7623: floor = TxGas(21000) + tokens*10 + (TxCreateGas if create)
+//
+//	tokens = zero_bytes*1 + nonzero_bytes*4
+//
+// Glamsterdam/EIP-7976: floor = TxBase(4500) + total_bytes*4*16 + accessListFloor + (TxCreateGas if create)
+//
+//	access list floor counts each address (20B) and key (32B) at token cost.
+func CalldataFloorGas(data []byte, isCreate bool, isGlamsterdan bool, al types.AccessList) uint64 {
+	const (
+		pragueTxBase      = 21000 // pre-Glamsterdam base
+		pragueFloorPerTok = 10    // EIP-7623
+		glamstTxBase      = 4500  // Glamsterdam base
+		glamstFloorPerTok = 16    // EIP-7976 / TotalCostFloorPerTokenGlamst
+	)
+
+	if isGlamsterdan {
+		// EIP-7976: all bytes are worth 4 tokens each.
+		tokens := uint64(len(data)) * 4
+		// Access list data tokens (addr + keys, 4 tokens per byte regardless of value).
+		for _, tuple := range al {
+			tokens += 20 * 4 // address: 20 bytes × 4 tokens
+			tokens += uint64(len(tuple.StorageKeys)) * 32 * 4
+		}
+		floor := glamstTxBase + tokens*glamstFloorPerTok
+		if isCreate {
+			floor += TxCreateGas
+		}
+		return floor
+	}
+
+	// EIP-7623 Prague: tokens = zero_bytes + nonzero_bytes*4.
+	var tokens uint64
+	for _, b := range data {
+		if b == 0 {
+			tokens++
+		} else {
+			tokens += 4
+		}
+	}
+	floor := pragueTxBase + tokens*pragueFloorPerTok
+	if isCreate {
+		floor += TxCreateGas
+	}
+	return floor
 }
 
 // SetBlobBaseFee updates the pool's blob base fee (EIP-4844). Blob transactions

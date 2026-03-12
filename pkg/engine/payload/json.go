@@ -209,6 +209,33 @@ func (b *BlobsBundleV1) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ── BlobsBundleV2 ────────────────────────────────────────────────────────────
+
+type blobsBundleV2JSON struct {
+	Commitments []hexBytes `json:"commitments"`
+	Proofs      []hexBytes `json:"proofs"`
+	Blobs       []hexBytes `json:"blobs"`
+}
+
+func (b BlobsBundleV2) MarshalJSON() ([]byte, error) {
+	return json.Marshal(blobsBundleV2JSON{
+		Commitments: toHexBytesSlice(b.Commitments),
+		Proofs:      toHexBytesSlice(b.Proofs),
+		Blobs:       toHexBytesSlice(b.Blobs),
+	})
+}
+
+func (b *BlobsBundleV2) UnmarshalJSON(data []byte) error {
+	var j blobsBundleV2JSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	b.Commitments = fromHexBytesSlice(j.Commitments)
+	b.Proofs = fromHexBytesSlice(j.Proofs)
+	b.Blobs = fromHexBytesSlice(j.Blobs)
+	return nil
+}
+
 // ── ExecutionPayloadV3 (covers V1 + V2 + V3 fields) ─────────────────────────
 
 type executionPayloadV3JSON struct {
@@ -453,10 +480,14 @@ type getPayloadV4ResponseJSON struct {
 }
 
 func (r GetPayloadV4Response) MarshalJSON() ([]byte, error) {
+	blobsBundle := r.BlobsBundle
+	if blobsBundle == nil {
+		blobsBundle = &BlobsBundleV1{}
+	}
 	return json.Marshal(getPayloadV4ResponseJSON{
 		ExecutionPayload:  r.ExecutionPayload,
 		BlockValue:        newHexBig(r.BlockValue),
-		BlobsBundle:       r.BlobsBundle,
+		BlobsBundle:       blobsBundle,
 		Override:          r.Override,
 		ExecutionRequests: toHexBytesSlice(r.ExecutionRequests),
 	})
@@ -478,16 +509,20 @@ func (r *GetPayloadV4Response) UnmarshalJSON(data []byte) error {
 type getPayloadV6ResponseJSON struct {
 	ExecutionPayload  *ExecutionPayloadV5 `json:"executionPayload"`
 	BlockValue        *hexBig             `json:"blockValue"`
-	BlobsBundle       *BlobsBundleV1      `json:"blobsBundle"`
+	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`
 	ExecutionRequests []hexBytes          `json:"executionRequests"`
 }
 
 func (r GetPayloadV6Response) MarshalJSON() ([]byte, error) {
+	blobsBundle := r.BlobsBundle
+	if blobsBundle == nil {
+		blobsBundle = &BlobsBundleV2{}
+	}
 	return json.Marshal(getPayloadV6ResponseJSON{
 		ExecutionPayload:  r.ExecutionPayload,
 		BlockValue:        newHexBig(r.BlockValue),
-		BlobsBundle:       r.BlobsBundle,
+		BlobsBundle:       blobsBundle,
 		Override:          r.Override,
 		ExecutionRequests: toHexBytesSlice(r.ExecutionRequests),
 	})

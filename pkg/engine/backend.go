@@ -15,6 +15,7 @@ import (
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto/bls"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
 	"github.com/eth2030/eth2030/log"
@@ -464,7 +465,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 	return &GetPayloadResponse{
 		ExecutionPayload: ep,
 		BlockValue:       new(big.Int).Set(pending.blockValue),
-		BlobsBundle:      &BlobsBundleV1{},
+		BlobsBundle:      collectBlobsBundleV1(pending.block.Transactions()),
 	}, nil
 }
 
@@ -817,7 +818,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 	return &GetPayloadV4Response{
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
-		BlobsBundle:       &BlobsBundleV1{},
+		BlobsBundle:       collectBlobsBundleV1(pending.block.Transactions()),
 		ExecutionRequests: [][]byte{},
 	}, nil
 }
@@ -840,9 +841,59 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	return &GetPayloadV6Response{
 		ExecutionPayload:  ep5,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
-		BlobsBundle:       &BlobsBundleV1{},
+		BlobsBundle:       collectBlobsBundle(pending.block.Transactions()),
 		ExecutionRequests: [][]byte{},
 	}, nil
+}
+
+// collectBlobsBundle builds a BlobsBundleV2 from the blob sidecar data attached
+// to the given transactions. Each blob's 48-byte KZG proof is expanded to 128
+// per-cell KZG proofs using ComputeCellsAndProofs, as required by the Fulu/PeerDAS
+// spec (engine_getPayloadV6 blobsBundle.proofs must have 128*N entries).
+func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
+	bundle := &BlobsBundleV2{}
+	kzg := bls.DefaultKZGBackend()
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
+		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
+		// Expand each blob's proof to 128 per-cell KZG proofs.
+		for _, blob := range sc.Blobs {
+			_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+			if err != nil {
+				backendLog.Warn("collectBlobsBundle: ComputeCellsAndProofs failed, using zero proofs",
+					"err", err)
+				for range bls.KZGCellsPerExtBlob {
+					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
+				}
+				continue
+			}
+			for _, p := range cellProofs {
+				cp := p
+				bundle.Proofs = append(bundle.Proofs, cp[:])
+			}
+		}
+	}
+	return bundle
+}
+
+// collectBlobsBundleV1 collects blob sidecars with one proof per blob (V1 format).
+// Used for engine_getPayloadV3 and engine_getPayloadV4 responses.
+func collectBlobsBundleV1(txs []*types.Transaction) *BlobsBundleV1 {
+	bundle := &BlobsBundleV1{}
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
+		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
+		bundle.Proofs = append(bundle.Proofs, sc.Proofs...)
+	}
+	return bundle
 }
 
 // IsPrague returns true if the given timestamp falls within the Prague fork.

@@ -130,6 +130,12 @@ type KZGCeremonyBackend interface {
 	// commitment: 48 bytes, cell: BytesPerCell bytes, proof: 48 bytes.
 	VerifyCellProof(commitment, cell, proof []byte, cellIndex uint64) (bool, error)
 
+	// ComputeCellsAndProofs computes both the 128 extended-blob cells and their
+	// per-cell KZG proofs for PeerDAS (EIP-7594).
+	// blob must be exactly KZGBytesPerBlob bytes.
+	// Returns (CellsPerExtBlob cells, CellsPerExtBlob proofs, error).
+	ComputeCellsAndProofs(blob []byte) ([][KZGBytesPerCell]byte, [][KZGBytesPerProof]byte, error)
+
 	// Name returns a human-readable name for the backend.
 	Name() string
 }
@@ -294,6 +300,15 @@ func (b *PlaceholderKZGBackend) ComputeCells(blob []byte) ([][KZGBytesPerCell]by
 	return cells, nil
 }
 
+func (b *PlaceholderKZGBackend) ComputeCellsAndProofs(blob []byte) ([][KZGBytesPerCell]byte, [][KZGBytesPerProof]byte, error) {
+	if len(blob) != KZGBytesPerBlob {
+		return nil, nil, ErrKZGInvalidBlobSize
+	}
+	cells := make([][KZGBytesPerCell]byte, KZGCellsPerExtBlob)
+	proofs := make([][KZGBytesPerProof]byte, KZGCellsPerExtBlob)
+	return cells, proofs, nil
+}
+
 func (b *PlaceholderKZGBackend) VerifyCellProof(commitment, cell, proof []byte, cellIndex uint64) (bool, error) {
 	if cellIndex >= KZGCellsPerExtBlob {
 		return false, ErrKZGInvalidCellIndex
@@ -445,6 +460,34 @@ func (b *GoEthKZGBackend) VerifyCellProof(commitment, cell, proof []byte, cellIn
 		[]goethkzg.KZGProof{p},
 	)
 	return err == nil, err
+}
+
+// ComputeCellsAndProofs computes both the extended cells and per-cell proofs
+// for PeerDAS using the production trusted setup.
+func (b *GoEthKZGBackend) ComputeCellsAndProofs(blob []byte) ([][KZGBytesPerCell]byte, [][KZGBytesPerProof]byte, error) {
+	if b.ctx == nil {
+		return nil, nil, ErrKZGBackendNotImplemented
+	}
+	if len(blob) != KZGBytesPerBlob {
+		return nil, nil, ErrKZGInvalidBlobSize
+	}
+	var blobArr goethkzg.Blob
+	copy(blobArr[:], blob)
+	cellPtrs, kzgProofs, err := b.ctx.ComputeCellsAndKZGProofs(&blobArr, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("kzg: compute cells and proofs: %w", err)
+	}
+	cells := make([][KZGBytesPerCell]byte, len(cellPtrs))
+	for i, c := range cellPtrs {
+		if c != nil {
+			cells[i] = [KZGBytesPerCell]byte(*c)
+		}
+	}
+	proofs := make([][KZGBytesPerProof]byte, len(kzgProofs))
+	for i, p := range kzgProofs {
+		proofs[i] = [KZGBytesPerProof]byte(p)
+	}
+	return cells, proofs, nil
 }
 
 // --- Helpers ---
