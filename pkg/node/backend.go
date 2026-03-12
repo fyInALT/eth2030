@@ -208,6 +208,10 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 	if err := b.node.txPool.AddLocal(tx); err != nil {
 		return err
 	}
+	// Broadcast to connected peers via eth/68.
+	if h := b.node.ethHandler; h != nil {
+		h.BroadcastTransactions([]*types.Transaction{tx})
+	}
 	// Persist to journal for crash recovery.
 	if b.node.txJournal != nil {
 		if jerr := b.node.txJournal.Insert(tx, true); jerr != nil {

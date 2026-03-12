@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/p2p"
@@ -30,6 +31,9 @@ type Handler struct {
 	networkID uint64
 	peers     *p2p.PeerSet
 
+	ethPeersMu sync.RWMutex
+	ethPeers   map[string]*EthPeer // peer ID → EthPeer, for tx broadcast
+
 	// Optional sync notifier triggered by NewBlock messages.
 	syncNotifier SyncNotifier
 
@@ -53,6 +57,7 @@ func NewHandler(chain Blockchain, txPool TxPool, networkID uint64) *Handler {
 		txPool:    txPool,
 		networkID: networkID,
 		peers:     p2p.NewPeerSet(),
+		ethPeers:  make(map[string]*EthPeer),
 	}
 }
 
@@ -85,6 +90,22 @@ func (h *Handler) SetAccessListProvider(alp AccessListProvider) {
 // Peers returns the handler's peer set.
 func (h *Handler) Peers() *p2p.PeerSet {
 	return h.peers
+}
+
+// BroadcastTransactions sends the given transactions to all connected peers
+// using the eth/68 Transactions message. It is called after locally submitted
+// transactions are added to the pool so that they propagate to other nodes.
+func (h *Handler) BroadcastTransactions(txs []*types.Transaction) {
+	if len(txs) == 0 {
+		return
+	}
+	h.ethPeersMu.RLock()
+	defer h.ethPeersMu.RUnlock()
+	for _, ep := range h.ethPeers {
+		if err := ep.SendTransactions(txs); err != nil {
+			log.Printf("eth: broadcast tx to peer %s: %v", ep.ID(), err)
+		}
+	}
 }
 
 // Chain returns the handler's blockchain.
@@ -127,7 +148,15 @@ func (h *Handler) runPeer(peer *p2p.Peer, t p2p.Transport) error {
 	if err := h.peers.Register(peer); err != nil {
 		return err
 	}
-	defer h.peers.Unregister(peer.ID())
+	h.ethPeersMu.Lock()
+	h.ethPeers[peer.ID()] = ethPeer
+	h.ethPeersMu.Unlock()
+	defer func() {
+		h.peers.Unregister(peer.ID())
+		h.ethPeersMu.Lock()
+		delete(h.ethPeers, peer.ID())
+		h.ethPeersMu.Unlock()
+	}()
 
 	// Message loop.
 	return h.handleMessages(ethPeer)
