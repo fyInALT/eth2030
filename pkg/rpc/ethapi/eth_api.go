@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto"
 	rpcfilter "github.com/eth2030/eth2030/rpc/filter"
@@ -430,6 +431,9 @@ type FeeHistoryResult struct {
 	BaseFeePerGas []string   `json:"baseFeePerGas"`
 	GasUsedRatio  []float64  `json:"gasUsedRatio"`
 	Reward        [][]string `json:"reward,omitempty"`
+	// EIP-4844 blob fee history (returned when the chain has Cancun active).
+	BaseFeePerBlobGas []string  `json:"baseFeePerBlobGas,omitempty"`
+	BlobGasUsedRatio  []float64 `json:"blobGasUsedRatio,omitempty"`
 }
 
 // feeHistory returns base fee and gas usage history over a range of blocks.
@@ -483,8 +487,11 @@ func (api *EthAPI) feeHistory(req *Request) *Response {
 		OldestBlock: encodeUint64(oldest),
 	}
 
+	// hasBlobHistory tracks whether any block in range has blob gas fields.
+	hasBlobHistory := false
+
 	// Collect baseFeePerGas and gasUsedRatio for each block in range,
-	// plus the baseFee of the next block (blockCount + 1 entries total).
+	// plus the next block's base fees (N+1 entries for baseFeePerGas / baseFeePerBlobGas).
 	for i := oldest; i <= newestNum+1; i++ {
 		header := api.backend.HeaderByNumber(BlockNumber(i))
 		if header != nil && header.BaseFee != nil {
@@ -493,7 +500,16 @@ func (api *EthAPI) feeHistory(req *Request) *Response {
 			result.BaseFeePerGas = append(result.BaseFeePerGas, "0x0")
 		}
 
-		// gasUsedRatio only for blocks in the range (not the extra entry).
+		// Blob base fee (EIP-4844): include when ExcessBlobGas is present.
+		if header != nil && header.ExcessBlobGas != nil {
+			hasBlobHistory = true
+			fee := calcBlobBaseFee(*header.ExcessBlobGas)
+			result.BaseFeePerBlobGas = append(result.BaseFeePerBlobGas, encodeBigInt(fee))
+		} else {
+			result.BaseFeePerBlobGas = append(result.BaseFeePerBlobGas, "0x0")
+		}
+
+		// gasUsedRatio and blobGasUsedRatio only for blocks in range (not the extra N+1 entry).
 		if i <= newestNum {
 			if header != nil && header.GasLimit > 0 {
 				ratio := float64(header.GasUsed) / float64(header.GasLimit)
@@ -501,7 +517,25 @@ func (api *EthAPI) feeHistory(req *Request) *Response {
 			} else {
 				result.GasUsedRatio = append(result.GasUsedRatio, 0)
 			}
+
+			// blobGasUsedRatio: blobGasUsed / (maxBlobsPerBlock * gasPerBlob).
+			if header != nil && header.BlobGasUsed != nil {
+				hasBlobHistory = true
+				const gasPerBlob = 131072 // GasPerBlob constant
+				const maxBlobsPerBlock = 6
+				maxBlobGas := float64(maxBlobsPerBlock * gasPerBlob)
+				ratio := float64(*header.BlobGasUsed) / maxBlobGas
+				result.BlobGasUsedRatio = append(result.BlobGasUsedRatio, ratio)
+			} else {
+				result.BlobGasUsedRatio = append(result.BlobGasUsedRatio, 0)
+			}
 		}
+	}
+
+	// If no blocks had blob gas, clear blob arrays to omit them from JSON.
+	if !hasBlobHistory {
+		result.BaseFeePerBlobGas = nil
+		result.BlobGasUsedRatio = nil
 	}
 
 	// If reward percentiles are requested, return default priority fee for each.
@@ -871,10 +905,14 @@ func (api *EthAPI) getLogs(req *Request) *Response {
 			continue
 		}
 		blockHash := header.Hash()
+		blockTS := header.Time
 		logs := api.backend.GetLogs(blockHash)
 		for _, log := range logs {
 			if matchLog(log, addrFilter, topicFilter) {
-				result = append(result, FormatLog(log))
+				// Copy log and set timestamp so FormatLog can include blockTimestamp.
+				logCopy := *log
+				logCopy.BlockTimestamp = blockTS
+				result = append(result, FormatLog(&logCopy))
 			}
 		}
 	}
@@ -1115,16 +1153,22 @@ func (api *EthAPI) getTransactionByHash(req *Request) *Response {
 		return successResponse(req.ID, nil)
 	}
 
-	var blockHash *types.Hash
+	var (
+		blockHash *types.Hash
+		blockTS   uint64
+		baseFee   *big.Int
+	)
 	if blockNum > 0 {
 		header := api.backend.HeaderByNumber(BlockNumber(blockNum))
 		if header != nil {
 			h := header.Hash()
 			blockHash = &h
+			blockTS = header.Time
+			baseFee = header.BaseFee
 		}
 	}
 
-	return successResponse(req.ID, FormatTransaction(tx, blockHash, &blockNum, &index))
+	return successResponse(req.ID, FormatTransaction(tx, blockHash, &blockNum, &index, blockTS, baseFee))
 }
 
 // getTransactionReceipt returns a receipt for a transaction hash.
@@ -1263,7 +1307,8 @@ func (api *EthAPI) getTransactionByBlockHashAndIndex(req *Request) *Response {
 
 	blockNum := block.NumberU64()
 	bh := block.Hash()
-	return successResponse(req.ID, FormatTransaction(txs[index], &bh, &blockNum, &index))
+	blockTS := block.Header().Time
+	return successResponse(req.ID, FormatTransaction(txs[index], &bh, &blockNum, &index, blockTS, block.Header().BaseFee))
 }
 
 // getTransactionByBlockNumberAndIndex implements eth_getTransactionByBlockNumberAndIndex.
@@ -1295,7 +1340,8 @@ func (api *EthAPI) getTransactionByBlockNumberAndIndex(req *Request) *Response {
 
 	blockNum := block.NumberU64()
 	bh := block.Hash()
-	return successResponse(req.ID, FormatTransaction(txs[index], &bh, &blockNum, &index))
+	blockTS := block.Header().Time
+	return successResponse(req.ID, FormatTransaction(txs[index], &bh, &blockNum, &index, blockTS, block.Header().BaseFee))
 }
 
 // getBlockTransactionCountByHash implements eth_getBlockTransactionCountByHash.
@@ -1390,15 +1436,24 @@ func (api *EthAPI) getUncleByBlockNumberAndIndex(req *Request) *Response {
 }
 
 // getBlobBaseFee implements eth_blobBaseFee (EIP-7516).
+// Returns the blob base fee computed from the current header's excessBlobGas.
 func (api *EthAPI) getBlobBaseFee(req *Request) *Response {
 	header := api.backend.CurrentHeader()
 	if header == nil {
 		return errorResponse(req.ID, ErrCodeInternal, "no current block")
 	}
 	if header.ExcessBlobGas != nil {
-		return successResponse(req.ID, encodeBigInt(new(big.Int).SetUint64(*header.ExcessBlobGas)))
+		fee := calcBlobBaseFee(*header.ExcessBlobGas)
+		return successResponse(req.ID, encodeBigInt(fee))
 	}
 	return successResponse(req.ID, "0x0")
+}
+
+// calcBlobBaseFee computes the blob base fee from excessBlobGas using the
+// EIP-4844 fake-exponential formula: 1 * e^(excess / updateFraction).
+// Uses Cancun update fraction (3338477) as a conservative default.
+func calcBlobBaseFee(excessBlobGas uint64) *big.Int {
+	return gas.CalcBlobBaseFeeWithSchedule(excessBlobGas, gas.DencunBlobSchedule)
 }
 
 // UnsubscribeID removes a subscription by ID. Used by WebSocket connection

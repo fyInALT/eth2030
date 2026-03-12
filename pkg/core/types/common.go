@@ -178,8 +178,11 @@ type Log struct {
 	TxHash      Hash
 	TxIndex     uint
 	BlockHash   Hash
-	Index       uint
-	Removed     bool
+	// BlockTimestamp is the timestamp of the block containing this log.
+	// Not part of consensus; populated by the node (rlp:"-").
+	BlockTimestamp uint64
+	Index          uint
+	Removed        bool
 }
 
 var (

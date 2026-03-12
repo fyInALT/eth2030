@@ -1200,7 +1200,7 @@ func TestFormatTransaction_Pending(t *testing.T) {
 	sender := types.HexToAddress("0xaaaa")
 	tx.SetSender(sender)
 
-	rpcTx := rpctypes.FormatTransaction(tx, nil, nil, nil)
+	rpcTx := rpctypes.FormatTransaction(tx, nil, nil, nil, 0, nil)
 
 	if rpcTx.BlockHash != nil {
 		t.Fatalf("want nil blockHash for pending tx, got %v", *rpcTx.BlockHash)
@@ -1228,7 +1228,7 @@ func TestFormatTransaction_ContractCreation(t *testing.T) {
 		Data:     []byte{0x60, 0x00},
 	})
 
-	rpcTx := rpctypes.FormatTransaction(tx, nil, nil, nil)
+	rpcTx := rpctypes.FormatTransaction(tx, nil, nil, nil, 0, nil)
 	if rpcTx.To != nil {
 		t.Fatalf("want nil to for contract creation, got %v", *rpcTx.To)
 	}

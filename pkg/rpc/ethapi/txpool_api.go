@@ -144,15 +144,21 @@ func (api *TxPoolAPI) GetTransactionByHash(req *Request) *Response {
 	// Check chain database first.
 	tx, blockNum, index := api.backend.GetTransaction(hash)
 	if tx != nil {
-		var blockHash *types.Hash
+		var (
+			blockHash *types.Hash
+			blockTS   uint64
+			baseFee   *big.Int
+		)
 		if blockNum > 0 {
 			header := api.backend.HeaderByNumber(BlockNumber(blockNum))
 			if header != nil {
 				h := header.Hash()
 				blockHash = &h
+				blockTS = header.Time
+				baseFee = header.BaseFee
 			}
 		}
-		return successResponse(req.ID, FormatTransaction(tx, blockHash, &blockNum, &index))
+		return successResponse(req.ID, FormatTransaction(tx, blockHash, &blockNum, &index, blockTS, baseFee))
 	}
 
 	// Check pending pool.
@@ -160,7 +166,7 @@ func (api *TxPoolAPI) GetTransactionByHash(req *Request) *Response {
 	poolTx, found := api.allTxs[hash]
 	api.mu.RUnlock()
 	if found {
-		return successResponse(req.ID, FormatTransaction(poolTx, nil, nil, nil))
+		return successResponse(req.ID, FormatTransaction(poolTx, nil, nil, nil, 0, nil))
 	}
 
 	return successResponse(req.ID, nil)
@@ -290,7 +296,7 @@ func formatTxPoolMap(txMap map[types.Address][]*types.Transaction) map[string]ma
 		nonceMap := make(map[string]*RPCTransaction)
 		for _, tx := range txs {
 			nonceStr := encodeUint64(tx.Nonce())
-			nonceMap[nonceStr] = FormatTransaction(tx, nil, nil, nil)
+			nonceMap[nonceStr] = FormatTransaction(tx, nil, nil, nil, 0, nil)
 		}
 		result[addrHex] = nonceMap
 	}

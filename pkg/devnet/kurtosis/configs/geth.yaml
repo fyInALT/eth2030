@@ -1,0 +1,94 @@
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    el_log_level: debug
+    cl_type: lighthouse
+    count: 1
+  - el_type: geth
+    cl_type: lighthouse
+    count: 1
+
+network_params:
+  network: kurtosis
+  seconds_per_slot: 5
+  genesis_delay: 10
+
+additional_services:
+  - spamoor
+
+spamoor_params:
+  spammers:
+    - scenario: eoatx
+      name: "EOA Transfers"
+      config:
+        throughput: 20
+        max_pending: 5
+        max_wallets: 30
+        random_target: true
+        tip_fee: 2
+    - scenario: erc20tx
+      name: "ERC20 Token Transfers"
+      config:
+        throughput: 10
+        max_pending: 5
+        max_wallets: 20
+        random_target: true
+        tip_fee: 2
+    - scenario: erc721tx
+      name: "ERC721 NFT Transfers"
+      config:
+        throughput: 5
+        max_pending: 2
+        max_wallets: 15
+        tip_fee: 2
+    - scenario: erc1155tx
+      name: "ERC1155 Multi-Token"
+      config:
+        throughput: 5
+        max_pending: 2
+        max_wallets: 15
+        tip_fee: 2
+    - scenario: setcodetx
+      name: "EIP-7702 SetCode"
+      config:
+        throughput: 5
+        max_pending: 2
+        max_wallets: 20
+        # Use min = max for deterministic auth count (reference pattern).
+        min_authorizations: 5
+        max_authorizations: 5
+        # max_delegators caps unique delegator accounts to limit state growth.
+        # Without it every tx creates fresh delegators (unbounded state bloat).
+        max_delegators: 100
+        # Gas formula: 21000 + 5*(12500+25000) = 208500 (all empty delegators).
+        # Use 300000 for headroom.
+        gas_limit: 300000
+        random_code_addr: true
+        random_target: true
+        tip_fee: 2
+    - scenario: blobs
+      name: "EIP-4844 Blob Transactions"
+      config:
+        throughput: 3
+        max_pending: 2
+        max_wallets: 10
+        sidecars: 2
+        tip_fee: 2
+    - scenario: gasburnertx
+      name: "Gas Burner"
+      config:
+        throughput: 5
+        max_pending: 2
+        max_wallets: 15
+        tip_fee: 2
+        # Use 2M gas per tx (scenario default) to keep wallet funding affordable.
+        gas_units_to_burn: 2000000
+    - scenario: storagespam
+      name: "Storage Spam"
+      config:
+        throughput: 5
+        max_pending: 2
+        max_wallets: 15
+        tip_fee: 2
+        gas_units_to_burn: 2000000
+  

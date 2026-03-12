@@ -148,10 +148,12 @@ type RPCAuthorization struct {
 
 // RPCTransaction is the JSON representation of a transaction.
 type RPCTransaction struct {
-	Hash             string  `json:"hash"`
-	Nonce            string  `json:"nonce"`
-	BlockHash        *string `json:"blockHash"`
-	BlockNumber      *string `json:"blockNumber"`
+	Hash        string  `json:"hash"`
+	Nonce       string  `json:"nonce"`
+	BlockHash   *string `json:"blockHash"`
+	BlockNumber *string `json:"blockNumber"`
+	// BlockTimestamp is a Geth extension: the timestamp of the block containing the tx.
+	BlockTimestamp   *string `json:"blockTimestamp,omitempty"`
 	TransactionIndex *string `json:"transactionIndex"`
 	From             string  `json:"from"`
 	To               *string `json:"to"`
@@ -163,14 +165,17 @@ type RPCTransaction struct {
 	V                string  `json:"v"`
 	R                string  `json:"r"`
 	S                string  `json:"s"`
+	// YParity mirrors V for EIP-2718 typed txs (type ≥ 1).
+	YParity *string `json:"yParity,omitempty"`
 	// EIP-2930 / EIP-1559 / EIP-4844 / EIP-7702 fields (omitted for legacy txs).
-	ChainID              *string            `json:"chainId,omitempty"`
-	MaxFeePerGas         *string            `json:"maxFeePerGas,omitempty"`
-	MaxPriorityFeePerGas *string            `json:"maxPriorityFeePerGas,omitempty"`
-	AccessList           []RPCAccessTuple   `json:"accessList,omitempty"`
-	MaxFeePerBlobGas     *string            `json:"maxFeePerBlobGas,omitempty"`
-	BlobVersionedHashes  []string           `json:"blobVersionedHashes,omitempty"`
-	AuthorizationList    []RPCAuthorization `json:"authorizationList,omitempty"`
+	ChainID              *string `json:"chainId,omitempty"`
+	MaxFeePerGas         *string `json:"maxFeePerGas,omitempty"`
+	MaxPriorityFeePerGas *string `json:"maxPriorityFeePerGas,omitempty"`
+	// AccessList uses a pointer so a non-nil empty slice encodes as [] (not omitted).
+	AccessList          *[]RPCAccessTuple  `json:"accessList,omitempty"`
+	MaxFeePerBlobGas    *string            `json:"maxFeePerBlobGas,omitempty"`
+	BlobVersionedHashes []string           `json:"blobVersionedHashes,omitempty"`
+	AuthorizationList   []RPCAuthorization `json:"authorizationList,omitempty"`
 }
 
 // RPCReceipt is the JSON representation of a transaction receipt.
@@ -204,8 +209,10 @@ type RPCLog struct {
 	TransactionHash  string   `json:"transactionHash"`
 	TransactionIndex string   `json:"transactionIndex"`
 	BlockHash        string   `json:"blockHash"`
-	LogIndex         string   `json:"logIndex"`
-	Removed          bool     `json:"removed"`
+	// BlockTimestamp is a Geth extension: the timestamp of the block.
+	BlockTimestamp *string `json:"blockTimestamp,omitempty"`
+	LogIndex       string  `json:"logIndex"`
+	Removed        bool    `json:"removed"`
 }
 
 // CallArgs represents the arguments for eth_call and eth_estimateGas.
@@ -509,9 +516,10 @@ func FormatBlock(block *types.Block, fullTx bool) interface{} {
 	result.Transactions = make([]*RPCTransaction, len(txs))
 	blockHash := block.Hash()
 	blockNum := block.NumberU64()
+	blockTS := header.Time
 	for i, tx := range txs {
 		idx := uint64(i)
-		result.Transactions[i] = FormatTransaction(tx, &blockHash, &blockNum, &idx)
+		result.Transactions[i] = FormatTransaction(tx, &blockHash, &blockNum, &idx, blockTS, header.BaseFee)
 	}
 
 	// Withdrawals: always present (even empty) for post-Shanghai blocks.
@@ -587,15 +595,34 @@ func FormatHeader(h *types.Header) *RPCBlock {
 }
 
 // FormatTransaction converts a transaction to its JSON-RPC representation.
-func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber *uint64, index *uint64) *RPCTransaction {
+// blockTimestamp is the timestamp of the containing block (0 if unknown/pending).
+// baseFee is the block base fee per gas; used to compute the effective gasPrice
+// for EIP-1559 txs (type ≥ 2). Pass nil for pending txs or pre-London blocks.
+func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber *uint64, index *uint64, blockTimestamp uint64, baseFee *big.Int) *RPCTransaction {
+	// For EIP-1559+ txs, effective gasPrice = min(feeCap, baseFee + tip).
+	gasPrice := tx.GasPrice()
+	txType := tx.Type()
+	if txType >= types.DynamicFeeTxType && baseFee != nil {
+		tip := tx.GasTipCap()
+		if tip == nil {
+			tip = new(big.Int)
+		}
+		effective := new(big.Int).Add(baseFee, tip)
+		feeCap := tx.GasFeeCap()
+		if feeCap != nil && effective.Cmp(feeCap) > 0 {
+			effective = feeCap
+		}
+		gasPrice = effective
+	}
+
 	rpcTx := &RPCTransaction{
 		Hash:     EncodeHash(tx.Hash()),
 		Nonce:    EncodeUint64(tx.Nonce()),
 		Value:    EncodeBigInt(tx.Value()),
 		Gas:      EncodeUint64(tx.Gas()),
-		GasPrice: EncodeBigInt(tx.GasPrice()),
+		GasPrice: EncodeBigInt(gasPrice),
 		Input:    EncodeBytes(tx.Data()),
-		Type:     EncodeUint64(uint64(tx.Type())),
+		Type:     EncodeUint64(uint64(txType)),
 	}
 
 	if sender := tx.Sender(); sender != nil {
@@ -614,6 +641,10 @@ func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber
 	if blockNumber != nil {
 		bn := EncodeUint64(*blockNumber)
 		rpcTx.BlockNumber = &bn
+	}
+	if blockTimestamp > 0 {
+		ts := EncodeUint64(blockTimestamp)
+		rpcTx.BlockTimestamp = &ts
 	}
 	if index != nil {
 		idx := EncodeUint64(*index)
@@ -638,15 +669,22 @@ func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber
 		rpcTx.S = "0x0"
 	}
 
+	// yParity mirrors V for typed txs (EIP-2718, type ≥ 1).
+	if txType >= types.AccessListTxType {
+		yp := rpcTx.V
+		rpcTx.YParity = &yp
+	}
+
 	// EIP-2930+: chainId and accessList (types 1, 2, 3, 4).
-	txType := tx.Type()
+	// Use *[]RPCAccessTuple so an empty access list encodes as [] (not omitted).
 	if txType >= types.AccessListTxType {
 		chainID := tx.ChainId()
 		if chainID != nil {
 			cid := EncodeBigInt(chainID)
 			rpcTx.ChainID = &cid
 		}
-		rpcTx.AccessList = FormatAccessList(tx.AccessList())
+		al := FormatAccessList(tx.AccessList())
+		rpcTx.AccessList = &al
 	}
 
 	// EIP-1559+: maxFeePerGas and maxPriorityFeePerGas (types 2, 3, 4).
@@ -761,12 +799,13 @@ func NewErrorResponse(id json.RawMessage, code int, message string) *Response {
 }
 
 // FormatLog converts a log to its JSON-RPC representation.
+// If log.BlockTimestamp > 0 it is included as the Geth-extension blockTimestamp field.
 func FormatLog(log *types.Log) *RPCLog {
 	topics := make([]string, len(log.Topics))
 	for i, topic := range log.Topics {
 		topics[i] = EncodeHash(topic)
 	}
-	return &RPCLog{
+	rpcLog := &RPCLog{
 		Address:          EncodeAddress(log.Address),
 		Topics:           topics,
 		Data:             EncodeBytes(log.Data),
@@ -777,4 +816,9 @@ func FormatLog(log *types.Log) *RPCLog {
 		LogIndex:         EncodeUint64(uint64(log.Index)),
 		Removed:          log.Removed,
 	}
+	if log.BlockTimestamp > 0 {
+		ts := EncodeUint64(log.BlockTimestamp)
+		rpcLog.BlockTimestamp = &ts
+	}
+	return rpcLog
 }
