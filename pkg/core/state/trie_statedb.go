@@ -166,22 +166,9 @@ func (t *TrieStateDB) loadFromDB(addr types.Address) {
 	}
 	copy(obj.account.CodeHash, acc.CodeHash)
 
-	// Load all storage slots for this account.
-	iter := t.db.NewIterator(storageDBPrefix(addr))
-	for iter.Next() {
-		key := iter.Key()
-		if len(key) != 2+20+32 {
-			continue
-		}
-		var slot types.Hash
-		copy(slot[:], key[22:])
-		var val types.Hash
-		copy(val[:], iter.Value())
-		if val != (types.Hash{}) {
-			obj.committedStorage[slot] = val
-		}
-	}
-	iter.Release()
+	// Storage slots are NOT loaded here — they are loaded lazily on demand
+	// by GetState / GetCommittedState / SetState.  Eager bulk loading was the
+	// root cause of O(N²) memory growth with storagespam workloads.
 
 	// Load contract code if non-empty.
 	if len(acc.CodeHash) > 0 && types.BytesToHash(acc.CodeHash) != types.EmptyCodeHash {
@@ -191,6 +178,83 @@ func (t *TrieStateDB) loadFromDB(addr types.Address) {
 	}
 
 	t.mem.stateObjects[addr] = obj
+}
+
+// loadSlotFromDB loads a single storage slot from the persistent store into
+// obj.committedStorage.  Returns the slot value (zero hash if not in DB).
+func (t *TrieStateDB) loadSlotFromDB(addr types.Address, obj *stateObject, slot types.Hash) types.Hash {
+	data, err := t.db.Get(storageDBKey(addr, slot))
+	if err != nil {
+		return types.Hash{} // slot not in DB
+	}
+	var val types.Hash
+	copy(val[:], data)
+	if val != (types.Hash{}) {
+		obj.committedStorage[slot] = val
+	}
+	return val
+}
+
+// computeStorageRootFromDB computes the storage Merkle root for addr by
+// merging all DB-persisted slots with the in-memory committed and dirty
+// overlays (dirty takes priority over committed which takes priority over DB).
+// This is used instead of computeStorageRoot when committedStorage may be
+// sparse due to lazy slot loading.
+func (t *TrieStateDB) computeStorageRootFromDB(addr types.Address, obj *stateObject) types.Hash {
+	// Build overlay: committed (sparse cache + recently-flushed dirty) then dirty.
+	overlay := make(map[types.Hash]types.Hash, len(obj.committedStorage)+len(obj.dirtyStorage))
+	for slot, val := range obj.committedStorage {
+		overlay[slot] = val
+	}
+	for slot, val := range obj.dirtyStorage {
+		overlay[slot] = val
+	}
+
+	storageTrie := trie.New()
+	seen := make(map[types.Hash]bool, len(overlay))
+
+	// Walk DB slots as the base layer, applying overlay overrides.
+	iter := t.db.NewIterator(storageDBPrefix(addr))
+	for iter.Next() {
+		key := iter.Key()
+		if len(key) != 2+20+32 {
+			continue
+		}
+		var slot types.Hash
+		copy(slot[:], key[22:])
+		seen[slot] = true
+
+		val, overridden := overlay[slot]
+		if !overridden {
+			copy(val[:], iter.Value())
+		}
+		if val != (types.Hash{}) {
+			hashedSlot := crypto.Keccak256(slot[:])
+			trimmed := trimLeadingZeros(val[:])
+			encoded, err := rlp.EncodeToBytes(trimmed)
+			if err == nil {
+				storageTrie.Put(hashedSlot, encoded)
+			}
+		}
+	}
+	iter.Release()
+
+	// Add overlay slots that are not in the DB (new slots written this block).
+	for slot, val := range overlay {
+		if seen[slot] {
+			continue
+		}
+		if val != (types.Hash{}) {
+			hashedSlot := crypto.Keccak256(slot[:])
+			trimmed := trimLeadingZeros(val[:])
+			encoded, err := rlp.EncodeToBytes(trimmed)
+			if err == nil {
+				storageTrie.Put(hashedSlot, encoded)
+			}
+		}
+	}
+
+	return storageTrie.Hash()
 }
 
 // --- StateDB interface: account operations ---
@@ -264,21 +328,48 @@ func (t *TrieStateDB) HasSelfDestructed(addr types.Address) bool {
 	return t.mem.HasSelfDestructed(addr)
 }
 
-// --- StateDB interface: storage ---
+// --- StateDB interface: storage (lazy per-slot loading) ---
 
 func (t *TrieStateDB) GetState(addr types.Address, key types.Hash) types.Hash {
 	t.loadFromDB(addr)
-	return t.mem.GetState(addr, key)
-}
-
-func (t *TrieStateDB) SetState(addr types.Address, key types.Hash, value types.Hash) {
-	t.loadFromDB(addr)
-	t.mem.SetState(addr, key, value)
+	obj := t.mem.stateObjects[addr]
+	if obj == nil {
+		return types.Hash{}
+	}
+	if val, ok := obj.dirtyStorage[key]; ok {
+		return val
+	}
+	if val, ok := obj.committedStorage[key]; ok {
+		return val
+	}
+	return t.loadSlotFromDB(addr, obj, key)
 }
 
 func (t *TrieStateDB) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
 	t.loadFromDB(addr)
-	return t.mem.GetCommittedState(addr, key)
+	obj := t.mem.stateObjects[addr]
+	if obj == nil {
+		return types.Hash{}
+	}
+	if val, ok := obj.committedStorage[key]; ok {
+		return val
+	}
+	return t.loadSlotFromDB(addr, obj, key)
+}
+
+func (t *TrieStateDB) SetState(addr types.Address, key types.Hash, value types.Hash) {
+	t.loadFromDB(addr)
+	obj := t.mem.stateObjects[addr]
+	if obj != nil {
+		// Ensure committed value is populated before MemoryStateDB.SetState reads
+		// obj.committedStorage[key] to record the journal prev value.
+		if _, ok := obj.committedStorage[key]; !ok {
+			if _, ok2 := obj.dirtyStorage[key]; !ok2 {
+				t.loadSlotFromDB(addr, obj, key)
+			}
+		}
+	}
+	t.mem.SetState(addr, key, value)
 }
 
 // --- StateDB interface: account existence ---
@@ -367,7 +458,11 @@ func (t *TrieStateDB) ClearTransientStorage() {
 
 func (t *TrieStateDB) StorageRoot(addr types.Address) types.Hash {
 	t.loadFromDB(addr)
-	return t.mem.StorageRoot(addr)
+	obj := t.mem.stateObjects[addr]
+	if obj == nil {
+		return types.EmptyRootHash
+	}
+	return t.computeStorageRootFromDB(addr, obj)
 }
 
 // GetRoot computes the full state root by merging DB-persisted accounts with
@@ -393,7 +488,7 @@ func (t *TrieStateDB) buildStateTrie() *trie.Trie {
 		if obj.selfDestructed {
 			continue // logically deleted; skip
 		}
-		storageRoot := computeStorageRoot(obj)
+		storageRoot := t.computeStorageRootFromDB(addr, obj)
 		codeHash := obj.account.CodeHash
 		if len(codeHash) == 0 {
 			codeHash = types.EmptyCodeHash.Bytes()
@@ -453,38 +548,37 @@ func (t *TrieStateDB) buildStateTrie() *trie.Trie {
 // Commit flushes the dirty buffer to the DB, resets the buffer, and returns
 // the new state root. After a successful Commit, Dup() is O(1).
 func (t *TrieStateDB) Commit() (types.Hash, error) {
-	// Collect zeroed dirty slots BEFORE flushing dirty→committed. The flush
-	// removes zero-value slots from committedStorage via delete(), making them
-	// invisible to the write loop — they must be explicitly deleted from DB.
-	type addrSlot struct {
+	// Capture ALL dirty storage slots BEFORE the dirty→committed flush so we
+	// know exactly which slots to write/delete in the DB.  We only write dirty
+	// slots — never the full committedStorage — to avoid the O(N_total) write
+	// amplification that caused 700%+ CPU with storagespam workloads.
+	type dirtySlot struct {
 		addr types.Address
 		slot types.Hash
+		val  types.Hash
 	}
-	var zeroedSlots []addrSlot
+	var dirtySlots []dirtySlot
 	for addr, obj := range t.mem.stateObjects {
 		if obj.selfDestructed {
 			continue // entire storage will be deleted via prefix scan below
 		}
 		for slot, val := range obj.dirtyStorage {
-			if val == (types.Hash{}) {
-				zeroedSlots = append(zeroedSlots, addrSlot{addr, slot})
-			}
+			dirtySlots = append(dirtySlots, dirtySlot{addr, slot, val})
 		}
 	}
 
-	// Flush dirty → committed storage (mirrors MemoryStateDB.Commit).
+	// Flush dirty → committed storage.
+	// Unlike MemoryStateDB we keep zero values in committedStorage as explicit
+	// "slot was zeroed this block" markers so computeStorageRootFromDB can
+	// override the DB value with zero (i.e. exclude the slot from the trie).
 	for _, obj := range t.mem.stateObjects {
 		for key, val := range obj.dirtyStorage {
-			if val == (types.Hash{}) {
-				delete(obj.committedStorage, key)
-			} else {
-				obj.committedStorage[key] = val
-			}
+			obj.committedStorage[key] = val // keep zeros as explicit overrides
 		}
 		obj.dirtyStorage = make(map[types.Hash]types.Hash)
 	}
 
-	// Compute state root over the full merged state.
+	// Compute state root over the full merged state (DB + in-memory overlay).
 	root := t.buildStateTrie().Hash()
 
 	// Persist dirty buffer to DB atomically.
@@ -507,7 +601,9 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		}
 
 		// Write account record (includes baked-in storage root for fast reload).
-		storageRoot := computeStorageRoot(obj)
+		// committedStorage contains the freshly-flushed dirty values at this point,
+		// so computeStorageRootFromDB gives the correct post-block storage root.
+		storageRoot := t.computeStorageRootFromDB(addr, obj)
 		codeHash := obj.account.CodeHash
 		if len(codeHash) == 0 {
 			codeHash = types.EmptyCodeHash.Bytes()
@@ -532,27 +628,25 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 				return types.Hash{}, fmt.Errorf("put code %s: %w", addr.Hex(), err)
 			}
 		}
+	}
 
-		// Write non-zero committed storage slots. Zero values were collected
-		// in zeroedSlots above and are deleted separately.
-		for slot, val := range obj.committedStorage {
-			if err := batch.Put(storageDBKey(addr, slot), val[:]); err != nil {
-				return types.Hash{}, fmt.Errorf("put slot %s[%s]: %w", addr.Hex(), slot.Hex(), err)
+	// Write only the dirty storage slots captured before the flush.
+	// Zero-value slots are deleted from DB; non-zero are upserted.
+	for _, ds := range dirtySlots {
+		if ds.val == (types.Hash{}) {
+			if err := batch.Delete(storageDBKey(ds.addr, ds.slot)); err != nil {
+				return types.Hash{}, fmt.Errorf("delete slot %s[%s]: %w", ds.addr.Hex(), ds.slot.Hex(), err)
+			}
+		} else {
+			if err := batch.Put(storageDBKey(ds.addr, ds.slot), ds.val[:]); err != nil {
+				return types.Hash{}, fmt.Errorf("put slot %s[%s]: %w", ds.addr.Hex(), ds.slot.Hex(), err)
 			}
 		}
 	}
 
-	// Delete storage slots that were zeroed this block. These were removed from
-	// committedStorage by the flush, so the write loop above cannot reach them.
-	for _, as := range zeroedSlots {
-		if err := batch.Delete(storageDBKey(as.addr, as.slot)); err != nil {
-			return types.Hash{}, fmt.Errorf("delete zeroed slot %s[%s]: %w", as.addr.Hex(), as.slot.Hex(), err)
-		}
-	}
-
-	// For accounts reset by CreateAccount, purge stale DB storage slots that
-	// are not part of the new account's state. Without this, old storage keys
-	// would be reloaded by loadFromDB on the next block.
+	// For accounts reset by CreateAccount, purge ALL stale DB storage.
+	// The new account's dirty slots were captured above and will be written;
+	// any remaining DB slots belong to the old incarnation and must be removed.
 	for addr := range t.recreated {
 		obj, ok := t.mem.stateObjects[addr]
 		if !ok || obj.selfDestructed {
@@ -560,17 +654,9 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		}
 		iter := t.db.NewIterator(storageDBPrefix(addr))
 		for iter.Next() {
-			key := iter.Key()
-			if len(key) != 2+20+32 {
-				continue
-			}
-			var slot types.Hash
-			copy(slot[:], key[22:])
-			if _, kept := obj.committedStorage[slot]; !kept {
-				if err := batch.Delete(key); err != nil {
-					iter.Release()
-					return types.Hash{}, fmt.Errorf("delete stale slot %s[%s]: %w", addr.Hex(), slot.Hex(), err)
-				}
+			if err := batch.Delete(iter.Key()); err != nil {
+				iter.Release()
+				return types.Hash{}, fmt.Errorf("delete stale slot %s: %w", addr.Hex(), err)
 			}
 		}
 		iter.Release()
