@@ -73,6 +73,9 @@ func (m *testMockBackend) TraceTransaction(txHash types.Hash) (*vm.StructLogTrac
 	return nil, nil
 }
 func (m *testMockBackend) HistoryOldestBlock() uint64 { return 0 }
+func (m *testMockBackend) BlobSchedule(_ uint64) (target, max, updateFraction uint64) {
+	return 3, 6, 3338477
+}
 
 // newTestMockBackend creates a mock backend with two blocks (42 and 43) and logs.
 func newTestMockBackend() *testMockBackend {
@@ -1250,7 +1253,7 @@ func TestFormatReceipt_ContractCreation(t *testing.T) {
 		Logs:              []*types.Log{},
 	}
 
-	rpcReceipt := rpctypes.FormatReceipt(receipt, nil)
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
 	if rpcReceipt.ContractAddress == nil {
 		t.Fatal("expected non-nil contractAddress")
 	}
@@ -1270,7 +1273,7 @@ func TestFormatReceipt_NilContractAddress(t *testing.T) {
 		Logs:              []*types.Log{},
 	}
 
-	rpcReceipt := rpctypes.FormatReceipt(receipt, nil)
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
 	if rpcReceipt.ContractAddress != nil {
 		t.Fatalf("want nil contractAddress, got %v", *rpcReceipt.ContractAddress)
 	}
@@ -1286,7 +1289,7 @@ func TestFormatReceipt_FailedStatus(t *testing.T) {
 		Logs:        []*types.Log{},
 	}
 
-	rpcReceipt := rpctypes.FormatReceipt(receipt, nil)
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
 	if rpcReceipt.Status != "0x0" {
 		t.Fatalf("want status 0x0 (failed), got %v", rpcReceipt.Status)
 	}
@@ -1302,7 +1305,7 @@ func TestFormatReceipt_NilLogs(t *testing.T) {
 		Logs:        nil,
 	}
 
-	rpcReceipt := rpctypes.FormatReceipt(receipt, nil)
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
 	if rpcReceipt.Logs == nil {
 		t.Fatal("want non-nil Logs slice")
 	}

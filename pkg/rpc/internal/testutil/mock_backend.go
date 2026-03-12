@@ -174,6 +174,11 @@ func (b *MockBackend) HistoryOldestBlock() uint64 {
 	return b.HistoryOldest
 }
 
+// BlobSchedule returns Cancun blob parameters as the default for tests.
+func (b *MockBackend) BlobSchedule(_ uint64) (target, max, updateFraction uint64) {
+	return 3, 6, 3338477 // Cancun/Dencun defaults (EIP-4844)
+}
+
 // MinTestRawTxHex returns a minimal RLP-encoded legacy transaction as a
 // 0x-prefixed hex string for use in eth_sendRawTransaction tests.
 func MinTestRawTxHex() (string, error) {

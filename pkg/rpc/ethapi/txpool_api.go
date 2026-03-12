@@ -198,7 +198,7 @@ func (api *TxPoolAPI) GetTransactionReceipt(req *Request) *Response {
 	receipts := api.backend.GetReceipts(blockHash)
 	for _, receipt := range receipts {
 		if receipt.TxHash == txHash {
-			return successResponse(req.ID, FormatReceipt(receipt, tx))
+			return successResponse(req.ID, FormatReceipt(receipt, tx, header.Time))
 		}
 	}
 

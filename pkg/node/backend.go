@@ -387,6 +387,14 @@ func (b *nodeBackend) HistoryOldestBlock() uint64 {
 	return b.node.blockchain.HistoryOldestBlock()
 }
 
+// BlobSchedule returns the blob schedule parameters for the given block time.
+// Implements rpcbackend.Backend.
+func (b *nodeBackend) BlobSchedule(blockTime uint64) (target, max, updateFraction uint64) {
+	chainCfg := b.node.blockchain.Config()
+	sched := coregas.GetBlobSchedule(chainCfg, blockTime)
+	return sched.Target, sched.Max, sched.UpdateFraction
+}
+
 // TraceTransaction re-executes a transaction with a StructLogTracer attached.
 // It looks up the block containing the transaction, re-processes all prior
 // transactions to build up state, then executes the target tx with tracing.

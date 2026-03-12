@@ -717,7 +717,9 @@ func FormatTransaction(tx *types.Transaction, blockHash *types.Hash, blockNumber
 }
 
 // FormatReceipt converts a receipt to its JSON-RPC representation.
-func FormatReceipt(receipt *types.Receipt, tx *types.Transaction) *RPCReceipt {
+// blockTimestamp is the timestamp of the containing block; if non-zero it is
+// propagated to each log's BlockTimestamp so FormatLog can include the field.
+func FormatReceipt(receipt *types.Receipt, tx *types.Transaction, blockTimestamp uint64) *RPCReceipt {
 	rpcReceipt := &RPCReceipt{
 		TransactionHash:   EncodeHash(receipt.TxHash),
 		TransactionIndex:  EncodeUint64(uint64(receipt.TransactionIndex)),
@@ -754,10 +756,16 @@ func FormatReceipt(receipt *types.Receipt, tx *types.Transaction) *RPCReceipt {
 		rpcReceipt.ContractAddress = &ca
 	}
 
-	// Logs
+	// Logs — copy each log to set BlockTimestamp (Geth extension).
 	rpcReceipt.Logs = make([]*RPCLog, len(receipt.Logs))
 	for i, log := range receipt.Logs {
-		rpcReceipt.Logs[i] = FormatLog(log)
+		if blockTimestamp > 0 && log.BlockTimestamp == 0 {
+			logCopy := *log
+			logCopy.BlockTimestamp = blockTimestamp
+			rpcReceipt.Logs[i] = FormatLog(&logCopy)
+		} else {
+			rpcReceipt.Logs[i] = FormatLog(log)
+		}
 	}
 	if rpcReceipt.Logs == nil {
 		rpcReceipt.Logs = []*RPCLog{}

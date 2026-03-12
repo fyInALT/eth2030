@@ -503,7 +503,7 @@ func (api *EthAPI) feeHistory(req *Request) *Response {
 		// Blob base fee (EIP-4844): include when ExcessBlobGas is present.
 		if header != nil && header.ExcessBlobGas != nil {
 			hasBlobHistory = true
-			fee := calcBlobBaseFee(*header.ExcessBlobGas)
+			fee := api.calcBlobBaseFee(*header.ExcessBlobGas, header.Time)
 			result.BaseFeePerBlobGas = append(result.BaseFeePerBlobGas, encodeBigInt(fee))
 		} else {
 			result.BaseFeePerBlobGas = append(result.BaseFeePerBlobGas, "0x0")
@@ -521,9 +521,8 @@ func (api *EthAPI) feeHistory(req *Request) *Response {
 			// blobGasUsedRatio: blobGasUsed / (maxBlobsPerBlock * gasPerBlob).
 			if header != nil && header.BlobGasUsed != nil {
 				hasBlobHistory = true
-				const gasPerBlob = 131072 // GasPerBlob constant
-				const maxBlobsPerBlock = 6
-				maxBlobGas := float64(maxBlobsPerBlock * gasPerBlob)
+				_, maxBlobs, _ := api.backend.BlobSchedule(header.Time)
+				maxBlobGas := float64(maxBlobs) * float64(gas.GasPerBlob)
 				ratio := float64(*header.BlobGasUsed) / maxBlobGas
 				result.BlobGasUsedRatio = append(result.BlobGasUsedRatio, ratio)
 			} else {
@@ -756,7 +755,7 @@ func (api *EthAPI) getFilterChanges(req *Request) *Response {
 	case []*types.Log:
 		rpcLogs := make([]*RPCLog, len(v))
 		for i, log := range v {
-			rpcLogs[i] = FormatLog(log)
+			rpcLogs[i] = api.formatLogWithTimestamp(log)
 		}
 		return successResponse(req.ID, rpcLogs)
 	case []types.Hash:
@@ -788,7 +787,7 @@ func (api *EthAPI) getFilterLogs(req *Request) *Response {
 
 	rpcLogs := make([]*RPCLog, len(logs))
 	for i, log := range logs {
-		rpcLogs[i] = FormatLog(log)
+		rpcLogs[i] = api.formatLogWithTimestamp(log)
 	}
 	return successResponse(req.ID, rpcLogs)
 }
@@ -806,6 +805,20 @@ func (api *EthAPI) uninstallFilter(req *Request) *Response {
 
 	ok := api.subs.Uninstall(filterID)
 	return successResponse(req.ID, ok)
+}
+
+// formatLogWithTimestamp formats a log, looking up the block timestamp from
+// the header when log.BlockTimestamp is not set (e.g. from subscription filters).
+func (api *EthAPI) formatLogWithTimestamp(log *types.Log) *RPCLog {
+	if log.BlockTimestamp == 0 && log.BlockNumber > 0 {
+		header := api.backend.HeaderByNumber(BlockNumber(log.BlockNumber))
+		if header != nil {
+			logCopy := *log
+			logCopy.BlockTimestamp = header.Time
+			return FormatLog(&logCopy)
+		}
+	}
+	return FormatLog(log)
 }
 
 // matchLog checks whether a log matches the filter criteria.
@@ -1015,13 +1028,14 @@ func (api *EthAPI) getBlockReceipts(req *Request) *Response {
 		txs = block.Transactions()
 	}
 
+	blockTS := header.Time
 	result := make([]*RPCReceipt, len(receipts))
 	for i, receipt := range receipts {
 		var tx *types.Transaction
 		if i < len(txs) {
 			tx = txs[i]
 		}
-		result[i] = FormatReceipt(receipt, tx)
+		result[i] = FormatReceipt(receipt, tx, blockTS)
 	}
 
 	return successResponse(req.ID, result)
@@ -1206,7 +1220,7 @@ func (api *EthAPI) getTransactionReceipt(req *Request) *Response {
 	// Find the receipt matching our tx hash
 	for _, receipt := range receipts {
 		if receipt.TxHash == txHash {
-			return successResponse(req.ID, FormatReceipt(receipt, tx))
+			return successResponse(req.ID, FormatReceipt(receipt, tx, header.Time))
 		}
 	}
 
@@ -1443,17 +1457,18 @@ func (api *EthAPI) getBlobBaseFee(req *Request) *Response {
 		return errorResponse(req.ID, ErrCodeInternal, "no current block")
 	}
 	if header.ExcessBlobGas != nil {
-		fee := calcBlobBaseFee(*header.ExcessBlobGas)
+		fee := api.calcBlobBaseFee(*header.ExcessBlobGas, header.Time)
 		return successResponse(req.ID, encodeBigInt(fee))
 	}
 	return successResponse(req.ID, "0x0")
 }
 
 // calcBlobBaseFee computes the blob base fee from excessBlobGas using the
-// EIP-4844 fake-exponential formula: 1 * e^(excess / updateFraction).
-// Uses Cancun update fraction (3338477) as a conservative default.
-func calcBlobBaseFee(excessBlobGas uint64) *big.Int {
-	return gas.CalcBlobBaseFeeWithSchedule(excessBlobGas, gas.DencunBlobSchedule)
+// active fork's update fraction, obtained from the backend.
+func (api *EthAPI) calcBlobBaseFee(excessBlobGas, blockTime uint64) *big.Int {
+	_, _, fraction := api.backend.BlobSchedule(blockTime)
+	sched := gas.BlobScheduleEntry{BaseFeeUpdateFraction: fraction}
+	return gas.CalcBlobBaseFeeWithSchedule(excessBlobGas, sched)
 }
 
 // UnsubscribeID removes a subscription by ID. Used by WebSocket connection

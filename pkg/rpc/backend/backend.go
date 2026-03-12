@@ -52,4 +52,10 @@ type Backend interface {
 	// HistoryOldestBlock returns the oldest block number for which bodies
 	// and receipts are still available. Returns 0 if no pruning occurred.
 	HistoryOldestBlock() uint64
+
+	// Blob schedule
+	// BlobSchedule returns the target, max blobs per block and base fee update
+	// fraction for the given block timestamp. Used by eth_blobBaseFee and
+	// eth_feeHistory to compute correct per-fork blob fees and ratios.
+	BlobSchedule(blockTime uint64) (target, max uint64, updateFraction uint64)
 }
