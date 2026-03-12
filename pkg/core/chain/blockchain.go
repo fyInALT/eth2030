@@ -543,6 +543,8 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	txs := blk.Transactions()
 
 	// Populate derived receipt fields (no lock needed; local data).
+	// logIndex is block-scoped: monotonically increasing across all receipts.
+	var logIndex uint
 	for i, receipt := range receipts {
 		receipt.BlockHash = hash
 		receipt.BlockNumber = new(big.Int).SetUint64(num)
@@ -550,12 +552,13 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		if i < len(txs) {
 			receipt.TxHash = txs[i].Hash()
 		}
-		for j, logEntry := range receipt.Logs {
+		for _, logEntry := range receipt.Logs {
 			logEntry.BlockHash = hash
 			logEntry.BlockNumber = num
 			logEntry.TxHash = receipt.TxHash
 			logEntry.TxIndex = uint(i)
-			logEntry.Index = uint(j)
+			logEntry.Index = logIndex
+			logIndex++
 		}
 	}
 
