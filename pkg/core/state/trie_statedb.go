@@ -599,6 +599,15 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 	root := t.buildStateTrie().Hash()
 
 	// Persist dirty buffer to DB atomically.
+	// Also collect encoded account bytes for the incremental frozenAccounts update
+	// below, avoiding a full DB scan.
+	type encodedAccount struct {
+		addr    types.Address
+		encoded []byte
+	}
+	var encodedAccounts []encodedAccount
+	var destroyedAddrs []types.Address
+
 	batch := t.db.NewBatch()
 	for addr, obj := range t.mem.stateObjects {
 		if obj.selfDestructed {
@@ -614,6 +623,7 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 				}
 			}
 			iter.Release()
+			destroyedAddrs = append(destroyedAddrs, addr)
 			continue
 		}
 
@@ -644,6 +654,7 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		if err := batch.Put(accountDBKey(addr), encoded); err != nil {
 			return types.Hash{}, fmt.Errorf("put account %s: %w", addr.Hex(), err)
 		}
+		encodedAccounts = append(encodedAccounts, encodedAccount{addr, encoded})
 
 		// Write contract code (idempotent: code is immutable once deployed).
 		if len(obj.code) > 0 {
@@ -752,26 +763,47 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		t.persistedStorage = newPS
 	}
 
-	// Capture a frozen snapshot of all committed account RLPs.
-	// This snapshot is used by buildStateTrie() on subsequent Dup() copies so
-	// that concurrent DB writes from other goroutines cannot corrupt the
-	// state-root computation. We iterate the DB immediately after the batch
-	// write so the snapshot is consistent with the just-committed state.
-	frozen := make(map[types.Address][]byte)
-	frozenIter := t.db.NewIterator(dbPrefixAccount)
-	for frozenIter.Next() {
-		key := frozenIter.Key()
-		if len(key) != 2+20 {
-			continue
+	// Update the frozen account snapshot incrementally.
+	//
+	// Previously this did a full DB scan (O(N_total_entries)) after every Commit,
+	// which was O(N²) with storagespam workloads because storage entries dominate.
+	//
+	// Now we build the new snapshot from the previous frozen map plus only the
+	// accounts touched this block — O(N_total_accounts + N_dirty), both tiny.
+	//
+	// First Commit (frozenAccounts == nil): must scan the DB because there is no
+	// prior snapshot.  After genesis the DB has very few entries so this is cheap.
+	if t.frozenAccounts == nil {
+		frozen := make(map[types.Address][]byte)
+		frozenIter := t.db.NewIterator(dbPrefixAccount)
+		for frozenIter.Next() {
+			key := frozenIter.Key()
+			if len(key) != 2+20 {
+				continue
+			}
+			var addr types.Address
+			copy(addr[:], key[2:])
+			val := make([]byte, len(frozenIter.Value()))
+			copy(val, frozenIter.Value())
+			frozen[addr] = val
 		}
-		var addr types.Address
-		copy(addr[:], key[2:])
-		val := make([]byte, len(frozenIter.Value()))
-		copy(val, frozenIter.Value())
-		frozen[addr] = val
+		frozenIter.Release()
+		t.frozenAccounts = frozen
+	} else {
+		// Incremental COW update: copy the top-level map (shallow) then apply
+		// this block's account additions and deletions.
+		frozen := make(map[types.Address][]byte, len(t.frozenAccounts)+len(encodedAccounts))
+		for addr, v := range t.frozenAccounts {
+			frozen[addr] = v // byte slices are immutable; sharing is safe
+		}
+		for _, ea := range encodedAccounts {
+			frozen[ea.addr] = ea.encoded
+		}
+		for _, addr := range destroyedAddrs {
+			delete(frozen, addr)
+		}
+		t.frozenAccounts = frozen
 	}
-	frozenIter.Release()
-	t.frozenAccounts = frozen
 
 	// Reset dirty buffer and recreated tracking: memory drops to near-zero.
 	t.mem = NewMemoryStateDB()
