@@ -92,6 +92,12 @@ type TrieStateDB struct {
 	// back to the DB iterator for correctness on instances that adopt a
 	// pre-existing DB (e.g. NewTrieStateDBFromMemory before genesis Commit).
 	persistedStorage map[types.Address]map[types.Hash]types.Hash
+
+	// commitRoot caches the state root computed by the most recent Commit().
+	// GetRoot() returns this value directly when the dirty buffer is empty,
+	// avoiding a redundant full-trie rebuild.  It is invalidated (set to zero)
+	// whenever any state-modifying call is made after the last Commit.
+	commitRoot types.Hash
 }
 
 // GetMem returns a reference to the internal MemoryStateDB dirty buffer.
@@ -474,8 +480,13 @@ func (t *TrieStateDB) StorageRoot(addr types.Address) types.Hash {
 }
 
 // GetRoot computes the full state root by merging DB-persisted accounts with
-// the dirty mem buffer.
+// the dirty mem buffer.  When the dirty buffer is empty (i.e. right after
+// Commit), the cached commitRoot is returned directly without rebuilding the
+// trie — this is the common case for read-only callers like eth_call.
 func (t *TrieStateDB) GetRoot() types.Hash {
+	if len(t.mem.stateObjects) == 0 && t.commitRoot != (types.Hash{}) {
+		return t.commitRoot
+	}
 	return t.buildStateTrie().Hash()
 }
 
@@ -809,6 +820,9 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 	t.mem = NewMemoryStateDB()
 	t.recreated = nil
 
+	// Cache the root so repeated GetRoot() calls after this Commit are O(1).
+	t.commitRoot = root
+
 	return root, nil
 }
 
@@ -855,6 +869,7 @@ func (t *TrieStateDB) Dup() StateDB {
 		recreated:        recreatedCopy,
 		frozenAccounts:   t.frozenAccounts,   // shared read-only; never mutated by callers
 		persistedStorage: t.persistedStorage, // shared read-only; COW in Commit()
+		commitRoot:       t.commitRoot,       // inherited; cleared when dirty buffer grows
 	}
 }
 
