@@ -588,6 +588,7 @@ type engineBackend struct {
 	payloadOrder []engine.PayloadID // insertion order for LRU eviction
 	maxPayloads  int                // cap from node config
 	builder      *block.BlockBuilder
+	buildMu      sync.Mutex // serialises concurrent block builds
 
 	// Forkchoice state: updated on every engine_forkchoiceUpdated call.
 	fcMu          sync.RWMutex
@@ -1280,7 +1281,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 	b.mu.Unlock()
 
 	// Build the block in the background; close done when finished.
+	// buildMu serialises concurrent builds so they don't contend on bc.mu.
 	go func() {
+		b.buildMu.Lock()
+		defer b.buildMu.Unlock()
+
 		slog.Debug("engine_forkchoiceUpdated: calling BuildBlock",
 			"parentNum", parentHeader.Number,
 			"parentHash", parentHeader.Hash(),

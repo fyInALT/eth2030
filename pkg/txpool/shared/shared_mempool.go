@@ -151,9 +151,9 @@ func (sm *SharedMempool) AddTransaction(tx SharedMempoolTx) error {
 		return ErrSharedTxDuplicate
 	}
 
-	// Check capacity.
+	// Check capacity: evict oldest entries when full rather than refusing.
 	if sm.config.MaxCacheSize > 0 && len(sm.txCache) >= sm.config.MaxCacheSize {
-		return ErrSharedMempoolFull
+		sm.evictOldestLocked(sm.config.MaxCacheSize / 4)
 	}
 
 	if tx.ReceivedAt.IsZero() {
@@ -264,6 +264,31 @@ func (sm *SharedMempool) TxCount() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return len(sm.txCache)
+}
+
+// evictOldestLocked removes up to n oldest transactions. Must be called with
+// sm.mu held.
+func (sm *SharedMempool) evictOldestLocked(n int) {
+	// Collect hashes with their receive times.
+	type entry struct {
+		hash types.Hash
+		at   time.Time
+	}
+	entries := make([]entry, 0, len(sm.txCache))
+	for h, tx := range sm.txCache {
+		entries = append(entries, entry{h, tx.ReceivedAt})
+	}
+	// Sort oldest first.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].at.Before(entries[j].at)
+	})
+	if n > len(entries) {
+		n = len(entries)
+	}
+	for i := range n {
+		delete(sm.txCache, entries[i].hash)
+		delete(sm.relays, entries[i].hash)
+	}
 }
 
 // EvictStale removes transactions older than maxAge seconds from the cache.
