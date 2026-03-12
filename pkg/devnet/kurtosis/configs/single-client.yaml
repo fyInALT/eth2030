@@ -10,6 +10,7 @@ network_params:
   network: kurtosis
   seconds_per_slot: 2
   genesis_delay: 10
+  fulu_fork_epoch: 1
 
 additional_services:
   - dora

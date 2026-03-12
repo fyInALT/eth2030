@@ -9,6 +9,7 @@ participants:
     el_log_level: debug
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
+    cl_extra_params: ["--subscribe-all-subnets"]
     count: 2
 
 network_params:
@@ -16,6 +17,7 @@ network_params:
   seconds_per_slot: 4
   slots_per_epoch: 4
   genesis_delay: 60
+  fulu_fork_epoch: 1
 
 additional_services:
   - dora

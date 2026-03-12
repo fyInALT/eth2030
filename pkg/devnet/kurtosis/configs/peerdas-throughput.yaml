@@ -13,12 +13,14 @@ participants:
     el_log_level: debug
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
+    cl_extra_params: ["--subscribe-all-subnets"]
     count: 4
 
 network_params:
   network: kurtosis
   seconds_per_slot: 2
   genesis_delay: 60
+  fulu_fork_epoch: 1
 
 additional_services:
   - dora
