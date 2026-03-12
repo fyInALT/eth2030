@@ -478,7 +478,7 @@ func (r *GetPayloadV4Response) UnmarshalJSON(data []byte) error {
 type getPayloadV6ResponseJSON struct {
 	ExecutionPayload  *ExecutionPayloadV5 `json:"executionPayload"`
 	BlockValue        *hexBig             `json:"blockValue"`
-	BlobsBundle       *BlobsBundleV1      `json:"blobsBundle"`
+	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`
 	ExecutionRequests []hexBytes          `json:"executionRequests"`
 }

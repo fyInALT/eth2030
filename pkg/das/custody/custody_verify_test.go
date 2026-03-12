@@ -821,6 +821,9 @@ func (m *mockKZGBackend) ComputeCells(blob []byte) ([][crypto.KZGBytesPerCell]by
 func (m *mockKZGBackend) VerifyCellProof(commitment, cell, proof []byte, cellIndex uint64) (bool, error) {
 	return m.cellProofResult, m.cellProofErr
 }
+func (m *mockKZGBackend) ComputeCellsAndProofs(blob []byte) ([][crypto.KZGBytesPerCell]byte, [][crypto.KZGBytesPerProof]byte, error) {
+	return nil, nil, nil
+}
 
 func TestVerifyCellKZGBatchSuccess(t *testing.T) {
 	cv := NewCustodyVerifier(DefaultCustodyVerifyConfig())

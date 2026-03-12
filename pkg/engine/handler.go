@@ -168,6 +168,10 @@ func (api *EngineAPI) dispatch(method string, params []json.RawMessage) (any, *j
 		return api.handleSubmitBlindedBlockV1(params)
 	case "engine_getBlobsV1":
 		return api.handleGetBlobsV1(params)
+	case "engine_getBlobsV2":
+		return api.handleGetBlobsV2(params)
+	case "engine_getBlobsV3":
+		return api.handleGetBlobsV3(params)
 	default:
 		return nil, &jsonrpcError{
 			Code:    methodNotFoundCode,
@@ -524,6 +528,73 @@ func (api *EngineAPI) handleGetBlobsV1(params []json.RawMessage) (any, *jsonrpcE
 	}
 	// Fallback: return null for each hash.
 	result := make([]*BlobAndProofV1, len(hashes))
+	return result, nil
+}
+
+// handleGetBlobsV2 processes an engine_getBlobsV2 request (Osaka/Fulu PeerDAS).
+// Returns null for the entire result if ANY requested blob is absent from the
+// local pool (all-or-nothing semantics per the Osaka spec).
+func (api *EngineAPI) handleGetBlobsV2(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 1 {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
+		}
+	}
+	var hashes []types.Hash
+	if err := json.Unmarshal(params[0], &hashes); err != nil {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("invalid versioned hashes: %v", err),
+		}
+	}
+	if bb, ok := api.backend.(backendapi.BlobsV2Backend); ok {
+		result := bb.GetBlobsV2ByVersionedHashes(hashes)
+		// All-or-nothing: return null if any blob is missing.
+		for _, r := range result {
+			if r == nil {
+				engineLog.Debug("engine_getBlobsV2: missing blob, returning null",
+					"requested", len(hashes))
+				return nil, nil
+			}
+		}
+		engineLog.Debug("engine_getBlobsV2: serving blobs with cell proofs",
+			"requested", len(hashes))
+		return result, nil
+	}
+	return nil, nil
+}
+
+// handleGetBlobsV3 processes an engine_getBlobsV3 request (Osaka/Fulu PeerDAS).
+// Returns a sparse array: null at positions where the blob is not in the local
+// pool (partial-response semantics per the Osaka spec).
+func (api *EngineAPI) handleGetBlobsV3(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 1 {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
+		}
+	}
+	var hashes []types.Hash
+	if err := json.Unmarshal(params[0], &hashes); err != nil {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("invalid versioned hashes: %v", err),
+		}
+	}
+	if bb, ok := api.backend.(backendapi.BlobsV3Backend); ok {
+		result := bb.GetBlobsV3ByVersionedHashes(hashes)
+		found := 0
+		for _, r := range result {
+			if r != nil {
+				found++
+			}
+		}
+		engineLog.Debug("engine_getBlobsV3: serving blobs (sparse)",
+			"requested", len(hashes), "found", found)
+		return result, nil
+	}
+	result := make([]*BlobAndProofV2, len(hashes))
 	return result, nil
 }
 

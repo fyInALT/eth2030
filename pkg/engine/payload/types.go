@@ -137,11 +137,12 @@ type GetPayloadV4Response struct {
 	ExecutionRequests [][]byte            `json:"executionRequests"`
 }
 
-// GetPayloadV6Response is the response for engine_getPayloadV6 (Amsterdam).
+// GetPayloadV6Response is the response for engine_getPayloadV5/V6 (Osaka/Amsterdam).
+// Per the Osaka spec, BlobsBundle uses V2 format with 128 per-cell KZG proofs.
 type GetPayloadV6Response struct {
 	ExecutionPayload  *ExecutionPayloadV5 `json:"executionPayload"`
 	BlockValue        *big.Int            `json:"blockValue"`
-	BlobsBundle       *BlobsBundleV1      `json:"blobsBundle"`
+	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`
 	ExecutionRequests [][]byte            `json:"executionRequests"`
 }

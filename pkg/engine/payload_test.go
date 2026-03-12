@@ -528,7 +528,7 @@ func TestGetPayloadV6_Success(t *testing.T) {
 					BlockAccessList: balData,
 				},
 				BlockValue:        big.NewInt(2_000_000),
-				BlobsBundle:       &BlobsBundleV1{},
+				BlobsBundle:       &BlobsBundleV2{},
 				ExecutionRequests: [][]byte{},
 			}, nil
 		},

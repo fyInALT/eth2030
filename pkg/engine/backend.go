@@ -464,7 +464,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 	return &GetPayloadResponse{
 		ExecutionPayload: ep,
 		BlockValue:       new(big.Int).Set(pending.blockValue),
-		BlobsBundle:      collectBlobsBundle(pending.block.Transactions()),
+		BlobsBundle:      collectBlobsBundleV1(pending.block.Transactions()),
 	}, nil
 }
 
@@ -817,7 +817,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 	return &GetPayloadV4Response{
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
-		BlobsBundle:       collectBlobsBundle(pending.block.Transactions()),
+		BlobsBundle:       collectBlobsBundleV1(pending.block.Transactions()),
 		ExecutionRequests: [][]byte{},
 	}, nil
 }
@@ -845,9 +845,26 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	}, nil
 }
 
-// collectBlobsBundle builds a BlobsBundleV1 from the blob sidecar data attached
+// collectBlobsBundle builds a BlobsBundleV2 from the blob sidecar data attached
 // to the given transactions. Returns an empty bundle if no blob transactions are present.
-func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV1 {
+// Proofs are V1-style (one per blob); cell proof computation happens in getBlobsV2.
+func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
+	bundle := &BlobsBundleV2{}
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
+		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
+		bundle.Proofs = append(bundle.Proofs, sc.Proofs...)
+	}
+	return bundle
+}
+
+// collectBlobsBundleV1 collects blob sidecars with one proof per blob (V1 format).
+// Used for engine_getPayloadV3 and engine_getPayloadV4 responses.
+func collectBlobsBundleV1(txs []*types.Transaction) *BlobsBundleV1 {
 	bundle := &BlobsBundleV1{}
 	for _, tx := range txs {
 		sc := tx.BlobSidecar()
