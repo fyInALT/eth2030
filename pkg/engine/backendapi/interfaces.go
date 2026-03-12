@@ -120,6 +120,14 @@ type PayloadBodiesBackend interface {
 	GetPayloadBodiesByRange(start, count uint64) ([]*payload.ExecutionPayloadBodyV2, error)
 }
 
+// BlobsV1Backend provides blob retrieval by versioned hash for engine_getBlobsV1.
+// Backends that store blob sidecar data implement this interface.
+type BlobsV1Backend interface {
+	// GetBlobsByVersionedHashes returns blob data for each requested versioned hash.
+	// Returns nil for each entry not found in the txpool (EIP-4844 behaviour).
+	GetBlobsByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV1
+}
+
 // UncoupledBackend is the backend interface for EIP-7898 uncoupled execution payloads.
 // Implementations provide uncoupled payload handling; left minimal for extensibility.
 type UncoupledBackend interface{} //nolint:revive

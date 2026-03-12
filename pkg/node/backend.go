@@ -1726,17 +1726,30 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 	// Sidecars are attached to Transaction objects when decoded from the network
 	// format (eth_sendRawTransaction) and survive until getPayload is called.
 	blobsBundle := &engine.BlobsBundleV1{}
+	blobTxCount := 0
 	for _, tx := range block.Transactions() {
 		if tx.Type() != types.BlobTxType {
 			continue
 		}
+		blobTxCount++
 		sc := tx.BlobSidecar()
 		if sc == nil {
+			slog.Debug("engine_getPayload: blob tx missing sidecar",
+				"txHash", tx.Hash(),
+				"blockNumber", block.NumberU64(),
+			)
 			continue
 		}
 		blobsBundle.Commitments = append(blobsBundle.Commitments, sc.Commitments...)
 		blobsBundle.Proofs = append(blobsBundle.Proofs, sc.Proofs...)
 		blobsBundle.Blobs = append(blobsBundle.Blobs, sc.Blobs...)
+	}
+	if blobTxCount > 0 {
+		slog.Debug("engine_getPayload: blobsBundle",
+			"blobTxCount", blobTxCount,
+			"blobCount", len(blobsBundle.Blobs),
+			"blockNumber", block.NumberU64(),
+		)
 	}
 
 	return &engine.GetPayloadResponse{
@@ -1745,6 +1758,26 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 		BlobsBundle:      blobsBundle,
 		Override:         false,
 	}, nil
+}
+
+// GetBlobsByVersionedHashes looks up blob sidecar data in the txpool for the
+// requested versioned hashes. Implements backendapi.BlobsV1Backend.
+func (b *engineBackend) GetBlobsByVersionedHashes(hashes []types.Hash) []*engine.BlobAndProofV1 {
+	if b.node.txPool == nil {
+		return make([]*engine.BlobAndProofV1, len(hashes))
+	}
+	raw := b.node.txPool.GetBlobsByVersionedHashes(hashes)
+	result := make([]*engine.BlobAndProofV1, len(raw))
+	for i, r := range raw {
+		if r != nil {
+			result[i] = &engine.BlobAndProofV1{
+				Blob:       r.Blob,
+				Commitment: r.Commitment,
+				Proof:      r.Proof,
+			}
+		}
+	}
+	return result
 }
 
 // generatePayloadID creates a deterministic PayloadID from the parent hash

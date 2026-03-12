@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/backendapi"
 	"github.com/eth2030/eth2030/log"
 )
 
@@ -165,6 +166,8 @@ func (api *EngineAPI) dispatch(method string, params []json.RawMessage) (any, *j
 		return api.handleGetPayloadHeaderV1(params)
 	case "engine_submitBlindedBlockV1":
 		return api.handleSubmitBlindedBlockV1(params)
+	case "engine_getBlobsV1":
+		return api.handleGetBlobsV1(params)
 	default:
 		return nil, &jsonrpcError{
 			Code:    methodNotFoundCode,
@@ -484,7 +487,41 @@ func (api *EngineAPI) handleGetClientVersionV1(params []json.RawMessage) (any, *
 	return api.GetClientVersionV1(peerVersion), nil
 }
 
-// engineErrorToRPC maps engine errors to JSON-RPC error responses.
+// handleGetBlobsV1 processes an engine_getBlobsV1 request.
+// It returns blob data from the txpool for each versioned hash, or null when
+// the blob is not locally available (CL falls back to P2P blob-sidecar gossip).
+func (api *EngineAPI) handleGetBlobsV1(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 1 {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("expected 1 param, got %d", len(params)),
+		}
+	}
+	var hashes []types.Hash
+	if err := json.Unmarshal(params[0], &hashes); err != nil {
+		return nil, &jsonrpcError{
+			Code:    InvalidParamsCode,
+			Message: fmt.Sprintf("invalid versioned hashes: %v", err),
+		}
+	}
+	// If the backend can serve blob data from the txpool, use it.
+	if bb, ok := api.backend.(backendapi.BlobsV1Backend); ok {
+		result := bb.GetBlobsByVersionedHashes(hashes)
+		found := 0
+		for _, r := range result {
+			if r != nil {
+				found++
+			}
+		}
+		engineLog.Debug("engine_getBlobsV1: serving blobs",
+			"requested", len(hashes), "found", found)
+		return result, nil
+	}
+	// Fallback: return null for each hash.
+	result := make([]*BlobAndProofV1, len(hashes))
+	return result, nil
+}
+
 func engineErrorToRPC(err error) *jsonrpcError {
 	switch err {
 	case ErrUnknownPayload:

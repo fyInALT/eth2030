@@ -1108,6 +1108,88 @@ func (pool *TxPool) PendingSorted() []*types.Transaction {
 	return all
 }
 
+// GetBlobsByVersionedHashes returns blob sidecar data for each requested versioned
+// hash. For each hash the corresponding entry is non-nil only when a pending blob
+// transaction carries that versioned hash and its sidecar is still attached.
+// Returns a slice parallel to hashes (nil entry = not found).
+func (pool *TxPool) GetBlobsByVersionedHashes(hashes []types.Hash) []*BlobAndProof {
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
+
+	// Build an index: versioned_hash -> (commitment, proof, blob).
+	type entry struct {
+		blob       []byte
+		commitment []byte
+		proof      []byte
+	}
+	index := make(map[types.Hash]*entry)
+
+	for _, list := range pool.pending {
+		for _, tx := range list.items {
+			if tx.Type() != types.BlobTxType {
+				continue
+			}
+			sc := tx.BlobSidecar()
+			if sc == nil {
+				continue
+			}
+			for i, h := range tx.BlobHashes() {
+				if i >= len(sc.Blobs) || i >= len(sc.Commitments) || i >= len(sc.Proofs) {
+					break
+				}
+				index[h] = &entry{
+					blob:       sc.Blobs[i],
+					commitment: sc.Commitments[i],
+					proof:      sc.Proofs[i],
+				}
+			}
+		}
+	}
+	// Also check the queue.
+	for _, list := range pool.queue {
+		for _, tx := range list.items {
+			if tx.Type() != types.BlobTxType {
+				continue
+			}
+			sc := tx.BlobSidecar()
+			if sc == nil {
+				continue
+			}
+			for i, h := range tx.BlobHashes() {
+				if i >= len(sc.Blobs) || i >= len(sc.Commitments) || i >= len(sc.Proofs) {
+					break
+				}
+				if _, found := index[h]; !found {
+					index[h] = &entry{
+						blob:       sc.Blobs[i],
+						commitment: sc.Commitments[i],
+						proof:      sc.Proofs[i],
+					}
+				}
+			}
+		}
+	}
+
+	result := make([]*BlobAndProof, len(hashes))
+	for i, h := range hashes {
+		if e, ok := index[h]; ok {
+			result[i] = &BlobAndProof{
+				Blob:       e.blob,
+				Commitment: e.commitment,
+				Proof:      e.proof,
+			}
+		}
+	}
+	return result
+}
+
+// BlobAndProof is a single blob with its KZG commitment and proof.
+type BlobAndProof struct {
+	Blob       []byte
+	Commitment []byte
+	Proof      []byte
+}
+
 // evictLowest removes the transaction with the lowest effective gas price from
 // the pool. It protects the highest-nonce pending tx for each sender (so every
 // sender keeps at least one tx). Returns the number of evicted transactions.

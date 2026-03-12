@@ -464,7 +464,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 	return &GetPayloadResponse{
 		ExecutionPayload: ep,
 		BlockValue:       new(big.Int).Set(pending.blockValue),
-		BlobsBundle:      &BlobsBundleV1{},
+		BlobsBundle:      collectBlobsBundle(pending.block.Transactions()),
 	}, nil
 }
 
@@ -817,7 +817,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 	return &GetPayloadV4Response{
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
-		BlobsBundle:       &BlobsBundleV1{},
+		BlobsBundle:       collectBlobsBundle(pending.block.Transactions()),
 		ExecutionRequests: [][]byte{},
 	}, nil
 }
@@ -840,9 +840,25 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	return &GetPayloadV6Response{
 		ExecutionPayload:  ep5,
 		BlockValue:        new(big.Int).Set(pending.blockValue),
-		BlobsBundle:       &BlobsBundleV1{},
+		BlobsBundle:       collectBlobsBundle(pending.block.Transactions()),
 		ExecutionRequests: [][]byte{},
 	}, nil
+}
+
+// collectBlobsBundle builds a BlobsBundleV1 from the blob sidecar data attached
+// to the given transactions. Returns an empty bundle if no blob transactions are present.
+func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV1 {
+	bundle := &BlobsBundleV1{}
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
+		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
+		bundle.Proofs = append(bundle.Proofs, sc.Proofs...)
+	}
+	return bundle
 }
 
 // IsPrague returns true if the given timestamp falls within the Prague fork.

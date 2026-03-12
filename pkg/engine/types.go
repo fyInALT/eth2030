@@ -40,6 +40,8 @@ type (
 	PayloadStatusV1         = payload.PayloadStatusV1
 	ForkchoiceStateV1       = payload.ForkchoiceStateV1
 	ForkchoiceUpdatedResult = payload.ForkchoiceUpdatedResult
+	// Blobs — canonical in engine/payload.
+	BlobAndProofV1 = payload.BlobAndProofV1
 	// Glamsterdam — canonical in engine/payload.
 	BlobAndProofV2               = payload.BlobAndProofV2
 	BlobsBundleV2                = payload.BlobsBundleV2

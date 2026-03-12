@@ -295,6 +295,7 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_getPayloadV6",
 		"engine_exchangeCapabilities",
 		"engine_getClientVersionV1",
+		"engine_getBlobsV1",
 		"engine_submitBuilderBidV1",
 		"engine_getBuilderBidsV1",
 		"engine_newInclusionListV1",
