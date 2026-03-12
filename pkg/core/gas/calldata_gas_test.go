@@ -362,6 +362,11 @@ func TestCalldataGasLimitConsistency(t *testing.T) {
 }
 
 func TestValidateCalldataGasFields(t *testing.T) {
+	// Enable hash fields so missing fields are treated as errors.
+	old := types.EIP7706HashFields
+	types.EIP7706HashFields = true
+	defer func() { types.EIP7706HashFields = old }()
+
 	gasLimit := uint64(30_000_000)
 	calldataGasLimit := CalcCalldataGasLimit(gasLimit)
 	zeroExcess := uint64(0)
@@ -426,6 +431,10 @@ func TestValidateCalldataGasFields(t *testing.T) {
 }
 
 func TestHeaderRLPWithCalldataGas(t *testing.T) {
+	old := types.EIP7706HashFields
+	types.EIP7706HashFields = true
+	defer func() { types.EIP7706HashFields = old }()
+
 	excess := uint64(12345)
 	used := uint64(67890)
 	blobGasUsed := uint64(131072)
@@ -504,6 +513,10 @@ func TestHeaderRLPWithoutCalldataGas(t *testing.T) {
 }
 
 func TestHeaderHashIncludesCalldataGas(t *testing.T) {
+	old := types.EIP7706HashFields
+	types.EIP7706HashFields = true
+	defer func() { types.EIP7706HashFields = old }()
+
 	excess := uint64(100)
 	used := uint64(200)
 

@@ -354,7 +354,10 @@ func (b *blockchainBackend) SendTransaction(tx *types.Transaction) error { retur
 func (b *blockchainBackend) GetTransaction(hash types.Hash) (*types.Transaction, uint64, uint64) {
 	return nil, 0, 0
 }
-func (b *blockchainBackend) SuggestGasPrice() *big.Int                         { return big.NewInt(1000000000) }
+func (b *blockchainBackend) SuggestGasPrice() *big.Int { return big.NewInt(1000000000) }
+func (b *blockchainBackend) BlobSchedule(_ uint64) (target, max, updateFraction uint64) {
+	return 3, 6, 3338477
+}
 func (b *blockchainBackend) GetReceipts(blockHash types.Hash) []*types.Receipt { return nil }
 func (b *blockchainBackend) GetLogs(blockHash types.Hash) []*types.Log         { return nil }
 func (b *blockchainBackend) GetBlockReceipts(number uint64) []*types.Receipt   { return nil }

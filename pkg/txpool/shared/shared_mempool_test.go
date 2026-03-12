@@ -87,20 +87,25 @@ func TestAddTransaction_Invalid(t *testing.T) {
 func TestAddTransaction_Full(t *testing.T) {
 	cfg := SharedMempoolConfig{
 		MaxPeers:        10,
-		MaxCacheSize:    2,
+		MaxCacheSize:    4,
 		RelayInterval:   time.Second,
 		BloomFilterSize: 1024,
 	}
 	sm := NewSharedMempool(cfg)
 
-	if err := sm.AddTransaction(makeSharedMempoolTx(1, 100)); err != nil {
-		t.Fatal(err)
+	// Fill to capacity.
+	for i := byte(1); i <= 4; i++ {
+		if err := sm.AddTransaction(makeSharedMempoolTx(i, uint64(100*i))); err != nil {
+			t.Fatalf("add tx %d: %v", i, err)
+		}
 	}
-	if err := sm.AddTransaction(makeSharedMempoolTx(2, 200)); err != nil {
-		t.Fatal(err)
+	// Adding a 5th tx triggers eviction of 25% (1 entry) and then succeeds.
+	if err := sm.AddTransaction(makeSharedMempoolTx(5, 500)); err != nil {
+		t.Errorf("expected eviction+success, got error: %v", err)
 	}
-	if err := sm.AddTransaction(makeSharedMempoolTx(3, 300)); err != ErrSharedMempoolFull {
-		t.Errorf("expected ErrSharedMempoolFull, got %v", err)
+	// Cache should be 4 (3 remaining after eviction + 1 new).
+	if got := sm.TxCount(); got != 4 {
+		t.Errorf("expected len 4 after eviction, got %d", got)
 	}
 }
 
