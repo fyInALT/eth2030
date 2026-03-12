@@ -15,6 +15,7 @@ import (
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto/bls"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
 	"github.com/eth2030/eth2030/log"
@@ -846,10 +847,12 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 }
 
 // collectBlobsBundle builds a BlobsBundleV2 from the blob sidecar data attached
-// to the given transactions. Returns an empty bundle if no blob transactions are present.
-// Proofs are V1-style (one per blob); cell proof computation happens in getBlobsV2.
+// to the given transactions. Each blob's 48-byte KZG proof is expanded to 128
+// per-cell KZG proofs using ComputeCellsAndProofs, as required by the Fulu/PeerDAS
+// spec (engine_getPayloadV6 blobsBundle.proofs must have 128*N entries).
 func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 	bundle := &BlobsBundleV2{}
+	kzg := bls.DefaultKZGBackend()
 	for _, tx := range txs {
 		sc := tx.BlobSidecar()
 		if sc == nil {
@@ -857,7 +860,22 @@ func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 		}
 		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
 		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
-		bundle.Proofs = append(bundle.Proofs, sc.Proofs...)
+		// Expand each blob's proof to 128 per-cell KZG proofs.
+		for _, blob := range sc.Blobs {
+			_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+			if err != nil {
+				backendLog.Warn("collectBlobsBundle: ComputeCellsAndProofs failed, using zero proofs",
+					"err", err)
+				for range bls.KZGCellsPerExtBlob {
+					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
+				}
+				continue
+			}
+			for _, p := range cellProofs {
+				cp := p
+				bundle.Proofs = append(bundle.Proofs, cp[:])
+			}
+		}
 	}
 	return bundle
 }
