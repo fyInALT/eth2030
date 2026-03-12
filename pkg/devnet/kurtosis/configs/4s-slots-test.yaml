@@ -15,7 +15,7 @@ network_params:
   network: kurtosis
   seconds_per_slot: 4
   slots_per_epoch: 4
-  genesis_delay: 10
+  genesis_delay: 60
 
 additional_services:
   - dora
