@@ -11,6 +11,10 @@ network_params:
   network: kurtosis
   seconds_per_slot: 2
   genesis_delay: 60
+  # Disable PeerDAS (Fulu) — our EL does not implement data-column custody.
+  # Without this, Lighthouse v8 degrades peer scores via failed column requests
+  # and eventually disconnects CL-to-CL peers, preventing finalization.
+  fulu_fork_epoch: 99999999
 
 additional_services:
   - dora
