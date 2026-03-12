@@ -92,18 +92,29 @@ func (h *Handler) Peers() *p2p.PeerSet {
 	return h.peers
 }
 
-// BroadcastTransactions sends the given transactions to all connected peers
-// using the eth/68 Transactions message. It is called after locally submitted
-// transactions are added to the pool so that they propagate to other nodes.
+// BroadcastTransactions announces the given transactions to all connected peers
+// via NewPooledTransactionHashes (0x08). Peers that don't have the transactions
+// will follow up with GetPooledTransactions (0x09). Called after a local
+// eth_sendRawTransaction so the tx propagates to the rest of the network.
 func (h *Handler) BroadcastTransactions(txs []*types.Transaction) {
+	h.announceTransactions(txs, "")
+}
+
+// announceTransactions sends NewPooledTransactionHashes (0x08) for the given
+// transactions to all connected peers, excluding the peer with id excludeID
+// (to avoid echoing a tx back to the peer that originally sent it).
+func (h *Handler) announceTransactions(txs []*types.Transaction, excludeID string) {
 	if len(txs) == 0 {
 		return
 	}
 	h.ethPeersMu.RLock()
 	defer h.ethPeersMu.RUnlock()
-	for _, ep := range h.ethPeers {
-		if err := ep.SendTransactions(txs); err != nil {
-			log.Printf("eth: broadcast tx to peer %s: %v", ep.ID(), err)
+	for id, ep := range h.ethPeers {
+		if id == excludeID {
+			continue
+		}
+		if err := ep.SendNewPooledTransactionHashes(txs); err != nil {
+			log.Printf("eth: announce tx hashes to peer %s: %v", ep.ID(), err)
 		}
 	}
 }
@@ -206,6 +217,15 @@ func (h *Handler) handleMsg(ep *EthPeer, msg p2p.Msg) error {
 
 	case p2p.TransactionsMsg:
 		return h.handleTransactions(ep, msg)
+
+	case p2p.NewPooledTransactionHashesMsg:
+		return h.handleNewPooledTransactionHashes(ep, msg)
+
+	case p2p.GetPooledTransactionsMsg:
+		return h.handleGetPooledTransactions(ep, msg)
+
+	case p2p.PooledTransactionsMsg:
+		return h.handlePooledTransactions(ep, msg)
 
 	case p2p.GetPartialReceiptsMsg:
 		return h.handleGetPartialReceipts(ep, msg)
@@ -426,12 +446,76 @@ func (h *Handler) handleTransactions(ep *EthPeer, msg p2p.Msg) error {
 	if err != nil {
 		return err
 	}
-
+	var added []*types.Transaction
 	for _, tx := range txs {
 		if err := h.txPool.AddRemote(tx); err != nil {
 			// Non-fatal: log and continue with remaining transactions.
 			log.Printf("eth: rejected tx %s from %s: %v", tx.Hash().Hex(), ep.ID(), err)
+			continue
 		}
+		added = append(added, tx)
+	}
+	// Re-announce successfully added txs to other peers (excluding sender).
+	if len(added) > 0 {
+		h.announceTransactions(added, ep.ID())
+	}
+	return nil
+}
+
+// handleNewPooledTransactionHashes processes a NewPooledTransactionHashes (0x08)
+// announcement from a peer. For any hashes not already in our pool, request
+// the full transaction bodies via GetPooledTransactions (0x09).
+func (h *Handler) handleNewPooledTransactionHashes(ep *EthPeer, msg p2p.Msg) error {
+	var ann NewPooledTxHashesMsg68
+	if err := decodeMsg(msg, &ann); err != nil {
+		return err
+	}
+	if len(ann.Hashes) == 0 {
+		return nil
+	}
+	var unknown []types.Hash
+	for _, hash := range ann.Hashes {
+		if h.txPool.Get(hash) == nil {
+			unknown = append(unknown, hash)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return ep.SendGetPooledTransactions(unknown)
+}
+
+// handleGetPooledTransactions responds to a GetPooledTransactions (0x09) request
+// by returning the requested transactions from our pool via PooledTransactions (0x0a).
+func (h *Handler) handleGetPooledTransactions(ep *EthPeer, msg p2p.Msg) error {
+	var req GetPooledTransactionsMessage
+	if err := decodeMsg(msg, &req); err != nil {
+		return err
+	}
+	var txs []*types.Transaction
+	for _, hash := range req.Hashes {
+		if tx := h.txPool.Get(hash); tx != nil {
+			txs = append(txs, tx)
+		}
+	}
+	return ep.SendPooledTransactions(txs)
+}
+
+// handlePooledTransactions processes a PooledTransactions (0x0a) response from
+// a peer and adds any new transactions to our pool.
+func (h *Handler) handlePooledTransactions(ep *EthPeer, msg p2p.Msg) error {
+	txs, err := decodeTransactions(msg)
+	if err != nil {
+		return err
+	}
+	for _, tx := range txs {
+		if err := h.txPool.AddRemote(tx); err != nil {
+			log.Printf("eth: rejected pooled tx %s from %s: %v", tx.Hash().Hex(), ep.ID(), err)
+		}
+	}
+	// Re-announce to other peers (excluding the sender).
+	if len(txs) > 0 {
+		h.announceTransactions(txs, ep.ID())
 	}
 	return nil
 }
