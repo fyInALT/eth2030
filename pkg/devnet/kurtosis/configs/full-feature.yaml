@@ -5,12 +5,17 @@ participants:
     el_extra_params: ["--rpc.rate_limit=0"]
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
+    # --subscribe-all-subnets ensures gossip mesh stability with 2 nodes in Fulu
+    cl_extra_params: ["--subscribe-all-subnets"]
     count: 2
 
 network_params:
   network: kurtosis
   seconds_per_slot: 2
   genesis_delay: 60
+  # Delay Fulu to epoch 1: prevents gossip mesh initialization race at genesis.
+  # With FULU_FORK_EPOCH=0, Lighthouse loses sync_committee topic peers at slot 9.
+  fulu_fork_epoch: 1
 
 additional_services:
   - dora
