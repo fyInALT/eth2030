@@ -98,6 +98,21 @@ type TrieStateDB struct {
 	// avoiding a redundant full-trie rebuild.  It is invalidated (set to zero)
 	// whenever any state-modifying call is made after the last Commit.
 	commitRoot types.Hash
+
+	// cachedRoot is a one-shot cache: set by GetRoot() after building the trie,
+	// consumed by the next Commit() call so it does not rebuild the trie again.
+	// Cleared after Commit() or when any mutation happens after GetRoot().
+	cachedRoot types.Hash
+
+	// committedTrie is the fully-built MPT over all persisted accounts as of the
+	// most recent Commit(). It is updated incrementally on each Commit() — only
+	// the dirty accounts from that block are applied — so that buildStateTrie()
+	// can Clone it and apply the current dirty layer in O(N_dirty) rather than
+	// rebuilding the entire trie from frozenAccounts in O(N_total).
+	//
+	// nil until the first Commit(); buildStateTrie() falls back to the
+	// frozenAccounts iteration path when it is nil.
+	committedTrie *trie.Trie
 }
 
 // GetMem returns a reference to the internal MemoryStateDB dirty buffer.
@@ -487,13 +502,55 @@ func (t *TrieStateDB) GetRoot() types.Hash {
 	if len(t.mem.stateObjects) == 0 && t.commitRoot != (types.Hash{}) {
 		return t.commitRoot
 	}
-	return t.buildStateTrie().Hash()
+	root := t.buildStateTrie().Hash()
+	// Cache the result so the next Commit() call can skip rebuilding the trie.
+	t.cachedRoot = root
+	return root
 }
 
 // buildStateTrie constructs the full MPT over all accounts: dirty mem accounts
 // override (or delete) DB accounts. DB accounts not in mem are included as-is
 // using their stored RLP (which embeds the storage root from last Commit).
+//
+// Fast path: when committedTrie is available (after the first Commit), clones
+// it and applies only the dirty accounts — O(N_nodes + N_dirty) instead of
+// O(N_total) iteration over frozenAccounts.
 func (t *TrieStateDB) buildStateTrie() *trie.Trie {
+	// --- Fast path: incremental update on committed trie -------------------
+	if t.committedTrie != nil {
+		stateTrie := t.committedTrie.Clone()
+		for addr, obj := range t.mem.stateObjects {
+			key := crypto.Keccak256(addr[:])
+			if obj.selfDestructed {
+				stateTrie.Delete(key) //nolint:errcheck
+				continue
+			}
+			var storageRoot types.Hash
+			if len(obj.committedStorage) == 0 && len(obj.dirtyStorage) == 0 && obj.dbStorageRoot != (types.Hash{}) {
+				storageRoot = obj.dbStorageRoot
+			} else {
+				storageRoot = t.computeStorageRootFromDB(addr, obj)
+			}
+			codeHash := obj.account.CodeHash
+			if len(codeHash) == 0 {
+				codeHash = types.EmptyCodeHash.Bytes()
+			}
+			acc := rlpAccount{
+				Nonce:    obj.account.Nonce,
+				Balance:  obj.account.Balance,
+				Root:     storageRoot[:],
+				CodeHash: codeHash,
+			}
+			encoded, err := rlp.EncodeToBytes(acc)
+			if err != nil {
+				continue
+			}
+			stateTrie.Put(key, encoded) //nolint:errcheck
+		}
+		return stateTrie
+	}
+
+	// --- Slow path: full rebuild from frozenAccounts / DB ------------------
 	stateTrie := trie.New()
 
 	// Build a set of dirty addresses to detect overrides.
@@ -531,7 +588,7 @@ func (t *TrieStateDB) buildStateTrie() *trie.Trie {
 		if err != nil {
 			continue
 		}
-		stateTrie.Put(crypto.Keccak256(addr[:]), encoded)
+		stateTrie.Put(crypto.Keccak256(addr[:]), encoded) //nolint:errcheck
 	}
 
 	// Insert committed accounts not present in the dirty buffer.
@@ -549,7 +606,7 @@ func (t *TrieStateDB) buildStateTrie() *trie.Trie {
 			if memAddrs[addr] {
 				continue // dirty mem overrides frozen snapshot
 			}
-			stateTrie.Put(crypto.Keccak256(addr[:]), rlpBytes)
+			stateTrie.Put(crypto.Keccak256(addr[:]), rlpBytes) //nolint:errcheck
 		}
 	} else {
 		iter := t.db.NewIterator(dbPrefixAccount)
@@ -607,7 +664,15 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 	}
 
 	// Compute state root over the full merged state (DB + in-memory overlay).
-	root := t.buildStateTrie().Hash()
+	// Reuse the root cached by GetRoot() if available (avoids a redundant full
+	// trie rebuild when insertBlock calls GetRoot() then Commit() in sequence).
+	var root types.Hash
+	if t.cachedRoot != (types.Hash{}) {
+		root = t.cachedRoot
+		t.cachedRoot = types.Hash{} // consume the cache
+	} else {
+		root = t.buildStateTrie().Hash()
+	}
 
 	// Persist dirty buffer to DB atomically.
 	// Also collect encoded account bytes for the incremental frozenAccounts update
@@ -816,6 +881,25 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		t.frozenAccounts = frozen
 	}
 
+	// Maintain the committedTrie incrementally so future buildStateTrie() calls
+	// can Clone it + apply dirty accounts rather than iterating all frozenAccounts.
+	if t.committedTrie == nil {
+		// First Commit: rebuild from frozenAccounts (genesis, small).
+		ct := trie.New()
+		for addr, rlpBytes := range t.frozenAccounts {
+			ct.Put(crypto.Keccak256(addr[:]), rlpBytes) //nolint:errcheck
+		}
+		t.committedTrie = ct
+	} else {
+		// Subsequent commits: apply only the dirty accounts to the existing trie.
+		for _, ea := range encodedAccounts {
+			t.committedTrie.Put(crypto.Keccak256(ea.addr[:]), ea.encoded) //nolint:errcheck
+		}
+		for _, addr := range destroyedAddrs {
+			t.committedTrie.Delete(crypto.Keccak256(addr[:])) //nolint:errcheck
+		}
+	}
+
 	// Reset dirty buffer and recreated tracking: memory drops to near-zero.
 	t.mem = NewMemoryStateDB()
 	t.recreated = nil
@@ -870,6 +954,7 @@ func (t *TrieStateDB) Dup() StateDB {
 		frozenAccounts:   t.frozenAccounts,   // shared read-only; never mutated by callers
 		persistedStorage: t.persistedStorage, // shared read-only; COW in Commit()
 		commitRoot:       t.commitRoot,       // inherited; cleared when dirty buffer grows
+		committedTrie:    t.committedTrie,    // shared read-only; Clone()d before any mutation
 	}
 }
 
