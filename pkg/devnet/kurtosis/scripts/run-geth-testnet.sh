@@ -21,7 +21,7 @@ if ! command -v kurtosis &>/dev/null; then
     exit 1
 fi
 
-ENCLAVE="${2:-eth2030-geth-devnet}"
+ENCLAVE="${2:-geth-devnet}"
 
 echo ""
 echo "=== Launching devnet: $CONFIG ==="
