@@ -59,7 +59,15 @@ spamoor_params:
         throughput: 5
         max_pending: 20
         max_wallets: 20
+        # Use min = max for deterministic auth count (reference pattern).
+        min_authorizations: 5
         max_authorizations: 5
+        # max_delegators caps unique delegator accounts to limit state growth.
+        # Without it every tx creates fresh delegators (unbounded state bloat).
+        max_delegators: 100
+        # Gas formula: 21000 + 5*(12500+25000) = 208500 (all empty delegators).
+        # Use 300000 for headroom.
+        gas_limit: 300000
         random_code_addr: true
         random_target: true
         tip_fee: 2
@@ -78,6 +86,8 @@ spamoor_params:
         max_pending: 20
         max_wallets: 15
         tip_fee: 2
+        # Use 2M gas per tx (scenario default) to keep wallet funding affordable.
+        gas_units_to_burn: 2000000
     - scenario: storagespam
       name: "Storage Spam"
       config:
@@ -85,6 +95,7 @@ spamoor_params:
         max_pending: 20
         max_wallets: 15
         tip_fee: 2
+        gas_units_to_burn: 2000000
 
 rakoon_params:
   tx_type: eip7702

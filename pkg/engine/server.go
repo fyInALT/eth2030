@@ -110,8 +110,15 @@ func (api *EngineAPI) ForkchoiceUpdatedV3(
 		if payloadAttributes.ParentBeaconBlockRoot == (types.Hash{}) {
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
-		// Validate timestamp progression: must be greater than head block timestamp.
-		headTimestamp := api.backend.GetHeadTimestamp()
+		// Validate timestamp progression: new payload must be strictly after the
+		// FCU head block. Use the head block's own timestamp (not the canonical
+		// chain head) so that fork-choice updates to non-canonical heads are
+		// validated correctly during reorgs.
+		headTimestamp := api.backend.GetBlockTimestamp(state.HeadBlockHash)
+		if headTimestamp == 0 {
+			// FCU head not yet known; fall back to global canonical head.
+			headTimestamp = api.backend.GetHeadTimestamp()
+		}
 		if headTimestamp > 0 && payloadAttributes.Timestamp <= headTimestamp {
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}

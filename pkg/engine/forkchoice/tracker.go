@@ -154,10 +154,11 @@ func (h *FCUHistory) All() []FCURecord {
 }
 
 // ConflictDetector detects when the CL sends conflicting forkchoice updates
-// (e.g., safe hash regresses to a non-ancestor, or finalized hash changes).
+// (e.g., finalized block number regresses to a lower value).
 type ConflictDetector struct {
 	mu            sync.RWMutex
 	lastState     *payload.ForkchoiceStateV1
+	lastFinalNum  uint64
 	conflictCount uint64
 }
 
@@ -167,29 +168,35 @@ func NewConflictDetector() *ConflictDetector {
 }
 
 // Check compares a new update against the previous one and returns a conflict
-// description if the finalized hash regressed (changed to a different non-zero value).
-func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1) (bool, string) {
+// description if the finalized block number regresses (new < old).
+// Finalized hash advancing to a new hash each epoch is normal and not flagged.
+func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1, finalNum uint64) (bool, string) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 
 	if cd.lastState == nil {
 		cd.lastState = &update
+		cd.lastFinalNum = finalNum
 		return false, ""
 	}
 
 	prev := cd.lastState
+	prevFinalNum := cd.lastFinalNum
+	cd.lastState = &update
+	cd.lastFinalNum = finalNum
 
-	// Finalized hash regression: it changed to a different non-zero hash.
+	// Flag only when the finalized block NUMBER regresses (not when the hash
+	// changes — hash advancing every epoch is the normal finalization flow).
 	if prev.FinalizedBlockHash != (types.Hash{}) &&
 		update.FinalizedBlockHash != (types.Hash{}) &&
-		update.FinalizedBlockHash != prev.FinalizedBlockHash {
+		update.FinalizedBlockHash != prev.FinalizedBlockHash &&
+		finalNum > 0 && finalNum < prevFinalNum {
 		cd.conflictCount++
-		cd.lastState = &update
-		return true, fmt.Sprintf("finalized changed: %s -> %s",
-			prev.FinalizedBlockHash.Hex(), update.FinalizedBlockHash.Hex())
+		return true, fmt.Sprintf("finalized regressed: block %d (%s) -> block %d (%s)",
+			prevFinalNum, prev.FinalizedBlockHash.Hex(),
+			finalNum, update.FinalizedBlockHash.Hex())
 	}
 
-	cd.lastState = &update
 	return false, ""
 }
 
@@ -200,17 +207,31 @@ func (cd *ConflictDetector) ConflictCount() uint64 {
 	return cd.conflictCount
 }
 
+// defaultMaxAllocatedIDs is the default cap on in-memory payload ID entries.
+const defaultMaxAllocatedIDs = 512
+
 // PayloadIDAllocator assigns unique payload IDs for payload building.
 type PayloadIDAllocator struct {
-	mu        sync.Mutex
-	allocated map[payload.PayloadID]uint64 // payloadID -> timestamp
-	counter   uint64
+	mu           sync.Mutex
+	allocated    map[payload.PayloadID]uint64 // payloadID -> timestamp
+	counter      uint64
+	maxAllocated int // configurable cap; set from NewPayloadIDAllocatorWithCap
 }
 
-// NewPayloadIDAllocator creates a new allocator.
+// NewPayloadIDAllocator creates a new allocator with the default cap.
 func NewPayloadIDAllocator() *PayloadIDAllocator {
+	return NewPayloadIDAllocatorWithCap(defaultMaxAllocatedIDs)
+}
+
+// NewPayloadIDAllocatorWithCap creates a new allocator with an explicit cap.
+// cap <= 0 falls back to defaultMaxAllocatedIDs.
+func NewPayloadIDAllocatorWithCap(cap int) *PayloadIDAllocator {
+	if cap <= 0 {
+		cap = defaultMaxAllocatedIDs
+	}
 	return &PayloadIDAllocator{
-		allocated: make(map[payload.PayloadID]uint64),
+		allocated:    make(map[payload.PayloadID]uint64),
+		maxAllocated: cap,
 	}
 }
 
@@ -233,6 +254,22 @@ func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (pa
 
 	if _, exists := a.allocated[id]; exists {
 		return payload.PayloadID{}, ErrFCTPayloadIDExists
+	}
+
+	// Evict the oldest entry when the map is at capacity to prevent
+	// unbounded growth across long-running node operation.
+	if len(a.allocated) >= a.maxAllocated {
+		var oldestID payload.PayloadID
+		var oldestTS uint64
+		first := true
+		for pid, ts := range a.allocated {
+			if first || ts < oldestTS {
+				oldestID = pid
+				oldestTS = ts
+				first = false
+			}
+		}
+		delete(a.allocated, oldestID)
 	}
 
 	a.allocated[id] = timestamp
@@ -322,6 +359,17 @@ func (rt *ReorgTracker) ProcessHead(newHead types.Hash, newNum uint64) *TrackedR
 	oldNum := rt.lastNum
 	rt.lastHead = newHead
 	rt.lastNum = newNum
+
+	// Evict block entries more than 128 blocks behind the new head to
+	// prevent unbounded growth across long-running node operation.
+	if newNum > 128 {
+		cutoff := newNum - 128
+		for hash, info := range rt.blocks {
+			if info.Number < cutoff {
+				delete(rt.blocks, hash)
+			}
+		}
+	}
 
 	if oldHead == (types.Hash{}) || oldHead == newHead {
 		return nil
@@ -425,13 +473,20 @@ type ForkchoiceTracker struct {
 	Reorgs    *ReorgTracker
 }
 
-// NewForkchoiceTracker creates a fully-initialized forkchoice tracker.
+// NewForkchoiceTracker creates a fully-initialized forkchoice tracker with
+// the default payload ID allocator cap.
 func NewForkchoiceTracker(historySize, reorgHistorySize int) *ForkchoiceTracker {
+	return NewForkchoiceTrackerWithCaps(historySize, reorgHistorySize, defaultMaxAllocatedIDs)
+}
+
+// NewForkchoiceTrackerWithCaps creates a forkchoice tracker with explicit
+// caps. allocIDCap <= 0 falls back to defaultMaxAllocatedIDs.
+func NewForkchoiceTrackerWithCaps(historySize, reorgHistorySize, allocIDCap int) *ForkchoiceTracker {
 	return &ForkchoiceTracker{
 		Chain:     NewHeadChain(),
 		History:   NewFCUHistory(historySize),
 		Conflicts: NewConflictDetector(),
-		Payloads:  NewPayloadIDAllocator(),
+		Payloads:  NewPayloadIDAllocatorWithCap(allocIDCap),
 		Reorgs:    NewReorgTracker(reorgHistorySize),
 	}
 }
@@ -444,7 +499,7 @@ func (ft *ForkchoiceTracker) ProcessUpdate(
 	headNum, safeNum, finalNum uint64,
 ) (conflict bool, conflictReason string, reorg *TrackedReorg) {
 	// Detect conflicts.
-	conflict, conflictReason = ft.Conflicts.Check(state)
+	conflict, conflictReason = ft.Conflicts.Check(state, finalNum)
 
 	// Update head chain.
 	ft.Chain.Update(state.HeadBlockHash, state.SafeBlockHash,

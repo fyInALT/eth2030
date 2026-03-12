@@ -33,7 +33,7 @@ const (
 	MaxPoolSize = 4096
 
 	// MaxPerSender is the maximum number of transactions per sender.
-	MaxPerSender = 16
+	MaxPerSender = 64
 
 	// MaxTxSize is the maximum allowed encoded transaction size (128KB).
 	MaxTxSize = 128 * 1024
@@ -43,9 +43,19 @@ const (
 	// ahead are rejected to prevent memory exhaustion from nonce-gap attacks.
 	MaxNonceGap = 64
 
-	// EIP-2930 access list gas costs.
+	// EIP-2930 access list gas costs (pre-Glamsterdam).
 	AccessListAddressCost = 2400 // per address in access list
 	AccessListStorageCost = 1900 // per storage key in access list
+
+	// Glamsterdam (EIP-8038/7981) access list gas costs.
+	AccessListAddressCostGlamst = 3200 // per address (EIP-8038)
+	AccessListStorageCostGlamst = 2500 // per storage key (EIP-8038)
+	// TotalCostFloorPerTokenGlamst is the data-token cost multiplier for
+	// access list entries under EIP-7981 (must match execution/processor.go).
+	TotalCostFloorPerTokenGlamst = 16
+
+	// TxCreateGas is the extra gas for contract creation (added to TxBase).
+	TxCreateGas = 32000
 
 	// EIP-7702 SetCode authorization gas costs (must match execution/processor.go).
 	PerAuthBaseCost     = 12500 // base cost per authorization entry
@@ -92,6 +102,9 @@ type Config struct {
 	// AllowAATx enables acceptance of EIP-7701 type-0x05 AA transactions (--txpool.allow-aa).
 	// Defaults to true; set false to disable AA tx acceptance on networks without Glamsterdam.
 	AllowAATx bool
+	// IsGlamsterdan indicates the chain is at or past the Glamsterdam fork (EIP-2780).
+	// When true, the base tx gas cost is 4500 instead of 21000 for intrinsic validation.
+	IsGlamsterdan bool
 	// PriceHistoryBlocks is the number of recent blocks the gas price suggestor
 	// uses to compute fee recommendations (--txpool.price-history, default 20).
 	PriceHistoryBlocks int
@@ -645,14 +658,21 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
-	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil)
-	intrinsicGas += AccessListGas(tx.AccessList())
-	// EIP-7702: per-authorization base cost is always charged as intrinsic gas.
-	// PerEmptyAccountCost is charged during EVM execution (not here) because the
-	// pool cannot determine whether each auth target is an empty account.
+	// Use Glamsterdam costs when active to match the builder's intrinsic gas check.
+	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan)
+	if pool.config.IsGlamsterdan {
+		intrinsicGas += AccessListGasGlamst(tx.AccessList())
+	} else {
+		intrinsicGas += AccessListGas(tx.AccessList())
+	}
+	// EIP-7702: charge both base cost and empty-account cost per authorization.
+	// The pool cannot recover each authority from state, so it conservatively
+	// charges PerEmptyAccountCost for every entry. This matches the worst case
+	// in the builder (all authorities absent from state) and prevents txs that
+	// can never be mined from entering the pool.
 	if tx.Type() == types.SetCodeTxType {
 		authList := tx.AuthorizationList()
-		intrinsicGas += uint64(len(authList)) * PerAuthBaseCost
+		intrinsicGas += uint64(len(authList)) * (PerAuthBaseCost + PerEmptyAccountCost)
 	}
 	if tx.Gas() < intrinsicGas {
 		return ErrIntrinsicGas
@@ -801,19 +821,39 @@ func (pool *TxPool) Pending() map[types.Address][]*types.Transaction {
 	return result
 }
 
-// PendingFlat returns all pending transactions as a flat slice, sorted by gas price (desc).
+// senderGroup holds a sender's nonce-ordered pending txs and the effective
+// gas price of the head (lowest-nonce) tx, used for cross-sender ordering.
+type senderGroup struct {
+	txs       []*types.Transaction
+	headPrice *big.Int
+}
+
+// PendingFlat returns all pending transactions as a flat slice.
+// Senders are ordered by the effective gas price of their lowest-nonce tx
+// (descending), and each sender's txs are kept in ascending nonce order.
+// This preserves per-sender nonce continuity so the block builder can
+// include a full nonce sequence without gaps.
 func (pool *TxPool) PendingFlat() []*types.Transaction {
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
 
-	var all []*types.Transaction
+	groups := make([]senderGroup, 0, len(pool.pending))
 	for _, list := range pool.pending {
-		all = append(all, list.items...)
+		if list.Len() == 0 {
+			continue
+		}
+		txs := make([]*types.Transaction, len(list.items))
+		copy(txs, list.items) // list.items is already nonce-sorted
+		groups = append(groups, senderGroup{
+			txs:       txs,
+			headPrice: EffectiveGasPrice(txs[0], pool.baseFee),
+		})
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		pi := all[i].GasPrice()
-		pj := all[j].GasPrice()
+	// Sort senders by head-tx effective gas price, highest first.
+	sort.SliceStable(groups, func(i, j int) bool {
+		pi := groups[i].headPrice
+		pj := groups[j].headPrice
 		if pi == nil {
 			return false
 		}
@@ -822,6 +862,11 @@ func (pool *TxPool) PendingFlat() []*types.Transaction {
 		}
 		return pi.Cmp(pj) > 0
 	})
+
+	var all []*types.Transaction
+	for _, g := range groups {
+		all = append(all, g.txs...)
+	}
 	return all
 }
 
@@ -1065,27 +1110,22 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 
 	var candidates []candidate
 
-	// Gather pending txs. Protect the highest-nonce tx per sender.
+	// Gather pending txs. Only the highest-nonce (tail) tx per sender is
+	// evictable: removing the tail leaves the remaining sequence intact with
+	// no nonce gap, so no cascade is needed. Evicting a lower-nonce tx would
+	// orphan all higher-nonce txs, stranding them in queue permanently.
+	// Single-tx senders are protected (they are the sole pool anchor).
 	for addr, list := range pool.pending {
-		if list.Len() == 0 {
+		if list.Len() <= 1 {
 			continue
 		}
-		for i, tx := range list.items {
-			// Protect the last (highest-nonce) tx if it's the only one.
-			if list.Len() == 1 {
-				continue
-			}
-			// Protect the highest-nonce pending tx.
-			if i == list.Len()-1 {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				tx:    tx,
-				from:  addr,
-				price: EffectiveGasPrice(tx, baseFee),
-				queue: false,
-			})
-		}
+		last := list.items[list.Len()-1]
+		candidates = append(candidates, candidate{
+			tx:    last,
+			from:  addr,
+			price: EffectiveGasPrice(last, baseFee),
+			queue: false,
+		})
 	}
 
 	// All queued txs are eviction candidates.
@@ -1127,6 +1167,8 @@ func (pool *TxPool) evictLowest(baseFee *big.Int) int {
 			}
 		}
 	} else {
+		// Evicting the tail pending tx: just remove it. The remaining lower-nonce
+		// txs form a valid contiguous sequence — no cascade needed.
 		if list, ok := pool.pending[c.from]; ok {
 			list.Remove(c.tx.Nonce())
 			if list.Len() == 0 {
@@ -1192,10 +1234,18 @@ func (pool *TxPool) SetBaseFee(baseFee *big.Int) {
 }
 
 // IntrinsicGas computes the intrinsic gas for a transaction (excluding access list).
-func IntrinsicGas(data []byte, isContractCreation bool) uint64 {
-	gas := uint64(21000)
+// On Glamsterdam (EIP-2780) the base tx cost dropped from 21000 to 4500; for
+// contract creation the cost is base + TxCreateGas. The new-account surcharge is
+// NOT included here because the pool cannot inspect destination account existence.
+func IntrinsicGas(data []byte, isContractCreation bool, isGlamsterdan bool) uint64 {
+	var gas uint64
+	if isGlamsterdan {
+		gas = 4500
+	} else {
+		gas = 21000
+	}
 	if isContractCreation {
-		gas = 53000
+		gas += TxCreateGas // 32000 — added to base, not overriding it
 	}
 
 	if len(data) > 0 {
@@ -1212,7 +1262,7 @@ func IntrinsicGas(data []byte, isContractCreation bool) uint64 {
 	return gas
 }
 
-// AccessListGas computes the gas cost of an EIP-2930 access list.
+// AccessListGas computes the gas cost of an EIP-2930 access list (pre-Glamsterdam).
 // Each address costs 2400 gas and each storage key costs 1900 gas.
 func AccessListGas(al types.AccessList) uint64 {
 	if len(al) == 0 {
@@ -1223,6 +1273,41 @@ func AccessListGas(al types.AccessList) uint64 {
 		gas += AccessListAddressCost
 		gas += uint64(len(tuple.StorageKeys)) * AccessListStorageCost
 	}
+	return gas
+}
+
+// AccessListGasGlamst computes the gas cost of an access list under Glamsterdam.
+// Per EIP-8038: address cost 3200, storage key cost 2500.
+// Per EIP-7981: also charges TotalCostFloorPerTokenGlamst per data token
+// (zero_bytes*1 + nonzero_bytes*4) for each address (20 bytes) and storage key (32 bytes).
+func AccessListGasGlamst(al types.AccessList) uint64 {
+	if len(al) == 0 {
+		return 0
+	}
+	var gas, tokens uint64
+	for _, tuple := range al {
+		gas += AccessListAddressCostGlamst
+		gas += uint64(len(tuple.StorageKeys)) * AccessListStorageCostGlamst
+		// EIP-7981: data token cost for address bytes (20 bytes).
+		for _, b := range tuple.Address {
+			if b == 0 {
+				tokens++
+			} else {
+				tokens += 4
+			}
+		}
+		// EIP-7981: data token cost for each storage key (32 bytes).
+		for _, key := range tuple.StorageKeys {
+			for _, b := range key {
+				if b == 0 {
+					tokens++
+				} else {
+					tokens += 4
+				}
+			}
+		}
+	}
+	gas += tokens * TotalCostFloorPerTokenGlamst
 	return gas
 }
 

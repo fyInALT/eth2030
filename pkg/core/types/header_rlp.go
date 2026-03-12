@@ -10,6 +10,16 @@ import (
 // emptyRLP is the RLP encoding of an empty/nil optional field (0x80).
 var emptyRLP = []byte{0x80}
 
+// EIP7706HashFields controls whether CalldataGasUsed and CalldataExcessGas
+// (EIP-7706) are included in the canonical block-header RLP and therefore
+// in the block hash.
+//
+// Default false: hash is compatible with Lighthouse and go-ethereum, which
+// do not yet implement EIP-7706 and therefore do not encode these fields.
+// Set to true only when running a fully EIP-7706-aware network where all
+// peers (CL and EL) agree to include the fields.
+var EIP7706HashFields = false
+
 // EncodeRLP returns the RLP encoding of the header in Yellow Paper field order:
 // [ParentHash, UncleHash, Coinbase, Root, TxHash, ReceiptHash, Bloom,
 //
@@ -91,8 +101,8 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 	hasExcessBlobGas := h.ExcessBlobGas != nil
 	hasBeaconRoot := h.ParentBeaconRoot != nil
 	hasRequestsHash := h.RequestsHash != nil
-	hasCalldataUsed := h.CalldataGasUsed != nil
-	hasCalldataExcess := h.CalldataExcessGas != nil
+	hasCalldataUsed := EIP7706HashFields && h.CalldataGasUsed != nil
+	hasCalldataExcess := EIP7706HashFields && h.CalldataExcessGas != nil
 
 	// anyFrom[i] is true when any optional field at or after position i is set.
 	// This mirrors go-ethereum's generated encoder logic.
@@ -181,7 +191,7 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 		return rlp.WrapList(payload), nil
 	}
 
-	// EIP-7706: CalldataGasUsed
+	// EIP-7706: CalldataGasUsed (only when EIP7706HashFields is enabled)
 	if hasCalldataUsed {
 		if err := appendItem(*h.CalldataGasUsed); err != nil {
 			return nil, err
@@ -193,7 +203,7 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 		return rlp.WrapList(payload), nil
 	}
 
-	// EIP-7706: CalldataExcessGas
+	// EIP-7706: CalldataExcessGas (only when EIP7706HashFields is enabled)
 	if hasCalldataExcess {
 		if err := appendItem(*h.CalldataExcessGas); err != nil {
 			return nil, err
@@ -201,7 +211,6 @@ func (h *Header) EncodeRLP() ([]byte, error) {
 	} else {
 		appendEmpty()
 	}
-
 	return rlp.WrapList(payload), nil
 }
 
@@ -353,8 +362,9 @@ func DecodeHeaderRLP(data []byte) (*Header, error) {
 		h.RequestsHash = &rh
 	}
 
-	// EIP-7706: CalldataGasUsed (*uint64)
-	if s.AtListEnd() {
+	// EIP-7706: CalldataGasUsed / CalldataExcessGas — only decoded when the
+	// EIP7706HashFields flag is enabled (off by default for Lighthouse compat).
+	if !EIP7706HashFields || s.AtListEnd() {
 		return finishHeader(s, h)
 	}
 	cgu, err := s.Uint64()
@@ -363,7 +373,6 @@ func DecodeHeaderRLP(data []byte) (*Header, error) {
 	}
 	h.CalldataGasUsed = &cgu
 
-	// EIP-7706: CalldataExcessGas (*uint64)
 	if s.AtListEnd() {
 		return finishHeader(s, h)
 	}

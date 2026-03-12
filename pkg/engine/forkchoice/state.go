@@ -17,7 +17,6 @@ package forkchoice
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -96,6 +95,10 @@ type BlockInfo struct {
 	Slot       uint64
 }
 
+// defaultFCPruneBuffer is the default number of blocks retained behind the
+// finalized head before pruning. Covers short reorgs and ancestry walks.
+const defaultFCPruneBuffer = 128
+
 // ForkchoiceStateManager manages the fork choice state on the execution layer.
 // It tracks justified/finalized checkpoints, maintains the head/safe/finalized
 // block distinction, accounts for proposer boost, and detects reorgs.
@@ -119,6 +122,10 @@ type ForkchoiceStateManager struct {
 	// Block metadata store for ancestry checks and reorg depth.
 	blocks map[types.Hash]*BlockInfo
 
+	// pruneBuffer is the number of blocks behind finality kept in memory.
+	// Blocks older than finalized-pruneBuffer are pruned on finality advance.
+	pruneBuffer uint64
+
 	// chain is an optional fallback for block lookups not in the in-memory
 	// store. When set, isAncestor and reorgDepth walk the persistent DB
 	// instead of short-circuiting on a cache miss.
@@ -132,11 +139,19 @@ type ForkchoiceStateManager struct {
 	reorgCount  uint64
 }
 
-// NewForkchoiceStateManager creates a new fork choice state manager.
-// If genesis is non-nil, it is used as the initial head/safe/finalized block.
+// NewForkchoiceStateManager creates a new fork choice state manager with
+// the default prune buffer. If genesis is non-nil, it seeds head/safe/finalized.
 func NewForkchoiceStateManager(genesis *BlockInfo) *ForkchoiceStateManager {
+	return NewForkchoiceStateManagerWithBuffer(genesis, defaultFCPruneBuffer)
+}
+
+// NewForkchoiceStateManagerWithBuffer creates a fork choice state manager
+// that retains pruneBuffer blocks behind the finalized head before pruning.
+// Use 0 to disable automatic pruning.
+func NewForkchoiceStateManagerWithBuffer(genesis *BlockInfo, pruneBuffer uint64) *ForkchoiceStateManager {
 	m := &ForkchoiceStateManager{
-		blocks: make(map[types.Hash]*BlockInfo),
+		blocks:      make(map[types.Hash]*BlockInfo),
+		pruneBuffer: pruneBuffer,
 	}
 	if genesis != nil {
 		m.blocks[genesis.Hash] = genesis
@@ -209,18 +224,6 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 				NewHeadNumber: headInfo.Number,
 			}
 			m.reorgCount++
-			logFn := slog.Warn
-			if depth > 63 {
-				logFn = slog.Error
-			}
-			logFn("chain reorg detected",
-				"depth", depth,
-				"oldHead", oldHead,
-				"newHead", update.HeadBlockHash,
-				"oldNum", oldInfo.Number,
-				"newNum", headInfo.Number,
-				"slot", headInfo.Slot,
-			)
 		}
 	}
 
@@ -235,6 +238,11 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 			m.finalizedCheckpoint = Checkpoint{
 				Epoch: finInfo.Slot / 32, // slots per epoch
 				Root:  update.FinalizedBlockHash,
+			}
+			// Prune blocks well behind finality to bound memory usage.
+			// m.pruneBuffer controls how many blocks to keep behind finality.
+			if m.pruneBuffer > 0 && finInfo.Number > m.pruneBuffer {
+				m.pruneBeforeNumberLocked(finInfo.Number - m.pruneBuffer)
 			}
 		}
 	}
@@ -404,11 +412,16 @@ func (m *ForkchoiceStateManager) GetForkchoiceState() payload.ForkchoiceStateV1 
 func (m *ForkchoiceStateManager) PruneBeforeNumber(n uint64) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.pruneBeforeNumberLocked(n)
+}
 
+// pruneBeforeNumberLocked is the lock-free inner implementation.
+// Caller must hold m.mu (write).
+func (m *ForkchoiceStateManager) pruneBeforeNumberLocked(n uint64) int {
 	pruned := 0
 	for hash, info := range m.blocks {
 		if info.Number < n {
-			// Do not prune referenced blocks.
+			// Do not prune blocks that are currently referenced.
 			if hash == m.headHash || hash == m.safeHash || hash == m.finalizedHash {
 				continue
 			}

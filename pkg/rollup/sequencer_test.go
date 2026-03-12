@@ -171,14 +171,18 @@ func TestMaxBatchSize(t *testing.T) {
 		}
 	}
 
-	// The 4th transaction should be rejected since batch is full.
+	// The 4th transaction triggers an auto-seal, then is added to a fresh batch.
 	err := seq.AddTransaction([]byte{0xff})
-	if err != ErrBatchFull {
-		t.Errorf("expected ErrBatchFull, got %v", err)
+	if err != nil {
+		t.Errorf("expected nil error on auto-seal, got %v", err)
 	}
 
-	if seq.PendingCount() != 3 {
-		t.Errorf("expected 3 pending, got %d", seq.PendingCount())
+	// After auto-seal the old 3 txs form a sealed batch; pending has just the new tx.
+	if seq.PendingCount() != 1 {
+		t.Errorf("expected 1 pending after auto-seal, got %d", seq.PendingCount())
+	}
+	if len(seq.BatchHistory()) != 1 {
+		t.Errorf("expected 1 sealed batch after auto-seal, got %d", len(seq.BatchHistory()))
 	}
 }
 

@@ -9,8 +9,10 @@ import (
 	"math/big"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/core/block"
+	coregas "github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
@@ -92,6 +94,26 @@ func (b *nodeBackend) HeaderByNumber(number rpc.BlockNumber) *types.Header {
 			return blk.Header()
 		}
 		return nil
+	case rpc.FinalizedBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetFinalizedHash(); h != (types.Hash{}) {
+				blk := bc.GetBlock(h)
+				if blk != nil {
+					return blk.Header()
+				}
+			}
+		}
+		return nil
+	case rpc.SafeBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetSafeHash(); h != (types.Hash{}) {
+				blk := bc.GetBlock(h)
+				if blk != nil {
+					return blk.Header()
+				}
+			}
+		}
+		return nil
 	default:
 		blk := bc.GetBlockByNumber(uint64(number))
 		if blk != nil {
@@ -116,6 +138,20 @@ func (b *nodeBackend) BlockByNumber(number rpc.BlockNumber) *types.Block {
 		return bc.CurrentBlock()
 	case rpc.EarliestBlockNumber:
 		return bc.GetBlockByNumber(0)
+	case rpc.FinalizedBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetFinalizedHash(); h != (types.Hash{}) {
+				return bc.GetBlock(h)
+			}
+		}
+		return nil
+	case rpc.SafeBlockNumber:
+		if b.node.engBackend != nil {
+			if h := b.node.engBackend.GetSafeHash(); h != (types.Hash{}) {
+				return bc.GetBlock(h)
+			}
+		}
+		return nil
 	default:
 		return bc.GetBlockByNumber(uint64(number))
 	}
@@ -186,23 +222,33 @@ func (b *nodeBackend) SendTransaction(tx *types.Transaction) error {
 		}
 		signer := types.LatestSigner(chainID)
 		sender, _ := signer.Sender(tx)
+		// GasFeeCap can be nil for legacy txs with a zero GasPrice field.
+		var gasPrice uint64
+		if fc := tx.GasFeeCap(); fc != nil {
+			gasPrice = fc.Uint64()
+		}
 		smTx := shared.SharedMempoolTx{
 			Hash:     tx.Hash(),
 			Sender:   sender,
 			Nonce:    tx.Nonce(),
-			GasPrice: tx.GasFeeCap().Uint64(),
+			GasPrice: gasPrice,
 			Data:     tx.Data(),
 		}
 		if err := b.node.sharedPool.AddTransaction(smTx); err != nil {
 			slog.Debug("shared mempool add", "hash", tx.Hash(), "err", err)
 		}
 	}
-	// Feed calldata to native rollup sequencer for L2 batch assembly (EIP-8079).
+	// Feed the full encoded transaction to the native rollup sequencer for
+	// L2 batch assembly (EIP-8079). The sequencer stores raw encoded txs so
+	// L2 nodes can reconstruct and verify them; passing only tx.Data() (calldata)
+	// would produce an incomplete batch with an incorrect batch-ID hash.
 	if b.node.rollupSeq != nil {
-		if data := tx.Data(); len(data) > 0 {
-			if seqErr := b.node.rollupSeq.AddTransaction(data); seqErr != nil {
+		if encoded, encErr := tx.EncodeRLP(); encErr == nil {
+			if seqErr := b.node.rollupSeq.AddTransaction(encoded); seqErr != nil {
 				slog.Debug("rollup sequencer add", "hash", tx.Hash(), "err", seqErr)
 			}
+		} else {
+			slog.Debug("rollup sequencer: tx encode failed", "hash", tx.Hash(), "err", encErr)
 		}
 	}
 	return nil
@@ -482,25 +528,120 @@ func (a *txPoolAdapter) Pending() []*types.Transaction {
 type pendingPayload struct {
 	block    *types.Block
 	receipts []*types.Receipt
+	err      error
+	done     chan struct{} // closed when block/receipts/err are populated
+}
+
+// blockProcReq is a work item for the block processor goroutine.
+type blockProcReq struct {
+	payload               *engine.ExecutionPayloadV3
+	parentBeaconBlockRoot types.Hash
+	requestsHash          *types.Hash
+	replyCh               chan blockProcResp
+}
+
+// blockProcResp carries the result of a processed block.
+type blockProcResp struct {
+	status engine.PayloadStatusV1
+	err    error
+}
+
+const fcuCacheSize = 8
+
+// fcuCacheEntry records a (head,safe,finalized) triple from a processed FCU.
+// A fixed-size ring buffer of these entries lets ForkchoiceUpdated return
+// immediately when the CL re-sends an identical FCU without payload attrs.
+type fcuCacheEntry struct {
+	head      types.Hash
+	safe      types.Hash
+	finalized types.Hash
+}
+
+// postFCUWork carries the slow state-update work deferred from
+// ForkchoiceUpdated to the background goroutine.
+type postFCUWork struct {
+	fcState    engine.ForkchoiceStateV1
+	headBlock  *types.Block
+	finalBlock *types.Block // nil when unchanged or block not found
+	safeBlock  *types.Block // nil when unchanged or block not found
+	hasAttrs   bool         // true when the originating FCU had payload attrs
 }
 
 // engineBackend adapts the Node to the engine.Backend interface.
 type engineBackend struct {
 	node *Node
 
-	mu       sync.Mutex
-	payloads map[engine.PayloadID]*pendingPayload
-	builder  *block.BlockBuilder
+	mu           sync.Mutex
+	payloads     map[engine.PayloadID]*pendingPayload
+	payloadOrder []engine.PayloadID // insertion order for LRU eviction
+	maxPayloads  int                // cap from node config
+	builder      *block.BlockBuilder
+
+	// Forkchoice state: updated on every engine_forkchoiceUpdated call.
+	fcMu          sync.RWMutex
+	safeHash      types.Hash
+	finalizedHash types.Hash
+
+	// Channel-based block processor: serialises newPayload execution on a
+	// dedicated goroutine so HTTP handler goroutines never fight over locks.
+	// Buffered to allow a small queue; warn when the queue grows too deep.
+	processCh chan blockProcReq
+	procChCap int // capacity of processCh, for warn threshold
+	stopCh    chan struct{}
+
+	// FCU result cache: ring buffer of the fcuCacheSize most recently processed
+	// (head,safe,finalized) triples. Re-sends without payload attrs are returned
+	// immediately from the cache, skipping all rawdb and txpool operations.
+	fcuCache   [fcuCacheSize]fcuCacheEntry
+	fcuCacheWr int        // next write position (wraps mod fcuCacheSize)
+	fcuCacheMu sync.Mutex // guards fcuCache and fcuCacheWr
+
+	// postFCUCh delivers slow post-processing to a dedicated background goroutine.
+	// Capacity 1: a pending item is evicted when a newer FCU arrives (latest wins).
+	postFCUCh chan postFCUWork
 }
 
-func newEngineBackend(n *Node) engine.Backend {
+// newEngineBackend creates and starts the engine backend.
+func newEngineBackend(n *Node) *engineBackend {
 	pool := &txPoolAdapter{node: n}
 	builder := block.NewBlockBuilder(n.blockchain.Config(), n.blockchain, pool)
-	return &engineBackend{
-		node:     n,
-		payloads: make(map[engine.PayloadID]*pendingPayload),
-		builder:  builder,
+	maxPayloads := n.config.CacheEnginePayloads
+	if maxPayloads <= 0 {
+		maxPayloads = 32
 	}
+	b := &engineBackend{
+		node:        n,
+		payloads:    make(map[engine.PayloadID]*pendingPayload),
+		maxPayloads: maxPayloads,
+		builder:     builder,
+		processCh:   make(chan blockProcReq, 8), // buffered: absorbs burst; warn on depth
+		procChCap:   8,
+		stopCh:      make(chan struct{}),
+		postFCUCh:   make(chan postFCUWork, 1), // capacity 1: latest FCU work always wins
+	}
+	go b.processLoop()
+	go b.postFCULoop()
+	return b
+}
+
+// processLoop is the dedicated block processor goroutine. It receives newPayload
+// requests one at a time, executes them, and sends results back through the
+// per-request reply channel.
+func (b *engineBackend) processLoop() {
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case req := <-b.processCh:
+			status, err := b.execBlockInternal(req.payload, req.parentBeaconBlockRoot, req.requestsHash)
+			req.replyCh <- blockProcResp{status: status, err: err}
+		}
+	}
+}
+
+// Close stops the processor goroutine. Must be called during node shutdown.
+func (b *engineBackend) Close() {
+	close(b.stopCh)
 }
 
 func (b *engineBackend) GetHeadHash() types.Hash {
@@ -510,8 +651,23 @@ func (b *engineBackend) GetHeadHash() types.Hash {
 	return types.Hash{}
 }
 
-func (b *engineBackend) GetSafeHash() types.Hash      { return types.Hash{} }
-func (b *engineBackend) GetFinalizedHash() types.Hash { return types.Hash{} }
+func (b *engineBackend) GetSafeHash() types.Hash {
+	if blk := b.node.blockchain.CurrentSafeBlock(); blk != nil {
+		return blk.Hash()
+	}
+	b.fcMu.RLock()
+	defer b.fcMu.RUnlock()
+	return b.safeHash
+}
+
+func (b *engineBackend) GetFinalizedHash() types.Hash {
+	if blk := b.node.blockchain.CurrentFinalBlock(); blk != nil {
+		return blk.Hash()
+	}
+	b.fcMu.RLock()
+	defer b.fcMu.RUnlock()
+	return b.finalizedHash
+}
 
 func (b *engineBackend) ProcessBlock(
 	payload *engine.ExecutionPayloadV3,
@@ -534,10 +690,38 @@ func (b *engineBackend) ProcessBlock(
 	return b.processBlockInternal(payload, parentBeaconBlockRoot, nil)
 }
 
-// processBlockInternal reconstructs the block from an Engine API payload and
-// inserts it. parentBeaconBlockRoot is included in the header hash (EIP-4788).
-// requestsHash is non-nil only for Prague (V4) payloads.
+// processBlockInternal submits a newPayload request to the processor goroutine
+// and blocks until the result is ready. parentBeaconBlockRoot is used for
+// EIP-4788; requestsHash is non-nil only for Prague (V4) payloads.
 func (b *engineBackend) processBlockInternal(
+	payload *engine.ExecutionPayloadV3,
+	parentBeaconBlockRoot types.Hash,
+	requestsHash *types.Hash,
+) (engine.PayloadStatusV1, error) {
+	// Warn when the queue is more than half full — a sign the processor is
+	// falling behind the CL's slot cadence.
+	if depth := len(b.processCh); depth > b.procChCap/2 {
+		slog.Warn("engine_newPayload: block processor queue growing",
+			"depth", depth,
+			"capacity", b.procChCap,
+		)
+	}
+	replyCh := make(chan blockProcResp, 1)
+	b.processCh <- blockProcReq{
+		payload:               payload,
+		parentBeaconBlockRoot: parentBeaconBlockRoot,
+		requestsHash:          requestsHash,
+		replyCh:               replyCh,
+	}
+	resp := <-replyCh
+	return resp.status, resp.err
+}
+
+// execBlockInternal reconstructs the block from an Engine API payload and
+// inserts it. Called only by the processor goroutine (processLoop).
+// parentBeaconBlockRoot is included in the header hash (EIP-4788).
+// requestsHash is non-nil only for Prague (V4) payloads.
+func (b *engineBackend) execBlockInternal(
 	payload *engine.ExecutionPayloadV3,
 	parentBeaconBlockRoot types.Hash,
 	requestsHash *types.Hash,
@@ -551,6 +735,37 @@ func (b *engineBackend) processBlockInternal(
 		"timestamp", payload.Timestamp,
 		"txCount", len(payload.Transactions),
 	)
+
+	// Short-circuit for already-known blocks (e.g. Lighthouse sends the same
+	// block via both the Engine API proposer path and P2P gossip). Returning
+	// VALID immediately avoids redundant RLP decode, InsertBlock execution,
+	// and duplicate "accepted" log spam.
+	if bc.HasBlock(payload.BlockHash) {
+		h := payload.BlockHash
+		slog.Debug("engine_newPayload: already known, returning VALID",
+			"blockNumber", payload.BlockNumber,
+			"blockHash", payload.BlockHash,
+		)
+		// Register in forkchoice state manager so ProcessForkchoiceUpdate
+		// succeeds when the CL calls FCU with this block as head. This path
+		// is taken for blocks pre-inserted by the payload builder goroutine,
+		// which bypass the normal execBlockInternal AddBlock call.
+		if b.node.fcStateManager != nil {
+			bi := &forkchoice.BlockInfo{
+				Hash:       payload.BlockHash,
+				ParentHash: payload.ParentHash,
+				Number:     payload.BlockNumber,
+				Slot:       payload.BlockNumber,
+			}
+			b.node.fcStateManager.AddBlock(bi)
+			if b.node.fcTracker != nil {
+				b.node.fcTracker.Reorgs.AddBlock(bi)
+			}
+		}
+		// Reset tx pool so confirmed txs (e.g. inserted via ETH P2P) are evicted.
+		b.node.txPool.Reset(bc.State())
+		return engine.PayloadStatusV1{Status: engine.StatusValid, LatestValidHash: &h}, nil
+	}
 
 	// Decode transactions from raw bytes.
 	var txs []*types.Transaction
@@ -625,22 +840,42 @@ func (b *engineBackend) processBlockInternal(
 		header.RequestsHash = requestsHash
 	}
 
-	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
-
-	// Verify block hash matches what the CL provided.
-	if block.Hash() != payload.BlockHash {
-		slog.Warn("engine_newPayload: block hash mismatch",
-			"computed", block.Hash(),
-			"payload", payload.BlockHash,
-		)
-		latestValid := payload.ParentHash
-		return engine.PayloadStatusV1{
-			Status:          engine.StatusInvalid,
-			LatestValidHash: &latestValid,
-		}, nil
+	// EIP-7706: reconstruct CalldataExcessGas/CalldataGasUsed from parent only
+	// when EIP7706HashFields is enabled. When disabled (default), these fields
+	// are not part of the canonical block hash so reconstruction is unnecessary.
+	if types.EIP7706HashFields && bc.Config().IsGlamsterdan(payload.Timestamp) {
+		parentBlock := bc.GetBlock(payload.ParentHash)
+		if parentBlock == nil {
+			slog.Warn("engine_newPayload: parent block unavailable for EIP-7706, returning SYNCING",
+				"blockNumber", payload.BlockNumber,
+				"parentHash", payload.ParentHash,
+			)
+			return engine.PayloadStatusV1{Status: engine.StatusSyncing}, nil
+		}
+		ph := parentBlock.Header()
+		var pCalldataExcess, pCalldataUsed uint64
+		if ph.CalldataExcessGas != nil {
+			pCalldataExcess = *ph.CalldataExcessGas
+		}
+		if ph.CalldataGasUsed != nil {
+			pCalldataUsed = *ph.CalldataGasUsed
+		}
+		calldataExcessGas := coregas.CalcCalldataExcessGas(pCalldataExcess, pCalldataUsed, ph.GasLimit)
+		header.CalldataExcessGas = &calldataExcessGas
+		var calldataGasUsed uint64
+		for _, tx := range txs {
+			calldataGasUsed += tx.CalldataGas()
+		}
+		header.CalldataGasUsed = &calldataGasUsed
 	}
 
-	// Check if parent is known.
+	block := types.NewBlock(header, &types.Body{Transactions: txs, Withdrawals: withdrawals})
+
+	// Step 2: check if parent is known.
+	slog.Debug("engine_newPayload: step2 checking parent",
+		"blockNumber", payload.BlockNumber,
+		"parentHash", payload.ParentHash,
+	)
 	if !bc.HasBlock(payload.ParentHash) {
 		slog.Debug("engine_newPayload: parent unknown, returning SYNCING",
 			"parentHash", payload.ParentHash,
@@ -650,7 +885,11 @@ func (b *engineBackend) processBlockInternal(
 		}, nil
 	}
 
-	// Insert the block.
+	// Step 3: insert the block (Phase 1: validate, Phase 2: execute, Phase 3: write).
+	slog.Debug("engine_newPayload: step3 calling InsertBlock",
+		"blockNumber", payload.BlockNumber,
+		"blockHash", payload.BlockHash,
+	)
 	if err := bc.InsertBlock(block); err != nil {
 		slog.Warn("engine_newPayload: insert failed", "err", err)
 		latestValid := payload.ParentHash
@@ -870,143 +1109,110 @@ func (b *engineBackend) ForkchoiceUpdated(
 		"genesisHash", bc.Genesis().Hash(),
 	)
 
-	// Check if we know the head block.
+	// Step 1: look up the forkchoice head block (fast RLock path).
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
-	var payloadStatus engine.PayloadStatusV1
 	if headBlock == nil {
 		slog.Warn("engine_forkchoiceUpdated: unknown head block, returning SYNCING",
 			"headBlockHash", fcState.HeadBlockHash,
 			"genesisHash", bc.Genesis().Hash(),
 			"currentHead", bc.CurrentBlock().Hash(),
 		)
-		// We don't know this block yet; report syncing.
-		payloadStatus = engine.PayloadStatusV1{
-			Status: engine.StatusSyncing,
-		}
 		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: payloadStatus,
+			PayloadStatus: engine.PayloadStatusV1{Status: engine.StatusSyncing},
 		}, nil
 	}
 
-	// Head is known. Report valid.
 	headHash := headBlock.Hash()
-	payloadStatus = engine.PayloadStatusV1{
+	payloadStatus := engine.PayloadStatusV1{
 		Status:          engine.StatusValid,
 		LatestValidHash: &headHash,
 	}
 
-	slog.Debug("engine_forkchoiceUpdated: head known",
-		"headBlockHash", headHash,
-		"number", headBlock.NumberU64(),
-	)
+	// Step 2: update in-memory safe/finalized hashes eagerly (no I/O).
+	// Rawdb persistence and txpool reset are deferred to the background worker.
+	b.fcMu.Lock()
+	finalHashChanged := fcState.FinalizedBlockHash != (types.Hash{}) &&
+		fcState.FinalizedBlockHash != b.finalizedHash
+	safeHashChanged := fcState.SafeBlockHash != (types.Hash{}) &&
+		fcState.SafeBlockHash != b.safeHash
+	if fcState.FinalizedBlockHash != (types.Hash{}) {
+		b.finalizedHash = fcState.FinalizedBlockHash
+	}
+	if fcState.SafeBlockHash != (types.Hash{}) {
+		b.safeHash = fcState.SafeBlockHash
+	}
+	b.fcMu.Unlock()
 
-	// Run forkchoice state manager: detects reorgs and fires registered listeners.
-	if b.node.fcStateManager != nil {
-		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(fcState); err != nil {
-			slog.Debug("fcStateManager update", "err", err)
+	// Step 3: FCU cache check.
+	// The CL frequently re-sends the same (head,safe,finalized) triple without
+	// payload attrs to acknowledge a head without requesting a new build.
+	// If we've already processed this exact triple and nothing has changed,
+	// return immediately — no rawdb, no txpool, no ePBS, no trie ops.
+	triple := fcuCacheEntry{
+		head:      headHash,
+		safe:      fcState.SafeBlockHash,
+		finalized: fcState.FinalizedBlockHash,
+	}
+	if payloadAttributes == nil && !finalHashChanged && !safeHashChanged {
+		b.fcuCacheMu.Lock()
+		hit := b.fcuCacheContains(triple)
+		b.fcuCacheMu.Unlock()
+		if hit {
+			slog.Debug("engine_forkchoiceUpdated: cache hit, returning immediately",
+				"headBlockHash", headHash,
+			)
+			return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 		}
 	}
 
-	// Update the high-level tracker: conflict detection, FCU history, reorg analytics.
-	if b.node.fcTracker != nil {
-		safeNum := uint64(0)
-		finalNum := uint64(0)
-		if safeBlock := bc.GetBlock(fcState.SafeBlockHash); safeBlock != nil {
-			safeNum = safeBlock.NumberU64()
+	// Step 4: resolve finalized/safe blocks when their hashes changed (RLock only).
+	var finalBlock, safeBlock *types.Block
+	if finalHashChanged {
+		if finalBlock = bc.GetBlock(fcState.FinalizedBlockHash); finalBlock == nil {
+			slog.Warn("engine_forkchoiceUpdated: finalized block unknown, skipping",
+				"hash", fcState.FinalizedBlockHash,
+			)
 		}
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			finalNum = finalBlock.NumberU64()
-		}
-		conflict, reason, reorg := b.node.fcTracker.ProcessUpdate(
-			fcState, payloadAttributes != nil, headBlock.NumberU64(), safeNum, finalNum,
-		)
-		if conflict {
-			slog.Warn("forkchoice conflict detected", "reason", reason)
-		}
-		if reorg != nil {
-			slog.Warn("forkchoice tracker: reorg",
-				"depth", reorg.Depth,
-				"oldHead", reorg.OldHead,
-				"newHead", reorg.NewHead,
+	}
+	if safeHashChanged {
+		if safeBlock = bc.GetBlock(fcState.SafeBlockHash); safeBlock == nil {
+			slog.Warn("engine_forkchoiceUpdated: safe block unknown, skipping",
+				"hash", fcState.SafeBlockHash,
 			)
 		}
 	}
 
-	// ePBS auction lifecycle: open a new auction slot and prune stale bids/escrow.
-	// Only active after Amsterdam fork (EIP-7732 ePBS).
-	headNum := headBlock.NumberU64()
-	if bc.Config().IsAmsterdam(headBlock.Time()) {
-		if b.node.epbsAuction != nil {
-			if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
-				slog.Debug("epbs: open auction", "slot", headNum, "err", err)
-			}
-		}
-		if headNum > 32 {
-			if b.node.epbsBuilder != nil {
-				b.node.epbsBuilder.PruneBefore(headNum - 32)
-			}
-			if b.node.epbsEscrow != nil {
-				b.node.epbsEscrow.PruneBefore(headNum - 32)
-			}
-			if b.node.epbsCommit != nil {
-				b.node.epbsCommit.PruneSlot(headNum - 32)
-			}
-		}
-		// Score current builder bids for the auction slot using composite metrics.
-		if b.node.epbsBid != nil {
-			components := epbsbid.ScoreComponents{
-				BidAmount:        0,    // no live bids yet; zero baseline
-				ReputationScore:  50.0, // neutral starting reputation
-				InclusionQuality: 1.0,  // full IL compliance assumed
-				LatencyMs:        0,
-			}
-			score := b.node.epbsBid.ComputeScore(components)
-			slog.Debug("epbs: bid baseline score", "slot", headNum, "score", score)
-		}
-		// Run the EL-side builder auction to close bids for this slot.
-		if b.node.engineAuction != nil {
-			if result, aErr := b.node.engineAuction.RunAuction(headNum); aErr != nil {
-				slog.Debug("engine auction run", "slot", headNum, "err", aErr)
-			} else {
-				slog.Debug("engine auction result", "slot", headNum, "bids", result.TotalBids)
-			}
-		}
-	}
+	// Step 5: push slow work (rawdb writes, txpool reset, ePBS, trie ops) to
+	// the background goroutine so this HTTP handler returns without blocking.
+	b.sendPostFCUWork(postFCUWork{
+		fcState:    fcState,
+		headBlock:  headBlock,
+		finalBlock: finalBlock,
+		safeBlock:  safeBlock,
+		hasAttrs:   payloadAttributes != nil,
+	})
 
-	// Prune stale state roots when the finalized block advances (I+ EIP-7864).
-	if b.node.triePruner != nil && bc.Config().IsIPlus(headBlock.Time()) {
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			pruned := b.node.triePruner.Prune(128)
-			if len(pruned) > 0 {
-				slog.Debug("trie pruner: pruned stale roots", "count", len(pruned))
-			}
-		}
-	}
+	// Step 6: store triple in FCU cache so the next identical re-send is a hit.
+	b.fcuCacheMu.Lock()
+	b.fcuCache[b.fcuCacheWr] = triple
+	b.fcuCacheWr = (b.fcuCacheWr + 1) % fcuCacheSize
+	b.fcuCacheMu.Unlock()
 
-	// Drive trie-healing gap detection on each forkchoice update.
-	// DetectGaps scans for missing trie nodes that need to be fetched from peers.
-	if b.node.stateHealer != nil {
-		if n, err := b.node.stateHealer.DetectGaps(); err == nil && n > 0 {
-			slog.Debug("state healer: trie gaps detected", "count", n)
-		}
-	}
-
-	// Configure state-sync pivot to the latest finalized block header.
-	// This enables snap-sync to resume from a finalized checkpoint.
-	if b.node.stateSyncSched != nil {
-		if finalBlock := bc.GetBlock(fcState.FinalizedBlockHash); finalBlock != nil {
-			b.node.stateSyncSched.SetPivot(finalBlock.Header())
-		}
-	}
-
-	// If no payload attributes, just return the forkchoice acknowledgment.
+	// Step 7: no payload attributes — return the FCU acknowledgment immediately.
 	if payloadAttributes == nil {
-		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: payloadStatus,
-		}, nil
+		slog.Debug("engine_forkchoiceUpdated: no attrs, done",
+			"headNum", headBlock.NumberU64(),
+		)
+		return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 	}
 
-	// Payload attributes provided: build a new block.
+	// Step 7b: payload attributes provided — start async block build.
+	slog.Debug("engine_forkchoiceUpdated: building payload",
+		"parentNum", headBlock.NumberU64(),
+		"parentHash", headBlock.Hash(),
+		"timestamp", payloadAttributes.Timestamp,
+		"feeRecipient", payloadAttributes.SuggestedFeeRecipient,
+	)
 	parentHeader := headBlock.Header()
 
 	// Convert engine withdrawals to core types.
@@ -1027,48 +1233,279 @@ func (b *engineBackend) ForkchoiceUpdated(
 		Random:       payloadAttributes.PrevRandao,
 		Withdrawals:  withdrawals,
 		BeaconRoot:   &beaconRoot,
-		GasLimit:     parentHeader.GasLimit, // keep parent gas limit
+		GasLimit:     parentHeader.GasLimit,
 	}
 
-	block, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
-	if err != nil {
-		slog.Warn("engine_forkchoiceUpdated: build block failed", "err", err)
-		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: payloadStatus,
-		}, fmt.Errorf("build block: %w", err)
-	}
-
-	// EP-3 US-PQ-5b: replace VERIFY frame calldata with STARK proof when enabled.
-	if prover := b.node.starkFrameProver; prover != nil {
-		if sealed, _, err := vm.ReplaceValidationFrames(block, prover); err != nil {
-			slog.Warn("frame stark replacement failed", "err", err)
-		} else {
-			block = sealed
-		}
-	}
-
-	// Generate a payload ID from the block parameters.
+	// Generate payload ID immediately so we can return it before the block is built.
 	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
 
-	// Store the built payload.
+	// Idempotency: if the same payloadID is already being built (identical FCU
+	// attrs produce the same deterministic ID), return the existing slot without
+	// starting a second goroutine. Two concurrent builds for the same ID would
+	// race to write pp.block, and the second build's pre-insert would fail
+	// because the first build already evicted the parent state from the cache.
 	b.mu.Lock()
-	b.payloads[payloadID] = &pendingPayload{
-		block:    block,
-		receipts: receipts,
+	if existing, ok := b.payloads[payloadID]; ok && existing != nil {
+		b.mu.Unlock()
+		slog.Debug("engine_forkchoiceUpdated: payload already building, reusing slot",
+			"payloadID", payloadID,
+		)
+		return engine.ForkchoiceUpdatedResult{
+			PayloadStatus: payloadStatus,
+			PayloadID:     &payloadID,
+		}, nil
+	}
+
+	// Register a fresh in-progress slot; GetPayloadByID will wait on the done channel.
+	pp := &pendingPayload{done: make(chan struct{})}
+	b.payloads[payloadID] = pp
+	b.payloadOrder = append(b.payloadOrder, payloadID)
+	for len(b.payloads) > b.maxPayloads && len(b.payloadOrder) > 0 {
+		oldest := b.payloadOrder[0]
+		b.payloadOrder = b.payloadOrder[1:]
+		delete(b.payloads, oldest)
 	}
 	b.mu.Unlock()
 
-	slog.Info("engine_forkchoiceUpdated: built payload",
-		"payloadID", payloadID,
-		"blockNumber", block.NumberU64(),
-		"blockHash", block.Hash(),
-		"txCount", len(block.Transactions()),
-	)
+	// Build the block in the background; close done when finished.
+	go func() {
+		slog.Debug("engine_forkchoiceUpdated: calling BuildBlock",
+			"parentNum", parentHeader.Number,
+			"parentHash", parentHeader.Hash(),
+		)
+		builtBlock, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
+		if err != nil {
+			slog.Warn("engine_forkchoiceUpdated: build block failed",
+				"parentNum", parentHeader.Number,
+				"err", err,
+			)
+			pp.err = fmt.Errorf("build block: %w", err)
+			close(pp.done)
+			return
+		}
+
+		// Replace VERIFY frame calldata with STARK proof when enabled.
+		if prover := b.node.starkFrameProver; prover != nil {
+			if sealed, _, serr := vm.ReplaceValidationFrames(builtBlock, prover); serr != nil {
+				slog.Warn("frame stark replacement failed", "err", serr)
+			} else {
+				builtBlock = sealed
+			}
+		}
+
+		slog.Debug("engine_forkchoiceUpdated: BuildBlock done",
+			"blockNum", builtBlock.NumberU64(),
+			"blockHash", builtBlock.Hash(),
+			"txCount", len(builtBlock.Transactions()),
+		)
+
+		pp.block = builtBlock
+		pp.receipts = receipts
+
+		// Pre-insert the built block so GetBlock finds it when the CL calls FCU
+		// with this hash as head. Without this, FCU returns "unknown head block"
+		// (SYNCING) and the chain stalls permanently — the CL has already proposed
+		// this block and will never stop asking for it.
+		//
+		// Duplicate builds are prevented by the idempotency check above, so the
+		// parent state will always be in the state cache at this point (it was
+		// loaded by BuildBlock ~1 second ago). If InsertBlock fails for any other
+		// reason (e.g. validation error), log a warning but keep pp.err nil so
+		// the CL can still retrieve the payload via engine_getPayload.
+		if insertErr := b.node.blockchain.InsertBlock(builtBlock); insertErr != nil {
+			slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
+				"blockNum", builtBlock.NumberU64(),
+				"blockHash", builtBlock.Hash(),
+				"err", insertErr,
+			)
+		}
+
+		close(pp.done)
+
+		slog.Info("engine_forkchoiceUpdated: built payload",
+			"payloadID", payloadID,
+			"blockNumber", builtBlock.NumberU64(),
+			"blockHash", builtBlock.Hash(),
+			"txCount", len(builtBlock.Transactions()),
+		)
+	}()
 
 	return engine.ForkchoiceUpdatedResult{
 		PayloadStatus: payloadStatus,
 		PayloadID:     &payloadID,
 	}, nil
+}
+
+// fcuCacheContains reports whether e is present in the FCU cache.
+// Must be called with fcuCacheMu held.
+func (b *engineBackend) fcuCacheContains(e fcuCacheEntry) bool {
+	for _, c := range b.fcuCache {
+		if c == e {
+			return true
+		}
+	}
+	return false
+}
+
+// sendPostFCUWork dispatches work to the background goroutine non-blocking.
+// If the goroutine is busy, the stale pending item is evicted so the latest
+// FCU state is always the one that gets processed.
+func (b *engineBackend) sendPostFCUWork(work postFCUWork) {
+	select {
+	case b.postFCUCh <- work:
+	default:
+		// Background goroutine is busy. Evict the stale item and enqueue fresh.
+		select {
+		case <-b.postFCUCh:
+		default:
+		}
+		select {
+		case b.postFCUCh <- work:
+		default:
+		}
+	}
+}
+
+// postFCULoop is the dedicated background goroutine for slow FCU side-effects.
+func (b *engineBackend) postFCULoop() {
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case work := <-b.postFCUCh:
+			b.doPostFCUWork(work)
+		}
+	}
+}
+
+// doPostFCUWork executes the slow operations formerly in ForkchoiceUpdated:
+// rawdb persistence, txpool reset, ePBS bookkeeping, and trie maintenance.
+func (b *engineBackend) doPostFCUWork(work postFCUWork) {
+	bc := b.node.blockchain
+	headBlock := work.headBlock
+	headNum := headBlock.NumberU64()
+
+	// Persist finalized block to rawdb and evict pre-finalized txpool entries.
+	if work.finalBlock != nil {
+		bc.SetFinalized(work.finalBlock)
+		slog.Debug("engine_forkchoiceUpdated: finalized persisted",
+			"hash", work.finalBlock.Hash(),
+			"number", work.finalBlock.NumberU64(),
+		)
+		if b.node.txPool != nil {
+			b.node.txPool.Reset(bc.State())
+		}
+	}
+
+	// Persist safe block to rawdb.
+	if work.safeBlock != nil {
+		bc.SetSafe(work.safeBlock)
+	}
+
+	// Forkchoice state manager (reorg detection).
+	if b.node.fcStateManager != nil {
+		// Ensure the head block is registered before updating fork choice.
+		// If newPayload took the HasBlock fast-path (pre-inserted by the builder
+		// goroutine), AddBlock was skipped in execBlockInternal. Registering here
+		// guarantees ProcessForkchoiceUpdate never sees "head block not found".
+		headInfo := &forkchoice.BlockInfo{
+			Hash:       headBlock.Hash(),
+			ParentHash: headBlock.Header().ParentHash,
+			Number:     headBlock.NumberU64(),
+			Slot:       headBlock.NumberU64(),
+		}
+		b.node.fcStateManager.AddBlock(headInfo)
+		if b.node.fcTracker != nil {
+			b.node.fcTracker.Reorgs.AddBlock(headInfo)
+		}
+		if err := b.node.fcStateManager.ProcessForkchoiceUpdate(work.fcState); err != nil {
+			slog.Debug("fcStateManager update", "err", err)
+		}
+	}
+
+	// High-level tracker: conflict detection, FCU history, reorg analytics.
+	if b.node.fcTracker != nil {
+		safeNum := uint64(0)
+		finalNum := uint64(0)
+		if work.safeBlock != nil {
+			safeNum = work.safeBlock.NumberU64()
+		}
+		if work.finalBlock != nil {
+			finalNum = work.finalBlock.NumberU64()
+		}
+		conflict, reason, reorg := b.node.fcTracker.ProcessUpdate(
+			work.fcState, work.hasAttrs, headNum, safeNum, finalNum,
+		)
+		if conflict {
+			slog.Warn("forkchoice conflict detected", "reason", reason)
+		}
+		if reorg != nil {
+			slog.Warn("forkchoice tracker: reorg",
+				"depth", reorg.Depth,
+				"oldHead", reorg.OldHead,
+				"newHead", reorg.NewHead,
+			)
+		}
+	}
+
+	// ePBS auction lifecycle (Amsterdam EIP-7732).
+	if bc.Config().IsAmsterdam(headBlock.Time()) {
+		if b.node.epbsAuction != nil {
+			if err := b.node.epbsAuction.OpenAuction(headNum); err != nil {
+				slog.Debug("epbs: open auction", "slot", headNum, "err", err)
+			}
+		}
+		if headNum > 32 {
+			if b.node.epbsBuilder != nil {
+				b.node.epbsBuilder.PruneBefore(headNum - 32)
+			}
+			if b.node.epbsEscrow != nil {
+				b.node.epbsEscrow.PruneBefore(headNum - 32)
+			}
+			if b.node.epbsCommit != nil {
+				b.node.epbsCommit.PruneSlot(headNum - 32)
+			}
+		}
+		if b.node.epbsBid != nil {
+			components := epbsbid.ScoreComponents{
+				BidAmount:        0,
+				ReputationScore:  50.0,
+				InclusionQuality: 1.0,
+				LatencyMs:        0,
+			}
+			score := b.node.epbsBid.ComputeScore(components)
+			slog.Debug("epbs: bid baseline score", "slot", headNum, "score", score)
+		}
+		if b.node.engineAuction != nil {
+			if result, aErr := b.node.engineAuction.RunAuction(headNum); aErr != nil {
+				slog.Debug("engine auction run", "slot", headNum, "err", aErr)
+			} else {
+				slog.Debug("engine auction result", "slot", headNum, "bids", result.TotalBids)
+			}
+		}
+	}
+
+	// Trie pruner (I+ EIP-7864): only when finalized block advances.
+	if b.node.triePruner != nil && bc.Config().IsIPlus(headBlock.Time()) {
+		if work.finalBlock != nil {
+			pruned := b.node.triePruner.Prune(128)
+			if len(pruned) > 0 {
+				slog.Debug("trie pruner: pruned stale roots", "count", len(pruned))
+			}
+		}
+	}
+
+	// State healer (trie gap detection).
+	if b.node.stateHealer != nil {
+		if n, err := b.node.stateHealer.DetectGaps(); err == nil && n > 0 {
+			slog.Debug("state healer: trie gaps detected", "count", n)
+		}
+	}
+
+	// Snap-sync pivot (update to finalized block header).
+	if b.node.stateSyncSched != nil && work.finalBlock != nil {
+		b.node.stateSyncSched.SetPivot(work.finalBlock.Header())
+	}
 }
 
 func (b *engineBackend) ProcessBlockV4(
@@ -1156,6 +1593,14 @@ func (b *engineBackend) GetHeadTimestamp() uint64 {
 	return 0
 }
 
+func (b *engineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
+	blk := b.node.blockchain.GetBlock(hash)
+	if blk != nil {
+		return blk.Time()
+	}
+	return 0
+}
+
 func (b *engineBackend) IsCancun(timestamp uint64) bool {
 	return b.node.blockchain.Config().IsCancun(timestamp)
 }
@@ -1180,10 +1625,29 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 		return nil, fmt.Errorf("payload %v not found", id)
 	}
 
+	// Wait for the async build to finish (8 s deadline — one full slot).
+	select {
+	case <-payload.done:
+	case <-time.After(8 * time.Second):
+		slog.Warn("engine_getPayload: build timed out", "payloadID", id)
+		return nil, fmt.Errorf("payload %v build timed out", id)
+	}
+
+	if payload.err != nil {
+		return nil, payload.err
+	}
+
 	block := payload.block
 	header := block.Header()
 
 	// Convert block to execution payload.
+	var blobGasUsed, excessBlobGas uint64
+	if header.BlobGasUsed != nil {
+		blobGasUsed = *header.BlobGasUsed
+	}
+	if header.ExcessBlobGas != nil {
+		excessBlobGas = *header.ExcessBlobGas
+	}
 	execPayload := &engine.ExecutionPayloadV4{
 		ExecutionPayloadV3: engine.ExecutionPayloadV3{
 			ExecutionPayloadV2: engine.ExecutionPayloadV2{
@@ -1204,6 +1668,8 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 					Transactions:  encodeTxsRLP(block.Transactions()),
 				},
 			},
+			BlobGasUsed:   blobGasUsed,
+			ExcessBlobGas: excessBlobGas,
 		},
 	}
 
@@ -1239,29 +1705,63 @@ func (b *engineBackend) GetPayloadByID(id engine.PayloadID) (*engine.GetPayloadR
 		"blockValue", blockValue,
 	)
 
+	// Build BlobsBundle from blob tx sidecars carried on the in-memory block.
+	// Sidecars are attached to Transaction objects when decoded from the network
+	// format (eth_sendRawTransaction) and survive until getPayload is called.
+	blobsBundle := &engine.BlobsBundleV1{}
+	for _, tx := range block.Transactions() {
+		if tx.Type() != types.BlobTxType {
+			continue
+		}
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		blobsBundle.Commitments = append(blobsBundle.Commitments, sc.Commitments...)
+		blobsBundle.Proofs = append(blobsBundle.Proofs, sc.Proofs...)
+		blobsBundle.Blobs = append(blobsBundle.Blobs, sc.Blobs...)
+	}
+
 	return &engine.GetPayloadResponse{
 		ExecutionPayload: execPayload,
 		BlockValue:       blockValue,
-		BlobsBundle:      &engine.BlobsBundleV1{},
+		BlobsBundle:      blobsBundle,
 		Override:         false,
 	}, nil
 }
 
 // generatePayloadID creates a deterministic PayloadID from the parent hash
-// and build attributes.
+// and build attributes. Uses all four differentiating fields (parentHash,
+// timestamp, feeRecipient, prevRandao) to avoid collisions when two FCUs
+// arrive for the same parent/timestamp with different attributes.
 func generatePayloadID(parentHash types.Hash, attrs *block.BuildBlockAttributes) engine.PayloadID {
+	// Mix parent hash, timestamp, fee recipient, and prevRandao via XOR.
+	// Each source contributes 8 bytes so the full ID space is covered.
+	var buf [8]byte
+	// Parent hash: first 8 bytes.
+	copy(buf[:], parentHash[:8])
+	// XOR timestamp (big-endian 8 bytes).
+	var tsBytes [8]byte
+	binary.BigEndian.PutUint64(tsBytes[:], attrs.Timestamp)
+	for i := range buf {
+		buf[i] ^= tsBytes[i]
+	}
+	// XOR fee recipient (20 bytes; take first 8).
+	for i := 0; i < 8; i++ {
+		buf[i] ^= attrs.FeeRecipient[i]
+	}
+	// XOR prevRandao (32 bytes; take bytes 8-15 to maximise spread).
+	for i := 0; i < 8; i++ {
+		buf[i] ^= attrs.Random[8+i]
+	}
+
 	var id engine.PayloadID
+	copy(id[:], buf[:])
 
-	// Mix parent hash, timestamp, and fee recipient into the ID.
-	// Use a simple approach: take bytes from parent hash + timestamp.
-	copy(id[:], parentHash[:4])
-	binary.BigEndian.PutUint32(id[4:], uint32(attrs.Timestamp))
-
-	// If the ID collides (unlikely), add some randomness.
+	// If all bits cancelled out (astronomically unlikely), add randomness.
 	if id == (engine.PayloadID{}) {
 		rand.Read(id[:])
 	}
-
 	return id
 }
 
@@ -1290,18 +1790,26 @@ func newNodeAdminBackend(n *Node) rpc.AdminBackend {
 
 // NodeInfo returns information about the running node.
 func (b *nodeAdminBackend) NodeInfo() rpc.NodeInfoData {
-	p2p := b.node.p2pServer
-	nodeID := p2p.LocalID()
+	p2pSrv := b.node.p2pServer
+	nodeID := p2pSrv.LocalID()
+
+	// Use configured P2P port for the enode (listen port is always correct).
+	port := b.node.config.P2PPort
 
 	listenAddr := ""
-	ip := ""
-	port := 0
-	if addr := p2p.ListenAddr(); addr != nil {
+	if addr := p2pSrv.ListenAddr(); addr != nil {
 		listenAddr = addr.String()
-		host, portStr, err := net.SplitHostPort(listenAddr)
-		if err == nil {
+	}
+
+	// Prefer the NAT external IP so the enode is reachable from other nodes.
+	// Fall back to the listen address host (e.g. for loopback/localhost setups).
+	ip := ""
+	if extIP := p2pSrv.ExternalIP(); extIP != nil {
+		ip = extIP.String()
+	} else if listenAddr != "" {
+		host, _, err := net.SplitHostPort(listenAddr)
+		if err == nil && host != "::" && host != "" {
 			ip = host
-			fmt.Sscanf(portStr, "%d", &port)
 		}
 	}
 

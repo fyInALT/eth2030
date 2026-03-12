@@ -407,19 +407,29 @@ func TestReset(t *testing.T) {
 }
 
 func TestIntrinsicGasFunction(t *testing.T) {
-	// Transfer: 21000
-	if gas := IntrinsicGas(nil, false); gas != 21000 {
+	// Transfer (pre-Glamsterdan): 21000
+	if gas := IntrinsicGas(nil, false, false); gas != 21000 {
 		t.Errorf("transfer gas = %d, want 21000", gas)
 	}
 
-	// Contract creation: 53000
-	if gas := IntrinsicGas(nil, true); gas != 53000 {
+	// Transfer (Glamsterdan, EIP-2780): base drops to 4500
+	if gas := IntrinsicGas(nil, false, true); gas != 4500 {
+		t.Errorf("glamsterdan transfer gas = %d, want 4500", gas)
+	}
+
+	// Contract creation (pre-Glamsterdam): 21000 + 32000 = 53000
+	if gas := IntrinsicGas(nil, true, false); gas != 53000 {
 		t.Errorf("creation gas = %d, want 53000", gas)
+	}
+
+	// Contract creation (Glamsterdam, EIP-2780): base 4500 + 32000 = 36500
+	if gas := IntrinsicGas(nil, true, true); gas != 36500 {
+		t.Errorf("glamsterdan creation gas = %d, want 36500", gas)
 	}
 
 	// Data with non-zero and zero bytes.
 	data := []byte{0x00, 0x01, 0x02, 0x00}
-	gas := IntrinsicGas(data, false)
+	gas := IntrinsicGas(data, false, false)
 	expected := uint64(21000 + 2*4 + 2*16) // 2 zero bytes, 2 non-zero bytes
 	if gas != expected {
 		t.Errorf("data gas = %d, want %d", gas, expected)
@@ -718,8 +728,8 @@ func TestPerSenderLimit(t *testing.T) {
 	}
 }
 
-// TestPoolEviction verifies that when the pool reaches capacity, the lowest-priced
-// transaction is evicted to make room for higher-priced ones.
+// TestPoolEviction verifies that when the pool reaches capacity, the tail
+// (highest-nonce) pending tx is evicted to avoid creating nonce gaps.
 func TestPoolEviction(t *testing.T) {
 	config := DefaultConfig()
 	config.MaxSize = 5
@@ -743,8 +753,8 @@ func TestPoolEviction(t *testing.T) {
 		t.Fatalf("pool count = %d, want 5", pool.Count())
 	}
 
-	// Now add a 6th tx from a different sender with higher price.
-	// This should evict the cheapest tx (nonce 0, price 100).
+	// Add a 6th tx from a different sender with higher price than the tail.
+	// Only the tail (nonce 4, price 500) is evictable without creating a nonce gap.
 	sender2 := types.BytesToAddress([]byte{0x04, 0x05, 0x06})
 	state.balances[sender2] = new(big.Int).Set(richBalance)
 	highTx := makeTxFrom(sender2, 0, 600, 21000)
@@ -753,18 +763,19 @@ func TestPoolEviction(t *testing.T) {
 		t.Fatalf("AddLocal high-priced tx: %v", err)
 	}
 
-	// Pool should still be at capacity.
+	// Pool should still be at capacity: nonces 0-3 from testSender + sender2 tx.
 	if pool.Count() != 5 {
 		t.Errorf("pool count = %d, want 5 after eviction", pool.Count())
 	}
 
-	// The cheapest tx (nonce 0, price 100) should have been evicted.
-	// Note: nonce 4 (price 500) is the highest-nonce pending tx for testSender
-	// and is protected. The cheapest unprotected is nonce 0 (price 100).
-	if pool.Get(txs[0].Hash()) != nil {
-		t.Error("cheapest tx (nonce 0) should have been evicted")
+	// The tail tx (nonce 4, price 500) should have been evicted.
+	if pool.Get(txs[4].Hash()) != nil {
+		t.Error("tail tx (nonce 4) should have been evicted")
 	}
-
+	// Lower-nonce txs must remain — they form a valid contiguous sequence.
+	if pool.Get(txs[0].Hash()) == nil {
+		t.Error("nonce 0 should still be in pool")
+	}
 	// The high-priced tx should be in the pool.
 	if pool.Get(highTx.Hash()) == nil {
 		t.Error("high-priced tx should be in pool")
@@ -1598,22 +1609,26 @@ func makeSetCodeTx(from types.Address, nonce uint64, gas uint64, authCount int) 
 
 // TestSetCodeTxIntrinsicGas verifies that the pool rejects SetCode txs whose gas
 // limit is too low to cover per-authorization costs.
-// Per EIP-7702: only PerAuthBaseCost (12500) is intrinsic; PerEmptyAccountCost
-// (25000) is charged during EVM execution and cannot be evaluated by the pool.
+// Per EIP-7702: the pool conservatively charges both PerAuthBaseCost (12500) and
+// PerEmptyAccountCost (25000) per authorization, because it cannot check state to
+// determine which authorities are empty. This prevents permanently-unmireable txs
+// from polluting the pool.
+// 1 auth minimum: 21000 + 12500 + 25000 = 58500
+// 5 auth minimum: 21000 + 5*(12500+25000) = 208500
 func TestSetCodeTxIntrinsicGas(t *testing.T) {
 	from := types.BytesToAddress([]byte{0xAB})
 	state := newMockState()
 	state.balances[from] = new(big.Int).Set(richBalance)
 	pool := New(DefaultConfig(), state)
 
-	// 1 auth: 21000 + 12500 = 33500 — gas=34000 is sufficient.
-	tx1 := makeSetCodeTx(from, 0, 34000, 1)
+	// 1 auth: 21000 + 12500 + 25000 = 58500 — gas=59000 is sufficient.
+	tx1 := makeSetCodeTx(from, 0, 59000, 1)
 	if err := pool.AddLocal(tx1); err != nil {
 		t.Errorf("1-auth SetCode with sufficient gas rejected: %v", err)
 	}
 
-	// 1 auth with gas=33000 — too low.
-	tx1low := makeSetCodeTx(from, 1, 33000, 1)
+	// 1 auth with gas=58000 — too low.
+	tx1low := makeSetCodeTx(from, 1, 58000, 1)
 	if err := pool.AddLocal(tx1low); err == nil {
 		t.Error("1-auth SetCode with insufficient gas should be rejected")
 	}
@@ -1621,14 +1636,14 @@ func TestSetCodeTxIntrinsicGas(t *testing.T) {
 	from2 := types.BytesToAddress([]byte{0xCD})
 	state.balances[from2] = new(big.Int).Set(richBalance)
 
-	// 5 auths: 21000 + 5*12500 = 83500 — gas=84000 is sufficient.
-	tx5ok := makeSetCodeTx(from2, 0, 84000, 5)
+	// 5 auths: 21000 + 5*37500 = 208500 — gas=209000 is sufficient.
+	tx5ok := makeSetCodeTx(from2, 0, 209000, 5)
 	if err := pool.AddLocal(tx5ok); err != nil {
 		t.Errorf("5-auth SetCode with sufficient gas rejected: %v", err)
 	}
 
-	// 5 auths with gas=83000 — too low.
-	tx5low := makeSetCodeTx(from2, 1, 83000, 5)
+	// 5 auths with gas=208000 — too low.
+	tx5low := makeSetCodeTx(from2, 1, 208000, 5)
 	if err := pool.AddLocal(tx5low); err == nil {
 		t.Error("5-auth SetCode with insufficient gas should be rejected")
 	}

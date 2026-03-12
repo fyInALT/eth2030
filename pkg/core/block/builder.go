@@ -355,12 +355,17 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 	}
 
 	// Separate and sort: regular txs first, then blob txs.
-	// Blob txs are excluded from payload building until BlobsBundle (KZG
-	// commitments + proofs) generation is fully implemented; including them
-	// without returning a matching BlobsBundle causes the CL to reject the
-	// payload with "invalid blob versioned hashes".
-	regularTxs, _ := sortedTxLists(pendingTxs, header.BaseFee)
-	allSorted := regularTxs
+	// Blob txs are only included when they carry sidecar data (blobs + KZG
+	// commitments + proofs). Without a sidecar the CL would see blob versioned
+	// hashes in the payload but receive an empty BlobsBundle — causing rejection.
+	regularTxs, blobTxs := sortedTxLists(pendingTxs, header.BaseFee)
+	var validBlobTxs []*types.Transaction
+	for _, tx := range blobTxs {
+		if tx.BlobSidecar() != nil {
+			validBlobTxs = append(validBlobTxs, tx)
+		}
+	}
+	allSorted := append(regularTxs, validBlobTxs...)
 
 	// Partition transactions into non-conflicting groups for parallel execution
 	// observability (gigagas parallel path, M+ roadmap). The groups are not yet
@@ -434,6 +439,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
+			slog.Debug("builder: skipped tx", "hash", tx.Hash(), "err", err)
 			continue
 		}
 
@@ -779,6 +785,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
+			slog.Debug("builder: skipped tx (legacy)", "hash", tx.Hash(), "err", err)
 			continue
 		}
 

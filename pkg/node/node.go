@@ -109,6 +109,7 @@ type Node struct {
 	rpcServer     *rpc.ExtServer
 	rpcHandler    *rpc.Server
 	engineServer  *engine.EngineAPI
+	engBackend    *engineBackend // processor goroutine owner; closed on Stop
 	p2pServer     *p2p.Server
 	metricsServer *http.Server
 	wsServer      *http.Server
@@ -364,6 +365,20 @@ func New(config *Config) (*Node, error) {
 	}
 	n.blockchain = bc
 
+	// Wire the ancient store (freezer) for finalized block cold storage.
+	// Only opened when a persistent data directory is configured, because the
+	// freezer writes append-only flat files that require a real filesystem.
+	if config.DataDir != "" {
+		as, err := rawdb.NewAncientStore(rawdb.AncientStoreConfig{
+			DataDir: config.ResolvePath("ancient"),
+		})
+		if err != nil {
+			slog.Warn("ancient store unavailable, finalized blocks stay in live DB", "err", err)
+		} else {
+			bc.SetAncientStore(as)
+		}
+	}
+
 	// Initialize gas oracle for EIP-1559-aware gas price suggestions.
 	n.gasOracle = gasrpc.NewGasOracle(gasrpc.DefaultGasOracleConfig())
 
@@ -425,6 +440,19 @@ func New(config *Config) (*Node, error) {
 	poolCfg.AllowLocalTx = config.ExperimentalLocalTx
 	// EIP-7701: propagate AA tx acceptance flag into pool config (--txpool.allow-aa).
 	poolCfg.AllowAATx = config.AllowAATx
+	// EIP-2780: tell the pool whether the chain runs Glamsterdan so it uses
+	// the correct (lower) base intrinsic gas for validation.
+	// Also read the genesis block gas limit so the pool accepts txs up to that size.
+	if chainCfg := bc.Config(); chainCfg != nil {
+		var genesisTime uint64
+		if gen := bc.Genesis(); gen != nil {
+			genesisTime = gen.Header().Time
+			if gen.Header().GasLimit > 0 {
+				poolCfg.BlockGasLimit = gen.Header().GasLimit
+			}
+		}
+		poolCfg.IsGlamsterdan = chainCfg.IsGlamsterdan(genesisTime)
+	}
 	// --txpool.price-history: number of blocks for the gas-price suggestor.
 	if config.TxpoolPriceHistory > 0 {
 		poolCfg.PriceHistoryBlocks = config.TxpoolPriceHistory
@@ -518,17 +546,28 @@ func New(config *Config) (*Node, error) {
 	// Wire the sync notifier so new block announcements trigger sync.
 	n.ethHandler.SetSyncNotifier(&nodeSyncTrigger{dl: n.syncer})
 	n.ethHandler.SetDownloader(n.syncer)
+	// Reset the tx pool after P2P block insertion to evict confirmed txs.
+	n.ethHandler.SetOnBlockInserted(func() {
+		n.txPool.Reset(n.blockchain.State())
+	})
 
 	// Initialize P2P server with bootnodes, discovery port, and NAT.
 	// Register the ETH protocol so peers can exchange blocks and transactions.
-	n.p2pServer = p2p.NewServer(p2p.Config{
+	p2pCfg := p2p.Config{
 		ListenAddr:     config.P2PAddr(),
 		MaxPeers:       config.MaxPeers,
 		BootstrapNodes: config.Bootnodes,
 		DiscoveryPort:  config.EffectiveDiscoveryPort(),
 		NAT:            config.NAT,
 		Protocols:      []p2p.Protocol{n.ethHandler.Protocol(), n.snapHandler.Protocol()},
-	})
+	}
+	// Resolve external IP from --nat=extip:<ip> so NodeInfo enode is reachable.
+	if strings.HasPrefix(config.NAT, "extip:") {
+		if ip := net.ParseIP(strings.TrimPrefix(config.NAT, "extip:")); ip != nil {
+			p2pCfg.ExternalIP = ip
+		}
+	}
+	n.p2pServer = p2p.NewServer(p2pCfg)
 
 	// EP-6 BB-1.1/1.2/1.3: initialize anonymous transport manager.
 	// Parse --mixnet mode; default to simulated when unset.
@@ -682,10 +721,18 @@ func New(config *Config) (*Node, error) {
 
 	// Initialize P2P sub-systems: NAT traversal, message dispatch, nonce
 	// announcer (EIP-8077), and request/response framing.
-	n.natMgr = p2pnat.NewNATManager(p2pnat.NATManagerConfig{
+	natCfg := p2pnat.NATManagerConfig{
 		MappingLifetime: 20 * time.Minute,
 		RenewInterval:   10 * time.Minute,
-	})
+	}
+	// Propagate extip:<ip> from --nat into the NAT manager so ExternalIP() works
+	// without doing gateway discovery.
+	if strings.HasPrefix(config.NAT, "extip:") {
+		if ip := net.ParseIP(strings.TrimPrefix(config.NAT, "extip:")); ip != nil {
+			natCfg.ManualExternalIP = ip
+		}
+	}
+	n.natMgr = p2pnat.NewNATManager(natCfg)
 	n.p2pDispatch = p2pdispatch.NewMessageRouter(p2pdispatch.RouterConfig{})
 	n.nonceAnnouncer = p2pnonce.NewNonceAnnouncer()
 	rrProto := p2preqresp.NewReqRespProtocol(p2preqresp.DefaultProtocolConfig())
@@ -763,9 +810,9 @@ func New(config *Config) (*Node, error) {
 		Number:     genesis.NumberU64(),
 		Slot:       genesis.NumberU64(),
 	}
-	n.fcStateManager = forkchoice.NewForkchoiceStateManager(genesisInfo)
+	n.fcStateManager = forkchoice.NewForkchoiceStateManagerWithBuffer(genesisInfo, uint64(config.CacheFCPruneBuffer))
 	n.fcStateManager.SetChain(bc)
-	n.fcTracker = forkchoice.NewForkchoiceTracker(256, 128)
+	n.fcTracker = forkchoice.NewForkchoiceTrackerWithCaps(config.CacheFCHistory, config.CacheFCReorgHistory, config.CacheAllocatedIDs)
 
 	// Register reorg listeners: log the event, reset txpool trackers, and
 	// clear the ePBS escrow for the orphaned slot.
@@ -793,8 +840,8 @@ func New(config *Config) (*Node, error) {
 	})
 
 	// Initialize Engine API server.
-	engineBackend := newEngineBackend(n)
-	n.engineServer = engine.NewEngineAPI(engineBackend)
+	n.engBackend = newEngineBackend(n)
+	n.engineServer = engine.NewEngineAPI(n.engBackend)
 	// Forward eth_/web3_/net_/admin_ methods on the engine port to the RPC handler.
 	n.engineServer.SetEthHandler(n.rpcHandler.Handler())
 	n.engineServer.SetMaxRequestSize(config.EngineMaxRequestSize)
@@ -973,6 +1020,11 @@ func (n *Node) Stop() error {
 		slog.Warn("Engine API stop error", "err", err)
 	}
 
+	// Stop the block processor goroutine.
+	if n.engBackend != nil {
+		n.engBackend.Close()
+	}
+
 	// Stop RPC server.
 	if n.rpcServer != nil {
 		if err := n.rpcServer.Stop(); err != nil {
@@ -1017,6 +1069,15 @@ func (n *Node) Stop() error {
 
 	// Stop P2P server.
 	n.p2pServer.Stop()
+
+	// Close ancient store before the live DB.
+	if n.blockchain != nil {
+		if as := n.blockchain.AncientStore(); as != nil {
+			if err := as.Close(); err != nil {
+				slog.Warn("ancient store close error", "err", err)
+			}
+		}
+	}
 
 	// Close database.
 	if err := n.db.Close(); err != nil {

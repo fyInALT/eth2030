@@ -1111,11 +1111,19 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	}
 
 	// Count EIP-7702 authorizations for intrinsic gas calculation.
+	// Per EIP-7702, PER_EMPTY_ACCOUNT_COST applies when the *authority*
+	// (the recovered EOA signer) does not exist in state, not the delegation
+	// target (auth.Address). Recover the authority for each entry; if recovery
+	// fails we conservatively skip the empty-account charge for that entry.
 	var authCount, emptyAuthCount uint64
 	if msg.TxType == types.SetCodeTxType && len(msg.AuthList) > 0 {
 		authCount = uint64(len(msg.AuthList))
-		for _, auth := range msg.AuthList {
-			if !statedb.Exist(auth.Address) || statedb.Empty(auth.Address) {
+		for i := range msg.AuthList {
+			authority, err := eips.RecoverAuthority(&msg.AuthList[i])
+			if err != nil {
+				continue
+			}
+			if !statedb.Exist(authority) || statedb.Empty(authority) {
 				emptyAuthCount++
 			}
 		}

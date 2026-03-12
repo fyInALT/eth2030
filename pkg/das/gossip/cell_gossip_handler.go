@@ -382,7 +382,8 @@ func (h *CellGossipHandler) ReceivedCellCount(blobIndex int) int {
 }
 
 // MarkReconstructed marks a blob as having been reconstructed, preventing
-// further cell storage for this blob.
+// further cell storage for this blob. Cell data is freed immediately to
+// bound memory usage across long-running slots.
 func (h *CellGossipHandler) MarkReconstructed(blobIndex int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -392,6 +393,8 @@ func (h *CellGossipHandler) MarkReconstructed(blobIndex int) {
 		return
 	}
 	state.reconstructed = true
+	// Free cell data; the reconstruction engine has already consumed it.
+	state.cells = nil
 }
 
 // TrackedBlobs returns the blob indices currently being tracked.

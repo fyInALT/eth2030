@@ -182,6 +182,33 @@ type Config struct {
 	// of the chain state; keep small to limit memory growth.
 	CacheStateSize int // --cache.state-snapshots
 
+	// CacheEnginePayloads is the maximum number of pending built payloads
+	// retained in the engine backend. The CL requests at most ~2 payloads
+	// per slot, so 32 covers several slots of buffering.
+	CacheEnginePayloads int // --cache.engine-payloads
+
+	// CacheEngineILs is the maximum number of inclusion lists stored by the
+	// engine backend. ILs are slot-scoped and cleared after block acceptance;
+	// this caps the worst-case burst from a misbehaving CL.
+	CacheEngineILs int // --cache.engine-ils
+
+	// CacheFCPruneBuffer is the number of blocks behind the finalized head
+	// that the forkchoice state manager retains. Blocks older than
+	// finalized-CacheFCPruneBuffer are pruned on every finality advance.
+	CacheFCPruneBuffer int // --cache.fc-prune-buffer
+
+	// CacheFCHistory is the size of the FCU debug history ring buffer inside
+	// the forkchoice tracker.
+	CacheFCHistory int // --cache.fc-history
+
+	// CacheFCReorgHistory is the maximum number of reorg events retained by
+	// the forkchoice tracker.
+	CacheFCReorgHistory int // --cache.fc-reorg-history
+
+	// CacheAllocatedIDs is the cap on the payload ID allocator's in-memory
+	// map. Oldest entries are evicted when the cap is reached.
+	CacheAllocatedIDs int // --cache.alloc-ids
+
 	// LogLevel controls log verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -282,7 +309,19 @@ func DefaultConfig() Config {
 		// Memory cache sizes (tune to trade RAM for lookup latency).
 		CacheBlockSize:   256,
 		CacheReceiptSize: 128,
-		CacheStateSize:   4,
+		CacheStateSize:   32,
+
+		// Engine API memory limits.
+		CacheEnginePayloads: 32,
+		CacheEngineILs:      256,
+
+		// Forkchoice state manager / tracker limits.
+		CacheFCPruneBuffer:  128,
+		CacheFCHistory:      256,
+		CacheFCReorgHistory: 128,
+
+		// Payload ID allocator cap.
+		CacheAllocatedIDs: 512,
 	}
 }
 

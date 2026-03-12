@@ -9,6 +9,10 @@ var (
 
 	// ChainHeight tracks the latest block number.
 	ChainHeight = DefaultRegistry.Gauge("chain.height")
+	// ChainHeadFinalized tracks the latest finalized block number.
+	ChainHeadFinalized = DefaultRegistry.Gauge("chain.head.finalized")
+	// ChainHeadSafe tracks the latest safe block number.
+	ChainHeadSafe = DefaultRegistry.Gauge("chain.head.safe")
 	// BlockProcessTime records block processing duration in milliseconds.
 	BlockProcessTime = DefaultRegistry.Histogram("chain.block_process_ms")
 	// BlocksInserted counts blocks successfully appended to the chain.

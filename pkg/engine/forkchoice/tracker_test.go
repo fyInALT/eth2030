@@ -105,19 +105,19 @@ func TestFCTConflictDetectorNoConflict(t *testing.T) {
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
-	conflict, _ := cd.Check(state)
+	conflict, _ := cd.Check(state, 10)
 	if conflict {
 		t.Fatal("unexpected conflict on first update")
 	}
 
-	// Same finalized, different head -- no conflict.
+	// Finalized hash advancing to a new hash (higher block number) -- not a conflict.
 	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xcc"),
-		FinalizedBlockHash: types.HexToHash("0xbb"),
+		FinalizedBlockHash: types.HexToHash("0xdd"), // new epoch finalized
 	}
-	conflict, _ = cd.Check(state2)
+	conflict, _ = cd.Check(state2, 20) // finalNum 20 > 10, normal advancement
 	if conflict {
-		t.Fatal("unexpected conflict with same finalized hash")
+		t.Fatal("unexpected conflict for normal finalized advancement")
 	}
 }
 
@@ -127,15 +127,26 @@ func TestFCTConflictDetectorFinalizedRegression(t *testing.T) {
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
-	cd.Check(state1)
+	cd.Check(state1, 100)
 
+	// Finalized hash changes but number ADVANCES -- not a conflict.
+	stateAdv := payload.ForkchoiceStateV1{
+		HeadBlockHash:      types.HexToHash("0xaa"),
+		FinalizedBlockHash: types.HexToHash("0xcc"),
+	}
+	conflict, _ := cd.Check(stateAdv, 128) // 128 > 100, advancement is fine
+	if conflict {
+		t.Fatal("unexpected conflict for finalized advancement")
+	}
+
+	// Finalized hash changes AND number REGRESSES -- real conflict.
 	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
-		FinalizedBlockHash: types.HexToHash("0xcc"), // finalized changed
+		FinalizedBlockHash: types.HexToHash("0xdd"),
 	}
-	conflict, reason := cd.Check(state2)
+	conflict, reason := cd.Check(state2, 64) // 64 < 128, regression
 	if !conflict {
-		t.Fatal("expected conflict for finalized regression")
+		t.Fatal("expected conflict for finalized number regression")
 	}
 	if reason == "" {
 		t.Fatal("expected non-empty reason")
@@ -339,15 +350,26 @@ func TestFCTTrackerConflictDetection(t *testing.T) {
 		HeadBlockHash:      types.HexToHash("0xaa"),
 		FinalizedBlockHash: types.HexToHash("0xbb"),
 	}
-	ft.ProcessUpdate(state1, false, 100, 0, 0)
+	ft.ProcessUpdate(state1, false, 100, 0, 50)
 
+	// Finalized hash changes but block number ADVANCES -- not a conflict.
+	stateAdv := payload.ForkchoiceStateV1{
+		HeadBlockHash:      types.HexToHash("0xaa"),
+		FinalizedBlockHash: types.HexToHash("0xcc"),
+	}
+	conflict, _, _ := ft.ProcessUpdate(stateAdv, false, 128, 0, 64)
+	if conflict {
+		t.Fatal("unexpected conflict for normal finalized advancement")
+	}
+
+	// Finalized hash changes AND block number REGRESSES -- real conflict.
 	state2 := payload.ForkchoiceStateV1{
 		HeadBlockHash:      types.HexToHash("0xaa"),
-		FinalizedBlockHash: types.HexToHash("0xcc"), // different finalized
+		FinalizedBlockHash: types.HexToHash("0xdd"),
 	}
-	conflict, reason, _ := ft.ProcessUpdate(state2, false, 100, 0, 0)
+	conflict, reason, _ := ft.ProcessUpdate(state2, false, 128, 0, 32) // 32 < 64
 	if !conflict {
-		t.Fatal("expected conflict")
+		t.Fatal("expected conflict for finalized number regression")
 	}
 	if reason == "" {
 		t.Fatal("expected conflict reason")

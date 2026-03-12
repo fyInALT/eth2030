@@ -334,15 +334,17 @@ func TestEviction(t *testing.T) {
 	pool := New(config, state)
 
 	// Add 3 txs from same sender with increasing nonces and different prices.
-	pool.AddLocal(makeTx(0, 100, 21000))  // cheapest, eviction candidate
-	pool.AddLocal(makeTx(1, 500, 21000))  // mid-price
-	pool.AddLocal(makeTx(2, 2000, 21000)) // highest, protected (highest nonce)
+	pool.AddLocal(makeTx(0, 100, 21000))  // nonce 0, low price
+	pool.AddLocal(makeTx(1, 500, 21000))  // nonce 1, mid price
+	pool.AddLocal(makeTx(2, 2000, 21000)) // nonce 2, high price — the tail
 
 	if pool.Count() != 3 {
 		t.Fatalf("Count = %d, want 3", pool.Count())
 	}
 
-	// Add a 4th tx from different sender with high price. Should evict the cheapest.
+	// Add a 4th tx from different sender. Pool is full so eviction runs.
+	// Only the tail (nonce 2, price=2000) is an eviction candidate to avoid
+	// creating a nonce gap in the remaining sequence.
 	sender2 := types.BytesToAddress([]byte{0xaa})
 	state.balances[sender2] = new(big.Int).Set(richBalance)
 	tx4 := makeTxFrom(sender2, 0, 3000, 21000)
@@ -350,15 +352,16 @@ func TestEviction(t *testing.T) {
 		t.Fatalf("AddLocal with eviction failed: %v", err)
 	}
 
+	// Nonces 0,1 from testSender + nonce 0 from sender2 = 3 txs.
 	if pool.Count() != 3 {
 		t.Errorf("Count after eviction = %d, want 3", pool.Count())
 	}
 
-	// The cheapest tx (price=100) should be evicted.
+	// The tail tx (nonce 2, price=2000) should be evicted, not nonce 0 (price=100).
 	sorted := pool.PendingSorted()
 	for _, tx := range sorted {
-		if tx.GasPrice().Int64() == 100 {
-			t.Error("cheapest tx (price=100) should have been evicted")
+		if tx.Nonce() == 2 && EffectiveGasPrice(tx, nil).Int64() == 2000 {
+			t.Error("tail tx (nonce=2, price=2000) should have been evicted")
 		}
 	}
 }
@@ -566,9 +569,9 @@ func TestEvictLowest_Direct(t *testing.T) {
 	pool := New(config, state)
 
 	// Add txs from same sender with different prices.
-	pool.AddLocal(makeTx(0, 100, 21000))
-	pool.AddLocal(makeTx(1, 300, 21000))
-	pool.AddLocal(makeTx(2, 500, 21000))
+	pool.AddLocal(makeTx(0, 100, 21000)) // nonce 0
+	pool.AddLocal(makeTx(1, 300, 21000)) // nonce 1
+	pool.AddLocal(makeTx(2, 500, 21000)) // nonce 2 — tail, only eviction candidate
 
 	if pool.Count() != 3 {
 		t.Fatalf("Count = %d, want 3", pool.Count())
@@ -582,16 +585,29 @@ func TestEvictLowest_Direct(t *testing.T) {
 	if evicted != 1 {
 		t.Errorf("evictLowest returned %d, want 1", evicted)
 	}
+	// Only the tail (nonce 2) is evicted; nonces 0,1 remain intact.
 	if pool.Count() != 2 {
 		t.Errorf("Count after eviction = %d, want 2", pool.Count())
 	}
 
-	// Verify the cheapest (price=100) was evicted.
+	// Nonce 2 (the tail) should be gone; nonces 0,1 must still be present.
 	sorted := pool.PendingSorted()
+	found0, found1, found2 := false, false, false
 	for _, tx := range sorted {
-		if tx.GasPrice().Int64() == 100 {
-			t.Error("cheapest tx should have been evicted")
+		switch tx.Nonce() {
+		case 0:
+			found0 = true
+		case 1:
+			found1 = true
+		case 2:
+			found2 = true
 		}
+	}
+	if !found0 || !found1 {
+		t.Error("nonces 0 and 1 should still be in the pool")
+	}
+	if found2 {
+		t.Error("tail tx (nonce 2) should have been evicted")
 	}
 }
 

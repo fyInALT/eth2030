@@ -174,6 +174,40 @@ func ReadHeadBlockHash(db KeyValueReader) ([32]byte, error) {
 	return hash, nil
 }
 
+// WriteFinalizedBlockHash persists the hash of the latest finalized block.
+func WriteFinalizedBlockHash(db KeyValueWriter, hash [32]byte) error {
+	return db.Put(headFinalizedKey, hash[:])
+}
+
+// ReadFinalizedBlockHash retrieves the persisted finalized block hash.
+// Returns the zero hash when no finalized block has been recorded yet.
+func ReadFinalizedBlockHash(db KeyValueReader) [32]byte {
+	data, err := db.Get(headFinalizedKey)
+	if err != nil || len(data) != 32 {
+		return [32]byte{}
+	}
+	var hash [32]byte
+	copy(hash[:], data)
+	return hash
+}
+
+// WriteSafeBlockHash persists the hash of the latest safe block.
+func WriteSafeBlockHash(db KeyValueWriter, hash [32]byte) error {
+	return db.Put(headSafeKey, hash[:])
+}
+
+// ReadSafeBlockHash retrieves the persisted safe block hash.
+// Returns the zero hash when no safe block has been recorded yet.
+func ReadSafeBlockHash(db KeyValueReader) [32]byte {
+	data, err := db.Get(headSafeKey)
+	if err != nil || len(data) != 32 {
+		return [32]byte{}
+	}
+	var hash [32]byte
+	copy(hash[:], data)
+	return hash
+}
+
 // --- Contract Code ---
 
 // WriteCode stores contract bytecode keyed by code hash.
