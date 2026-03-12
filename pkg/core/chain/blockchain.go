@@ -899,42 +899,106 @@ func (bc *Blockchain) State() state.StateDB {
 // StateAtRoot returns the state for the given state root hash.
 // It searches canonical blocks for one whose header root matches,
 // then re-executes from the nearest cached snapshot.
+// bc.mu is held only for fast in-memory lookups; re-execution runs outside.
 func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	// Fast path: check if root matches the current head state.
-	if bc.currentState.GetRoot() == root {
-		return bc.currentState.Dup(), nil
-	}
-
-	// Check if root matches the genesis state.
-	if bc.genesisState.GetRoot() == root {
-		return bc.genesisState.Dup(), nil
-	}
-
-	// Search canonical blocks for a block with this state root.
-	for _, blk := range bc.blockCache {
-		if blk.Header().Root == root {
-			return bc.stateAt(blk)
+	// Fast path under brief RLock: check current state, genesis, and block cache.
+	var targetBlock *types.Block
+	{
+		bc.mu.RLock()
+		if bc.currentState.GetRoot() == root {
+			s := bc.currentState.Dup()
+			bc.mu.RUnlock()
+			return s, nil
 		}
+		if bc.genesisState.GetRoot() == root {
+			s := bc.genesisState.Dup()
+			bc.mu.RUnlock()
+			return s, nil
+		}
+		for _, blk := range bc.blockCache {
+			if blk.Header().Root == root {
+				targetBlock = blk
+				break
+			}
+		}
+		bc.mu.RUnlock()
 	}
-
-	return nil, fmt.Errorf("%w: no block found with state root %v", ErrStateNotFound, root)
+	if targetBlock == nil {
+		return nil, fmt.Errorf("%w: no block found with state root %v", ErrStateNotFound, root)
+	}
+	// Re-execute outside bc.mu (StateAtBlock handles its own brief locking).
+	return bc.StateAtBlock(targetBlock)
 }
 
 // StateAtBlock returns the state after executing up to the given block.
 // This is public for use by external packages (e.g. core/block).
+// StateAtBlock returns the state after executing the given block.
+// It holds bc.mu only for in-memory lookups (state cache, block cache) and
+// releases the lock before any expensive re-execution so that concurrent RPC
+// reads and insertBlock Phase 3 are not blocked.
 func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-	return bc.stateAt(blk)
+	// Fast path: genesis state.
+	if blk.Hash() == bc.genesis.Hash() {
+		return bc.genesisState.Dup(), nil
+	}
+
+	// Fast path: exact cache hit (no bc.mu needed — sc has its own lock).
+	if cached, ok := bc.sc.get(blk.Hash()); ok {
+		return cached.Dup(), nil
+	}
+
+	// Slow path: collect ancestor chain under bc.mu (fast map reads only),
+	// then re-execute outside bc.mu so we don't block RPC readers.
+	chain, baseState := func() ([]*types.Block, state.StateDB) {
+		bc.mu.RLock()
+		defer bc.mu.RUnlock()
+
+		var ancestors []*types.Block
+		current := blk
+		for current.Hash() != bc.genesis.Hash() {
+			if cached, ok := bc.sc.get(current.ParentHash()); ok {
+				ancestors = append(ancestors, current)
+				// Reverse to execution order before returning.
+				for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+					ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+				}
+				return ancestors, cached.Dup()
+			}
+			ancestors = append(ancestors, current)
+			parent := bc.blockCache[current.ParentHash()]
+			if parent == nil {
+				parent = bc.readBlock(current.ParentHash())
+			}
+			if parent == nil {
+				break
+			}
+			current = parent
+		}
+		for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+			ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+		}
+		return ancestors, nil
+	}()
+
+	if baseState == nil {
+		baseState = bc.execGenesisState.Copy()
+	}
+
+	// Re-execute outside bc.mu — this may take 100ms+ for long chains.
+	for _, b := range chain {
+		if _, err := bc.processor.Process(b, baseState); err != nil {
+			return nil, fmt.Errorf("re-execute block %d: %w", b.NumberU64(), err)
+		}
+	}
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("%w: no ancestor chain for %v", ErrStateNotFound, blk.Hash())
+	}
+	return baseState, nil
 }
 
 // stateAt returns the state after executing up to (and including) the given block.
 // For the genesis block, this is the genesis state directly.
-// It checks the state cache for a snapshot closer to the target block to avoid
-// re-executing the entire chain from genesis.
+// Caller must hold bc.mu (read or write) for blockCache access.
 func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	if blk.Hash() == bc.genesis.Hash() {
 		// genesisState is a TrieStateDB with genesis accounts persisted in db.
