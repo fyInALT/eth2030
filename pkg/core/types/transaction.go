@@ -31,8 +31,8 @@ type Transaction struct {
 	inner   TxData
 	hash    atomic.Pointer[Hash]
 	size    atomic.Uint64
-	from    atomic.Pointer[Address]   // cached sender address
-	sidecar *BlobSidecarData          // EIP-4844: blob sidecar (nil for non-blob txs)
+	from    atomic.Pointer[Address] // cached sender address
+	sidecar *BlobSidecarData        // EIP-4844: blob sidecar (nil for non-blob txs)
 }
 
 // SetBlobSidecar attaches KZG blob sidecar data to the transaction.

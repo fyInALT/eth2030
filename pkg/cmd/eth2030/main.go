@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"syscall"
 
+	coretypes "github.com/eth2030/eth2030/core/types"
 	ethlog "github.com/eth2030/eth2030/log"
 	"github.com/eth2030/eth2030/node"
-	coretypes "github.com/eth2030/eth2030/core/types"
 )
 
 // Build-time version info, overridable with ldflags.
