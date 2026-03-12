@@ -492,16 +492,23 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	latency := time.Since(start)
 	metrics.RPCLatency.Observe(float64(latency.Milliseconds()))
 	hasErr := resp != nil && resp.Error != nil
+	slow := latency > 500*time.Millisecond
 	if hasErr {
 		metrics.RPCErrors.Inc()
-		rpcLog.Debug("rpc_response",
+		rpcLog.Info("rpc_error",
 			"event", "rpc_response",
 			"method", req.Method,
 			"remote", r.RemoteAddr,
 			"latency_ms", latency.Milliseconds(),
-			"error", true,
 			"err_code", resp.Error.Code,
 			"err_msg", resp.Error.Message,
+		)
+	} else if slow {
+		rpcLog.Info("rpc_slow",
+			"event", "rpc_slow",
+			"method", req.Method,
+			"remote", r.RemoteAddr,
+			"latency_ms", latency.Milliseconds(),
 		)
 	} else {
 		rpcLog.Debug("rpc_response",

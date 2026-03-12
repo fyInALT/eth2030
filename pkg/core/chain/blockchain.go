@@ -344,6 +344,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	var parent *types.Block
 	var ancestorChain []*types.Block
 	var baseState state.StateDB
+	var headNum uint64 // captured under bc.mu; used to determine canonicality in Phase 2
 
 	{
 		bc.mu.Lock()
@@ -412,6 +413,10 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		// Collect the ancestor chain needed to build the parent's state.
 		// This reads blockCache (under bc.mu) and the state cache (own lock).
 		ancestorChain, baseState = bc.collectAncestorsLocked(parent)
+
+		// Capture current head number so Phase 2 can determine canonicality
+		// without holding bc.mu during expensive state commit and DB writes.
+		headNum = bc.currentBlock.NumberU64()
 
 		bc.mu.Unlock() // ← release lock; Phase 2 runs without it
 	}
@@ -562,14 +567,54 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// ── Phase 3: write results (brief bc.mu.Lock) ──────────────────────────
+	// ── Phase 2b: persist results outside bc.mu to minimise lock hold time ─
+	// insertMu guarantees only one goroutine is here at a time, so headNum
+	// captured in Phase 1 is still valid for the canonical check below.
+	isCanonical := num > headNum
+	if isCanonical {
+		// Cache post-execution state BEFORE committing (sc.put calls Dup
+		// internally, so the Dup'd copy retains the dirty layer).
+		bc.sc.put(hash, num, statedb)
+
+		// Commit state to backing store: flushes dirty accounts/storage to DB
+		// and clears the in-memory dirty layer. Expensive with many dirty
+		// accounts (e.g. storagespam) — must run outside bc.mu.Lock().
+		if _, err := statedb.Commit(); err != nil {
+			return fmt.Errorf("commit state block %d: %w", num, err)
+		}
+
+		// Persist block, receipts, and chain indices to rawdb.
+		bc.writeBlock(blk)
+		bc.writeReceipts(num, hash, receipts)
+		bc.writeTxLookups(txs, num)
+		rawdb.WriteCanonicalHash(bc.db, num, hash)
+		rawdb.WriteHeadBlockHash(bc.db, hash)
+		rawdb.WriteHeadHeaderHash(bc.db, hash)
+	} else {
+		// Side block: cache state and persist block body only; no DB commit.
+		bc.sc.put(hash, num, statedb)
+		bc.writeBlock(blk)
+	}
+
+	// Cache receipts under rcMu (independent of bc.mu; fast operation).
+	bc.rcMu.Lock()
+	for len(bc.receiptCache) >= bc.opts.ReceiptCacheSize {
+		if len(bc.receiptCacheOrder) == 0 {
+			break
+		}
+		oldest := bc.receiptCacheOrder[0]
+		bc.receiptCacheOrder = bc.receiptCacheOrder[1:]
+		delete(bc.receiptCache, oldest)
+	}
+	bc.receiptCache[hash] = receipts
+	bc.receiptCacheOrder = append(bc.receiptCacheOrder, hash)
+	bc.rcMu.Unlock()
+
+	// ── Phase 3: update in-memory indices (brief bc.mu.Lock) ───────────────
+	// All expensive DB and state work is done; this section only touches
+	// in-memory maps and pointers so the lock is held for microseconds.
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
-
-	// Guard against concurrent insertion (shouldn't occur with insertMu, but be safe).
-	if _, ok := bc.blockCache[hash]; ok {
-		return nil
-	}
 
 	// Store in block cache (evict oldest when at capacity).
 	for len(bc.blockCache) >= bc.opts.BlockCacheSize {
@@ -587,42 +632,10 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		}
 	}
 
-	// Cache receipts (rcMu is independent of bc.mu).
-	bc.rcMu.Lock()
-	for len(bc.receiptCache) >= bc.opts.ReceiptCacheSize {
-		if len(bc.receiptCacheOrder) == 0 {
-			break
-		}
-		oldest := bc.receiptCacheOrder[0]
-		bc.receiptCacheOrder = bc.receiptCacheOrder[1:]
-		delete(bc.receiptCache, oldest)
-	}
-	bc.receiptCache[hash] = receipts
-	bc.receiptCacheOrder = append(bc.receiptCacheOrder, hash)
-	bc.rcMu.Unlock()
-
-	// Cache the post-execution state BEFORE committing so side blocks keep
-	// their dirty mem layer (side block cache entries must NOT flush to the
-	// shared DB, as that would corrupt cached states for parent blocks).
-	bc.sc.put(hash, num, statedb)
-
-	// Update canonical chain if this extends the head.
-	if num > bc.currentBlock.NumberU64() {
-		// Commit state to the backing store only for canonical blocks.
-		if _, err := statedb.Commit(); err != nil {
-			return fmt.Errorf("commit state block %d: %w", num, err)
-		}
-
+	if isCanonical {
 		bc.canonCache[num] = hash
 		bc.currentBlock = blk
 		bc.currentState = statedb
-
-		bc.writeBlock(blk)
-		bc.writeReceipts(num, hash, receipts)
-		bc.writeTxLookups(txs, num)
-		rawdb.WriteCanonicalHash(bc.db, num, hash)
-		rawdb.WriteHeadBlockHash(bc.db, hash)
-		rawdb.WriteHeadHeaderHash(bc.db, hash)
 
 		bc.hc.InsertHeaders([]*types.Header{header})
 
@@ -637,9 +650,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			"gasLimit", header.GasLimit,
 		)
 	} else {
-		// Persist side blocks so stateAt can walk the ancestor chain even after
-		// the block is evicted from the in-memory blockCache.
-		bc.writeBlock(blk)
 		blockchainLog.Debug("block_side",
 			"event", "block_side",
 			"hash", hash.Hex(),
