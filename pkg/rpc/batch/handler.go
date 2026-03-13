@@ -6,9 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/eth2030/eth2030/log"
 	rpctypes "github.com/eth2030/eth2030/rpc/types"
 )
+
+var batchLog = log.Default().Module("rpc/batch")
 
 // RequestHandler dispatches a single JSON-RPC request and returns a response.
 // *ethapi.EthAPI satisfies this interface.
@@ -52,6 +57,7 @@ type BatchHandler struct {
 	beaconAPI    BeaconRequestHandler
 	parallelism  int
 	maxBatchSize int
+	reqSeq       atomic.Int64 // monotonic counter for batch item seq numbers
 }
 
 // NewBatchHandler creates a new batch handler for the given RequestHandler.
@@ -163,6 +169,14 @@ func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 			ID:      req.ID,
 		}
 	}
+	seq := bh.reqSeq.Add(1)
+	start := time.Now()
+	batchLog.Debug("rpc_batch_start",
+		"event", "rpc_batch_start",
+		"seq", seq,
+		"method", req.Method,
+	)
+
 	apiReq := &rpctypes.Request{
 		JSONRPC: req.JSONRPC,
 		Method:  req.Method,
@@ -180,6 +194,28 @@ func (bh *BatchHandler) executeOne(req BatchRequest) BatchResponse {
 	default:
 		resp = bh.api.HandleRequest(apiReq)
 	}
+
+	latency := time.Since(start)
+	hasErr := resp != nil && resp.Error != nil
+	slow := latency > 500*time.Millisecond
+	if hasErr || slow {
+		batchLog.Info("rpc_batch_done",
+			"event", "rpc_batch_done",
+			"seq", seq,
+			"method", req.Method,
+			"latency_ms", latency.Milliseconds(),
+			"error", hasErr,
+			"slow", slow,
+		)
+	} else {
+		batchLog.Info("rpc_batch_done",
+			"event", "rpc_batch_done",
+			"seq", seq,
+			"method", req.Method,
+			"latency_ms", latency.Milliseconds(),
+		)
+	}
+
 	return BatchResponse{
 		JSONRPC: resp.JSONRPC,
 		Result:  resp.Result,
