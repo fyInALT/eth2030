@@ -300,9 +300,12 @@ func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Bloc
 		return nil, bc.execGenesisState.Copy()
 	}
 
-	// Fast path: target state is already cached.
+	// Fast path: target state is already cached (hot sc or permanent memSC).
 	// Dup so insertBlock's Process call cannot mutate the cached entry.
 	if cached, ok := bc.sc.get(target.Hash()); ok {
+		return nil, cached.Dup()
+	}
+	if cached, ok := bc.memSC.get(target.Hash()); ok {
 		return nil, cached.Dup()
 	}
 
@@ -311,10 +314,18 @@ func (bc *Blockchain) collectAncestorsLocked(target *types.Block) ([]*types.Bloc
 
 	for current.Hash() != bc.genesis.Hash() {
 		// If the parent's state is cached, use it as the base.
+		// Check both hot sc and permanent memSC (valid across reorgs).
 		// Dup so Process cannot corrupt the cached entry.
 		if cached, ok := bc.sc.get(current.ParentHash()); ok {
 			chain = append(chain, current)
 			// Reverse to execution order (oldest first).
+			for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+				chain[i], chain[j] = chain[j], chain[i]
+			}
+			return chain, cached.Dup()
+		}
+		if cached, ok := bc.memSC.get(current.ParentHash()); ok {
+			chain = append(chain, current)
 			for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
 				chain[i], chain[j] = chain[j], chain[i]
 			}
@@ -587,6 +598,14 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// captured in Phase 1 is still valid for the canonical check below.
 	isCanonical := num > headNum
 	if isCanonical {
+		// Populate permanent memSC for MemoryStateDB states before Commit().
+		// MemoryStateDB is self-contained (no shared backing DB), so the snapshot
+		// remains valid across reorgs. This ensures stateAt(newHead) in Reorg()
+		// finds the entry in O(1) rather than re-executing from genesis.
+		if _, isMem := statedb.(*state.MemoryStateDB); isMem {
+			bc.memSC.put(hash, num, statedb)
+		}
+
 		// Commit state to backing store: flushes dirty accounts/storage to DB
 		// and clears the in-memory dirty layer. Expensive with many dirty
 		// accounts (e.g. storagespam) — must run outside bc.mu.Lock().
@@ -607,6 +626,12 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		rawdb.WriteHeadHeaderHash(bc.db, hash)
 	} else {
 		// Side block: cache state and persist block body only; no DB commit.
+		// Also populate memSC so that if this block later becomes canonical
+		// (via reorg), collectAncestorsLocked finds it in O(1) and avoids
+		// re-executing the entire ancestor chain under bc.mu.
+		if _, isMem := statedb.(*state.MemoryStateDB); isMem {
+			bc.memSC.put(hash, num, statedb)
+		}
 		bc.sc.put(hash, num, statedb)
 		bc.writeBlock(blk)
 	}
@@ -1375,14 +1400,68 @@ func decodeWithdrawal(data []byte) (*types.Withdrawal, error) {
 // ending at newHead. It finds the common ancestor between the current
 // canonical chain and the new chain, un-indexes old canonical blocks,
 // re-indexes the new canonical blocks, and updates the current block pointer.
+//
+// The expensive state re-execution is performed outside bc.mu so that engine
+// API calls (newPayload, getPayload) are not blocked for tens of seconds
+// during deep reorgs.
 func (bc *Blockchain) Reorg(newHead *types.Block) error {
 	bc.mu.Lock()
-	defer bc.mu.Unlock()
-	return bc.reorg(newHead)
+	chain, baseState, err := bc.reorg(newHead)
+	bc.mu.Unlock()
+	if err != nil {
+		return err
+	}
+
+	// Re-execute the ancestor chain outside bc.mu.Lock.
+	// If memSC already had the state for newHead (populated during insertBlock),
+	// chain is nil and this loop is a no-op (O(1) reorg state update).
+	statedb := baseState
+	for i := len(chain) - 1; i >= 0; i-- {
+		b := chain[i]
+		if _, execErr := bc.processor.Process(b, statedb); execErr != nil {
+			blockchainLog.Error("reorg_state_fail",
+				"event", "reorg_state_fail",
+				"hash", b.Hash().Hex(),
+				"num", b.NumberU64(),
+				"error", execErr,
+			)
+			return fmt.Errorf("re-derive state after reorg at %d: %w", b.NumberU64(), execErr)
+		}
+		bc.sc.put(b.Hash(), b.NumberU64(), statedb)
+		bc.memSC.put(b.Hash(), b.NumberU64(), statedb)
+	}
+
+	// Materialise MemoryStateDB into TrieStateDB for memory efficiency if a
+	// backing store is available. This keeps per-block RAM bounded to the
+	// working set of a single block (dirty layer only).
+	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" && bc.stateDB != nil {
+		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.stateDB, mdb.Copy(), bc.gcMode)
+		// Purge stale state so reverted side-block accounts do not corrupt the
+		// state root on the next block.
+		if clearErr := ts.ClearAllState(); clearErr != nil {
+			blockchainLog.Warn("reorg_clear_state_failed",
+				"event", "reorg_clear_state_failed",
+				"error", clearErr,
+			)
+		}
+		if _, commitErr := ts.Commit(); commitErr == nil {
+			statedb = ts
+		}
+	}
+
+	// Update the canonical state pointer under a brief lock (only pointer/cache writes).
+	bc.mu.Lock()
+	bc.sc.put(newHead.Hash(), newHead.NumberU64(), statedb)
+	bc.currentState = statedb
+	bc.mu.Unlock()
+
+	return nil
 }
 
-// reorg is the internal reorg implementation without locking.
-func (bc *Blockchain) reorg(newHead *types.Block) error {
+// reorg performs the canonical-chain bookkeeping for a reorg while bc.mu is
+// held. It returns the ancestor block chain and base state needed for
+// re-execution so that the caller can run the expensive part outside the lock.
+func (bc *Blockchain) reorg(newHead *types.Block) ([]*types.Block, state.StateDB, error) {
 	prevHead := bc.currentBlock
 	metrics.ReorgsDetected.Inc()
 	blockchainLog.Info("block_reorganized",
@@ -1410,7 +1489,7 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 			// Fall back to rawdb for evicted ancestors.
 			parent = bc.readBlock(current.ParentHash())
 			if parent == nil {
-				return fmt.Errorf("%w: missing ancestor %v during reorg", ErrBlockNotFound, current.ParentHash())
+				return nil, nil, fmt.Errorf("%w: missing ancestor %v during reorg", ErrBlockNotFound, current.ParentHash())
 			}
 			bc.blockCache[current.ParentHash()] = parent
 		}
@@ -1492,46 +1571,12 @@ func (bc *Blockchain) reorg(newHead *types.Block) error {
 	// them as re-execution bases for the new fork would read wrong state.
 	bc.sc.clear()
 
-	// Re-derive state for the new head by re-executing from execGenesisState
-	// (a self-contained MemoryStateDB that never reads from the shared db).
-	statedb, err := bc.stateAt(newHead)
-	if err != nil {
-		blockchainLog.Error("reorg_state_fail",
-			"event", "reorg_state_fail",
-			"newHash", newHead.Hash().Hex(),
-			"newNum", newHead.NumberU64(),
-			"error", err,
-		)
-		return fmt.Errorf("re-derive state after reorg at %d: %w", newHead.NumberU64(), err)
-	}
-
-	// If we re-executed from genesis using MemoryStateDB, materialise the
-	// result back into a TrieStateDB so that future block processing stays
-	// memory-efficient (TrieStateDB flushes dirty writes to disk on each
-	// Commit, bounding per-block RAM to the working set of a single block).
-	if mdb, ok := statedb.(*state.MemoryStateDB); ok && bc.gcMode != "" && bc.stateDB != nil {
-		ts := state.NewTrieStateDBFromMemoryWithGCMode(bc.stateDB, mdb.Copy(), bc.gcMode)
-		// Purge ALL stale state from DB before committing the canonical snapshot.
-		// Without this, accounts/storage written by reverted side blocks would
-		// remain in the DB and corrupt the state root on the next block.
-		if err := ts.ClearAllState(); err != nil {
-			blockchainLog.Warn("reorg_clear_state_failed",
-				"event", "reorg_clear_state_failed",
-				"error", err,
-			)
-		}
-		if _, commitErr := ts.Commit(); commitErr == nil {
-			statedb = ts
-		}
-	}
-
-	// Cache the state at newHead so the first insertBlock after the reorg
-	// can skip re-execution and use this as its parent state.
-	bc.sc.put(newHead.Hash(), newHead.NumberU64(), statedb)
-
-	bc.currentState = statedb
-
-	return nil
+	// Pre-collect the ancestor blocks and base state needed for re-execution.
+	// collectAncestorsLocked checks memSC first; if the state for newHead was
+	// cached during insertBlock, chain is nil and no re-execution is needed.
+	// blockCache access is safe here because bc.mu is still held.
+	chain, baseState := bc.collectAncestorsLocked(newHead)
+	return chain, baseState, nil
 }
 
 // ChainLength returns the length of the canonical chain (genesis = 1).
