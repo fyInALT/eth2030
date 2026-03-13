@@ -175,13 +175,31 @@ func NewTrieStateDBFromMemoryWithGCMode(db rawdb.Database, mem *MemoryStateDB, g
 
 // loadFromDB loads account state from the persistent store into the dirty
 // buffer. It is a no-op if the address is already buffered.
+//
+// When frozenAccounts is available (after the first Commit), it is used as
+// the authoritative source instead of the live DB. This prevents a race
+// where a concurrent InsertBlock commit updates the DB while the builder is
+// reading account state, causing non-deterministic gas computation.
 func (t *TrieStateDB) loadFromDB(addr types.Address) {
 	if t.mem.stateObjects[addr] != nil {
 		return
 	}
-	data, err := t.db.Get(accountDBKey(addr))
-	if err != nil {
-		return // not in DB → account does not exist
+	var data []byte
+	if t.frozenAccounts != nil {
+		// Use the frozen snapshot: it is a complete view of all committed
+		// accounts and is never mutated after the Commit that created it.
+		frozen, ok := t.frozenAccounts[addr]
+		if !ok {
+			return // account does not exist in the committed state
+		}
+		data = frozen
+	} else {
+		// Pre-first-commit: no snapshot yet; read directly from DB.
+		var err error
+		data, err = t.db.Get(accountDBKey(addr))
+		if err != nil {
+			return // not in DB → account does not exist
+		}
 	}
 	var acc rlpAccount
 	if err := rlp.DecodeBytes(data, &acc); err != nil {
@@ -218,7 +236,24 @@ func (t *TrieStateDB) loadFromDB(addr types.Address) {
 
 // loadSlotFromDB loads a single storage slot from the persistent store into
 // obj.committedStorage.  Returns the slot value (zero hash if not in DB).
+//
+// When persistedStorage is available (after the first Commit), the in-memory
+// slot index is used instead of the live DB to prevent contamination from
+// concurrent InsertBlock commits.
 func (t *TrieStateDB) loadSlotFromDB(addr types.Address, obj *stateObject, slot types.Hash) types.Hash {
+	if t.persistedStorage != nil {
+		slots, ok := t.persistedStorage[addr]
+		if !ok {
+			// Address has no persisted storage in the snapshot.
+			return types.Hash{}
+		}
+		val := slots[slot]
+		if val != (types.Hash{}) {
+			obj.committedStorage[slot] = val
+		}
+		return val
+	}
+	// Pre-first-commit or address not yet tracked: read directly from DB.
 	data, err := t.db.Get(storageDBKey(addr, slot))
 	if err != nil {
 		return types.Hash{} // slot not in DB
