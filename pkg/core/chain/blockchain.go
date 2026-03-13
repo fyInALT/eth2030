@@ -1178,16 +1178,24 @@ func (bc *Blockchain) writeBlock(blk *types.Block) {
 
 // readBlock retrieves a block from rawdb by looking up the block number
 // from the header hash, then reading and decoding header and body.
+// If the header data has been migrated to AncientStore, it falls back there.
+// Caller must hold bc.mu (at least RLock) — ancientStore is read without its
+// own lock because bc.mu guards the pointer and AncientStore methods are safe.
 func (bc *Blockchain) readBlock(hash types.Hash) *types.Block {
 	// Look up block number from hash.
+	// DeleteHeaderData preserves this mapping after AncientStore migration.
 	num, err := rawdb.ReadHeaderNumber(bc.db, hash)
 	if err != nil {
 		return nil
 	}
 
-	// Read header.
-	headerData, err := rawdb.ReadHeader(bc.db, num, hash)
-	if err != nil || len(headerData) == 0 {
+	// Read header from live DB.
+	headerData, _ := rawdb.ReadHeader(bc.db, num, hash)
+	if len(headerData) == 0 {
+		// Header may have been migrated to AncientStore; try there.
+		if bc.ancientStore != nil {
+			return bc.readBlockFromAncient(num)
+		}
 		return nil
 	}
 	header, err := types.DecodeHeaderRLP(headerData)
@@ -1204,6 +1212,29 @@ func (bc *Blockchain) readBlock(hash types.Hash) *types.Block {
 	body, err := decodeBlockBody(bodyData)
 	if err != nil {
 		// If body decode fails, return header-only block.
+		return types.NewBlock(header, nil)
+	}
+	return types.NewBlock(header, body)
+}
+
+// readBlockFromAncient reads a block by number from the AncientStore.
+// Caller must hold bc.mu (at least RLock).
+func (bc *Blockchain) readBlockFromAncient(num uint64) *types.Block {
+	as := bc.ancientStore
+	headerData, err := as.ReadHeader(num)
+	if err != nil || len(headerData) == 0 {
+		return nil
+	}
+	header, err := types.DecodeHeaderRLP(headerData)
+	if err != nil {
+		return nil
+	}
+	bodyData, _ := as.ReadBody(num)
+	if len(bodyData) == 0 {
+		return types.NewBlock(header, nil)
+	}
+	body, err := decodeBlockBody(bodyData)
+	if err != nil {
 		return types.NewBlock(header, nil)
 	}
 	return types.NewBlock(header, body)
