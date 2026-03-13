@@ -728,6 +728,14 @@ func ApplyTransactionWithBAL(config *corconfig.ChainConfig, statedb state.StateD
 	return applyTransactionWithBAL(config, nil, statedb, header, tx, gp, tracker)
 }
 
+// ApplyTransactionWithBALGetHash is like ApplyTransactionWithBAL but also
+// accepts a GetHash function for the BLOCKHASH opcode. The block builder
+// should use this variant so that BLOCKHASH returns correct values, matching
+// the verifier.
+func ApplyTransactionWithBALGetHash(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+	return applyTransactionWithBAL(config, getHash, statedb, header, tx, gp, tracker)
+}
+
 // applyTransaction is the internal implementation that accepts an optional GetHash function.
 func applyTransaction(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil, nil)
@@ -1437,12 +1445,27 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	// Apply refund (EIP-3529: max refund = gasUsed / 5)
 	// Under Glamsterdam, SSTORE no longer issues refunds (EIP-7778, handled
 	// by opSstoreGlamst), but other refund sources still apply to user gas.
-	refund := statedb.GetRefund()
+	rawRefund := statedb.GetRefund()
+	refund := rawRefund
 	maxRefund := gasUsed / 5
 	if refund > maxRefund {
 		refund = maxRefund
 	}
 	gasUsed -= refund
+
+	// Debug: trace per-tx gas computation to diagnose gas mismatch.
+	execLog.Debug("gas_trace",
+		"event", "gas_trace",
+		"blockNum", header.Number,
+		"from", msg.From,
+		"nonce", msg.Nonce,
+		"igas", igas,
+		"emptyAuthCount", emptyAuthCount,
+		"gasUsedBeforeRefund", gasUsedBeforeRefund,
+		"rawRefund", rawRefund,
+		"refund", refund,
+		"gasUsedAfterRefund", gasUsed,
+	)
 
 	// EIP-7623/7976: apply calldata floor gas (Prague+).
 	// The floor cost ensures a minimum gas charge for transactions with
