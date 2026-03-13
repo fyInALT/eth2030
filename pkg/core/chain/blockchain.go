@@ -489,6 +489,16 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			"computedGasUsed", totalGasUsed,
 			"error", err,
 		)
+		// Log per-tx breakdown to identify which transaction causes the mismatch.
+		for i, r := range receipts {
+			blockchainLog.Warn("block_gas_mismatch_tx",
+				"event", "block_gas_mismatch_tx",
+				"num", num,
+				"txIndex", i,
+				"txHash", r.TxHash.Hex(),
+				"gasUsed", r.GasUsed,
+			)
+		}
 		return err
 	}
 
@@ -598,14 +608,6 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// captured in Phase 1 is still valid for the canonical check below.
 	isCanonical := num > headNum
 	if isCanonical {
-		// Populate permanent memSC for MemoryStateDB states before Commit().
-		// MemoryStateDB is self-contained (no shared backing DB), so the snapshot
-		// remains valid across reorgs. This ensures stateAt(newHead) in Reorg()
-		// finds the entry in O(1) rather than re-executing from genesis.
-		if _, isMem := statedb.(*state.MemoryStateDB); isMem {
-			bc.memSC.put(hash, num, statedb)
-		}
-
 		// Commit state to backing store: flushes dirty accounts/storage to DB
 		// and clears the in-memory dirty layer. Expensive with many dirty
 		// accounts (e.g. storagespam) — must run outside bc.mu.Lock().
@@ -613,9 +615,12 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			return fmt.Errorf("commit state block %d: %w", num, err)
 		}
 
-		// Cache post-commit state: after Commit() the dirty layer is empty so
-		// sc.put's internal Dup() is O(1) instead of O(dirty_storage_size).
+		// Cache post-commit state in both caches.
+		// After Commit() the dirty layer is empty so Dup() is O(1).
+		// memSC is permanent (never cleared on reorg) so collectAncestorsLocked
+		// always finds a nearby ancestor, avoiding full genesis re-execution.
 		bc.sc.put(hash, num, statedb)
+		bc.memSC.put(hash, num, statedb)
 
 		// Persist block, receipts, and chain indices to rawdb.
 		bc.writeBlock(blk)
@@ -626,13 +631,12 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		rawdb.WriteHeadHeaderHash(bc.db, hash)
 	} else {
 		// Side block: cache state and persist block body only; no DB commit.
-		// Also populate memSC so that if this block later becomes canonical
-		// (via reorg), collectAncestorsLocked finds it in O(1) and avoids
-		// re-executing the entire ancestor chain under bc.mu.
-		if _, isMem := statedb.(*state.MemoryStateDB); isMem {
-			bc.memSC.put(hash, num, statedb)
-		}
+		// Populate both sc and memSC so that if this block later becomes
+		// canonical (via reorg), collectAncestorsLocked finds it in O(1).
+		// For TrieStateDB side blocks the dirty layer holds block state and
+		// is small enough for Dup() to be fast in typical reorg scenarios.
 		bc.sc.put(hash, num, statedb)
+		bc.memSC.put(hash, num, statedb)
 		bc.writeBlock(blk)
 	}
 
