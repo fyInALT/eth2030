@@ -12,9 +12,9 @@ import (
 
 // EngineActors groups all actors used by EngineBackend.
 type EngineActors struct {
-	BlockStore      *BlockStoreActor
-	PayloadCache    *PayloadCacheActor
-	InclusionList   *InclusionListActor
+	BlockStore    *BlockStoreActor
+	PayloadCache  *PayloadCacheActor
+	InclusionList *InclusionListActor
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -23,7 +23,7 @@ type EngineActors struct {
 // NewEngineActors creates and starts all actors for EngineBackend.
 func NewEngineActors(ctx context.Context, maxPayloads, maxILs int) *EngineActors {
 	actorCtx, cancel := context.WithCancel(ctx)
-	
+
 	ea := &EngineActors{
 		BlockStore:    NewBlockStoreActor(),
 		PayloadCache:  NewPayloadCacheActor(maxPayloads),
@@ -31,12 +31,12 @@ func NewEngineActors(ctx context.Context, maxPayloads, maxILs int) *EngineActors
 		ctx:           actorCtx,
 		cancel:        cancel,
 	}
-	
+
 	// Start all actors.
 	go ea.BlockStore.Run(actorCtx)
 	go ea.PayloadCache.Run(actorCtx)
 	go ea.InclusionList.Run(actorCtx)
-	
+
 	return ea
 }
 
