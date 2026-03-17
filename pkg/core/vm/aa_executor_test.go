@@ -630,8 +630,9 @@ func TestAAExecutor_NonceKey_ZeroKey(t *testing.T) {
 }
 
 func TestAAExecutor_AATxType(t *testing.T) {
-	if AATxType != 0x04 {
-		t.Errorf("AATxType = 0x%02x, want 0x04", AATxType)
+	// AATxType is defined in core/types/tx_aa.go
+	if types.AATxType != 0x05 {
+		t.Errorf("types.AATxType = 0x%02x, want 0x05", types.AATxType)
 	}
 }
 

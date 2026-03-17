@@ -1708,3 +1708,89 @@ func TestResetDemotesFutureNonces(t *testing.T) {
 		t.Fatalf("expected queued nonce=1, got %d", queuedList.items[0].Nonce())
 	}
 }
+
+// TestAATxDisabled tests that AA transactions are rejected when AA is not enabled.
+func TestAATxDisabled(t *testing.T) {
+	state := newMockState()
+	sender := types.BytesToAddress([]byte{0xAA, 0x01})
+	state.balances[sender] = new(big.Int).Set(richBalance)
+	state.nonces[sender] = 0
+
+	cfg := DefaultConfig()
+	cfg.AllowAATx = false // AA disabled
+	pool := New(cfg, state)
+
+	aatx := makeAATx(sender, 0, 100000, 200000)
+	if err := pool.AddLocal(aatx); err == nil {
+		t.Error("expected error for AA tx when disabled")
+	}
+}
+
+// TestAATxEnabled tests that valid AA transactions are accepted when enabled.
+func TestAATxEnabled(t *testing.T) {
+	state := newMockState()
+	sender := types.BytesToAddress([]byte{0xAA, 0x02})
+	state.balances[sender] = new(big.Int).Set(richBalance)
+	state.nonces[sender] = 0
+
+	cfg := DefaultConfig()
+	cfg.AllowAATx = true
+	pool := New(cfg, state)
+
+	aatx := makeAATx(sender, 0, 100000, 200000)
+	if err := pool.AddLocal(aatx); err != nil {
+		t.Errorf("expected AA tx to be accepted: %v", err)
+	}
+}
+
+// TestAATxInsufficientBalance tests that AA transactions are rejected if sender lacks balance.
+func TestAATxInsufficientBalance(t *testing.T) {
+	state := newMockState()
+	sender := types.BytesToAddress([]byte{0xAA, 0x03})
+	state.balances[sender] = big.NewInt(1000) // tiny balance
+	state.nonces[sender] = 0
+
+	cfg := DefaultConfig()
+	cfg.AllowAATx = true
+	pool := New(cfg, state)
+
+	aatx := makeAATx(sender, 0, 100000, 200000)
+	if err := pool.AddLocal(aatx); err == nil {
+		t.Error("expected error for AA tx with insufficient balance")
+	}
+}
+
+// TestAATxInvalidNonce tests that AA transactions with wrong nonce are rejected.
+func TestAATxInvalidNonce(t *testing.T) {
+	state := newMockState()
+	sender := types.BytesToAddress([]byte{0xAA, 0x04})
+	state.balances[sender] = new(big.Int).Set(richBalance)
+	state.nonces[sender] = 5 // state nonce is 5
+
+	cfg := DefaultConfig()
+	cfg.AllowAATx = true
+	pool := New(cfg, state)
+
+	// Send AA tx with nonce 0, but state expects 5.
+	aatx := makeAATx(sender, 0, 100000, 200000)
+	if err := pool.AddLocal(aatx); err == nil {
+		t.Error("expected error for AA tx with wrong nonce")
+	}
+}
+
+// makeAATx creates a minimal AA transaction for testing.
+func makeAATx(sender types.Address, nonce uint64, validationGas, executionGas uint64) *types.Transaction {
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                nonce,
+		Sender:               sender,
+		SenderValidationGas:  validationGas,
+		SenderExecutionGas:   executionGas,
+		MaxPriorityFeePerGas: big.NewInt(1_000_000_000),
+		MaxFeePerGas:         big.NewInt(2_000_000_000),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+	tx.SetSender(sender)
+	return tx
+}
