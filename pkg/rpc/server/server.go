@@ -477,6 +477,15 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capture seq after method is known; used to correlate start/done entries.
+	seq := s.requestCount.Load()
+	rpcLog.Debug("rpc_start",
+		"event", "rpc_start",
+		"seq", seq,
+		"method", req.Method,
+		"remote", r.RemoteAddr,
+	)
+
 	var resp *rpctypes.Response
 	switch {
 	case isAdminMethod(req.Method) && s.adminAPI != nil:
@@ -495,8 +504,9 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	slow := latency > 500*time.Millisecond
 	if hasErr {
 		metrics.RPCErrors.Inc()
-		rpcLog.Info("rpc_error",
-			"event", "rpc_response",
+		rpcLog.Info("rpc_done",
+			"event", "rpc_done",
+			"seq", seq,
 			"method", req.Method,
 			"remote", r.RemoteAddr,
 			"latency_ms", latency.Milliseconds(),
@@ -504,30 +514,40 @@ func (s *ExtServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 			"err_msg", resp.Error.Message,
 		)
 	} else if slow {
-		rpcLog.Info("rpc_slow",
-			"event", "rpc_slow",
+		rpcLog.Info("rpc_done",
+			"event", "rpc_done",
+			"seq", seq,
 			"method", req.Method,
 			"remote", r.RemoteAddr,
 			"latency_ms", latency.Milliseconds(),
+			"slow", true,
 		)
 	} else {
-		rpcLog.Debug("rpc_response",
-			"event", "rpc_response",
+		rpcLog.Info("rpc_done",
+			"event", "rpc_done",
+			"seq", seq,
 			"method", req.Method,
 			"remote", r.RemoteAddr,
 			"latency_ms", latency.Milliseconds(),
-			"error", false,
 		)
 	}
 	writeJSON(w, resp)
 }
 
 func (s *ExtServer) handleBatch(w http.ResponseWriter, body []byte) {
+	seq := s.requestCount.Load()
+	batchStart := time.Now()
 	responses, err := s.batch.HandleBatch(body)
 	if err != nil {
 		writeError(w, nil, rpctypes.ErrCodeInvalidRequest, err.Error())
 		return
 	}
+	rpcLog.Info("rpc_batch",
+		"event", "rpc_batch",
+		"seq", seq,
+		"count", len(responses),
+		"latency_ms", time.Since(batchStart).Milliseconds(),
+	)
 	writeJSON(w, responses)
 }
 
