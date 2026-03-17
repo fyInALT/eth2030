@@ -5,16 +5,23 @@ participants:
     el_extra_params: ["--rpc.rate_limit=0"]
     cl_type: lighthouse
     cl_image: sigp/lighthouse:latest
-    # --subscribe-all-subnets ensures gossip mesh stability with 2 nodes in Fulu
+    # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
+    # count: 3 forms a triangle gossip mesh — if any pair temporarily disconnects
+    # at the Fulu sync_committee deadline (slot 40 = epoch 1 slot 8), the third
+    # node provides an alternative path for attestation propagation, enabling
+    # reliable reconnection and finalization.
     cl_extra_params: ["--subscribe-all-subnets"]
-    count: 2
+    count: 3
 
 network_params:
   network: kurtosis
   seconds_per_slot: 2
   genesis_delay: 60
-  # Delay Fulu to epoch 1: prevents gossip mesh initialization race at genesis.
-  # With FULU_FORK_EPOCH=0, Lighthouse loses sync_committee topic peers at slot 9.
+  # fulu_fork_epoch: 1 pushes the first Fulu sync_committee deadline to slot 40,
+  # giving nodes 40 slots (80s) to accumulate peer score before the brief gossip
+  # disruption. With count: 3, nodes can reconnect via the third peer.
+  # Note: Lighthouse warns about non-256-aligned fork epochs — this is acceptable
+  # for a devnet where stability is more important than period alignment.
   fulu_fork_epoch: 1
 
 additional_services:
@@ -22,7 +29,6 @@ additional_services:
   - spamoor
   - rakoon
   - assertoor
-  - blockscout
 
 assertoor_params:
   run_stability_check: true
