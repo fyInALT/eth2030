@@ -260,7 +260,7 @@ func (b *EngineBackend) computeBlobsV2(hashes []types.Hash) []*payload.BlobAndPr
 	}
 
 	for i, blob := range cachedBlobs {
-		if blob == nil || len(blob) == 0 {
+		if len(blob) == 0 {
 			continue
 		}
 		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
