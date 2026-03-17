@@ -24,12 +24,12 @@ type NodeDeps interface {
 	Config() *Config
 
 	// Optional dependencies (return nil if not available)
-	GasOracle() any                          // For recording block gas prices
-	MEVConfig() *mev.MEVProtectionConfig     // For MEV protection in tx pool
-	FCStateManager() any                     // For forkchoice state tracking
-	StarkFrameProver() any                   // For STARK proof generation
-	EthHandler() any                         // For transaction broadcast
-	TxJournal() any                          // For transaction journaling
+	GasOracle() any                      // For recording block gas prices
+	MEVConfig() *mev.MEVProtectionConfig // For MEV protection in tx pool
+	FCStateManager() any                 // For forkchoice state tracking
+	StarkFrameProver() any               // For STARK proof generation
+	EthHandler() any                     // For transaction broadcast
+	TxJournal() any                      // For transaction journaling
 
 	// P2P
 	P2PServer() P2PServerDeps

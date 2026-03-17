@@ -41,7 +41,7 @@ func (a *nodeDepsAdapter) Config() *backend.Config {
 	}
 }
 
-func (a *nodeDepsAdapter) GasOracle() any                     { return a.n.gasOracle }
+func (a *nodeDepsAdapter) GasOracle() any                      { return a.n.gasOracle }
 func (a *nodeDepsAdapter) MEVConfig() *mev.MEVProtectionConfig { return a.n.mevConfig }
 func (a *nodeDepsAdapter) FCStateManager() any                 { return a.n.fcStateManager }
 func (a *nodeDepsAdapter) StarkFrameProver() any               { return a.n.starkFrameProver }
