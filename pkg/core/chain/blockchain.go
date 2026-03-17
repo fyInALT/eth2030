@@ -1001,10 +1001,13 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 
 // StateAtBlock returns the state after executing up to the given block.
 // This is public for use by external packages (e.g. core/block).
-// HasStateAtBlock returns true if the state for the given block is immediately
-// available in the cache (no re-execution needed). This is used by the Engine API
-// to decide whether to return SYNCING status when the CL requests a new payload.
-func (bc *Blockchain) HasStateAtBlock(blk *types.Block) bool {
+// CanQuicklyGetState returns true if the state for the given block can be
+// obtained quickly (either cached or only needs to re-execute a few blocks).
+// This is used by the Engine API to decide whether to return SYNCING status
+// when the CL requests a new payload.
+// The threshold defines how many blocks we're willing to re-execute before
+// returning SYNCING (default: 32 blocks = ~6 seconds worth of execution).
+func (bc *Blockchain) CanQuicklyGetState(blk *types.Block, threshold int) bool {
 	if blk == nil {
 		return false
 	}
@@ -1012,14 +1015,45 @@ func (bc *Blockchain) HasStateAtBlock(blk *types.Block) bool {
 	if blk.Hash() == bc.genesis.Hash() {
 		return true
 	}
-	// Check both caches.
+	// Check if the block's state is already cached.
 	if _, ok := bc.sc.get(blk.Hash()); ok {
 		return true
 	}
 	if _, ok := bc.memSC.get(blk.Hash()); ok {
 		return true
 	}
-	return false
+
+	// Check how many blocks we'd need to re-execute.
+	// Walk up the chain until we find a cached state.
+	// We need bc.mu for blockCache access, but check state cache outside the lock
+	// to avoid nested locking (stateCache has its own mutex).
+	depth := 0
+	current := blk
+	for current.Hash() != bc.genesis.Hash() {
+		// Check if parent state is cached (outside bc.mu).
+		if _, ok := bc.sc.get(current.ParentHash()); ok {
+			return depth < threshold
+		}
+		if _, ok := bc.memSC.get(current.ParentHash()); ok {
+			return depth < threshold
+		}
+		depth++
+		if depth > threshold {
+			return false
+		}
+		// Get parent block (needs bc.mu for blockCache).
+		bc.mu.RLock()
+		parent := bc.blockCache[current.ParentHash()]
+		bc.mu.RUnlock()
+		if parent == nil {
+			parent = bc.readBlock(current.ParentHash())
+		}
+		if parent == nil {
+			return false // Parent unknown, would need full sync
+		}
+		current = parent
+	}
+	return depth < threshold
 }
 
 // StateAtBlock returns the state after executing the given block.

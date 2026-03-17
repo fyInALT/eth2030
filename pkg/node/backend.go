@@ -1233,13 +1233,15 @@ func (b *engineBackend) ForkchoiceUpdated(
 		return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 	}
 
-	// Step 7a: check if parent state is immediately available.
-	// If the state is not in cache, re-execution would be needed which can take
-	// many seconds. Return SYNCING to signal the CL that EL is not ready to build.
+	// Step 7a: check if we can quickly obtain the parent state.
+	// If state needs re-execution of many blocks, it could timeout the 8s payload
+	// build deadline. Return SYNCING to signal the CL that EL is not ready to build.
 	// Start background state warming so the next FCU will find the state ready.
 	// This prevents the cascade of: cache miss → re-execution → timeout → EL offline.
-	if !bc.HasStateAtBlock(headBlock) {
-		slog.Warn("engine_forkchoiceUpdated: parent state not in cache, warming and returning SYNCING",
+	// Threshold: 32 blocks ≈ 6 seconds of execution time (generous buffer).
+	const stateThreshold = 32
+	if !bc.CanQuicklyGetState(headBlock, stateThreshold) {
+		slog.Warn("engine_forkchoiceUpdated: parent state needs deep re-execution, warming and returning SYNCING",
 			"headNum", headBlock.NumberU64(),
 			"headHash", headBlock.Hash(),
 		)
