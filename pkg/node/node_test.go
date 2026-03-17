@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	nodebackend "github.com/eth2030/eth2030/node/backend"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -317,7 +319,7 @@ func TestNode_Backend(t *testing.T) {
 	n := newTestNode(t, &cfg)
 
 	// Test the RPC backend adapter.
-	backend := newNodeBackend(n)
+	backend := nodebackend.NewRPCBackend(toNodeDeps(n), n.engBackend)
 
 	// ChainID should match mainnet.
 	chainID := backend.ChainID()

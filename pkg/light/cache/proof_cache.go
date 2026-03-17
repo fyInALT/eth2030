@@ -1,8 +1,8 @@
 package cache
 
 import (
+	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -73,6 +73,9 @@ type ProofCache struct {
 	stats   CacheStats
 	memUsed uint64
 	nowFunc func() time.Time // injectable clock for testing
+
+	// pending tracks background prefetch goroutines for graceful shutdown.
+	pending sync.WaitGroup
 }
 
 // lruEntry is a node in the LRU doubly-linked list.
@@ -242,15 +245,23 @@ func (pc *ProofCache) evictLocked(entry *lruEntry) {
 // Prefetch asynchronously caches proofs for a range of upcoming block numbers.
 // The fetch function is called for each block number to retrieve the proof data.
 // If fetch returns a nil proof, the entry is skipped.
-func (pc *ProofCache) Prefetch(baseBlock uint64, addr types.Address, storageKey types.Hash, proofType ProofType, count int, fetch func(block uint64) (proof, value []byte)) {
+// The context allows cancellation of the prefetch operation.
+func (pc *ProofCache) Prefetch(ctx context.Context, baseBlock uint64, addr types.Address, storageKey types.Hash, proofType ProofType, count int, fetch func(block uint64) (proof, value []byte)) {
 	if count <= 0 || fetch == nil {
 		return
 	}
 
-	// Use an atomic counter so the goroutine can be traced in tests.
-	var done atomic.Int32
+	pc.pending.Add(1)
 	go func() {
+		defer pc.pending.Done()
 		for i := 0; i < count; i++ {
+			// Check for cancellation.
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			blockNum := baseBlock + uint64(i)
 			proof, value := fetch(blockNum)
 			if proof == nil {
@@ -263,9 +274,13 @@ func (pc *ProofCache) Prefetch(baseBlock uint64, addr types.Address, storageKey 
 				Type:        proofType,
 			}
 			pc.Put(key, proof, value)
-			done.Add(1)
 		}
 	}()
+}
+
+// WaitPrefetch blocks until all pending prefetch goroutines have completed.
+func (pc *ProofCache) WaitPrefetch() {
+	pc.pending.Wait()
 }
 
 // Stats returns a snapshot of the cache statistics.

@@ -350,6 +350,14 @@ func (srv *Server) setupConn(ct wire.ConnTransport, dialed bool) {
 
 	// Optionally wrap with RLPx encryption.
 	if srv.config.EnableRLPx {
+		// Check for shutdown before expensive handshake.
+		select {
+		case <-srv.quit:
+			ct.Close()
+			return
+		default:
+		}
+
 		rlpx := wire.NewRLPxTransport(ct.(*wire.FrameConnTransport).FrameTransport.Conn())
 		if err := rlpx.Handshake(dialed); err != nil {
 			ct.Close()
@@ -363,6 +371,14 @@ func (srv *Server) setupConn(ct wire.ConnTransport, dialed bool) {
 	var peerCaps []wire.Cap
 
 	if !srv.config.DisableHandshake {
+		// Check for shutdown before handshake.
+		select {
+		case <-srv.quit:
+			tr.Close()
+			return
+		default:
+		}
+
 		remoteHello, err := wire.PerformHandshake(tr, srv.localHello())
 		if err != nil {
 			tr.Close()
