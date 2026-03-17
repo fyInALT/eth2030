@@ -9,6 +9,8 @@ import (
 	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/engine/forkchoice"
+	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/txpool"
 )
 
@@ -24,15 +26,37 @@ type NodeDeps interface {
 	Config() *Config
 
 	// Optional dependencies (return nil if not available)
-	GasOracle() any                      // For recording block gas prices
-	MEVConfig() *mev.MEVProtectionConfig // For MEV protection in tx pool
-	FCStateManager() any                 // For forkchoice state tracking
-	StarkFrameProver() any               // For STARK proof generation
-	EthHandler() any                     // For transaction broadcast
-	TxJournal() any                      // For transaction journaling
+	GasOracle() GasOracleDeps               // For recording block gas prices
+	MEVConfig() *mev.MEVProtectionConfig    // For MEV protection in tx pool
+	FCStateManager() FCStateManagerDeps     // For forkchoice state tracking
+	StarkFrameProver() proofs.ValidationFrameProver // For STARK proof generation
+	EthHandler() EthHandlerDeps             // For transaction broadcast
+	TxJournal() TxJournalDeps               // For transaction journaling
 
 	// P2P
 	P2PServer() P2PServerDeps
+}
+
+// GasOracleDeps provides gas price oracle access.
+type GasOracleDeps interface {
+	RecordBlock(blockNumber uint64, baseFee *big.Int, tips []*big.Int)
+	SuggestGasPrice() *big.Int
+	BaseFee() *big.Int
+}
+
+// FCStateManagerDeps provides forkchoice state manager access.
+type FCStateManagerDeps interface {
+	AddBlock(info *forkchoice.BlockInfo)
+}
+
+// EthHandlerDeps provides ETH protocol handler access.
+type EthHandlerDeps interface {
+	BroadcastTransactions(txs []*types.Transaction)
+}
+
+// TxJournalDeps provides transaction journal access.
+type TxJournalDeps interface {
+	Insert(tx *types.Transaction, local bool) error
 }
 
 // Config holds backend configuration.

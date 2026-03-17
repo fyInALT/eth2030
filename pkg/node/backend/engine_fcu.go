@@ -7,6 +7,7 @@ import (
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/engine/payload"
 )
@@ -253,12 +254,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 		// Replace VERIFY frame calldata with STARK proof when enabled.
 		if prover := b.node.StarkFrameProver(); prover != nil {
-			if p, ok := prover.(interface {
-				ReplaceValidationFrames(*types.Block) (*types.Block, error)
-			}); ok {
-				if sealed, serr := p.ReplaceValidationFrames(builtBlock); serr == nil {
-					builtBlock = sealed
-				}
+			if sealed, _, err := vm.ReplaceValidationFrames(builtBlock, prover); err == nil {
+				builtBlock = sealed
 			}
 		}
 

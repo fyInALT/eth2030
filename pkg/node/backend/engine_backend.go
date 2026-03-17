@@ -414,12 +414,8 @@ func (b *EngineBackend) processBlockInternal(
 
 	// Notify gas oracle.
 	if oracle := b.node.GasOracle(); oracle != nil {
-		if g, ok := oracle.(interface {
-			RecordBlock(uint64, *big.Int, []*big.Int)
-		}); ok {
-			tips := ExtractBlockTips(txs, p.BaseFeePerGas)
-			g.RecordBlock(p.BlockNumber, p.BaseFeePerGas, tips)
-		}
+		tips := ExtractBlockTips(txs, p.BaseFeePerGas)
+		oracle.RecordBlock(p.BlockNumber, p.BaseFeePerGas, tips)
 	}
 
 	// Feed txpool gas-price suggestor.
@@ -442,17 +438,13 @@ func (b *EngineBackend) processBlockInternal(
 // registerBlockInFCState adds the block to forkchoice state manager.
 func (b *EngineBackend) registerBlockInFCState(p *payload.ExecutionPayloadV3) {
 	if mgr := b.node.FCStateManager(); mgr != nil {
-		if fcMgr, ok := mgr.(interface {
-			AddBlock(*forkchoice.BlockInfo)
-		}); ok {
-			bi := &forkchoice.BlockInfo{
-				Hash:       p.BlockHash,
-				ParentHash: p.ParentHash,
-				Number:     p.BlockNumber,
-				Slot:       p.BlockNumber,
-			}
-			fcMgr.AddBlock(bi)
+		bi := &forkchoice.BlockInfo{
+			Hash:       p.BlockHash,
+			ParentHash: p.ParentHash,
+			Number:     p.BlockNumber,
+			Slot:       p.BlockNumber,
 		}
+		mgr.AddBlock(bi)
 	}
 }
 

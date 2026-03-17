@@ -174,21 +174,13 @@ func (b *RPCBackend) SendTransaction(tx *types.Transaction) error {
 
 	// Broadcast via eth handler
 	if h := b.node.EthHandler(); h != nil {
-		if broadcaster, ok := h.(interface {
-			BroadcastTransactions([]*types.Transaction)
-		}); ok {
-			broadcaster.BroadcastTransactions([]*types.Transaction{tx})
-		}
+		h.BroadcastTransactions([]*types.Transaction{tx})
 	}
 
 	// Journal transaction
 	if journal := b.node.TxJournal(); journal != nil {
-		if j, ok := journal.(interface {
-			Insert(*types.Transaction, bool) error
-		}); ok {
-			if jerr := j.Insert(tx, true); jerr != nil {
-				slog.Debug("tx journal insert failed", "hash", tx.Hash(), "err", jerr)
-			}
+		if jerr := journal.Insert(tx, true); jerr != nil {
+			slog.Debug("tx journal insert failed", "hash", tx.Hash(), "err", jerr)
 		}
 	}
 
@@ -227,13 +219,8 @@ func (b *RPCBackend) GetTransaction(hash types.Hash) (*types.Transaction, uint64
 
 func (b *RPCBackend) SuggestGasPrice() *big.Int {
 	if oracle := b.node.GasOracle(); oracle != nil {
-		if g, ok := oracle.(interface {
-			SuggestGasPrice() *big.Int
-			BaseFee() *big.Int
-		}); ok {
-			if g.BaseFee().Sign() > 0 {
-				return g.SuggestGasPrice()
-			}
+		if oracle.BaseFee().Sign() > 0 {
+			return oracle.SuggestGasPrice()
 		}
 	}
 

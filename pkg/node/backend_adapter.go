@@ -9,6 +9,7 @@ import (
 	"github.com/eth2030/eth2030/p2p"
 	"github.com/eth2030/eth2030/p2p/peermgr"
 	"github.com/eth2030/eth2030/p2p/wire"
+	"github.com/eth2030/eth2030/proofs"
 	"github.com/eth2030/eth2030/txpool"
 )
 
@@ -41,12 +42,39 @@ func (a *nodeDepsAdapter) Config() *backend.Config {
 	}
 }
 
-func (a *nodeDepsAdapter) GasOracle() any                      { return a.n.gasOracle }
+func (a *nodeDepsAdapter) GasOracle() backend.GasOracleDeps {
+	if a.n.gasOracle == nil {
+		return nil
+	}
+	return a.n.gasOracle
+}
+
 func (a *nodeDepsAdapter) MEVConfig() *mev.MEVProtectionConfig { return a.n.mevConfig }
-func (a *nodeDepsAdapter) FCStateManager() any                 { return a.n.fcStateManager }
-func (a *nodeDepsAdapter) StarkFrameProver() any               { return a.n.starkFrameProver }
-func (a *nodeDepsAdapter) EthHandler() any                     { return a.n.ethHandler }
-func (a *nodeDepsAdapter) TxJournal() any                      { return a.n.txJournal }
+
+func (a *nodeDepsAdapter) FCStateManager() backend.FCStateManagerDeps {
+	if a.n.fcStateManager == nil {
+		return nil
+	}
+	return a.n.fcStateManager
+}
+
+func (a *nodeDepsAdapter) StarkFrameProver() proofs.ValidationFrameProver {
+	return a.n.starkFrameProver
+}
+
+func (a *nodeDepsAdapter) EthHandler() backend.EthHandlerDeps {
+	if a.n.ethHandler == nil {
+		return nil
+	}
+	return a.n.ethHandler
+}
+
+func (a *nodeDepsAdapter) TxJournal() backend.TxJournalDeps {
+	if a.n.txJournal == nil {
+		return nil
+	}
+	return a.n.txJournal
+}
 
 func (a *nodeDepsAdapter) P2PServer() backend.P2PServerDeps {
 	if a.n.p2pServer == nil {
