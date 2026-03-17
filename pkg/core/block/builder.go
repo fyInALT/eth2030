@@ -435,6 +435,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
+		gpBefore := gp.Gas()
 		receipt, used, err := execution.ApplyTransactionWithBAL(b.config, statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
@@ -446,7 +447,9 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		// GAP-2.2: enforce per-block DimStorage gas cap at Glamsterdam+.
 		if glamActive && !vm.CheckDimStorageCap(blockDimStorageUsed, receipt.DimStorageGas) {
 			statedb.RevertToSnapshot(snap)
-			gp.AddGas(used)
+			// Restore the exact amount debited from the pool (EIP-7778 uses
+			// pre-refund gas for pool accounting, which may differ from used).
+			gp.AddGas(gpBefore - gp.Gas())
 			continue
 		}
 		blockDimStorageUsed += receipt.DimStorageGas
