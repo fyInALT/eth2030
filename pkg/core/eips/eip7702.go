@@ -64,12 +64,14 @@ func processOneAuthorization(statedb state.StateDB, auth *types.Authorization, c
 		return ErrAuthNonce
 	}
 
-	// 4. Per EIP-7702: if the authority account already exists (not empty),
-	// add a gas refund for the difference between PER_EMPTY_ACCOUNT_COST
-	// and PER_AUTH_BASE_COST.
+	// 4. Per EIP-7702: if the authority account is not empty (has balance,
+	// nonce, or code), add a gas refund for the difference between
+	// PER_EMPTY_ACCOUNT_COST and PER_AUTH_BASE_COST.
 	// The intrinsic gas charges PER_EMPTY_ACCOUNT_COST upfront for each auth,
 	// so we refund the difference when the account is not actually empty.
-	if statedb.Exist(signerAddr) {
+	// Note: We use !Empty() instead of Exist() because an account can exist
+	// but still be empty (zero nonce, zero balance, empty code).
+	if !statedb.Empty(signerAddr) {
 		statedb.AddRefund(types.PerEmptyAccountCost - types.PerAuthBaseCost)
 	}
 

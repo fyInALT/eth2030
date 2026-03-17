@@ -57,7 +57,7 @@ func TestIntrinsicGas_WithAuthorizations(t *testing.T) {
 	isCreate := false
 
 	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
-	// If authority already exists, refund is added during authorization processing.
+	// If authority is not empty, refund is added during authorization processing.
 	gas := execution.IntrinsicGas(data, isCreate, false, 3)
 	expected := execution.TxGas + 3*execution.PerEmptyAccountCost
 	if gas != expected {
@@ -205,7 +205,7 @@ func TestSetCodeTx_IntrinsicGasIncludesAuthCosts(t *testing.T) {
 	}
 
 	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
-	// Refund is added later if authority already exists.
+	// Refund is added later if authority is not empty.
 	expectedIntrinsic := execution.TxGas + execution.PerEmptyAccountCost
 	if result.UsedGas < expectedIntrinsic {
 		t.Errorf("gas used %d is less than expected intrinsic %d", result.UsedGas, expectedIntrinsic)
@@ -325,7 +325,7 @@ func TestSetCodeTx_NonExistentAccountAuthGas(t *testing.T) {
 	}
 
 	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
-	// Refund is added later if authority already exists.
+	// Refund is added later if authority is not empty.
 	expectedIntrinsic := execution.TxGas + 2*execution.PerEmptyAccountCost
 	if result.UsedGas < expectedIntrinsic {
 		t.Errorf("gas used %d is less than expected intrinsic %d", result.UsedGas, expectedIntrinsic)

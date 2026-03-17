@@ -173,7 +173,7 @@ func ComputeSetCodeIntrinsicGas(data []byte, authCount int) uint64 {
 	}
 
 	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST for each authorization.
-	// Refund is handled during execution if the authority account exists.
+	// Refund is handled during execution if the authority account is not empty.
 	gas += PerEmptyAccountCost * uint64(authCount)
 
 	return gas
