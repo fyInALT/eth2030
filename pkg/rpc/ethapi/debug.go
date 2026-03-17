@@ -75,22 +75,30 @@ func (api *EthAPI) debugTraceTransactionCallTracer(req *Request, txHash types.Ha
 		return errorResponse(req.ID, ErrCodeInternal, "transaction not found")
 	}
 
+	// Detect contract creation (tx.To == nil → type "CREATE", otherwise "CALL").
+	isCreate := tx.To() == nil
+	callType := "CALL"
+	if isCreate {
+		callType = "CREATE"
+	}
+
 	frame := &debugapi.DbgCallFrame{
-		Type:  "CALL",
+		Type:  callType,
 		Input: encodeBytes(tx.Data()),
 		Gas:   encodeUint64(tx.Gas()),
 	}
 	if sender := tx.Sender(); sender != nil {
 		frame.From = encodeAddress(*sender)
 	}
-	if tx.To() != nil {
+	if !isCreate {
 		frame.To = encodeAddress(*tx.To())
 	}
 	if tx.Value() != nil && tx.Value().Sign() > 0 {
 		frame.Value = encodeBigInt(tx.Value())
 	}
 
-	// Populate gasUsed and status from receipt.
+	// Populate gasUsed, status, and (for CREATE) the deployed contract address
+	// from the receipt. No EVM re-execution is needed for the callTracer path.
 	receipts := api.backend.GetBlockReceipts(blockNum)
 	if int(txIdx) < len(receipts) { //nolint:gosec // txIdx bounded by block tx count
 		r := receipts[txIdx]
@@ -98,15 +106,12 @@ func (api *EthAPI) debugTraceTransactionCallTracer(req *Request, txHash types.Ha
 		if r.Status == types.ReceiptStatusFailed {
 			frame.Error = "execution reverted"
 		}
+		// For CREATE transactions, the deployed contract address is in the receipt.
+		if isCreate && r.ContractAddress != (types.Address{}) {
+			frame.To = encodeAddress(r.ContractAddress)
+		}
 	} else {
 		frame.GasUsed = encodeUint64(tx.Gas())
-	}
-
-	// Populate return data from tracer when available.
-	if tracer, err := api.backend.TraceTransaction(txHash); err == nil && tracer != nil {
-		if out := tracer.Output(); len(out) > 0 {
-			frame.Output = encodeBytes(out)
-		}
 	}
 
 	return successResponse(req.ID, frame)
@@ -181,24 +186,33 @@ func (api *EthAPI) traceBlock(req *Request, block *types.Block, cfg debugapi.Dbg
 	if cfg.Tracer == "callTracer" {
 		results := make([]*callTracerEntry, len(txs))
 		for i, tx := range txs {
+			isCreate := tx.To() == nil
+			callType := "CALL"
+			if isCreate {
+				callType = "CREATE"
+			}
 			frame := &debugapi.DbgCallFrame{
-				Type:  "CALL",
+				Type:  callType,
 				Input: encodeBytes(tx.Data()),
 				Gas:   encodeUint64(tx.Gas()),
 			}
 			if sender := tx.Sender(); sender != nil {
 				frame.From = encodeAddress(*sender)
 			}
-			if tx.To() != nil {
+			if !isCreate {
 				frame.To = encodeAddress(*tx.To())
 			}
 			if tx.Value() != nil && tx.Value().Sign() > 0 {
 				frame.Value = encodeBigInt(tx.Value())
 			}
 			if i < len(receipts) {
-				frame.GasUsed = encodeUint64(receipts[i].GasUsed)
-				if receipts[i].Status == types.ReceiptStatusFailed {
+				r := receipts[i]
+				frame.GasUsed = encodeUint64(r.GasUsed)
+				if r.Status == types.ReceiptStatusFailed {
 					frame.Error = "execution reverted"
+				}
+				if isCreate && r.ContractAddress != (types.Address{}) {
+					frame.To = encodeAddress(r.ContractAddress)
 				}
 			} else {
 				frame.GasUsed = encodeUint64(0)
