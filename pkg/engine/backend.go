@@ -98,8 +98,8 @@ type EngineBackend struct {
 	maxPayloads  int         // configurable cap; set from EngineBackendConfig
 
 	// Inclusion lists - protected by ilMu.
-	ils     []*types.InclusionList // received via engine_newInclusionListV1
-	maxILs  int                    // configurable cap; set from EngineBackendConfig
+	ils    []*types.InclusionList // received via engine_newInclusionListV1
+	maxILs int                    // configurable cap; set from EngineBackendConfig
 
 	nextPayloadID atomic.Uint64
 
@@ -118,9 +118,9 @@ type EngineBackend struct {
 	asyncBuilder *enginepayload.AsyncBuilder
 
 	// asyncPayloads tracks payloads being built asynchronously.
-	asyncPayloadsMu    sync.RWMutex
-	asyncPayloads      map[PayloadID]*enginepayload.PendingPayload
-	asyncPayloadOrder  []PayloadID // insertion order for LRU eviction
+	asyncPayloadsMu   sync.RWMutex
+	asyncPayloads     map[PayloadID]*enginepayload.PendingPayload
+	asyncPayloadOrder []PayloadID // insertion order for LRU eviction
 
 	// cleanupStopCh signals the cleanup goroutine to stop.
 	cleanupStopCh chan struct{}

@@ -34,7 +34,7 @@ type EngineAPI struct {
 	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
 	authSecret      string
 	maxRequestSize  int64
-	requestTimeout  time.Duration // P0: configurable request timeout (default 8s)
+	requestTimeout  time.Duration    // P0: configurable request timeout (default 8s)
 	priorityHandler *PriorityHandler // P2: tracks request priorities
 	mu              sync.Mutex
 }
@@ -46,7 +46,7 @@ func NewEngineAPI(backend Backend) *EngineAPI {
 		builderRegistry: NewBuilderRegistry(),
 		blobValidator:   blobval.NewBlobValidator(),
 		maxRequestSize:  5 * 1024 * 1024,
-		requestTimeout:  8 * time.Second, // P0: default 8s timeout
+		requestTimeout:  8 * time.Second,      // P0: default 8s timeout
 		priorityHandler: NewPriorityHandler(), // P2: priority tracking
 	}
 }

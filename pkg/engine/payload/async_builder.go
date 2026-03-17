@@ -224,15 +224,15 @@ func (p *PendingPayload) GetResult() (*BuildResult, error) {
 
 // AsyncBuilder manages asynchronous payload building with a worker pool.
 type AsyncBuilder struct {
-	config   *coreconfig.ChainConfig
-	txPool   block.TxPoolReader
-	workers  int
-	timeout  time.Duration
+	config  *coreconfig.ChainConfig
+	txPool  block.TxPoolReader
+	workers int
+	timeout time.Duration
 
-	mu          sync.RWMutex
-	pending     map[PayloadID]*PendingPayload
+	mu           sync.RWMutex
+	pending      map[PayloadID]*PendingPayload
 	pendingOrder []PayloadID
-	maxPending  int
+	maxPending   int
 
 	queue   chan *BuildRequest
 	stopCh  chan struct{}
@@ -276,14 +276,14 @@ func NewAsyncBuilder(config *coreconfig.ChainConfig, txPool block.TxPoolReader, 
 
 	queueSize := cfg.Workers * queueSizeMultiplier
 	return &AsyncBuilder{
-		config:      config,
-		txPool:      txPool,
-		workers:     cfg.Workers,
-		timeout:     cfg.Timeout,
-		pending:     make(map[PayloadID]*PendingPayload),
-		maxPending:  cfg.MaxPending,
-		queue:       make(chan *BuildRequest, queueSize),
-		stopCh:      make(chan struct{}),
+		config:     config,
+		txPool:     txPool,
+		workers:    cfg.Workers,
+		timeout:    cfg.Timeout,
+		pending:    make(map[PayloadID]*PendingPayload),
+		maxPending: cfg.MaxPending,
+		queue:      make(chan *BuildRequest, queueSize),
+		stopCh:     make(chan struct{}),
 	}
 }
 
