@@ -1453,20 +1453,6 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	}
 	gasUsed -= refund
 
-	// Debug: trace per-tx gas computation to diagnose gas mismatch.
-	execLog.Debug("gas_trace",
-		"event", "gas_trace",
-		"blockNum", header.Number,
-		"from", msg.From,
-		"nonce", msg.Nonce,
-		"igas", igas,
-		"emptyAuthCount", emptyAuthCount,
-		"gasUsedBeforeRefund", gasUsedBeforeRefund,
-		"rawRefund", rawRefund,
-		"refund", refund,
-		"gasUsedAfterRefund", gasUsed,
-	)
-
 	// EIP-7623/7976: apply calldata floor gas (Prague+).
 	// The floor cost ensures a minimum gas charge for transactions with
 	// significant calldata, incentivizing blob usage over calldata.
