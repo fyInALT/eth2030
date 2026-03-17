@@ -24,9 +24,9 @@ func TestEngineBackend_ProcessInclusionList(t *testing.T) {
 	if err := backend.ProcessInclusionList(il); err != nil {
 		t.Fatalf("ProcessInclusionList: %v", err)
 	}
-	backend.mu.RLock()
+	backend.ilMu.RLock()
 	count := len(backend.ils)
-	backend.mu.RUnlock()
+	backend.ilMu.RUnlock()
 	if count != 1 {
 		t.Errorf("expected 1 stored IL, got %d", count)
 	}
@@ -47,9 +47,9 @@ func TestEngineBackend_ProcessInclusionList_Multiple(t *testing.T) {
 			t.Fatalf("ProcessInclusionList[%d]: %v", i, err)
 		}
 	}
-	backend.mu.RLock()
+	backend.ilMu.RLock()
 	count := len(backend.ils)
-	backend.mu.RUnlock()
+	backend.ilMu.RUnlock()
 	if count != 3 {
 		t.Errorf("expected 3 stored ILs, got %d", count)
 	}

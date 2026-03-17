@@ -303,13 +303,13 @@ func TestE2E_Engine_3DGasVectors_InBuiltPayload(t *testing.T) {
 	// For Amsterdam (all-forks-at-genesis TestConfig), the underlying block
 	// should have 3D gas vectors set (GasLimitVec/GasUsedVec/ExcessGasVec).
 	// We can verify via the pending payload's block.
-	backend.mu.RLock()
+	backend.payloadMu.RLock()
 	var builtBlock interface{ Header() *types.Header }
 	for _, pending := range backend.payloads {
 		builtBlock = pending.block
 		break
 	}
-	backend.mu.RUnlock()
+	backend.payloadMu.RUnlock()
 
 	if builtBlock == nil {
 		t.Skip("no pending payload to inspect")
@@ -478,7 +478,7 @@ func TestE2E_Engine_BALStoredAfterProcessBlockV5(t *testing.T) {
 
 	// Compute the block hash from the payload block number.
 	// The block is now in backend.blocks — find it by block number.
-	backend.mu.RLock()
+	backend.blocksMu.RLock()
 	var blockHash types.Hash
 	for h, b := range backend.blocks {
 		if b.NumberU64() == uint64(payload.BlockNumber) {
@@ -486,7 +486,7 @@ func TestE2E_Engine_BALStoredAfterProcessBlockV5(t *testing.T) {
 			break
 		}
 	}
-	backend.mu.RUnlock()
+	backend.blocksMu.RUnlock()
 
 	if blockHash == (types.Hash{}) {
 		t.Fatal("processed block not found in backend.blocks")
@@ -541,9 +541,9 @@ func TestE2E_Engine_InclusionListBackend_Interface(t *testing.T) {
 	}
 
 	// Verify all 5 stored.
-	backend.mu.RLock()
+	backend.ilMu.RLock()
 	count := len(backend.ils)
-	backend.mu.RUnlock()
+	backend.ilMu.RUnlock()
 	if count != 5 {
 		t.Errorf("expected 5 stored ILs, got %d", count)
 	}
