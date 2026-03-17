@@ -222,7 +222,9 @@ func (as *AncientStore) MigrateFromDB(db Database, start, end uint64) (uint64, e
 				return migrated, err
 			}
 		}
-		_ = DeleteHeader(db, num, hash)
+		// Keep headerNumberKey(hash) so hash-based lookups still resolve
+		// the block number and can fall back to AncientStore for data.
+		_ = DeleteHeaderData(db, num, hash)
 		_ = DeleteBody(db, num, hash)
 		_ = DeleteReceipts(db, num, hash)
 		migrated++

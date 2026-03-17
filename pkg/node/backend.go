@@ -96,23 +96,15 @@ func (b *nodeBackend) HeaderByNumber(number rpc.BlockNumber) *types.Header {
 		}
 		return nil
 	case rpc.FinalizedBlockNumber:
-		if b.node.engBackend != nil {
-			if h := b.node.engBackend.GetFinalizedHash(); h != (types.Hash{}) {
-				blk := bc.GetBlock(h)
-				if blk != nil {
-					return blk.Header()
-				}
-			}
+		// Use the in-memory pointer directly — bc.GetBlock would fail after
+		// the AncientStore migration removes the block from the live DB.
+		if blk := bc.CurrentFinalBlock(); blk != nil {
+			return blk.Header()
 		}
 		return nil
 	case rpc.SafeBlockNumber:
-		if b.node.engBackend != nil {
-			if h := b.node.engBackend.GetSafeHash(); h != (types.Hash{}) {
-				blk := bc.GetBlock(h)
-				if blk != nil {
-					return blk.Header()
-				}
-			}
+		if blk := bc.CurrentSafeBlock(); blk != nil {
+			return blk.Header()
 		}
 		return nil
 	default:
