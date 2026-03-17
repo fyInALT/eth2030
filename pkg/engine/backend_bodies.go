@@ -12,9 +12,9 @@ import (
 func (b *EngineBackend) GetHeadHash() types.Hash {
 	hash, err := b.getActorHeadHash()
 	if err != nil {
-		// Fallback to mutex for compatibility during migration.
-		b.mu.RLock()
-		defer b.mu.RUnlock()
+		// Fallback to stateMu for compatibility during migration.
+		b.stateMu.RLock()
+		defer b.stateMu.RUnlock()
 		return b.headHash
 	}
 	return hash
@@ -24,8 +24,8 @@ func (b *EngineBackend) GetHeadHash() types.Hash {
 func (b *EngineBackend) GetSafeHash() types.Hash {
 	hash, err := b.getActorSafeHash()
 	if err != nil {
-		b.mu.RLock()
-		defer b.mu.RUnlock()
+		b.stateMu.RLock()
+		defer b.stateMu.RUnlock()
 		return b.safeHash
 	}
 	return hash
@@ -35,8 +35,8 @@ func (b *EngineBackend) GetSafeHash() types.Hash {
 func (b *EngineBackend) GetFinalizedHash() types.Hash {
 	hash, err := b.getActorFinalHash()
 	if err != nil {
-		b.mu.RLock()
-		defer b.mu.RUnlock()
+		b.stateMu.RLock()
+		defer b.stateMu.RUnlock()
 		return b.finalHash
 	}
 	return hash
@@ -45,12 +45,17 @@ func (b *EngineBackend) GetFinalizedHash() types.Hash {
 // GetPayloadBodiesByHash returns payload bodies for the given block hashes.
 // Entries for unknown or out-of-retention-window blocks are nil.
 // Implements backendapi.PayloadBodiesBackend.
+// P1: Uses fine-grained locks for better concurrency.
 func (b *EngineBackend) GetPayloadBodiesByHash(hashes []types.Hash) ([]*enginepayload.ExecutionPayloadBodyV2, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.stateMu.RLock()
+	headHash := b.headHash
+	b.stateMu.RUnlock()
+
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
 
 	headNum := uint64(0)
-	if head, ok := b.blocks[b.headHash]; ok {
+	if head, ok := b.blocks[headHash]; ok {
 		headNum = head.NumberU64()
 	}
 
@@ -74,12 +79,17 @@ func (b *EngineBackend) GetPayloadBodiesByHash(hashes []types.Hash) ([]*enginepa
 // GetPayloadBodiesByRange returns payload bodies for count blocks starting at start.
 // Entries outside the retention window are nil.
 // Implements backendapi.PayloadBodiesBackend.
+// P1: Uses fine-grained locks for better concurrency.
 func (b *EngineBackend) GetPayloadBodiesByRange(start, count uint64) ([]*enginepayload.ExecutionPayloadBodyV2, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.stateMu.RLock()
+	headHash := b.headHash
+	b.stateMu.RUnlock()
+
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
 
 	headNum := uint64(0)
-	if head, ok := b.blocks[b.headHash]; ok {
+	if head, ok := b.blocks[headHash]; ok {
 		headNum = head.NumberU64()
 	}
 

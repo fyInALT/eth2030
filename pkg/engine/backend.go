@@ -62,26 +62,46 @@ type EngineBackendConfig struct {
 
 // EngineBackend is the execution-layer backend that connects the Engine API
 // to the block builder and state processor.
+// P1: Refactored to use fine-grained locks for better concurrency.
 type EngineBackend struct {
-	mu            sync.RWMutex
-	config        *coreconfig.ChainConfig
-	statedb       state.StateDB
-	processor     *execution.StateProcessor
-	blocks        map[types.Hash]*types.Block
-	bals          map[types.Hash]*bal.BlockAccessList // stored BALs for getPayloadBodiesV2
-	ils           []*types.InclusionList              // received via engine_newInclusionListV1
-	headHash      types.Hash
-	safeHash      types.Hash
-	finalHash     types.Hash
-	payloads      map[PayloadID]*pendingPayload
-	payloadOrder  []PayloadID // insertion order for payload LRU eviction
-	nextPayloadID atomic.Uint64
-	maxPayloads   int // configurable cap; set from EngineBackendConfig
-	maxILs        int // configurable cap; set from EngineBackendConfig
+	// P1: Fine-grained locks for better concurrency.
+	// stateMu protects forkchoice state (headHash, safeHash, finalHash).
+	stateMu sync.RWMutex
+	// blocksMu protects blocks, bals, numberIndex.
+	blocksMu sync.RWMutex
+	// payloadMu protects payloads, payloadOrder.
+	payloadMu sync.RWMutex
+	// ilMu protects inclusion lists.
+	ilMu sync.RWMutex
 
-	// numberIndex is a reverse index from block number to block hash.
-	// Used by GetPayloadBodiesByRange for O(1) lookup instead of O(n) scan.
-	numberIndex map[uint64]types.Hash // protected by mu
+	config    *coreconfig.ChainConfig
+	statedb   state.StateDB
+	processor *execution.StateProcessor
+	// parallelProcessor executes transactions in parallel using BAL (EIP-7928).
+	parallelProcessor *execution.ParallelProcessor
+	// parallelEnabled controls whether parallel execution is used.
+	parallelEnabled bool
+
+	// Forkchoice state - protected by stateMu.
+	headHash  types.Hash
+	safeHash  types.Hash
+	finalHash types.Hash
+
+	// Block storage - protected by blocksMu.
+	blocks      map[types.Hash]*types.Block
+	bals        map[types.Hash]*bal.BlockAccessList // stored BALs for getPayloadBodiesV2
+	numberIndex map[uint64]types.Hash               // reverse index: block number -> hash
+
+	// Payload storage - protected by payloadMu.
+	payloads     map[PayloadID]*pendingPayload
+	payloadOrder []PayloadID // insertion order for payload LRU eviction
+	maxPayloads  int         // configurable cap; set from EngineBackendConfig
+
+	// Inclusion lists - protected by ilMu.
+	ils    []*types.InclusionList // received via engine_newInclusionListV1
+	maxILs int                    // configurable cap; set from EngineBackendConfig
+
+	nextPayloadID atomic.Uint64
 
 	// Actor-based state management (Phase 6 of engine-channel-refactor).
 	// Actors run concurrently and handle state without locks.
@@ -92,6 +112,19 @@ type EngineBackend struct {
 
 	// actorTimeout is the timeout for actor operations.
 	actorTimeout time.Duration
+
+	// asyncBuilder handles asynchronous payload building.
+	// This allows FCU to return quickly without waiting for payload completion.
+	asyncBuilder *enginepayload.AsyncBuilder
+
+	// asyncPayloads tracks payloads being built asynchronously.
+	asyncPayloadsMu   sync.RWMutex
+	asyncPayloads     map[PayloadID]*enginepayload.PendingPayload
+	asyncPayloadOrder []PayloadID // insertion order for LRU eviction
+
+	// cleanupStopCh signals the cleanup goroutine to stop.
+	cleanupStopCh chan struct{}
+	cleanupWg     sync.WaitGroup
 }
 
 // NewEngineBackend creates a new Engine API backend with default memory limits.
@@ -109,17 +142,20 @@ func NewEngineBackendWithConfig(config *coreconfig.ChainConfig, statedb state.St
 		cfg.MaxILs = defaultMaxILs
 	}
 	b := &EngineBackend{
-		config:       config,
-		statedb:      statedb,
-		processor:    execution.NewStateProcessor(config),
-		blocks:       make(map[types.Hash]*types.Block),
-		bals:         make(map[types.Hash]*bal.BlockAccessList),
-		payloads:     make(map[PayloadID]*pendingPayload),
-		maxPayloads:  cfg.MaxPayloads,
-		maxILs:       cfg.MaxILs,
-		numberIndex:  make(map[uint64]types.Hash),
-		actorCtx:     context.Background(),
-		actorTimeout: actor.DefaultTimeout,
+		config:            config,
+		statedb:           statedb,
+		processor:         execution.NewStateProcessor(config),
+		parallelProcessor: execution.NewParallelProcessor(config),
+		parallelEnabled:   true, // Enable by default for EIP-7928 blocks
+		blocks:            make(map[types.Hash]*types.Block),
+		bals:              make(map[types.Hash]*bal.BlockAccessList),
+		payloads:          make(map[PayloadID]*pendingPayload),
+		maxPayloads:       cfg.MaxPayloads,
+		maxILs:            cfg.MaxILs,
+		numberIndex:       make(map[uint64]types.Hash),
+		actorCtx:          context.Background(),
+		actorTimeout:      actor.DefaultTimeout,
+		asyncPayloads:     make(map[PayloadID]*enginepayload.PendingPayload),
 	}
 	if genesis != nil {
 		h := genesis.Hash()
@@ -131,27 +167,114 @@ func NewEngineBackendWithConfig(config *coreconfig.ChainConfig, statedb state.St
 	}
 	// Initialize actors for concurrent state management.
 	b.actors = actor.NewEngineActors(b.actorCtx, b.maxPayloads, b.maxILs)
+
+	// Initialize async payload builder (P0 improvement: async payload building).
+	b.asyncBuilder = enginepayload.NewAsyncBuilder(config, nil, enginepayload.AsyncBuilderConfig{
+		Workers:    2,
+		Timeout:    30 * time.Second,
+		MaxPending: cfg.MaxPayloads,
+	})
+	b.asyncBuilder.Start()
+
+	// Start cleanup goroutine for failed async payloads.
+	b.cleanupStopCh = make(chan struct{})
+	b.cleanupWg.Add(1)
+	go b.asyncPayloadsCleanupLoop()
+
 	return b
 }
 
 // Close gracefully stops all actors and releases resources.
 func (b *EngineBackend) Close() {
+	// Stop cleanup goroutine first.
+	if b.cleanupStopCh != nil {
+		close(b.cleanupStopCh)
+		b.cleanupWg.Wait()
+	}
+
 	b.actorMu.Lock()
 	defer b.actorMu.Unlock()
+	if b.asyncBuilder != nil {
+		b.asyncBuilder.Stop()
+	}
 	if b.actors != nil {
 		b.actors.Stop()
 		b.actors = nil
 	}
 }
 
+// asyncPayloadsCleanupLoop periodically removes failed async payloads
+// to prevent memory leaks from accumulated failed builds.
+func (b *EngineBackend) asyncPayloadsCleanupLoop() {
+	defer b.cleanupWg.Done()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.cleanupStopCh:
+			return
+		case <-ticker.C:
+			b.cleanupFailedAsyncPayloads()
+		}
+	}
+}
+
+// cleanupFailedAsyncPayloads removes failed payloads from asyncPayloads.
+// It also removes completed payloads that are not in use.
+func (b *EngineBackend) cleanupFailedAsyncPayloads() {
+	b.asyncPayloadsMu.Lock()
+	defer b.asyncPayloadsMu.Unlock()
+
+	var toRemove []PayloadID
+	for id, pending := range b.asyncPayloads {
+		status := pending.Status()
+		// Remove failed or completed payloads that are not in use
+		if status == enginepayload.BuildStatusFailed ||
+			(status == enginepayload.BuildStatusCompleted && !pending.InUse()) {
+			toRemove = append(toRemove, id)
+		}
+	}
+
+	for _, id := range toRemove {
+		delete(b.asyncPayloads, id)
+		// Remove from order slice
+		for i, oid := range b.asyncPayloadOrder {
+			if oid == id {
+				b.asyncPayloadOrder = append(b.asyncPayloadOrder[:i], b.asyncPayloadOrder[i+1:]...)
+				break
+			}
+		}
+	}
+
+	if len(toRemove) > 0 {
+		backendLog.Debug("async_payloads_cleanup",
+			"event", "async_payloads_cleanup",
+			"removed", len(toRemove),
+			"remaining", len(b.asyncPayloads),
+		)
+	}
+}
+
 // evictOldBlocks removes block entries that are more than 64 blocks behind the
-// current head from b.blocks and b.bals. Must be called with b.mu held.
+// current head from b.blocks and b.bals. Must be called with blocksMu held.
 func (b *EngineBackend) evictOldBlocks() {
-	head, ok := b.blocks[b.headHash]
+	b.stateMu.RLock()
+	headHash := b.headHash
+	b.stateMu.RUnlock()
+
+	b.blocksMu.RLock()
+	head, ok := b.blocks[headHash]
+	b.blocksMu.RUnlock()
+
 	if !ok || head.NumberU64() < 64 {
 		return
 	}
 	cutoff := head.NumberU64() - 64
+
+	b.blocksMu.Lock()
+	defer b.blocksMu.Unlock()
 	for hash, blk := range b.blocks {
 		if blk.NumberU64() < cutoff {
 			delete(b.numberIndex, blk.NumberU64())
@@ -162,7 +285,7 @@ func (b *EngineBackend) evictOldBlocks() {
 }
 
 // evictOldestPayload removes the oldest pending payload when the map exceeds
-// b.maxPayloads. Must be called with b.mu held.
+// b.maxPayloads. Must be called with payloadMu held.
 func (b *EngineBackend) evictOldestPayload() {
 	for len(b.payloads) > b.maxPayloads {
 		if len(b.payloadOrder) == 0 {
@@ -192,7 +315,7 @@ func (b *EngineBackend) ProcessBlock(
 		"timestamp", payload.Timestamp,
 	)
 
-	blk, err := payloadToBlock(payload)
+	blk, err := payloadToBlock(payload, parentBeaconBlockRoot)
 	if err != nil {
 		errMsg := err.Error()
 		backendLog.Warn("payload_invalid",
@@ -209,7 +332,9 @@ func (b *EngineBackend) ProcessBlock(
 	}
 
 	// Validate block hash: the hash computed from the header fields must match
-	// the blockHash provided in the payload.
+	// the blockHash provided in the payload. This validation ensures that the
+	// CL's block hash calculation (which includes TxHash, WithdrawalsHash,
+	// ParentBeaconRoot, etc.) matches what we compute from the payload.
 	computedHash := blk.Hash()
 	if payload.BlockHash != (types.Hash{}) && computedHash != payload.BlockHash {
 		errMsg := fmt.Sprintf("block hash mismatch: computed %s, payload %s", computedHash, payload.BlockHash)
@@ -227,12 +352,14 @@ func (b *EngineBackend) ProcessBlock(
 		}, nil
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+	// P1: Use fine-grained locks instead of single b.mu.
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
-	if _, ok := b.blocks[parentHash]; !ok {
+	b.blocksMu.RLock()
+	parentBlock, parentOk := b.blocks[parentHash]
+	b.blocksMu.RUnlock()
+
+	if !parentOk {
 		backendLog.Debug("payload_syncing",
 			"event", "payload_syncing",
 			"blockHash", payload.BlockHash.Hex(),
@@ -243,7 +370,6 @@ func (b *EngineBackend) ProcessBlock(
 	}
 
 	// Validate timestamp progression: block timestamp must be > parent timestamp.
-	parentBlock := b.blocks[parentHash]
 	if parentBlock != nil && payload.Timestamp <= parentBlock.Header().Time {
 		errMsg := fmt.Sprintf("invalid timestamp: block %d <= parent %d", payload.Timestamp, parentBlock.Header().Time)
 		backendLog.Warn("payload_invalid",
@@ -281,9 +407,11 @@ func (b *EngineBackend) ProcessBlock(
 
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
+	b.blocksMu.Lock()
 	b.blocks[blockHash] = blk
 	b.numberIndex[blk.NumberU64()] = blockHash
 	b.evictOldBlocks()
+	b.blocksMu.Unlock()
 	b.statedb = stateCopy
 
 	// Dual-write to actors for migration.
@@ -319,10 +447,14 @@ func (b *EngineBackend) ProcessBlockV4(
 
 // GetHeadTimestamp returns the timestamp of the current head block.
 func (b *EngineBackend) GetHeadTimestamp() uint64 {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.stateMu.RLock()
+	headHash := b.headHash
+	b.stateMu.RUnlock()
 
-	if headBlock, ok := b.blocks[b.headHash]; ok {
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+
+	if headBlock, ok := b.blocks[headHash]; ok {
 		return headBlock.Header().Time
 	}
 	return 0
@@ -331,8 +463,8 @@ func (b *EngineBackend) GetHeadTimestamp() uint64 {
 // GetBlockTimestamp returns the timestamp of the block with the given hash,
 // or 0 if the block is not known.
 func (b *EngineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
 
 	if blk, ok := b.blocks[hash]; ok {
 		return blk.Header().Time
@@ -346,6 +478,7 @@ func (b *EngineBackend) IsCancun(timestamp uint64) bool {
 }
 
 // ForkchoiceUpdated processes a forkchoice state update from the CL.
+// P1: Uses fine-grained locks for better concurrency.
 func (b *EngineBackend) ForkchoiceUpdated(
 	fcState ForkchoiceStateV1,
 	attrs *PayloadAttributesV3,
@@ -359,12 +492,13 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		"hasAttrs", attrs != nil,
 	)
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+	// P1: Use fine-grained locks instead of single b.mu.
 	// Validate head block exists.
 	if fcState.HeadBlockHash != (types.Hash{}) {
-		if _, ok := b.blocks[fcState.HeadBlockHash]; !ok {
+		b.blocksMu.RLock()
+		_, ok := b.blocks[fcState.HeadBlockHash]
+		b.blocksMu.RUnlock()
+		if !ok {
 			backendLog.Debug("fcu_syncing",
 				"event", "fcu_syncing",
 				"head", fcState.HeadBlockHash.Hex(),
@@ -375,10 +509,12 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		}
 	}
 
-	// Update forkchoice pointers.
+	// Update forkchoice pointers with stateMu.
+	b.stateMu.Lock()
 	b.headHash = fcState.HeadBlockHash
 	b.safeHash = fcState.SafeBlockHash
 	b.finalHash = fcState.FinalizedBlockHash
+	b.stateMu.Unlock()
 
 	// Dual-write to actors for migration.
 	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
@@ -391,8 +527,16 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		backendLog.Debug("actor_final_update_failed", "error", err)
 	}
 
+	b.stateMu.RLock()
+	headHash := b.headHash
+	b.stateMu.RUnlock()
+
+	b.blocksMu.RLock()
+	headBlock, headOk := b.blocks[headHash]
+	b.blocksMu.RUnlock()
+
 	headNum := uint64(0)
-	if headBlock, ok := b.blocks[b.headHash]; ok {
+	if headOk {
 		headNum = headBlock.NumberU64()
 	}
 	backendLog.Info("fcu_updated",
@@ -411,7 +555,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 	result := ForkchoiceUpdatedResult{PayloadStatus: status}
 
-	// If payload attributes provided, start building a new payload.
+	// If payload attributes provided, start building a new payload asynchronously.
 	if attrs != nil {
 		if attrs.Timestamp == 0 {
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
@@ -429,8 +573,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
-		backendLog.Debug("payload_build_start",
-			"event", "payload_build_start",
+		backendLog.Debug("payload_build_queued",
+			"event", "payload_build_queued",
 			"payloadID", fmt.Sprintf("%x", id),
 			"parentHash", fcState.HeadBlockHash.Hex(),
 			"parentNum", parentBlock.NumberU64(),
@@ -438,65 +582,60 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			"feeRecipient", attrs.SuggestedFeeRecipient.Hex(),
 		)
 
-		// Build an empty block (no pending transactions from txpool yet).
-		builder := block.NewBlockBuilder(b.config, nil, nil)
-		builder.SetState(b.statedb.Dup())
-		parentHeader := parentBlock.Header()
-
-		blk, receipts, err := builder.BuildBlock(parentHeader, &block.BuildBlockAttributes{
-			Timestamp:    attrs.Timestamp,
-			FeeRecipient: attrs.SuggestedFeeRecipient,
-			Random:       attrs.PrevRandao,
-			GasLimit:     parentHeader.GasLimit,
-			Withdrawals:  WithdrawalsToCore(attrs.Withdrawals),
-		})
-		if err != nil {
-			backendLog.Error("payload_build_fail",
-				"event", "payload_build_fail",
-				"payloadID", fmt.Sprintf("%x", id),
-				"parentHash", fcState.HeadBlockHash.Hex(),
-				"error", err,
-			)
-			return ForkchoiceUpdatedResult{}, fmt.Errorf("payload build failed: %w", err)
+		// P0: Async payload building - queue the build and return immediately.
+		// This allows FCU to return quickly without waiting for payload completion.
+		if b.asyncBuilder == nil {
+			// Fallback: synchronous build if async builder not initialized.
+			backendLog.Warn("async_builder_nil", "event", "async_builder_nil")
+			return result, nil
 		}
 
-		backendLog.Debug("payload_build_done",
-			"event", "payload_build_done",
-			"payloadID", fmt.Sprintf("%x", id),
-			"blockHash", blk.Hash().Hex(),
-			"blockNum", blk.NumberU64(),
-			"txCount", len(blk.Transactions()),
-			"gasUsed", blk.Header().GasUsed,
-			"gasLimit", blk.Header().GasLimit,
-		)
-
-		b.payloads[id] = &pendingPayload{
-			block:        blk,
-			receipts:     receipts,
-			blockValue:   new(big.Int),
-			parentHash:   fcState.HeadBlockHash,
-			timestamp:    attrs.Timestamp,
-			feeRecipient: attrs.SuggestedFeeRecipient,
-			prevRandao:   attrs.PrevRandao,
-			withdrawals:  attrs.Withdrawals,
-		}
-		b.payloadOrder = append(b.payloadOrder, id)
-		b.evictOldestPayload()
-
-		// Dual-write to actors for migration.
-		actorPayload := &actor.PendingPayload{
-			Block:        blk,
-			Receipts:     receipts,
-			BlockValue:   new(big.Int),
-			ParentHash:   fcState.HeadBlockHash,
+		buildAttrs := &enginepayload.BuildAttributes{
 			Timestamp:    attrs.Timestamp,
 			FeeRecipient: attrs.SuggestedFeeRecipient,
 			PrevRandao:   attrs.PrevRandao,
-			Withdrawals:  withdrawalsToActor(attrs.Withdrawals),
+			GasLimit:     parentBlock.Header().GasLimit,
+			Withdrawals:  WithdrawalsToCore(attrs.Withdrawals),
 		}
-		if err := b.storeActorPayload(id, actorPayload); err != nil {
-			backendLog.Debug("actor_payload_store_failed", "error", err)
+
+		pending, queueErr := b.asyncBuilder.QueueBuild(
+			id,
+			fcState.HeadBlockHash,
+			parentBlock.Header(),
+			b.statedb,
+			buildAttrs,
+		)
+
+		// Log queue error but continue - the pending is still valid with failed status
+		if queueErr != nil {
+			backendLog.Warn("payload_queue_failed",
+				"event", "payload_queue_failed",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", queueErr,
+			)
+			// Don't set PayloadID since build failed to queue
+			return result, nil
 		}
+
+		// Store the pending payload for later retrieval.
+		b.asyncPayloadsMu.Lock()
+		b.asyncPayloads[id] = pending
+		b.asyncPayloadOrder = append(b.asyncPayloadOrder, id)
+		// Evict oldest async payloads if over limit (FIFO eviction).
+		// Skip payloads that are currently in use to prevent premature eviction.
+		for len(b.asyncPayloads) > b.maxPayloads && len(b.asyncPayloadOrder) > 0 {
+			oldest := b.asyncPayloadOrder[0]
+			b.asyncPayloadOrder = b.asyncPayloadOrder[1:]
+			// Check if the payload is in use before evicting
+			if p, ok := b.asyncPayloads[oldest]; ok && p.InUse() {
+				// Put it back at the end of the order, try next one
+				b.asyncPayloadOrder = append(b.asyncPayloadOrder, oldest)
+				continue
+			}
+			delete(b.asyncPayloads, oldest)
+			break
+		}
+		b.asyncPayloadsMu.Unlock()
 
 		result.PayloadID = &id
 	}
@@ -505,8 +644,69 @@ func (b *EngineBackend) ForkchoiceUpdated(
 }
 
 // GetPayloadByID retrieves a previously built payload by its ID.
+// P0: Supports async payload building - waits for completion if still building.
+// P2: Uses reference counting to prevent premature eviction during Wait.
 func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error) {
-	// Try actor first.
+	// P0: Check async payloads first (supports in-progress builds).
+	b.asyncPayloadsMu.RLock()
+	asyncPending, asyncOk := b.asyncPayloads[id]
+	// P2: Acquire reference to prevent eviction during Wait
+	if asyncOk && asyncPending != nil {
+		if !asyncPending.Acquire() {
+			b.asyncPayloadsMu.RUnlock()
+			// Payload was already released, fall through to check other sources
+			asyncOk = false
+		}
+	}
+	b.asyncPayloadsMu.RUnlock()
+
+	if asyncOk && asyncPending != nil {
+		// Ensure we release the reference when done
+		defer asyncPending.Release()
+
+		// Wait for build to complete with timeout.
+		result, err := asyncPending.Wait(8 * time.Second)
+		if err != nil {
+			backendLog.Warn("payload_build_timeout",
+				"event", "payload_build_timeout",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", err,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusFailed {
+			backendLog.Error("payload_build_failed",
+				"event", "payload_build_failed",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", result.Error,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
+			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
+			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+			ep := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+
+			backendLog.Debug("payload_get",
+				"event", "payload_get",
+				"payloadID", fmt.Sprintf("%x", id),
+				"blockHash", result.Block.Hash().Hex(),
+				"blockNum", result.Block.NumberU64(),
+				"txCount", len(result.Block.Transactions()),
+				"source", "async",
+			)
+
+			return &GetPayloadResponse{
+				ExecutionPayload: ep,
+				BlockValue:       result.BlockValue,
+				BlobsBundle:      collectBlobsBundleV1(result.Block.Transactions()),
+			}, nil
+		}
+	}
+
+	// Try actor next.
 	actorPayload, err := b.getActorPayload(id)
 	if err == nil && actorPayload != nil {
 		// Convert actor.PendingPayload to response.
@@ -537,9 +737,9 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 		}, nil
 	}
 
-	// Fallback to mutex.
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	// Fallback to mutex-protected payloads.
+	b.payloadMu.RLock()
+	defer b.payloadMu.RUnlock()
 
 	pending, ok := b.payloads[id]
 	if !ok {
@@ -578,11 +778,10 @@ func (b *EngineBackend) generatePayloadID(parentHash types.Hash, timestamp uint6
 }
 
 // payloadToBlock converts an ExecutionPayloadV3 to a types.Block.
-func payloadToBlock(payload *ExecutionPayloadV3) (*types.Block, error) {
-	// Use the existing PayloadToHeader helper (which takes V4).
-	v4 := &ExecutionPayloadV4{ExecutionPayloadV3: *payload}
-	header := PayloadToHeader(v4)
-
+// IMPORTANT: This function computes the correct TxHash, WithdrawalsHash, and
+// sets ParentBeaconRoot from the provided parameter. These fields are required
+// for the block hash to match what the CL computes.
+func payloadToBlock(payload *ExecutionPayloadV3, parentBeaconBlockRoot types.Hash) (*types.Block, error) {
 	// Decode transactions.
 	txs := make([]*types.Transaction, len(payload.Transactions))
 	for i, enc := range payload.Transactions {
@@ -593,17 +792,60 @@ func payloadToBlock(payload *ExecutionPayloadV3) (*types.Block, error) {
 		txs = append(txs[:i], tx)
 	}
 
+	// Compute transactions root from decoded transactions.
+	// This matches the CL's ordered_trie_root computation.
+	txsRoot := block.DeriveTxsRoot(txs)
+
 	// Convert withdrawals.
 	var withdrawals []*types.Withdrawal
 	if payload.Withdrawals != nil {
 		withdrawals = WithdrawalsToCore(payload.Withdrawals)
 	}
 
-	block := types.NewBlock(header, &types.Body{
+	// Compute withdrawals root.
+	// This matches the CL's ordered_trie_root computation for withdrawals.
+	var withdrawalsHash *types.Hash
+	if len(withdrawals) > 0 {
+		wr := block.DeriveWithdrawalsRoot(withdrawals)
+		withdrawalsHash = &wr
+	}
+
+	// Build header with all required fields for correct block hash.
+	blobGasUsed := payload.BlobGasUsed
+	excessBlobGas := payload.ExcessBlobGas
+	header := &types.Header{
+		ParentHash:    payload.ParentHash,
+		UncleHash:     types.EmptyUncleHash,
+		Coinbase:      payload.FeeRecipient,
+		Root:          payload.StateRoot,
+		TxHash:        txsRoot, // Computed from transactions
+		ReceiptHash:   payload.ReceiptsRoot,
+		Bloom:         payload.LogsBloom,
+		Difficulty:    new(big.Int),
+		Number:        new(big.Int).SetUint64(payload.BlockNumber),
+		GasLimit:      payload.GasLimit,
+		GasUsed:       payload.GasUsed,
+		Time:          payload.Timestamp,
+		Extra:         payload.ExtraData,
+		MixDigest:     payload.PrevRandao,
+		BaseFee:       payload.BaseFeePerGas,
+		BlobGasUsed:   &blobGasUsed,
+		ExcessBlobGas: &excessBlobGas,
+		// Post-Shanghai fields
+		WithdrawalsHash: withdrawalsHash,
+	}
+
+	// Post-Cancun fields (EIP-4788): only set if non-zero.
+	// Per consensus spec, parent_beacon_block_root is optional in the header
+	// and should only be included when present (non-zero).
+	if parentBeaconBlockRoot != (types.Hash{}) {
+		header.ParentBeaconRoot = &parentBeaconBlockRoot
+	}
+
+	return types.NewBlock(header, &types.Body{
 		Transactions: txs,
 		Withdrawals:  withdrawals,
-	})
-	return block, nil
+	}), nil
 }
 
 // restoreCalldataGasFields recomputes CalldataGasUsed and CalldataExcessGas
@@ -669,7 +911,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	)
 
 	// First, process the block through the standard path.
-	blk, err := payloadToBlock(&payload.ExecutionPayloadV3)
+	blk, err := payloadToBlock(&payload.ExecutionPayloadV3, parentBeaconBlockRoot)
 	if err != nil {
 		errMsg := err.Error()
 		backendLog.Warn("payload_invalid",
@@ -685,12 +927,14 @@ func (b *EngineBackend) ProcessBlockV5(
 		}, nil
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+	// P1: Use fine-grained locks instead of single b.mu.
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
-	if _, ok := b.blocks[parentHash]; !ok {
+	b.blocksMu.RLock()
+	parentBlock, parentOk := b.blocks[parentHash]
+	b.blocksMu.RUnlock()
+
+	if !parentOk {
 		backendLog.Debug("payload_syncing",
 			"event", "payload_syncing",
 			"version", "V5",
@@ -705,7 +949,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	// (EIP-7706) but not included in ExecutionPayloadV5. We recompute them
 	// from the block's transactions and the parent's calldata gas state.
 	if b.config != nil && b.config.IsGlamsterdan(blk.Header().Time) {
-		blk = restoreCalldataGasFields(blk, b.blocks[parentHash], payload.BlockHash)
+		blk = restoreCalldataGasFields(blk, parentBlock, payload.BlockHash)
 	}
 
 	// Run through the state processor with BAL computation.
@@ -765,7 +1009,11 @@ func (b *EngineBackend) ProcessBlockV5(
 	}
 
 	// EIP-7805: check IL satisfaction against block and stored ILs.
-	if len(b.ils) > 0 {
+	b.ilMu.RLock()
+	ilsLen := len(b.ils)
+	b.ilMu.RUnlock()
+
+	if ilsLen > 0 {
 		ils := b.ilsAsFocil()
 		gasRemaining := blk.GasLimit() - blk.GasUsed()
 		if result := focilCheckILSatisfaction(blk, ils, gasRemaining); !result {
@@ -784,6 +1032,7 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
+	b.blocksMu.Lock()
 	b.blocks[blockHash] = blk
 	b.numberIndex[blk.NumberU64()] = blockHash
 	// Store BAL for engine_getPayloadBodiesByHashV2.
@@ -791,6 +1040,7 @@ func (b *EngineBackend) ProcessBlockV5(
 		b.bals[blockHash] = result.BlockAccessList
 	}
 	b.evictOldBlocks()
+	b.blocksMu.Unlock()
 	b.statedb = stateCopy
 
 	// Dual-write to actors for migration.
@@ -800,7 +1050,9 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	// ILs are slot-scoped: once a block is accepted, the ILs for that slot
 	// are consumed. Clear them to prevent unbounded growth across slots.
+	b.ilMu.Lock()
 	b.ils = b.ils[:0]
+	b.ilMu.Unlock()
 
 	// Clear actor ILs as well.
 	if err := b.clearActorInclusionLists(); err != nil {
@@ -823,16 +1075,17 @@ func (b *EngineBackend) ProcessBlockV5(
 }
 
 // ForkchoiceUpdatedV4 processes a forkchoice update with V4 payload attributes (Amsterdam).
+// P1: Uses fine-grained locks for better concurrency.
 func (b *EngineBackend) ForkchoiceUpdatedV4(
 	fcState ForkchoiceStateV1,
 	attrs *PayloadAttributesV4,
 ) (ForkchoiceUpdatedResult, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	// Validate head block exists.
 	if fcState.HeadBlockHash != (types.Hash{}) {
-		if _, ok := b.blocks[fcState.HeadBlockHash]; !ok {
+		b.blocksMu.RLock()
+		_, ok := b.blocks[fcState.HeadBlockHash]
+		b.blocksMu.RUnlock()
+		if !ok {
 			return ForkchoiceUpdatedResult{
 				PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
 			}, nil
@@ -840,9 +1093,12 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 	}
 
 	// Update forkchoice pointers (per spec: must NOT be rolled back on attribute errors).
+	b.stateMu.Lock()
 	b.headHash = fcState.HeadBlockHash
 	b.safeHash = fcState.SafeBlockHash
 	b.finalHash = fcState.FinalizedBlockHash
+	headHash := b.headHash
+	b.stateMu.Unlock()
 
 	// Dual-write to actors for migration.
 	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
@@ -857,7 +1113,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 	status := PayloadStatusV1{
 		Status:          StatusValid,
-		LatestValidHash: &b.headHash,
+		LatestValidHash: &headHash,
 	}
 
 	result := ForkchoiceUpdatedResult{PayloadStatus: status}
@@ -869,7 +1125,10 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
+		b.blocksMu.RLock()
 		parentBlock := b.blocks[fcState.HeadBlockHash]
+		b.blocksMu.RUnlock()
+
 		if parentBlock == nil {
 			return ForkchoiceUpdatedResult{}, ErrInvalidForkchoiceState
 		}
@@ -905,6 +1164,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			}
 		}
 
+		b.payloadMu.Lock()
 		b.payloads[id] = &pendingPayload{
 			block:        blk,
 			receipts:     receipts,
@@ -918,6 +1178,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		}
 		b.payloadOrder = append(b.payloadOrder, id)
 		b.evictOldestPayload()
+		b.payloadMu.Unlock()
 
 		// Dual-write to actors for migration.
 		actorPayload := &actor.PendingPayload{
@@ -943,8 +1204,48 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 // GetPayloadV4ByID retrieves a previously built payload for getPayloadV4 (Prague).
 func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	// P0: Check async payloads first (supports in-progress builds).
+	b.asyncPayloadsMu.RLock()
+	asyncPending, asyncOk := b.asyncPayloads[id]
+	b.asyncPayloadsMu.RUnlock()
+
+	if asyncOk {
+		// Wait for build to complete with timeout.
+		result, err := asyncPending.Wait(8 * time.Second)
+		if err != nil {
+			backendLog.Warn("payload_build_timeout",
+				"event", "payload_build_timeout",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", err,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusFailed {
+			backendLog.Error("payload_build_failed",
+				"event", "payload_build_failed",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", result.Error,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
+			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
+			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+			ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+			return &GetPayloadV4Response{
+				ExecutionPayload:  &ep4.ExecutionPayloadV3,
+				BlockValue:        result.BlockValue,
+				BlobsBundle:       collectBlobsBundleV1(result.Block.Transactions()),
+				ExecutionRequests: [][]byte{},
+			}, nil
+		}
+	}
+
+	// Fallback to mutex-protected payloads.
+	b.payloadMu.RLock()
+	defer b.payloadMu.RUnlock()
 
 	pending, ok := b.payloads[id]
 	if !ok {
@@ -966,8 +1267,48 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 // accounting. Per-frame results are available via FrameTxReceipt if needed by
 // downstream consumers (e.g., block explorers).
 func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	// P0: Check async payloads first (supports in-progress builds).
+	b.asyncPayloadsMu.RLock()
+	asyncPending, asyncOk := b.asyncPayloads[id]
+	b.asyncPayloadsMu.RUnlock()
+
+	if asyncOk {
+		// Wait for build to complete with timeout.
+		result, err := asyncPending.Wait(8 * time.Second)
+		if err != nil {
+			backendLog.Warn("payload_build_timeout",
+				"event", "payload_build_timeout",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", err,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusFailed {
+			backendLog.Error("payload_build_failed",
+				"event", "payload_build_failed",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", result.Error,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
+			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
+			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+			ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL)
+			return &GetPayloadV6Response{
+				ExecutionPayload:  ep5,
+				BlockValue:        result.BlockValue,
+				BlobsBundle:       collectBlobsBundle(result.Block.Transactions()),
+				ExecutionRequests: [][]byte{},
+			}, nil
+		}
+	}
+
+	// Fallback to mutex-protected payloads.
+	b.payloadMu.RLock()
+	defer b.payloadMu.RUnlock()
 
 	pending, ok := b.payloads[id]
 	if !ok {
@@ -1059,9 +1400,10 @@ func (b *EngineBackend) IsAmsterdam(timestamp uint64) bool {
 
 // ProcessInclusionList validates and stores a new inclusion list from the CL.
 // Implements InclusionListBackend.
+// P1: Uses fine-grained lock for IL storage.
 func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.ilMu.Lock()
+	defer b.ilMu.Unlock()
 	b.ils = append(b.ils, il)
 	// Bound the IL slice: drop oldest entries beyond b.maxILs.
 	if len(b.ils) > b.maxILs {
@@ -1083,7 +1425,11 @@ func (b *EngineBackend) GetInclusionList() *types.InclusionList {
 }
 
 // ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.
+// P1: Caller must hold ilMu or ensure thread-safe access.
 func (b *EngineBackend) ilsAsFocil() []*focil.InclusionList {
+	b.ilMu.RLock()
+	defer b.ilMu.RUnlock()
+
 	result := make([]*focil.InclusionList, len(b.ils))
 	for i, il := range b.ils {
 		entries := make([]focil.InclusionListEntry, len(il.Transactions))

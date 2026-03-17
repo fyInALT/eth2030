@@ -102,11 +102,11 @@ func TestProcessValidBlock(t *testing.T) {
 	}
 
 	// Check block was stored.
-	b.mu.RLock()
+	b.blocksMu.RLock()
 	if len(b.blocks) != 2 {
 		t.Errorf("expected 2 blocks, got %d", len(b.blocks))
 	}
-	b.mu.RUnlock()
+	b.blocksMu.RUnlock()
 }
 
 func TestForkchoiceUpdated(t *testing.T) {
@@ -201,12 +201,11 @@ func TestForkchoiceWithPayloadAttributes(t *testing.T) {
 		t.Fatal("expected non-nil PayloadID")
 	}
 
-	// Verify payload was stored.
-	b.mu.RLock()
-	_, ok := b.payloads[*result.PayloadID]
-	b.mu.RUnlock()
-	if !ok {
-		t.Error("payload not stored in backend")
+	// Verify payload was stored (async build, so wait for completion).
+	// Use GetPayloadByID which handles async build completion.
+	_, err = b.GetPayloadByID(*result.PayloadID)
+	if err != nil {
+		t.Errorf("payload not available after build: %v", err)
 	}
 }
 

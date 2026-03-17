@@ -12,11 +12,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/backendapi"
 	"github.com/eth2030/eth2030/engine/blobval"
 	"github.com/eth2030/eth2030/engine/payload"
+	"github.com/eth2030/eth2030/metrics"
 )
 
 // Backend is a type alias — canonical definition in engine/backendapi.
@@ -32,6 +34,8 @@ type EngineAPI struct {
 	ethHandler      http.Handler // optional: handles non-engine_ methods (eth_, web3_, net_)
 	authSecret      string
 	maxRequestSize  int64
+	requestTimeout  time.Duration    // P0: configurable request timeout (default 8s)
+	priorityHandler *PriorityHandler // P2: tracks request priorities
 	mu              sync.Mutex
 }
 
@@ -42,6 +46,8 @@ func NewEngineAPI(backend Backend) *EngineAPI {
 		builderRegistry: NewBuilderRegistry(),
 		blobValidator:   blobval.NewBlobValidator(),
 		maxRequestSize:  5 * 1024 * 1024,
+		requestTimeout:  8 * time.Second,      // P0: default 8s timeout
+		priorityHandler: NewPriorityHandler(), // P2: priority tracking
 	}
 }
 
@@ -62,6 +68,14 @@ func (api *EngineAPI) SetMaxRequestSize(bytes int64) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	api.maxRequestSize = bytes
+}
+
+// SetRequestTimeout sets the timeout for Engine API requests.
+// A non-positive value disables timeout (not recommended for production).
+func (api *EngineAPI) SetRequestTimeout(timeout time.Duration) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.requestTimeout = timeout
 }
 
 // NewPayloadV3 validates and executes a new Cancun/Deneb payload.
@@ -386,6 +400,8 @@ func (api *EngineAPI) Stop() error {
 }
 
 // httpHandler handles incoming HTTP requests and dispatches them as JSON-RPC.
+// P0: Implements request timeout protection to prevent CL-EL cascade failures.
+// P2: Tracks request priorities for monitoring and potential scheduling.
 func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 	if !api.authorizedRequest(r) {
 		w.Header().Set("Content-Type", "application/json")
@@ -401,6 +417,7 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	api.mu.Lock()
 	maxRequestSize := api.maxRequestSize
+	requestTimeout := api.requestTimeout
 	api.mu.Unlock()
 	if r.ContentLength > maxRequestSize {
 		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
@@ -418,6 +435,17 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// P2: Determine request priority from method name.
+	var peek struct {
+		Method string `json:"method"`
+	}
+	priority := PriorityNormal
+	if json.Unmarshal(body, &peek) == nil {
+		priority = MethodPriority(peek.Method)
+	}
+	api.priorityHandler.StartRequest(priority)
+	defer api.priorityHandler.EndRequest(priority)
+
 	// Forward non-engine_ methods (eth_, web3_, net_, admin_) to the eth handler
 	// if one has been registered. Per the Engine API spec, the authenticated
 	// endpoint must also serve eth_syncing, eth_getBlockByNumber, etc.
@@ -426,10 +454,7 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 	api.mu.Unlock()
 
 	if ethH != nil {
-		var peek struct {
-			Method string `json:"method"`
-		}
-		if json.Unmarshal(body, &peek) == nil && !strings.HasPrefix(peek.Method, "engine_") {
+		if peek.Method != "" && !strings.HasPrefix(peek.Method, "engine_") {
 			r2 := r.Clone(r.Context())
 			r2.Body = io.NopCloser(bytes.NewReader(body))
 			ethH.ServeHTTP(w, r2)
@@ -437,10 +462,50 @@ func (api *EngineAPI) httpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp := api.HandleRequest(body)
+	// P0: Handle request with timeout protection.
+	if requestTimeout <= 0 {
+		// No timeout - direct handling (not recommended for production).
+		resp := api.HandleRequest(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resp)
+		return
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	// Use channel-based timeout for async handling.
+	type result struct {
+		data []byte
+		err  error
+	}
+	resultCh := make(chan result, 1)
+
+	go func() {
+		defer close(resultCh)
+		resp := api.HandleRequest(body)
+		resultCh <- result{data: resp}
+	}()
+
+	select {
+	case res := <-resultCh:
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(res.data)
+	case <-time.After(requestTimeout):
+		// P0: Return timeout error response.
+		// Per Engine API spec, CL should retry on timeout.
+		metrics.EngineRequestTimeoutTotal.Inc()
+		engineLog.Warn("engine_request_timeout",
+			"event", "engine_request_timeout",
+			"timeout_ms", requestTimeout.Milliseconds(),
+		)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		resp := []byte(`{"jsonrpc":"2.0","error":{"code":-32603,"message":"request timeout"},"id":null}`)
+		w.Write(resp)
+	case <-r.Context().Done():
+		// Client disconnected.
+		engineLog.Debug("engine_request_cancelled",
+			"event", "engine_request_cancelled",
+		)
+	}
 }
 
 func (api *EngineAPI) authorizedRequest(r *http.Request) bool {
