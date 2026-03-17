@@ -57,31 +57,37 @@ func TestStateCache_Isolation(t *testing.T) {
 	}
 }
 
+// testHash encodes an integer into a Hash (little-endian two-byte prefix).
+func testHash(i int) types.Hash {
+	return types.Hash{byte(i), byte(i >> 8)}
+}
+
 func TestStateCache_Eviction(t *testing.T) {
-	sc := newStateCache(defaultMaxCachedStates)
+	// Use a small fixed capacity to keep the test fast and byte-safe.
+	const cap = 16
+	sc := newStateCache(cap)
 
 	// Fill beyond max.
-	for i := 0; i < defaultMaxCachedStates+10; i++ {
-		hash := types.Hash{byte(i)}
-		sc.put(hash, uint64(i), makeTestState(int64(i)))
+	for i := 0; i < cap+10; i++ {
+		sc.put(testHash(i), uint64(i), makeTestState(int64(i)))
 	}
 
 	// Should not exceed max.
 	sc.mu.RLock()
 	count := len(sc.snapshots)
 	sc.mu.RUnlock()
-	if count > defaultMaxCachedStates {
-		t.Fatalf("expected at most %d cached states, got %d", defaultMaxCachedStates, count)
+	if count > cap {
+		t.Fatalf("expected at most %d cached states, got %d", cap, count)
 	}
 
 	// Oldest entries should have been evicted.
-	_, ok := sc.get(types.Hash{0})
+	_, ok := sc.get(testHash(0))
 	if ok {
 		t.Fatal("expected oldest entry to be evicted")
 	}
 
 	// Newest entries should still be present.
-	_, ok = sc.get(types.Hash{byte(defaultMaxCachedStates + 9)})
+	_, ok = sc.get(testHash(cap + 9))
 	if !ok {
 		t.Fatal("expected newest entry to be present")
 	}

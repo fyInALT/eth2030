@@ -9,9 +9,11 @@ import (
 
 const (
 	// defaultMaxCachedStates is the default state snapshot cache capacity.
-	// 64 covers typical reorg depths and keeps fork-block processing fast by
-	// avoiding expensive stateAt re-execution while holding bc.mu.Lock().
-	defaultMaxCachedStates = 64
+	// With TrieStateDB, each Dup() entry is cheap (~200 bytes — only the
+	// struct; committedTrie/frozenAccounts/persistedStorage are shared via
+	// pointer). 1024 entries cover blockscout-style backfill scenarios
+	// (e.g. block 0 to current) without triggering expensive re-execution.
+	defaultMaxCachedStates = 1024
 
 	// stateSnapshotInterval determines how often we cache a state snapshot.
 	// Every N blocks, a snapshot is taken to avoid re-execution from genesis.
