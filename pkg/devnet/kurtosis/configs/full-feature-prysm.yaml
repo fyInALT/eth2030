@@ -3,21 +3,21 @@ participants:
     el_image: eth2030:local
     el_log_level: debug
     el_extra_params: ["--rpc.rate_limit=0"]
-    cl_type: lighthouse
+    cl_type: prysm
     cl_log_level: debug
-    cl_image: sigp/lighthouse:latest
-    # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
-    # count: 3 forms a triangle gossip mesh — if any pair temporarily disconnects
-    # at the Fulu sync_committee deadline (slot 40 = epoch 1 slot 8), the third
-    # node provides an alternative path for attestation propagation, enabling
-    # reliable reconnection and finalization.
-    cl_extra_params: ["--subscribe-all-subnets"]
-    count: 3
+    count: 2
 
 network_params:
   network: kurtosis
-  seconds_per_slot: 2
+  seconds_per_slot: 4
   genesis_delay: 60
+  # PeerDAS config for 2-node devnet:
+  # - With 128 total columns and 2 nodes, each node custodies all columns
+  # - custody_requirement: 128 means each node stores everything (supernode mode)
+  # - data_column_sidecar_subnet_count: 128 means 1 column per subnet
+  # This simulates perfect PeerDAS without requiring 16 nodes
+  custody_requirement: 128
+  data_column_sidecar_subnet_count: 128
   # fulu_fork_epoch: 1 pushes the first Fulu sync_committee deadline to slot 40,
   # giving nodes 40 slots (80s) to accumulate peer score before the brief gossip
   # disruption. With count: 3, nodes can reconnect via the third peer.

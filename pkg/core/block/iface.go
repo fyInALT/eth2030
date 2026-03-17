@@ -22,6 +22,9 @@ type BlockchainReader interface {
 	Genesis() *types.Block
 	GetBlock(hash types.Hash) *types.Block
 	StateAtBlock(block *types.Block) (state.StateDB, error)
+	// GetHashFn returns a function that maps block numbers to canonical hashes,
+	// used by the BLOCKHASH opcode so the builder matches the verifier.
+	GetHashFn() func(uint64) types.Hash
 }
 
 // Compile-time checks.

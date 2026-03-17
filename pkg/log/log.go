@@ -13,15 +13,23 @@ type Logger struct {
 	inner *slog.Logger
 }
 
+// defaultLevel is the shared level variable for the default logger and all
+// module-scoped loggers derived from it. Updating it via SetLevel immediately
+// affects all existing child loggers because they share the same handler.
+var defaultLevel = &slog.LevelVar{}
+
 // defaultLogger is the process-wide logger used by the package-level
 // convenience functions.
 var defaultLogger *Logger
 
 func init() {
-	defaultLogger = New(slog.LevelInfo)
+	defaultLevel.Set(slog.LevelInfo)
+	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: defaultLevel})
+	defaultLogger = &Logger{inner: slog.New(h)}
 }
 
 // New creates a Logger that writes JSON to stderr at the given level.
+// The returned logger has its own independent level (not shared with Default).
 func New(level slog.Level) *Logger {
 	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: level,
@@ -42,12 +50,11 @@ func SetDefault(l *Logger) {
 	}
 }
 
-// SetLevel recreates the default logger at the given slog level. All
-// module-scoped loggers obtained via Default().Module() after this call will
-// inherit the new level. Loggers that were obtained before this call retain
-// their original level because they hold a reference to the old handler.
+// SetLevel updates the shared level for the default logger and all
+// module-scoped loggers derived from it via Default().Module().
+// This takes effect immediately on all existing child loggers.
 func SetLevel(level slog.Level) {
-	defaultLogger = New(level)
+	defaultLevel.Set(level)
 }
 
 // Default returns the current package-level default logger.

@@ -44,7 +44,7 @@ func TestIntrinsicGas_NoAuthorizations(t *testing.T) {
 	data := []byte{0x00, 0x01, 0x00, 0xff}
 	isCreate := false
 
-	gas := execution.IntrinsicGas(data, isCreate, false, 0, 0)
+	gas := execution.IntrinsicGas(data, isCreate, false, 0)
 	// execution.TxGas(21000) + 2*execution.TxDataZeroGas(4) + 2*execution.TxDataNonZeroGas(16) = 21040
 	expected := execution.TxGas + 2*execution.TxDataZeroGas + 2*execution.TxDataNonZeroGas
 	if gas != expected {
@@ -56,35 +56,30 @@ func TestIntrinsicGas_WithAuthorizations(t *testing.T) {
 	data := []byte{}
 	isCreate := false
 
-	// 3 authorizations, 0 empty accounts
-	gas := execution.IntrinsicGas(data, isCreate, false, 3, 0)
-	expected := execution.TxGas + 3*execution.PerAuthBaseCost
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
+	// If authority is not empty, refund is added during authorization processing.
+	gas := execution.IntrinsicGas(data, isCreate, false, 3)
+	expected := execution.TxGas + 3*execution.PerEmptyAccountCost
 	if gas != expected {
-		t.Errorf("intrinsicGas with 3 auths, 0 empty: got %d, want %d", gas, expected)
-	}
-
-	// 3 authorizations, 2 empty accounts
-	gas = execution.IntrinsicGas(data, isCreate, false, 3, 2)
-	expected = execution.TxGas + 3*execution.PerAuthBaseCost + 2*execution.PerEmptyAccountCost
-	if gas != expected {
-		t.Errorf("intrinsicGas with 3 auths, 2 empty: got %d, want %d", gas, expected)
+		t.Errorf("intrinsicGas with 3 auths: got %d, want %d", gas, expected)
 	}
 }
 
 func TestIntrinsicGas_SingleAuthEmptyAccount(t *testing.T) {
 	data := []byte{}
-	gas := execution.IntrinsicGas(data, false, false, 1, 1)
-	// execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
-	expected := execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
+	gas := execution.IntrinsicGas(data, false, false, 1)
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
+	expected := execution.TxGas + execution.PerEmptyAccountCost
 	if gas != expected {
-		t.Errorf("intrinsicGas with 1 auth, 1 empty: got %d, want %d", gas, expected)
+		t.Errorf("intrinsicGas with 1 auth: got %d, want %d", gas, expected)
 	}
 }
 
 func TestIntrinsicGas_AuthWithDataAndCreate(t *testing.T) {
 	data := []byte{0x60, 0x80, 0x60, 0x40} // 4 non-zero bytes
-	gas := execution.IntrinsicGas(data, true, false, 2, 1)
-	expected := execution.TxGas + execution.TxCreateGas + 4*execution.TxDataNonZeroGas + 2*execution.PerAuthBaseCost + 1*execution.PerEmptyAccountCost
+	gas := execution.IntrinsicGas(data, true, false, 2)
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
+	expected := execution.TxGas + execution.TxCreateGas + 4*execution.TxDataNonZeroGas + 2*execution.PerEmptyAccountCost
 	if gas != expected {
 		t.Errorf("intrinsicGas with create+auth: got %d, want %d", gas, expected)
 	}
@@ -209,9 +204,9 @@ func TestSetCodeTx_IntrinsicGasIncludesAuthCosts(t *testing.T) {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
 
-	// Expected intrinsic gas: execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
-	// (emptyTarget doesn't exist, so it counts as empty)
-	expectedIntrinsic := execution.TxGas + execution.PerAuthBaseCost + execution.PerEmptyAccountCost
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
+	// Refund is added later if authority is not empty.
+	expectedIntrinsic := execution.TxGas + execution.PerEmptyAccountCost
 	if result.UsedGas < expectedIntrinsic {
 		t.Errorf("gas used %d is less than expected intrinsic %d", result.UsedGas, expectedIntrinsic)
 	}
@@ -329,9 +324,9 @@ func TestSetCodeTx_NonExistentAccountAuthGas(t *testing.T) {
 		t.Fatalf("applyMessage failed: %v", err)
 	}
 
-	// Expected: execution.TxGas + 2*execution.PerAuthBaseCost + 1*execution.PerEmptyAccountCost
-	// (existingAddr is non-empty, nonExistentAddr is empty)
-	expectedIntrinsic := execution.TxGas + 2*execution.PerAuthBaseCost + 1*execution.PerEmptyAccountCost
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
+	// Refund is added later if authority is not empty.
+	expectedIntrinsic := execution.TxGas + 2*execution.PerEmptyAccountCost
 	if result.UsedGas < expectedIntrinsic {
 		t.Errorf("gas used %d is less than expected intrinsic %d", result.UsedGas, expectedIntrinsic)
 	}

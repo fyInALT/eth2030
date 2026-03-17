@@ -79,7 +79,7 @@ func TestEIP7976FloorVsStandard(t *testing.T) {
 	data := make([]byte, 1000)
 	data[0] = 0xff // one non-zero byte
 
-	standardGas := execution.IntrinsicGasGlamst(data, false, false, true, 0, 0)
+	standardGas := execution.IntrinsicGasGlamst(data, false, false, true, 0)
 	floorGas := execution.CalldataFloorGasGlamst(data, nil, false)
 
 	// Standard: 4500 + 999*4 + 1*16 = 4500 + 3996 + 16 = 8512

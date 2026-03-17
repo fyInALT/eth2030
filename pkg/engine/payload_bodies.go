@@ -9,9 +9,30 @@ import (
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 )
 
+// ExecutionPayloadBodyV1 is the response body for engine_getPayloadBodiesByHash/RangeV1.
+type ExecutionPayloadBodyV1 = enginepayload.ExecutionPayloadBodyV1
+
 // ExecutionPayloadBodyV2 is the response body for engine_getPayloadBodiesByHash/RangeV2.
 // It extends V1 (transactions + withdrawals) with a blockAccessList field (EIP-7928).
 type ExecutionPayloadBodyV2 = enginepayload.ExecutionPayloadBodyV2
+
+// GetPayloadBodiesByHashV1 returns payload bodies for the given block hashes (Shanghai).
+func (api *EngineAPI) GetPayloadBodiesByHashV1(hashes []types.Hash) ([]*ExecutionPayloadBodyV1, error) {
+	v2s, err := api.GetPayloadBodiesByHashV2(hashes)
+	if err != nil {
+		return nil, err
+	}
+	return enginepayload.V2SliceToV1(v2s), nil
+}
+
+// GetPayloadBodiesByRangeV1 returns payload bodies for a range of block numbers (Shanghai).
+func (api *EngineAPI) GetPayloadBodiesByRangeV1(start, count uint64) ([]*ExecutionPayloadBodyV1, error) {
+	v2s, err := api.GetPayloadBodiesByRangeV2(start, count)
+	if err != nil {
+		return nil, err
+	}
+	return enginepayload.V2SliceToV1(v2s), nil
+}
 
 // GetPayloadBodiesByHashV2 returns payload bodies for the given block hashes,
 // including the Block Access List per EIP-7928 §engine-api.
@@ -71,6 +92,41 @@ func (api *EngineAPI) handleGetPayloadBodiesByRangeV2(params []json.RawMessage) 
 		return nil, &jsonrpcError{Code: InvalidParamsCode, Message: fmt.Sprintf("invalid count: %v", err)}
 	}
 	result, err := api.GetPayloadBodiesByRangeV2(start, count)
+	if err != nil {
+		return nil, engineErrorToRPC(err)
+	}
+	return result, nil
+}
+
+// handleGetPayloadBodiesByHashV1 processes engine_getPayloadBodiesByHashV1.
+func (api *EngineAPI) handleGetPayloadBodiesByHashV1(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 1 {
+		return nil, &jsonrpcError{Code: InvalidParamsCode, Message: "expected 1 param"}
+	}
+	var hashes []types.Hash
+	if err := json.Unmarshal(params[0], &hashes); err != nil {
+		return nil, &jsonrpcError{Code: InvalidParamsCode, Message: fmt.Sprintf("invalid hashes: %v", err)}
+	}
+	result, err := api.GetPayloadBodiesByHashV1(hashes)
+	if err != nil {
+		return nil, engineErrorToRPC(err)
+	}
+	return result, nil
+}
+
+// handleGetPayloadBodiesByRangeV1 processes engine_getPayloadBodiesByRangeV1.
+func (api *EngineAPI) handleGetPayloadBodiesByRangeV1(params []json.RawMessage) (any, *jsonrpcError) {
+	if len(params) != 2 {
+		return nil, &jsonrpcError{Code: InvalidParamsCode, Message: "expected 2 params"}
+	}
+	var start, count uint64
+	if err := json.Unmarshal(params[0], &start); err != nil {
+		return nil, &jsonrpcError{Code: InvalidParamsCode, Message: fmt.Sprintf("invalid start: %v", err)}
+	}
+	if err := json.Unmarshal(params[1], &count); err != nil {
+		return nil, &jsonrpcError{Code: InvalidParamsCode, Message: fmt.Sprintf("invalid count: %v", err)}
+	}
+	result, err := api.GetPayloadBodiesByRangeV1(start, count)
 	if err != nil {
 		return nil, engineErrorToRPC(err)
 	}

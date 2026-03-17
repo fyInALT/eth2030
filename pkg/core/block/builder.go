@@ -314,7 +314,7 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			}
 
 			snap := statedb.Snapshot()
-			receipt, used, applyErr := execution.ApplyTransactionWithBAL(b.config, statedb, header, ilTx, gp, execution.BalTrackerOrNil(tracker))
+			receipt, used, applyErr := execution.ApplyTransactionWithBALGetHash(b.config, b.getHashFn(), statedb, header, ilTx, gp, execution.BalTrackerOrNil(tracker))
 			if applyErr != nil {
 				statedb.RevertToSnapshot(snap)
 				continue
@@ -435,7 +435,8 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := execution.ApplyTransactionWithBAL(b.config, statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
+		gpBefore := gp.Gas()
+		receipt, used, err := execution.ApplyTransactionWithBALGetHash(b.config, b.getHashFn(), statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -446,7 +447,9 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		// GAP-2.2: enforce per-block DimStorage gas cap at Glamsterdam+.
 		if glamActive && !vm.CheckDimStorageCap(blockDimStorageUsed, receipt.DimStorageGas) {
 			statedb.RevertToSnapshot(snap)
-			gp.AddGas(used)
+			// Restore the exact amount debited from the pool (EIP-7778 uses
+			// pre-refund gas for pool accounting, which may differ from used).
+			gp.AddGas(gpBefore - gp.Gas())
 			continue
 		}
 		blockDimStorageUsed += receipt.DimStorageGas
@@ -454,6 +457,13 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)
 		gasUsed += used
+		slog.Debug("builder: included tx",
+			"event", "builder_tx_gas",
+			"blockNum", header.Number.Uint64(),
+			"txIndex", txIndex,
+			"txHash", tx.Hash().Hex(),
+			"gasUsed", used,
+		)
 
 		// Feed the ReceiptGenerator with per-tx outcome for enhanced bloom and
 		// receipt-trie-root computation (used for cross-validation).
@@ -781,7 +791,7 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 		// Try to apply the transaction.
 		snap := statedb.Snapshot()
-		receipt, used, err := execution.ApplyTransactionWithBAL(b.config, statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
+		receipt, used, err := execution.ApplyTransactionWithBALGetHash(b.config, b.getHashFn(), statedb, header, tx, gp, execution.BalTrackerOrNil(tracker))
 		if err != nil {
 			// Transaction failed: revert and skip it.
 			statedb.RevertToSnapshot(snap)
@@ -880,6 +890,15 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 // SetState sets the state database for standalone builder usage (testing).
 func (b *BlockBuilder) SetState(statedb state.StateDB) {
 	b.state = statedb
+}
+
+// getHashFn returns the BLOCKHASH lookup function from the chain, or nil if
+// the builder was created without a chain (standalone/test mode).
+func (b *BlockBuilder) getHashFn() func(uint64) types.Hash {
+	if b.chain == nil {
+		return nil
+	}
+	return b.chain.GetHashFn()
 }
 
 // EffectiveGasPrice returns the effective gas price for a transaction

@@ -20,6 +20,7 @@ import (
 	"github.com/eth2030/eth2030/crypto/bls"
 	"github.com/eth2030/eth2030/engine"
 	"github.com/eth2030/eth2030/engine/forkchoice"
+	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/engine/vhash"
 	epbsbid "github.com/eth2030/eth2030/epbs/bid"
 	epbsmevburn "github.com/eth2030/eth2030/epbs/mevburn"
@@ -96,23 +97,15 @@ func (b *nodeBackend) HeaderByNumber(number rpc.BlockNumber) *types.Header {
 		}
 		return nil
 	case rpc.FinalizedBlockNumber:
-		if b.node.engBackend != nil {
-			if h := b.node.engBackend.GetFinalizedHash(); h != (types.Hash{}) {
-				blk := bc.GetBlock(h)
-				if blk != nil {
-					return blk.Header()
-				}
-			}
+		// Use the in-memory pointer directly — bc.GetBlock would fail after
+		// the AncientStore migration removes the block from the live DB.
+		if blk := bc.CurrentFinalBlock(); blk != nil {
+			return blk.Header()
 		}
 		return nil
 	case rpc.SafeBlockNumber:
-		if b.node.engBackend != nil {
-			if h := b.node.engBackend.GetSafeHash(); h != (types.Hash{}) {
-				blk := bc.GetBlock(h)
-				if blk != nil {
-					return blk.Header()
-				}
-			}
+		if blk := bc.CurrentSafeBlock(); blk != nil {
+			return blk.Header()
 		}
 		return nil
 	default:
@@ -613,6 +606,11 @@ type engineBackend struct {
 	// postFCUCh delivers slow post-processing to a dedicated background goroutine.
 	// Capacity 1: a pending item is evicted when a newer FCU arrives (latest wins).
 	postFCUCh chan postFCUWork
+
+	// blobCache stores blobs from recently included blocks for engine_getBlobsV2.
+	// Keyed by versioned hash; value is the raw blob data.
+	blobCache   map[types.Hash][]byte
+	blobCacheMu sync.RWMutex
 }
 
 // newEngineBackend creates and starts the engine backend.
@@ -632,6 +630,7 @@ func newEngineBackend(n *Node) *engineBackend {
 		procChCap:   8,
 		stopCh:      make(chan struct{}),
 		postFCUCh:   make(chan postFCUWork, 1), // capacity 1: latest FCU work always wins
+		blobCache:   make(map[types.Hash][]byte),
 	}
 	go b.processLoop()
 	go b.postFCULoop()
@@ -912,6 +911,13 @@ func (b *engineBackend) execBlockInternal(
 			LatestValidHash: &latestValid,
 		}, nil
 	}
+
+	// Cache blobs from the received block so engine_getBlobsV2 can return them.
+	// This is needed because blobs are removed from the txpool after inclusion,
+	// but the CL may request them later for data column sidecar reconstruction.
+	// This handles blocks received from other nodes (via engine_newPayload),
+	// while cacheBlobsFromBlock after BuildBlock handles locally-built blocks.
+	b.cacheBlobsFromBlock(block)
 
 	// Update the snapshot tree with the new block's state so snap-sync peers
 	// can retrieve accounts and storage slots at this root. SnapshotDiff exports
@@ -1227,6 +1233,39 @@ func (b *engineBackend) ForkchoiceUpdated(
 		return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 	}
 
+	// Step 7a: check if we can quickly obtain the parent state.
+	// If state needs re-execution of many blocks, it could timeout the 8s payload
+	// build deadline. Return SYNCING to signal the CL that EL is not ready to build.
+	// Start background state warming so the next FCU will find the state ready.
+	// This prevents the cascade of: cache miss → re-execution → timeout → EL offline.
+	// Threshold: 32 blocks ≈ 6 seconds of execution time (generous buffer).
+	const stateThreshold = 32
+	if !bc.CanQuicklyGetState(headBlock, stateThreshold) {
+		slog.Warn("engine_forkchoiceUpdated: parent state needs deep re-execution, warming and returning SYNCING",
+			"headNum", headBlock.NumberU64(),
+			"headHash", headBlock.Hash(),
+		)
+		// Start background state warming (non-blocking).
+		go func() {
+			// StateAtBlock uses singleflight internally, so multiple concurrent
+			// warming requests for the same block will share the work.
+			_, err := bc.StateAtBlock(headBlock)
+			if err != nil {
+				slog.Warn("engine_forkchoiceUpdated: background state warming failed",
+					"headNum", headBlock.NumberU64(),
+					"err", err,
+				)
+			} else {
+				slog.Info("engine_forkchoiceUpdated: background state warming completed",
+					"headNum", headBlock.NumberU64(),
+				)
+			}
+		}()
+		return engine.ForkchoiceUpdatedResult{
+			PayloadStatus: engine.PayloadStatusV1{Status: engine.StatusSyncing},
+		}, nil
+	}
+
 	// Step 7b: payload attributes provided — start async block build.
 	slog.Debug("engine_forkchoiceUpdated: building payload",
 		"parentNum", headBlock.NumberU64(),
@@ -1289,10 +1328,44 @@ func (b *engineBackend) ForkchoiceUpdated(
 	b.mu.Unlock()
 
 	// Build the block in the background; close done when finished.
-	// buildMu serialises concurrent builds so they don't contend on bc.mu.
 	go func() {
+		// Pre-fetch the parent state BEFORE acquiring buildMu.
+		// StateAtBlock may need to re-execute many blocks if the state cache missed,
+		// which can take tens of seconds. By fetching state outside buildMu, we allow
+		// concurrent FCUs for different parents to proceed in parallel.
+		// StateAtBlock uses singleflight internally, so concurrent requests for the
+		// same parent block will share the work.
+		parentBlock := b.node.blockchain.GetBlock(parentHeader.Hash())
+		var statedb state.StateDB
+		if parentBlock != nil {
+			var err error
+			statedb, err = b.node.blockchain.StateAtBlock(parentBlock)
+			if err != nil {
+				slog.Warn("engine_forkchoiceUpdated: state fetch failed",
+					"parentNum", parentHeader.Number,
+					"parentHash", parentHeader.Hash(),
+					"err", err,
+				)
+				pp.err = fmt.Errorf("state fetch: %w", err)
+				close(pp.done)
+				return
+			}
+		}
+		slog.Debug("engine_forkchoiceUpdated: state ready",
+			"parentNum", parentHeader.Number,
+			"parentHash", parentHeader.Hash(),
+		)
+
+		// Now acquire buildMu for the actual block building.
+		// This serialises transaction selection and state mutations,
+		// but NOT the potentially slow state loading.
 		b.buildMu.Lock()
 		defer b.buildMu.Unlock()
+
+		// Set the pre-fetched state on the builder.
+		if statedb != nil {
+			b.builder.SetState(statedb)
+		}
 
 		slog.Debug("engine_forkchoiceUpdated: calling BuildBlock",
 			"parentNum", parentHeader.Number,
@@ -1326,6 +1399,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 		pp.block = builtBlock
 		pp.receipts = receipts
+
+		// Cache blobs from the built block so engine_getBlobsV2 can return them.
+		// This is needed because blobs are removed from the txpool after inclusion,
+		// but the CL may request them later for data column sidecar reconstruction.
+		b.cacheBlobsFromBlock(builtBlock)
 
 		// Pre-insert the built block so GetBlock finds it when the CL calls FCU
 		// with this hash as head. Without this, FCU returns "unknown head block"
@@ -1637,6 +1715,37 @@ func (b *engineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
 	return 0
 }
 
+// GetPayloadBodiesByHash returns payload bodies for the given block hashes.
+// Entries for unknown blocks are nil. Implements backendapi.PayloadBodiesBackend.
+func (b *engineBackend) GetPayloadBodiesByHash(hashes []types.Hash) ([]*engine.ExecutionPayloadBodyV2, error) {
+	results := make([]*engine.ExecutionPayloadBodyV2, len(hashes))
+	for i, h := range hashes {
+		blk := b.node.blockchain.GetBlock(h)
+		if blk == nil {
+			results[i] = nil
+			continue
+		}
+		results[i] = enginepayload.BlockToPayloadBodyV2(blk)
+	}
+	return results, nil
+}
+
+// GetPayloadBodiesByRange returns payload bodies for a range of block numbers.
+// Entries for unknown blocks are nil. Implements backendapi.PayloadBodiesBackend.
+func (b *engineBackend) GetPayloadBodiesByRange(start, count uint64) ([]*engine.ExecutionPayloadBodyV2, error) {
+	results := make([]*engine.ExecutionPayloadBodyV2, count)
+	for i := uint64(0); i < count; i++ {
+		num := start + i
+		blk := b.node.blockchain.GetBlockByNumber(num)
+		if blk == nil {
+			results[i] = nil
+			continue
+		}
+		results[i] = enginepayload.BlockToPayloadBodyV2(blk)
+	}
+	return results, nil
+}
+
 func (b *engineBackend) IsCancun(timestamp uint64) bool {
 	return b.node.blockchain.Config().IsCancun(timestamp)
 }
@@ -1815,22 +1924,42 @@ func (b *engineBackend) GetBlobsV3ByVersionedHashes(hashes []types.Hash) []*engi
 	return b.computeBlobsV2(hashes)
 }
 
-// computeBlobsV2 looks up blobs from the txpool and computes 128 per-cell KZG
-// proofs for each. Returns nil at positions where the blob is not found.
+// computeBlobsV2 looks up blobs from the txpool and blob cache, then computes
+// 128 per-cell KZG proofs for each. Returns nil at positions where the blob is
+// not found.
 func (b *engineBackend) computeBlobsV2(hashes []types.Hash) []*engine.BlobAndProofV2 {
 	result := make([]*engine.BlobAndProofV2, len(hashes))
-	if b.node.txPool == nil {
-		return result
-	}
-	raw := b.node.txPool.GetBlobsByVersionedHashes(hashes)
 	kzg := bls.DefaultKZGBackend()
-	for i, r := range raw {
-		if r == nil || len(r.Blob) == 0 {
+
+	// First, check the blob cache for recently included blobs.
+	b.blobCacheMu.RLock()
+	cachedBlobs := make([][]byte, len(hashes))
+	cacheHits := 0
+	for i, h := range hashes {
+		if blob, ok := b.blobCache[h]; ok {
+			cachedBlobs[i] = blob
+			cacheHits++
+		}
+	}
+	cacheSize := len(b.blobCache)
+	b.blobCacheMu.RUnlock()
+
+	if len(hashes) > 0 {
+		slog.Debug("computeBlobsV2: looking up blobs",
+			"requested", len(hashes),
+			"cacheHits", cacheHits,
+			"cacheSize", cacheSize,
+		)
+	}
+
+	// Process cached blobs.
+	for i, blob := range cachedBlobs {
+		if blob == nil || len(blob) == 0 {
 			continue
 		}
-		_, cellProofs, err := kzg.ComputeCellsAndProofs(r.Blob)
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
 		if err != nil {
-			slog.Warn("computeBlobsV2: ComputeCellsAndProofs failed",
+			slog.Warn("computeBlobsV2: ComputeCellsAndProofs failed for cached blob",
 				"hash", hashes[i], "err", err)
 			continue
 		}
@@ -1840,11 +1969,127 @@ func (b *engineBackend) computeBlobsV2(hashes []types.Hash) []*engine.BlobAndPro
 			proofs[j] = cp[:]
 		}
 		result[i] = &engine.BlobAndProofV2{
-			Blob:   r.Blob,
+			Blob:   blob,
 			Proofs: proofs,
 		}
 	}
+
+	// Then check the txpool for pending blobs (only for hashes not found in cache).
+	if b.node.txPool != nil {
+		var pendingHashes []types.Hash
+		pendingIdx := make(map[int]int) // original index -> pending index
+		for i, h := range hashes {
+			if result[i] == nil {
+				pendingIdx[len(pendingHashes)] = i
+				pendingHashes = append(pendingHashes, h)
+			}
+		}
+		if len(pendingHashes) > 0 {
+			raw := b.node.txPool.GetBlobsByVersionedHashes(pendingHashes)
+			poolHits := 0
+			for j, r := range raw {
+				if r == nil || len(r.Blob) == 0 {
+					continue
+				}
+				poolHits++
+				origIdx := pendingIdx[j]
+				_, cellProofs, err := kzg.ComputeCellsAndProofs(r.Blob)
+				if err != nil {
+					slog.Warn("computeBlobsV2: ComputeCellsAndProofs failed",
+						"hash", pendingHashes[j], "err", err)
+					continue
+				}
+				proofs := make([][]byte, len(cellProofs))
+				for k, p := range cellProofs {
+					cp := p // copy fixed array
+					proofs[k] = cp[:]
+				}
+				result[origIdx] = &engine.BlobAndProofV2{
+					Blob:   r.Blob,
+					Proofs: proofs,
+				}
+			}
+			slog.Debug("computeBlobsV2: txpool lookup",
+				"pending", len(pendingHashes),
+				"poolHits", poolHits,
+			)
+		}
+	}
+
+	// Log final result.
+	found := 0
+	for _, r := range result {
+		if r != nil {
+			found++
+		}
+	}
+	if found < len(hashes) && len(hashes) > 0 {
+		slog.Warn("computeBlobsV2: missing blobs",
+			"requested", len(hashes),
+			"found", found,
+			"firstMissing", func() string {
+				for i, r := range result {
+					if r == nil {
+						return hashes[i].String()
+					}
+				}
+				return ""
+			}(),
+		)
+	}
 	return result
+}
+
+// cacheBlobsFromBlock extracts blobs from a block's transactions and stores them
+// in the blob cache, keyed by their versioned hashes. This enables engine_getBlobsV2
+// to return blobs for recently-built blocks even after the transactions are removed
+// from the txpool.
+func (b *engineBackend) cacheBlobsFromBlock(blk *types.Block) {
+	if blk == nil {
+		return
+	}
+	txs := blk.Transactions()
+	if len(txs) == 0 {
+		return
+	}
+
+	b.blobCacheMu.Lock()
+	defer b.blobCacheMu.Unlock()
+
+	cachedCount := 0
+	for _, tx := range txs {
+		sidecar := tx.BlobSidecar()
+		if sidecar == nil {
+			continue
+		}
+		blobHashes := tx.BlobHashes()
+		if len(blobHashes) != len(sidecar.Blobs) {
+			slog.Warn("cacheBlobsFromBlock: blobHashes/blobs length mismatch",
+				"blockNum", blk.NumberU64(),
+				"hashCount", len(blobHashes),
+				"blobCount", len(sidecar.Blobs),
+			)
+			continue
+		}
+		for i, hash := range blobHashes {
+			if i < len(sidecar.Blobs) && len(sidecar.Blobs[i]) > 0 {
+				b.blobCache[hash] = sidecar.Blobs[i]
+				cachedCount++
+				slog.Debug("cacheBlobsFromBlock: cached blob",
+					"blockNum", blk.NumberU64(),
+					"hash", hash,
+					"blobLen", len(sidecar.Blobs[i]),
+				)
+			}
+		}
+	}
+	if cachedCount > 0 {
+		slog.Info("cacheBlobsFromBlock: cached blobs from block",
+			"blockNum", blk.NumberU64(),
+			"cachedCount", cachedCount,
+			"cacheSize", len(b.blobCache),
+		)
+	}
 }
 
 // generatePayloadID creates a deterministic PayloadID from the parent hash

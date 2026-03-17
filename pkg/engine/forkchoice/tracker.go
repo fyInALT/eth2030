@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -159,7 +160,7 @@ type ConflictDetector struct {
 	mu            sync.RWMutex
 	lastState     *payload.ForkchoiceStateV1
 	lastFinalNum  uint64
-	conflictCount uint64
+	conflictCount atomic.Uint64
 }
 
 // NewConflictDetector creates a new conflict detector.
@@ -191,7 +192,7 @@ func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1, finalNum uin
 		update.FinalizedBlockHash != (types.Hash{}) &&
 		update.FinalizedBlockHash != prev.FinalizedBlockHash &&
 		finalNum > 0 && finalNum < prevFinalNum {
-		cd.conflictCount++
+		cd.conflictCount.Add(1)
 		return true, fmt.Sprintf("finalized regressed: block %d (%s) -> block %d (%s)",
 			prevFinalNum, prev.FinalizedBlockHash.Hex(),
 			finalNum, update.FinalizedBlockHash.Hex())
@@ -202,9 +203,7 @@ func (cd *ConflictDetector) Check(update payload.ForkchoiceStateV1, finalNum uin
 
 // ConflictCount returns the total number of detected conflicts.
 func (cd *ConflictDetector) ConflictCount() uint64 {
-	cd.mu.RLock()
-	defer cd.mu.RUnlock()
-	return cd.conflictCount
+	return cd.conflictCount.Load()
 }
 
 // defaultMaxAllocatedIDs is the default cap on in-memory payload ID entries.
@@ -214,7 +213,7 @@ const defaultMaxAllocatedIDs = 512
 type PayloadIDAllocator struct {
 	mu           sync.Mutex
 	allocated    map[payload.PayloadID]uint64 // payloadID -> timestamp
-	counter      uint64
+	counter      atomic.Uint64
 	maxAllocated int // configurable cap; set from NewPayloadIDAllocatorWithCap
 }
 
@@ -241,10 +240,10 @@ func (a *PayloadIDAllocator) Allocate(headHash types.Hash, timestamp uint64) (pa
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	a.counter++
+	newCounter := a.counter.Add(1)
 	var id payload.PayloadID
 	copy(id[:4], headHash[:4])
-	binary.BigEndian.PutUint32(id[4:], uint32(a.counter))
+	binary.BigEndian.PutUint32(id[4:], uint32(newCounter))
 
 	// Add randomness to prevent deterministic collisions.
 	var rb [2]byte

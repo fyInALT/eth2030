@@ -44,6 +44,13 @@ func DeleteHeader(db KeyValueWriter, number uint64, hash [32]byte) error {
 	return db.Delete(headerNumberKey(hash))
 }
 
+// DeleteHeaderData removes only the header content, preserving the hash->number
+// mapping so that hash-based lookups (e.g. readBlock) still resolve the block
+// number and can fall back to the AncientStore for the actual data.
+func DeleteHeaderData(db KeyValueWriter, number uint64, hash [32]byte) error {
+	return db.Delete(headerKey(number, hash))
+}
+
 // --- Body Accessors ---
 
 // WriteBody stores a block body's RLP-encoded data.

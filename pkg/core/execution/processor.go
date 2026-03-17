@@ -728,6 +728,14 @@ func ApplyTransactionWithBAL(config *corconfig.ChainConfig, statedb state.StateD
 	return applyTransactionWithBAL(config, nil, statedb, header, tx, gp, tracker)
 }
 
+// ApplyTransactionWithBALGetHash is like ApplyTransactionWithBAL but also
+// accepts a GetHash function for the BLOCKHASH opcode. The block builder
+// should use this variant so that BLOCKHASH returns correct values, matching
+// the verifier.
+func ApplyTransactionWithBALGetHash(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker) (*types.Receipt, uint64, error) {
+	return applyTransactionWithBAL(config, getHash, statedb, header, tx, gp, tracker)
+}
+
 // applyTransaction is the internal implementation that accepts an optional GetHash function.
 func applyTransaction(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool) (*types.Receipt, uint64, error) {
 	return applyTransactionInternal(config, getHash, statedb, header, tx, gp, nil, nil)
@@ -837,9 +845,9 @@ func setLogContext(receipt *types.Receipt, header *types.Header, blockHash types
 
 // intrinsicGas computes the base gas cost of a transaction before EVM execution.
 // For EIP-7702 SetCode transactions, authCount is the number of authorization
-// entries, and emptyAuthCount is the number of those entries targeting accounts
-// that do not yet exist in state.
-func intrinsicGas(data []byte, isCreate, isShanghai bool, authCount, emptyAuthCount uint64) uint64 {
+// entries. Per EIP-7702, each authorization is charged PER_EMPTY_ACCOUNT_COST
+// (25000) upfront; refunds are handled during authorization processing.
+func intrinsicGas(data []byte, isCreate, isShanghai bool, authCount uint64) uint64 {
 	g := TxGas
 	if isCreate {
 		g += TxCreateGas
@@ -856,9 +864,11 @@ func intrinsicGas(data []byte, isCreate, isShanghai bool, authCount, emptyAuthCo
 		words := (uint64(len(data)) + 31) / 32
 		g += words * vm.InitCodeWordGas
 	}
-	// EIP-7702: per-authorization gas costs.
-	g += authCount * PerAuthBaseCost
-	g += emptyAuthCount * PerEmptyAccountCost
+	// EIP-7702: per-authorization gas cost.
+	// Per the spec, charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization
+	// upfront. Refunds are added during authorization processing if the
+	// authority account already exists.
+	g += authCount * PerEmptyAccountCost
 	return g
 }
 
@@ -994,7 +1004,7 @@ func accessListGasGlamst(accessList types.AccessList) uint64 {
 // intrinsicGasGlamst computes intrinsic gas for Glamsterdam per EIP-2780.
 // TX_BASE_COST = 4500. Calldata pricing unchanged. Access list uses Glamsterdam costs.
 // GAS_NEW_ACCOUNT surcharge when value > 0 to non-existent non-precompile non-create.
-func intrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool, authCount, emptyAuthCount uint64) uint64 {
+func intrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool, authCount uint64) uint64 {
 	g := vm.TxBaseGlamsterdam
 	if isCreate {
 		g += TxCreateGas
@@ -1011,9 +1021,11 @@ func intrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool
 	if !isCreate && hasValue && !toExists {
 		g += vm.GasNewAccount
 	}
-	// EIP-7702: per-authorization gas costs.
-	g += authCount * PerAuthBaseCost
-	g += emptyAuthCount * PerEmptyAccountCost
+	// EIP-7702: per-authorization gas cost.
+	// Per the spec, charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization
+	// upfront. Refunds are added during authorization processing if the
+	// authority account already exists.
+	g += authCount * PerEmptyAccountCost
 	return g
 }
 
@@ -1110,12 +1122,12 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		statedb.SetNonce(msg.From, msg.Nonce+1)
 	}
 
-	// Count EIP-7702 authorizations for intrinsic gas calculation.
-	// Per EIP-7702, PER_EMPTY_ACCOUNT_COST applies when the *authority*
-	// (the recovered EOA signer) does not exist in state, not the delegation
-	// target (auth.Address). Recover the authority for each entry; if recovery
-	// fails we conservatively skip the empty-account charge for that entry.
-	var authCount, emptyAuthCount uint64
+	// EIP-7702: count authorizations for intrinsic gas calculation.
+	// Per the spec, we charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization
+	// upfront, then refund PER_EMPTY_ACCOUNT_COST - PER_AUTH_BASE_COST (12500)
+	// for each authorization that targets an existing account.
+	var authCount uint64
+	var existingAuths []types.Address // track existing authorities for refund
 	if msg.TxType == types.SetCodeTxType && len(msg.AuthList) > 0 {
 		authCount = uint64(len(msg.AuthList))
 		for i := range msg.AuthList {
@@ -1123,8 +1135,9 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 			if err != nil {
 				continue
 			}
-			if !statedb.Exist(authority) || statedb.Empty(authority) {
-				emptyAuthCount++
+			// Track if authority already exists (for refund during authorization processing)
+			if statedb.Exist(authority) && !statedb.Empty(authority) {
+				existingAuths = append(existingAuths, authority)
 			}
 		}
 	}
@@ -1137,12 +1150,12 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 		// EIP-2780: reduced intrinsic gas (4500 base).
 		hasValue := msg.Value != nil && msg.Value.Sign() > 0
 		toExists := msg.To != nil && statedb.Exist(*msg.To)
-		igas = intrinsicGasGlamst(msg.Data, isCreate, hasValue, toExists, authCount, emptyAuthCount)
+		igas = intrinsicGasGlamst(msg.Data, isCreate, hasValue, toExists, authCount)
 		// EIP-7981/8038: Glamsterdam access list gas.
 		igas += accessListGasGlamst(msg.AccessList)
 	} else {
 		isShanghaiForIgas := config != nil && config.IsMerge() && config.IsShanghai(header.Time)
-		igas = intrinsicGas(msg.Data, isCreate, isShanghaiForIgas, authCount, emptyAuthCount)
+		igas = intrinsicGas(msg.Data, isCreate, isShanghaiForIgas, authCount)
 		igas += accessListGas(msg.AccessList)
 	}
 
@@ -1437,7 +1450,8 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	// Apply refund (EIP-3529: max refund = gasUsed / 5)
 	// Under Glamsterdam, SSTORE no longer issues refunds (EIP-7778, handled
 	// by opSstoreGlamst), but other refund sources still apply to user gas.
-	refund := statedb.GetRefund()
+	rawRefund := statedb.GetRefund()
+	refund := rawRefund
 	maxRefund := gasUsed / 5
 	if refund > maxRefund {
 		refund = maxRefund
@@ -1603,13 +1617,13 @@ func ApplyTransactionInternal(cfg *corconfig.ChainConfig, getHash vm.GetHashFunc
 }
 
 // IntrinsicGasGlamst is an exported version of intrinsicGasGlamst for tests.
-func IntrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool, authCount, emptyAuthCount uint64) uint64 {
-	return intrinsicGasGlamst(data, isCreate, hasValue, toExists, authCount, emptyAuthCount)
+func IntrinsicGasGlamst(data []byte, isCreate bool, hasValue bool, toExists bool, authCount uint64) uint64 {
+	return intrinsicGasGlamst(data, isCreate, hasValue, toExists, authCount)
 }
 
 // IntrinsicGas is an exported version of intrinsicGas for tests.
-func IntrinsicGas(data []byte, isCreate, isShanghai bool, authCount, emptyAuthCount uint64) uint64 {
-	return intrinsicGas(data, isCreate, isShanghai, authCount, emptyAuthCount)
+func IntrinsicGas(data []byte, isCreate, isShanghai bool, authCount uint64) uint64 {
+	return intrinsicGas(data, isCreate, isShanghai, authCount)
 }
 
 // CalldataTokens is an exported version of calldataTokens for tests.

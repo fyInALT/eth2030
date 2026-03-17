@@ -2,11 +2,14 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/block"
@@ -16,6 +19,7 @@ import (
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/bls"
+	"github.com/eth2030/eth2030/engine/actor"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 	"github.com/eth2030/eth2030/focil"
 	"github.com/eth2030/eth2030/log"
@@ -71,9 +75,23 @@ type EngineBackend struct {
 	finalHash     types.Hash
 	payloads      map[PayloadID]*pendingPayload
 	payloadOrder  []PayloadID // insertion order for payload LRU eviction
-	nextPayloadID uint64
+	nextPayloadID atomic.Uint64
 	maxPayloads   int // configurable cap; set from EngineBackendConfig
 	maxILs        int // configurable cap; set from EngineBackendConfig
+
+	// numberIndex is a reverse index from block number to block hash.
+	// Used by GetPayloadBodiesByRange for O(1) lookup instead of O(n) scan.
+	numberIndex map[uint64]types.Hash // protected by mu
+
+	// Actor-based state management (Phase 6 of engine-channel-refactor).
+	// Actors run concurrently and handle state without locks.
+	// The mutex-protected fields above are kept for gradual migration.
+	actors   *actor.EngineActors
+	actorCtx context.Context
+	actorMu  sync.RWMutex // protects actors field during Close()
+
+	// actorTimeout is the timeout for actor operations.
+	actorTimeout time.Duration
 }
 
 // NewEngineBackend creates a new Engine API backend with default memory limits.
@@ -91,23 +109,39 @@ func NewEngineBackendWithConfig(config *coreconfig.ChainConfig, statedb state.St
 		cfg.MaxILs = defaultMaxILs
 	}
 	b := &EngineBackend{
-		config:      config,
-		statedb:     statedb,
-		processor:   execution.NewStateProcessor(config),
-		blocks:      make(map[types.Hash]*types.Block),
-		bals:        make(map[types.Hash]*bal.BlockAccessList),
-		payloads:    make(map[PayloadID]*pendingPayload),
-		maxPayloads: cfg.MaxPayloads,
-		maxILs:      cfg.MaxILs,
+		config:       config,
+		statedb:      statedb,
+		processor:    execution.NewStateProcessor(config),
+		blocks:       make(map[types.Hash]*types.Block),
+		bals:         make(map[types.Hash]*bal.BlockAccessList),
+		payloads:     make(map[PayloadID]*pendingPayload),
+		maxPayloads:  cfg.MaxPayloads,
+		maxILs:       cfg.MaxILs,
+		numberIndex:  make(map[uint64]types.Hash),
+		actorCtx:     context.Background(),
+		actorTimeout: actor.DefaultTimeout,
 	}
 	if genesis != nil {
 		h := genesis.Hash()
 		b.blocks[h] = genesis
+		b.numberIndex[genesis.NumberU64()] = h
 		b.headHash = h
 		b.safeHash = h
 		b.finalHash = h
 	}
+	// Initialize actors for concurrent state management.
+	b.actors = actor.NewEngineActors(b.actorCtx, b.maxPayloads, b.maxILs)
 	return b
+}
+
+// Close gracefully stops all actors and releases resources.
+func (b *EngineBackend) Close() {
+	b.actorMu.Lock()
+	defer b.actorMu.Unlock()
+	if b.actors != nil {
+		b.actors.Stop()
+		b.actors = nil
+	}
 }
 
 // evictOldBlocks removes block entries that are more than 64 blocks behind the
@@ -120,6 +154,7 @@ func (b *EngineBackend) evictOldBlocks() {
 	cutoff := head.NumberU64() - 64
 	for hash, blk := range b.blocks {
 		if blk.NumberU64() < cutoff {
+			delete(b.numberIndex, blk.NumberU64())
 			delete(b.blocks, hash)
 			delete(b.bals, hash)
 		}
@@ -247,8 +282,14 @@ func (b *EngineBackend) ProcessBlock(
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
 	b.blocks[blockHash] = blk
+	b.numberIndex[blk.NumberU64()] = blockHash
 	b.evictOldBlocks()
 	b.statedb = stateCopy
+
+	// Dual-write to actors for migration.
+	if err := b.storeActorBlock(blockHash, blk, nil); err != nil {
+		backendLog.Debug("actor_block_store_failed", "error", err)
+	}
 
 	backendLog.Info("payload_valid",
 		"event", "payload_valid",
@@ -338,6 +379,17 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	b.headHash = fcState.HeadBlockHash
 	b.safeHash = fcState.SafeBlockHash
 	b.finalHash = fcState.FinalizedBlockHash
+
+	// Dual-write to actors for migration.
+	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
+		backendLog.Debug("actor_head_update_failed", "error", err)
+	}
+	if err := b.setActorSafeHash(fcState.SafeBlockHash); err != nil {
+		backendLog.Debug("actor_safe_update_failed", "error", err)
+	}
+	if err := b.setActorFinalHash(fcState.FinalizedBlockHash); err != nil {
+		backendLog.Debug("actor_final_update_failed", "error", err)
+	}
 
 	headNum := uint64(0)
 	if headBlock, ok := b.blocks[b.headHash]; ok {
@@ -431,6 +483,21 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		b.payloadOrder = append(b.payloadOrder, id)
 		b.evictOldestPayload()
 
+		// Dual-write to actors for migration.
+		actorPayload := &actor.PendingPayload{
+			Block:        blk,
+			Receipts:     receipts,
+			BlockValue:   new(big.Int),
+			ParentHash:   fcState.HeadBlockHash,
+			Timestamp:    attrs.Timestamp,
+			FeeRecipient: attrs.SuggestedFeeRecipient,
+			PrevRandao:   attrs.PrevRandao,
+			Withdrawals:  withdrawalsToActor(attrs.Withdrawals),
+		}
+		if err := b.storeActorPayload(id, actorPayload); err != nil {
+			backendLog.Debug("actor_payload_store_failed", "error", err)
+		}
+
 		result.PayloadID = &id
 	}
 
@@ -439,6 +506,38 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 // GetPayloadByID retrieves a previously built payload by its ID.
 func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error) {
+	// Try actor first.
+	actorPayload, err := b.getActorPayload(id)
+	if err == nil && actorPayload != nil {
+		// Convert actor.PendingPayload to response.
+		withdrawals := make([]*Withdrawal, len(actorPayload.Withdrawals))
+		for i, w := range actorPayload.Withdrawals {
+			withdrawals[i] = &Withdrawal{
+				Index:          w.Index,
+				ValidatorIndex: w.ValidatorIndex,
+				Address:        w.Address,
+				Amount:         w.Amount,
+			}
+		}
+		ep := enginepayload.BlockToPayload(actorPayload.Block, actorPayload.PrevRandao, withdrawals)
+
+		backendLog.Debug("payload_get",
+			"event", "payload_get",
+			"payloadID", fmt.Sprintf("%x", id),
+			"blockHash", actorPayload.Block.Hash().Hex(),
+			"blockNum", actorPayload.Block.NumberU64(),
+			"txCount", len(actorPayload.Block.Transactions()),
+			"source", "actor",
+		)
+
+		return &GetPayloadResponse{
+			ExecutionPayload: ep,
+			BlockValue:       new(big.Int).Set(actorPayload.BlockValue),
+			BlobsBundle:      collectBlobsBundleV1(actorPayload.Block.Transactions()),
+		}, nil
+	}
+
+	// Fallback to mutex.
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -460,6 +559,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 		"blockNum", pending.block.NumberU64(),
 		"txCount", len(pending.block.Transactions()),
 		"blockValue", pending.blockValue.String(),
+		"source", "mutex",
 	)
 
 	return &GetPayloadResponse{
@@ -471,9 +571,9 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 
 // generatePayloadID creates a unique payload ID from parent hash and timestamp.
 func (b *EngineBackend) generatePayloadID(parentHash types.Hash, timestamp uint64) PayloadID {
-	b.nextPayloadID++
+	newID := b.nextPayloadID.Add(1)
 	var id PayloadID
-	binary.BigEndian.PutUint64(id[:], b.nextPayloadID)
+	binary.BigEndian.PutUint64(id[:], newID)
 	return id
 }
 
@@ -685,6 +785,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
 	b.blocks[blockHash] = blk
+	b.numberIndex[blk.NumberU64()] = blockHash
 	// Store BAL for engine_getPayloadBodiesByHashV2.
 	if result.BlockAccessList != nil {
 		b.bals[blockHash] = result.BlockAccessList
@@ -692,9 +793,19 @@ func (b *EngineBackend) ProcessBlockV5(
 	b.evictOldBlocks()
 	b.statedb = stateCopy
 
+	// Dual-write to actors for migration.
+	if err := b.storeActorBlock(blockHash, blk, result.BlockAccessList); err != nil {
+		backendLog.Debug("actor_block_store_failed", "error", err)
+	}
+
 	// ILs are slot-scoped: once a block is accepted, the ILs for that slot
 	// are consumed. Clear them to prevent unbounded growth across slots.
 	b.ils = b.ils[:0]
+
+	// Clear actor ILs as well.
+	if err := b.clearActorInclusionLists(); err != nil {
+		backendLog.Debug("actor_il_clear_failed", "error", err)
+	}
 
 	backendLog.Info("payload_valid",
 		"event", "payload_valid",
@@ -732,6 +843,17 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 	b.headHash = fcState.HeadBlockHash
 	b.safeHash = fcState.SafeBlockHash
 	b.finalHash = fcState.FinalizedBlockHash
+
+	// Dual-write to actors for migration.
+	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
+		backendLog.Debug("actor_head_update_failed", "error", err)
+	}
+	if err := b.setActorSafeHash(fcState.SafeBlockHash); err != nil {
+		backendLog.Debug("actor_safe_update_failed", "error", err)
+	}
+	if err := b.setActorFinalHash(fcState.FinalizedBlockHash); err != nil {
+		backendLog.Debug("actor_final_update_failed", "error", err)
+	}
 
 	status := PayloadStatusV1{
 		Status:          StatusValid,
@@ -797,6 +919,22 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 		b.payloadOrder = append(b.payloadOrder, id)
 		b.evictOldestPayload()
 
+		// Dual-write to actors for migration.
+		actorPayload := &actor.PendingPayload{
+			Block:        blk,
+			Receipts:     receipts,
+			Bal:          blockBAL,
+			BlockValue:   new(big.Int),
+			ParentHash:   fcState.HeadBlockHash,
+			Timestamp:    attrs.Timestamp,
+			FeeRecipient: attrs.SuggestedFeeRecipient,
+			PrevRandao:   attrs.PrevRandao,
+			Withdrawals:  withdrawalsToActor(attrs.Withdrawals),
+		}
+		if err := b.storeActorPayload(id, actorPayload); err != nil {
+			backendLog.Debug("actor_payload_store_failed", "error", err)
+		}
+
 		result.PayloadID = &id
 	}
 
@@ -853,11 +991,16 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 	bundle := &BlobsBundleV2{}
 	kzg := bls.DefaultKZGBackend()
+	blobTxCount := 0
+	totalBlobs := 0
+	totalProofs := 0
 	for _, tx := range txs {
 		sc := tx.BlobSidecar()
 		if sc == nil {
 			continue
 		}
+		blobTxCount++
+		totalBlobs += len(sc.Blobs)
 		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
 		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
 		// Expand each blob's proof to 128 per-cell KZG proofs.
@@ -868,15 +1011,23 @@ func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 					"err", err)
 				for range bls.KZGCellsPerExtBlob {
 					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
+					totalProofs++
 				}
 				continue
 			}
 			for _, p := range cellProofs {
 				cp := p
 				bundle.Proofs = append(bundle.Proofs, cp[:])
+				totalProofs++
 			}
 		}
 	}
+	backendLog.Debug("collectBlobsBundle: result",
+		"blobTxCount", blobTxCount,
+		"totalBlobs", totalBlobs,
+		"totalProofs", totalProofs,
+		"expectedProofs", totalBlobs*bls.KZGCellsPerExtBlob,
+	)
 	return bundle
 }
 
@@ -916,6 +1067,12 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 	if len(b.ils) > b.maxILs {
 		b.ils = b.ils[len(b.ils)-b.maxILs:]
 	}
+
+	// Dual-write to actors for migration.
+	if err := b.storeActorInclusionList(il); err != nil {
+		backendLog.Debug("actor_il_store_failed", "error", err)
+	}
+
 	return nil
 }
 
@@ -952,6 +1109,205 @@ func (b *EngineBackend) SetSlasher(s coreconfig.PaymasterSlasher) {
 // focilCheckILSatisfaction wraps focil.CheckILSatisfaction for use in engine_newPayload.
 func focilCheckILSatisfaction(block *types.Block, ils []*focil.InclusionList, gasRemaining uint64) bool {
 	return focil.CheckILSatisfaction(block, ils, nil, gasRemaining) == focil.ILSatisfied
+}
+
+// --- Actor-based accessor methods (Phase 6 of engine-channel-refactor) ---
+// These methods use actors for state access, providing lock-free concurrent access.
+// They can be used alongside mutex-protected methods during migration.
+
+// getActorBlock retrieves a block using the actor backend.
+func (b *EngineBackend) getActorBlock(hash types.Hash) (*types.Block, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return nil, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetBlockByHash(hash, b.actorTimeout)
+}
+
+// getActorBlockByNumber retrieves a block by number using the actor backend.
+func (b *EngineBackend) getActorBlockByNumber(num uint64) (*types.Block, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return nil, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetBlockByNumber(num, b.actorTimeout)
+}
+
+// getActorHeadHash retrieves the head hash using the actor backend.
+func (b *EngineBackend) getActorHeadHash() (types.Hash, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return types.Hash{}, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetHeadHash(b.actorTimeout)
+}
+
+// setActorHeadHash sets the head hash using the actor backend.
+func (b *EngineBackend) setActorHeadHash(hash types.Hash) error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.SetHeadHash(hash, b.actorTimeout)
+}
+
+// getActorSafeHash retrieves the safe hash using the actor backend.
+func (b *EngineBackend) getActorSafeHash() (types.Hash, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return types.Hash{}, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetSafeHash(b.actorTimeout)
+}
+
+// setActorSafeHash sets the safe hash using the actor backend.
+func (b *EngineBackend) setActorSafeHash(hash types.Hash) error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.SetSafeHash(hash, b.actorTimeout)
+}
+
+// getActorFinalHash retrieves the finalized hash using the actor backend.
+func (b *EngineBackend) getActorFinalHash() (types.Hash, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return types.Hash{}, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetFinalHash(b.actorTimeout)
+}
+
+// setActorFinalHash sets the finalized hash using the actor backend.
+func (b *EngineBackend) setActorFinalHash(hash types.Hash) error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.SetFinalHash(hash, b.actorTimeout)
+}
+
+// storeActorBlock stores a block using the actor backend.
+func (b *EngineBackend) storeActorBlock(hash types.Hash, blk *types.Block, bal *bal.BlockAccessList) error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.StoreBlock(hash, blk, bal, b.actorTimeout)
+}
+
+// getActorBodiesByRange retrieves block bodies by range using the actor backend.
+func (b *EngineBackend) getActorBodiesByRange(start, count uint64) ([]*actor.BlockBody, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return nil, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetBodiesByRange(start, count, b.actorTimeout)
+}
+
+// getActorPayload retrieves a pending payload using the actor backend.
+func (b *EngineBackend) getActorPayload(id PayloadID) (*actor.PendingPayload, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return nil, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetPayload(id, b.actorTimeout)
+}
+
+// storeActorPayload stores a pending payload using the actor backend.
+func (b *EngineBackend) storeActorPayload(id PayloadID, p *actor.PendingPayload) error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.StorePayload(id, p, b.actorTimeout)
+}
+
+// storeActorInclusionList stores an inclusion list using the actor backend.
+func (b *EngineBackend) storeActorInclusionList(il *types.InclusionList) error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.StoreInclusionList(il, b.actorTimeout)
+}
+
+// getActorInclusionLists retrieves all inclusion lists using the actor backend.
+func (b *EngineBackend) getActorInclusionLists() ([]*types.InclusionList, error) {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return nil, fmt.Errorf("actors not initialized")
+	}
+	return actors.GetAllInclusionLists(b.actorTimeout)
+}
+
+// clearActorInclusionLists clears all inclusion lists using the actor backend.
+func (b *EngineBackend) clearActorInclusionLists() error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.ClearInclusionLists(b.actorTimeout)
+}
+
+// evictActorBlocks evicts old blocks using the actor backend.
+func (b *EngineBackend) evictActorBlocks() error {
+	b.actorMu.RLock()
+	actors := b.actors
+	b.actorMu.RUnlock()
+	if actors == nil {
+		return fmt.Errorf("actors not initialized")
+	}
+	return actors.EvictOldBlocks(b.actorTimeout)
+}
+
+// withdrawalsToActor converts engine Withdrawals to actor Withdrawals.
+func withdrawalsToActor(ws []*Withdrawal) []*actor.Withdrawal {
+	if ws == nil {
+		return nil
+	}
+	result := make([]*actor.Withdrawal, len(ws))
+	for i, w := range ws {
+		if w != nil {
+			result[i] = &actor.Withdrawal{
+				Index:          w.Index,
+				ValidatorIndex: w.ValidatorIndex,
+				Address:        w.Address,
+				Amount:         w.Amount,
+			}
+		}
+	}
+	return result
 }
 
 // Verify interface compliance at compile time.

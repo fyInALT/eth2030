@@ -156,10 +156,11 @@ func ValidateAuthorizationList(authList []Authorization, txChainID *big.Int) err
 }
 
 // ComputeSetCodeIntrinsicGas calculates the intrinsic gas for a SetCode tx.
-// Gas = base_intrinsic + calldata_cost + per_auth_cost * len(auth_list) + empty_account_costs
-// where empty_account_costs is PerEmptyAccountCost for each authorization
-// that targets an account not yet existing (determined externally).
-func ComputeSetCodeIntrinsicGas(data []byte, authCount int, emptyAccountCount int) uint64 {
+// Per EIP-7702, the intrinsic gas charges PER_EMPTY_ACCOUNT_COST (25000) for
+// each authorization entry. During execution, a refund of
+// PER_EMPTY_ACCOUNT_COST - PER_AUTH_BASE_COST (12500) is issued if the
+// authority account already exists in state.
+func ComputeSetCodeIntrinsicGas(data []byte, authCount int) uint64 {
 	gas := SetCodeTxIntrinsicGas
 
 	// Calldata cost (standard EIP-2028/EIP-7623 pricing).
@@ -171,11 +172,9 @@ func ComputeSetCodeIntrinsicGas(data []byte, authCount int, emptyAccountCount in
 		}
 	}
 
-	// Per-authorization base cost.
-	gas += PerAuthBaseCost * uint64(authCount)
-
-	// Per-empty-account cost.
-	gas += PerEmptyAccountCost * uint64(emptyAccountCount)
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST for each authorization.
+	// Refund is handled during execution if the authority account is not empty.
+	gas += PerEmptyAccountCost * uint64(authCount)
 
 	return gas
 }

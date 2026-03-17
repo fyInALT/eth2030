@@ -45,7 +45,6 @@ func TestEIP2780IntrinsicGas(t *testing.T) {
 		hasValue  bool
 		toExists  bool
 		authCount uint64
-		emptyAuth uint64
 		want      uint64
 	}{
 		{
@@ -85,7 +84,7 @@ func TestEIP2780IntrinsicGas(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := execution.IntrinsicGasGlamst(tt.data, tt.isCreate, tt.hasValue, tt.toExists, tt.authCount, tt.emptyAuth)
+			got := execution.IntrinsicGasGlamst(tt.data, tt.isCreate, tt.hasValue, tt.toExists, tt.authCount)
 			if got != tt.want {
 				t.Errorf("intrinsicGasGlamst = %d, want %d", got, tt.want)
 			}

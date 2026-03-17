@@ -304,6 +304,41 @@ func countValues(n node) int {
 	}
 }
 
+// Clone returns a deep copy of the trie. The cloned trie shares no mutable
+// state with the original; mutations to either will not affect the other.
+// Cost is O(N_nodes) where N_nodes ≤ 2 × N_leaves × depth.
+func (t *Trie) Clone() *Trie {
+	return &Trie{root: cloneNode(t.root)}
+}
+
+// cloneNode recursively deep-copies a trie node.
+func cloneNode(n node) node {
+	switch n := n.(type) {
+	case nil:
+		return nil
+	case valueNode:
+		cp := make(valueNode, len(n))
+		copy(cp, n)
+		return cp
+	case hashNode:
+		cp := make(hashNode, len(n))
+		copy(cp, n)
+		return cp
+	case *shortNode:
+		keyCopy := make([]byte, len(n.Key))
+		copy(keyCopy, n.Key)
+		return &shortNode{Key: keyCopy, Val: cloneNode(n.Val)}
+	case *fullNode:
+		cp := &fullNode{}
+		for i := 0; i < 17; i++ {
+			cp.Children[i] = cloneNode(n.Children[i])
+		}
+		return cp
+	default:
+		return nil
+	}
+}
+
 // keysEqual returns true if two byte slices are equal.
 func keysEqual(a, b []byte) bool {
 	if len(a) != len(b) {

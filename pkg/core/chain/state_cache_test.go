@@ -57,31 +57,37 @@ func TestStateCache_Isolation(t *testing.T) {
 	}
 }
 
+// testHash encodes an integer into a Hash (little-endian two-byte prefix).
+func testHash(i int) types.Hash {
+	return types.Hash{byte(i), byte(i >> 8)}
+}
+
 func TestStateCache_Eviction(t *testing.T) {
-	sc := newStateCache(defaultMaxCachedStates)
+	// Use a small fixed capacity to keep the test fast and byte-safe.
+	const cap = 16
+	sc := newStateCache(cap)
 
 	// Fill beyond max.
-	for i := 0; i < defaultMaxCachedStates+10; i++ {
-		hash := types.Hash{byte(i)}
-		sc.put(hash, uint64(i), makeTestState(int64(i)))
+	for i := 0; i < cap+10; i++ {
+		sc.put(testHash(i), uint64(i), makeTestState(int64(i)))
 	}
 
 	// Should not exceed max.
 	sc.mu.RLock()
 	count := len(sc.snapshots)
 	sc.mu.RUnlock()
-	if count > defaultMaxCachedStates {
-		t.Fatalf("expected at most %d cached states, got %d", defaultMaxCachedStates, count)
+	if count > cap {
+		t.Fatalf("expected at most %d cached states, got %d", cap, count)
 	}
 
 	// Oldest entries should have been evicted.
-	_, ok := sc.get(types.Hash{0})
+	_, ok := sc.get(testHash(0))
 	if ok {
 		t.Fatal("expected oldest entry to be evicted")
 	}
 
 	// Newest entries should still be present.
-	_, ok = sc.get(types.Hash{byte(defaultMaxCachedStates + 9)})
+	_, ok = sc.get(testHash(cap + 9))
 	if !ok {
 		t.Fatal("expected newest entry to be present")
 	}
@@ -148,5 +154,66 @@ func TestStateCache_Clear(t *testing.T) {
 	sc.mu.RUnlock()
 	if count != 0 {
 		t.Fatalf("expected 0 after clear, got %d", count)
+	}
+}
+
+func TestStateCache_Protect(t *testing.T) {
+	const cap = 4
+	sc := newStateCache(cap)
+
+	// Fill cache.
+	for i := 0; i < cap; i++ {
+		sc.put(types.Hash{byte(i + 1)}, uint64(i), makeTestState(int64(i)))
+	}
+
+	// Protect the first entry.
+	protectedHash := types.Hash{0x01}
+	sc.protect(protectedHash)
+
+	// Add more entries to trigger eviction.
+	for i := cap; i < cap+5; i++ {
+		sc.put(types.Hash{byte(i + 1)}, uint64(i), makeTestState(int64(i)))
+	}
+
+	// Protected entry should still be present.
+	_, ok := sc.get(protectedHash)
+	if !ok {
+		t.Fatal("expected protected entry to be preserved")
+	}
+
+	// Cache should not exceed max size.
+	sc.mu.RLock()
+	count := len(sc.snapshots)
+	sc.mu.RUnlock()
+	if count > cap {
+		t.Fatalf("expected at most %d cached states, got %d", cap, count)
+	}
+}
+
+func TestStateCache_ClearPreservesProtected(t *testing.T) {
+	sc := newStateCache(defaultMaxCachedStates)
+
+	// Add entries.
+	for i := 0; i < 10; i++ {
+		sc.put(types.Hash{byte(i + 1)}, uint64(i), makeTestState(int64(i)))
+	}
+
+	// Protect one entry.
+	protectedHash := types.Hash{0x05}
+	sc.protect(protectedHash)
+
+	// Clear cache.
+	sc.clear()
+
+	// Protected entry should still be present.
+	_, ok := sc.get(protectedHash)
+	if !ok {
+		t.Fatal("expected protected entry to be preserved after clear")
+	}
+
+	// Other entries should be gone.
+	_, ok = sc.get(types.Hash{0x01})
+	if ok {
+		t.Fatal("expected non-protected entry to be cleared")
 	}
 }

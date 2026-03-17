@@ -261,8 +261,10 @@ func txIntrinsicGas(tx *types.Transaction) uint64 {
 		gas += uint64(len(tuple.StorageKeys)) * 1900
 	}
 	// EIP-7702 authorization list costs.
+	// Per EIP-7702: charge PER_EMPTY_ACCOUNT_COST (25000) for each authorization.
+	// Refund is added during authorization processing if authority is not empty.
 	if auths := tx.AuthorizationList(); len(auths) > 0 {
-		gas += uint64(len(auths)) * execution.PerAuthBaseCost
+		gas += uint64(len(auths)) * execution.PerEmptyAccountCost
 	}
 	return gas
 }

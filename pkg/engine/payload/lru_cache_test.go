@@ -34,15 +34,15 @@ func TestPayloadLRUCacheNew(t *testing.T) {
 	if c.Len() != 0 {
 		t.Fatalf("new cache should be empty, got %d", c.Len())
 	}
-	if c.maxEntries != 32 {
-		t.Fatalf("expected maxEntries 32, got %d", c.maxEntries)
+	if c.MaxEntries() != 32 {
+		t.Fatalf("expected maxEntries 32, got %d", c.MaxEntries())
 	}
 }
 
 func TestPayloadLRUCacheNewDefault(t *testing.T) {
 	c := NewPayloadLRUCache(0)
-	if c.maxEntries != DefaultLRUCacheMaxEntries {
-		t.Fatalf("expected default %d, got %d", DefaultLRUCacheMaxEntries, c.maxEntries)
+	if c.MaxEntries() != DefaultLRUCacheMaxEntries {
+		t.Fatalf("expected default %d, got %d", DefaultLRUCacheMaxEntries, c.MaxEntries())
 	}
 }
 
@@ -314,8 +314,8 @@ func TestPayloadLRUCacheDuplicatePut(t *testing.T) {
 func TestPayloadLRUCacheZeroEntries(t *testing.T) {
 	// maxEntries=0 should use the default.
 	c := NewPayloadLRUCache(0)
-	if c.maxEntries != DefaultLRUCacheMaxEntries {
-		t.Fatalf("expected default max entries, got %d", c.maxEntries)
+	if c.MaxEntries() != DefaultLRUCacheMaxEntries {
+		t.Fatalf("expected default max entries, got %d", c.MaxEntries())
 	}
 	// Should still work normally.
 	c.Put(makePID(1), makeLRUPayload(1))

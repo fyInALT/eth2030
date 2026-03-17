@@ -129,44 +129,33 @@ func TestValidateAuthorizationSignature_RExceedsOrder(t *testing.T) {
 
 func TestComputeSetCodeIntrinsicGas(t *testing.T) {
 	tests := []struct {
-		name              string
-		data              []byte
-		authCount         int
-		emptyAccountCount int
-		want              uint64
+		name      string
+		data      []byte
+		authCount int
+		want      uint64
 	}{
 		{
-			name:              "empty tx",
-			data:              nil,
-			authCount:         1,
-			emptyAccountCount: 0,
-			want:              21000 + 12500,
+			name:      "empty tx one auth",
+			data:      nil,
+			authCount: 1,
+			want:      21000 + 25000, // base + PER_EMPTY_ACCOUNT_COST
 		},
 		{
-			name:              "with calldata",
-			data:              []byte{0x00, 0xff, 0x00, 0xff},
-			authCount:         1,
-			emptyAccountCount: 0,
-			want:              21000 + 4 + 16 + 4 + 16 + 12500,
+			name:      "with calldata",
+			data:      []byte{0x00, 0xff, 0x00, 0xff},
+			authCount: 1,
+			want:      21000 + 4 + 16 + 4 + 16 + 25000, // base + calldata + PER_EMPTY_ACCOUNT_COST
 		},
 		{
-			name:              "multiple auths",
-			data:              nil,
-			authCount:         3,
-			emptyAccountCount: 0,
-			want:              21000 + 3*12500,
-		},
-		{
-			name:              "with empty accounts",
-			data:              nil,
-			authCount:         2,
-			emptyAccountCount: 1,
-			want:              21000 + 2*12500 + 25000,
+			name:      "multiple auths",
+			data:      nil,
+			authCount: 3,
+			want:      21000 + 3*25000, // base + 3 * PER_EMPTY_ACCOUNT_COST
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ComputeSetCodeIntrinsicGas(tt.data, tt.authCount, tt.emptyAccountCount)
+			got := ComputeSetCodeIntrinsicGas(tt.data, tt.authCount)
 			if got != tt.want {
 				t.Errorf("ComputeSetCodeIntrinsicGas() = %d, want %d", got, tt.want)
 			}

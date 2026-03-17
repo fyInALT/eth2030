@@ -158,6 +158,10 @@ func (api *EngineAPI) dispatch(method string, params []json.RawMessage) (any, *j
 		return api.handleNewInclusionListV1(params)
 	case "engine_getInclusionListV1":
 		return api.handleGetInclusionListV1(params)
+	case "engine_getPayloadBodiesByHashV1":
+		return api.handleGetPayloadBodiesByHashV1(params)
+	case "engine_getPayloadBodiesByRangeV1":
+		return api.handleGetPayloadBodiesByRangeV1(params)
 	case "engine_getPayloadBodiesByHashV2":
 		return api.handleGetPayloadBodiesByHashV2(params)
 	case "engine_getPayloadBodiesByRangeV2":
