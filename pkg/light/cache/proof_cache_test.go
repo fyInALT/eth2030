@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -269,7 +270,7 @@ func TestProofCache_Prefetch(t *testing.T) {
 		return []byte{byte(block)}, []byte{byte(block + 1)}
 	}
 
-	cache.Prefetch(100, addr, storageKey, ProofTypeStorage, 5, fetch)
+	cache.Prefetch(context.Background(), 100, addr, storageKey, ProofTypeStorage, 5, fetch)
 
 	// Wait for all prefetch calls.
 	for i := 0; i < 5; i++ {
@@ -305,13 +306,13 @@ func TestProofCache_Prefetch(t *testing.T) {
 func TestProofCache_PrefetchNilFetch(t *testing.T) {
 	cache := NewProofCache(10, time.Minute)
 	// Should not panic with nil fetch function.
-	cache.Prefetch(0, types.Address{}, types.Hash{}, ProofTypeHeader, 5, nil)
+	cache.Prefetch(context.Background(), 0, types.Address{}, types.Hash{}, ProofTypeHeader, 5, nil)
 }
 
 func TestProofCache_PrefetchZeroCount(t *testing.T) {
 	cache := NewProofCache(10, time.Minute)
 	called := false
-	cache.Prefetch(0, types.Address{}, types.Hash{}, ProofTypeHeader, 0, func(block uint64) ([]byte, []byte) {
+	cache.Prefetch(context.Background(), 0, types.Address{}, types.Hash{}, ProofTypeHeader, 0, func(block uint64) ([]byte, []byte) {
 		called = true
 		return nil, nil
 	})

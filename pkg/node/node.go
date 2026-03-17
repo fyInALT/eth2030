@@ -497,11 +497,26 @@ func New(config *Config) (*Node, error) {
 
 	// EP-3 US-PQ-6: compile AA proof circuit on startup (non-fatal; logs result).
 	go func() {
+		// Check for shutdown before expensive compile operation.
+		select {
+		case <-n.stop:
+			return
+		default:
+		}
+
 		circuit, err := proofs.CompileAACircuit()
 		if err != nil {
 			slog.Warn("AA circuit compile failed", "err", err)
 			return
 		}
+
+		// Check for shutdown before key setup.
+		select {
+		case <-n.stop:
+			return
+		default:
+		}
+
 		_, _, err = proofs.SetupKeys(circuit)
 		if err != nil {
 			slog.Warn("AA circuit key setup failed", "err", err)
