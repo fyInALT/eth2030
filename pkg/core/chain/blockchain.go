@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/config"
@@ -105,6 +106,14 @@ type Blockchain struct {
 	// State snapshot cache to avoid re-execution from genesis.
 	sc *stateCache
 
+	// memSC is a permanent MemoryStateDB cache keyed by block hash.
+	// Unlike sc (which is cleared on reorg because TrieStateDB entries share
+	// the mutable db), memSC entries are computed entirely from
+	// execGenesisState.Copy() and never read from the shared db, so they
+	// remain valid across reorgs. This eliminates repeated full-chain
+	// re-execution from genesis after every reorg.
+	memSC *stateCache
+
 	// config.Genesis state (used as base for re-execution).
 	genesisState state.StateDB
 
@@ -141,6 +150,11 @@ type Blockchain struct {
 	// SetFinalized migrates newly-finalized blocks from the live DB into cold
 	// storage, matching go-ethereum's freezer behaviour.
 	ancientStore *rawdb.AncientStore
+
+	// sfGroup deduplicates concurrent StateAtBlock re-executions: when N
+	// goroutines all request state for the same block hash, only one does the
+	// work and the rest wait for and share the result.
+	sfGroup singleflight.Group
 }
 
 // NewBlockchain creates a new blockchain initialized with the given genesis block.
@@ -195,6 +209,7 @@ func NewBlockchain(config *config.ChainConfig, genesis *types.Block, statedb sta
 		receiptCache:     make(map[types.Hash][]*types.Receipt),
 		txLookup:         make(map[types.Hash]TxLookupEntry),
 		sc:               newStateCache(opts.StateCacheSize),
+		memSC:            newStateCache(opts.StateCacheSize),
 		genesisState:     statedb,
 		execGenesisState: execGenesis,
 		gcMode:           gcMode,
@@ -572,16 +587,16 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// captured in Phase 1 is still valid for the canonical check below.
 	isCanonical := num > headNum
 	if isCanonical {
-		// Cache post-execution state BEFORE committing (sc.put calls Dup
-		// internally, so the Dup'd copy retains the dirty layer).
-		bc.sc.put(hash, num, statedb)
-
 		// Commit state to backing store: flushes dirty accounts/storage to DB
 		// and clears the in-memory dirty layer. Expensive with many dirty
 		// accounts (e.g. storagespam) — must run outside bc.mu.Lock().
 		if _, err := statedb.Commit(); err != nil {
 			return fmt.Errorf("commit state block %d: %w", num, err)
 		}
+
+		// Cache post-commit state: after Commit() the dirty layer is empty so
+		// sc.put's internal Dup() is O(1) instead of O(dirty_storage_size).
+		bc.sc.put(hash, num, statedb)
 
 		// Persist block, receipts, and chain indices to rawdb.
 		bc.writeBlock(blk)
@@ -901,16 +916,20 @@ func (bc *Blockchain) State() state.StateDB {
 // then re-executes from the nearest cached snapshot.
 // bc.mu is held only for fast in-memory lookups; re-execution runs outside.
 func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
+	t0 := time.Now()
 	// Fast path under brief RLock: check current state, genesis, and block cache.
 	var targetBlock *types.Block
 	{
 		bc.mu.RLock()
-		if bc.currentState.GetRoot() == root {
+		t1 := time.Now()
+		// Use block header Root (a stored hash) instead of calling GetRoot()
+		// which would rebuild the full storage trie and take O(N_slots) time.
+		if bc.currentBlock.Header().Root == root {
 			s := bc.currentState.Dup()
 			bc.mu.RUnlock()
 			return s, nil
 		}
-		if bc.genesisState.GetRoot() == root {
+		if bc.genesis.Header().Root == root {
 			s := bc.genesisState.Dup()
 			bc.mu.RUnlock()
 			return s, nil
@@ -922,12 +941,28 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 			}
 		}
 		bc.mu.RUnlock()
+		if time.Since(t1) > 100*time.Millisecond {
+			blockchainLog.Warn("state_at_root_rlock_slow",
+				"event", "state_at_root_rlock_slow",
+				"rlock_wait_ms", t1.Sub(t0).Milliseconds(),
+				"rlock_held_ms", time.Since(t1).Milliseconds(),
+			)
+		}
 	}
 	if targetBlock == nil {
 		return nil, fmt.Errorf("%w: no block found with state root %v", ErrStateNotFound, root)
 	}
 	// Re-execute outside bc.mu (StateAtBlock handles its own brief locking).
-	return bc.StateAtBlock(targetBlock)
+	t2 := time.Now()
+	result, err := bc.StateAtBlock(targetBlock)
+	if time.Since(t2) > 100*time.Millisecond {
+		blockchainLog.Warn("state_at_root_block_slow",
+			"event", "state_at_root_block_slow",
+			"block_num", targetBlock.NumberU64(),
+			"state_at_block_ms", time.Since(t2).Milliseconds(),
+		)
+	}
+	return result, err
 }
 
 // StateAtBlock returns the state after executing up to the given block.
@@ -942,58 +977,88 @@ func (bc *Blockchain) StateAtBlock(blk *types.Block) (state.StateDB, error) {
 		return bc.genesisState.Dup(), nil
 	}
 
-	// Fast path: exact cache hit (no bc.mu needed — sc has its own lock).
+	// Fast path: exact cache hit in sc (hot TrieStateDB cache, no bc.mu).
 	if cached, ok := bc.sc.get(blk.Hash()); ok {
-		return cached.Dup(), nil
+		return cached, nil
+	}
+	// Fast path: permanent MemoryStateDB cache — valid across reorgs.
+	if cached, ok := bc.memSC.get(blk.Hash()); ok {
+		return cached, nil
 	}
 
-	// Slow path: collect ancestor chain under bc.mu (fast map reads only),
-	// then re-execute outside bc.mu so we don't block RPC readers.
-	chain, baseState := func() ([]*types.Block, state.StateDB) {
-		bc.mu.RLock()
-		defer bc.mu.RUnlock()
+	// Slow path: deduplicate via singleflight so that N concurrent requests
+	// for the same block hash result in only one re-execution.
+	blockchainLog.Warn("state_at_block_cache_miss",
+		"event", "state_at_block_cache_miss",
+		"block_num", blk.NumberU64(),
+		"block_hash", blk.Hash().Hex()[:16],
+	)
+	key := blk.Hash().Hex()
+	v, err, _ := bc.sfGroup.Do(key, func() (interface{}, error) {
+		// Collect ancestor chain under bc.mu (fast map reads only).
+		chain, baseState := func() ([]*types.Block, state.StateDB) {
+			bc.mu.RLock()
+			defer bc.mu.RUnlock()
 
-		var ancestors []*types.Block
-		current := blk
-		for current.Hash() != bc.genesis.Hash() {
-			if cached, ok := bc.sc.get(current.ParentHash()); ok {
-				ancestors = append(ancestors, current)
-				// Reverse to execution order before returning.
-				for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
-					ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+			var ancestors []*types.Block
+			current := blk
+			for current.Hash() != bc.genesis.Hash() {
+				if cached, ok := bc.sc.get(current.ParentHash()); ok {
+					ancestors = append(ancestors, current)
+					for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+						ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+					}
+					return ancestors, cached.Dup()
 				}
-				return ancestors, cached.Dup()
+				if cached, ok := bc.memSC.get(current.ParentHash()); ok {
+					ancestors = append(ancestors, current)
+					for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+						ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+					}
+					return ancestors, cached.Dup()
+				}
+				ancestors = append(ancestors, current)
+				parent := bc.blockCache[current.ParentHash()]
+				if parent == nil {
+					parent = bc.readBlock(current.ParentHash())
+				}
+				if parent == nil {
+					break
+				}
+				current = parent
 			}
-			ancestors = append(ancestors, current)
-			parent := bc.blockCache[current.ParentHash()]
-			if parent == nil {
-				parent = bc.readBlock(current.ParentHash())
+			for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+				ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
 			}
-			if parent == nil {
-				break
-			}
-			current = parent
-		}
-		for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
-			ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
-		}
-		return ancestors, nil
-	}()
+			return ancestors, nil
+		}()
 
-	if baseState == nil {
-		baseState = bc.execGenesisState.Copy()
-	}
-
-	// Re-execute outside bc.mu — this may take 100ms+ for long chains.
-	for _, b := range chain {
-		if _, err := bc.processor.Process(b, baseState); err != nil {
-			return nil, fmt.Errorf("re-execute block %d: %w", b.NumberU64(), err)
+		if baseState == nil {
+			baseState = bc.execGenesisState.Copy()
 		}
+
+		// Re-execute outside bc.mu — this may take 100ms+ for long chains.
+		// Cache each intermediate state in both sc (hot) and memSC (permanent,
+		// never cleared on reorg) so future requests avoid re-execution even
+		// after sc is wiped by a reorg.
+		for _, b := range chain {
+			if _, err := bc.processor.Process(b, baseState); err != nil {
+				return nil, fmt.Errorf("re-execute block %d: %w", b.NumberU64(), err)
+			}
+			bc.sc.put(b.Hash(), b.NumberU64(), baseState)
+			bc.memSC.put(b.Hash(), b.NumberU64(), baseState)
+		}
+		if len(chain) == 0 {
+			return nil, fmt.Errorf("%w: no ancestor chain for %v", ErrStateNotFound, blk.Hash())
+		}
+		return baseState, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if len(chain) == 0 {
-		return nil, fmt.Errorf("%w: no ancestor chain for %v", ErrStateNotFound, blk.Hash())
-	}
-	return baseState, nil
+	// singleflight shares the result across waiters; each caller needs its own
+	// copy so they don't corrupt each other's state during block execution.
+	return v.(state.StateDB).Dup(), nil
 }
 
 // stateAt returns the state after executing up to (and including) the given block.
@@ -1019,9 +1084,13 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	var baseState state.StateDB
 
 	for current.Hash() != bc.genesis.Hash() {
-		// Check if we have a cached state for this ancestor.
+		// Check hot sc first, then permanent memSC (valid across reorgs).
 		if cached, ok := bc.sc.get(current.ParentHash()); ok {
-			// Dup() so processor.Process does not mutate the cached state.
+			baseState = cached.Dup()
+			chain = append(chain, current)
+			break
+		}
+		if cached, ok := bc.memSC.get(current.ParentHash()); ok {
 			baseState = cached.Dup()
 			chain = append(chain, current)
 			break
@@ -1048,11 +1117,16 @@ func (bc *Blockchain) stateAt(blk *types.Block) (state.StateDB, error) {
 	}
 
 	// Re-execute from the base state.
+	// Cache each intermediate state in sc and memSC so that subsequent
+	// StateAtBlock calls (e.g. from blockscout RPC) avoid re-execution.
+	// memSC is never cleared on reorg so post-reorg recovery is cheap.
 	for i := len(chain) - 1; i >= 0; i-- {
 		b := chain[i]
 		if _, err := bc.processor.Process(b, baseState); err != nil {
 			return nil, fmt.Errorf("re-execute block %d: %w", b.NumberU64(), err)
 		}
+		bc.sc.put(b.Hash(), b.NumberU64(), baseState)
+		bc.memSC.put(b.Hash(), b.NumberU64(), baseState)
 	}
 	return baseState, nil
 }
