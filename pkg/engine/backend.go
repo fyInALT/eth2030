@@ -991,11 +991,16 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 	bundle := &BlobsBundleV2{}
 	kzg := bls.DefaultKZGBackend()
+	blobTxCount := 0
+	totalBlobs := 0
+	totalProofs := 0
 	for _, tx := range txs {
 		sc := tx.BlobSidecar()
 		if sc == nil {
 			continue
 		}
+		blobTxCount++
+		totalBlobs += len(sc.Blobs)
 		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
 		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
 		// Expand each blob's proof to 128 per-cell KZG proofs.
@@ -1006,15 +1011,23 @@ func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 					"err", err)
 				for range bls.KZGCellsPerExtBlob {
 					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
+					totalProofs++
 				}
 				continue
 			}
 			for _, p := range cellProofs {
 				cp := p
 				bundle.Proofs = append(bundle.Proofs, cp[:])
+				totalProofs++
 			}
 		}
 	}
+	backendLog.Debug("collectBlobsBundle: result",
+		"blobTxCount", blobTxCount,
+		"totalBlobs", totalBlobs,
+		"totalProofs", totalProofs,
+		"expectedProofs", totalBlobs*bls.KZGCellsPerExtBlob,
+	)
 	return bundle
 }
 

@@ -11,6 +11,13 @@ network_params:
   network: kurtosis
   seconds_per_slot: 4
   genesis_delay: 60
+  # PeerDAS config for 2-node devnet:
+  # - With 128 total columns and 2 nodes, each node custodies all columns
+  # - custody_requirement: 128 means each node stores everything (supernode mode)
+  # - data_column_sidecar_subnet_count: 128 means 1 column per subnet
+  # This simulates perfect PeerDAS without requiring 16 nodes
+  custody_requirement: 128
+  data_column_sidecar_subnet_count: 128
   # fulu_fork_epoch: 1 pushes the first Fulu sync_committee deadline to slot 40,
   # giving nodes 40 slots (80s) to accumulate peer score before the brief gossip
   # disruption. With count: 3, nodes can reconnect via the third peer.

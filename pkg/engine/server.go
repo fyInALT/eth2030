@@ -298,6 +298,8 @@ func (api *EngineAPI) ExchangeCapabilities(requested []string) []string {
 		"engine_getBlobsV1",
 		"engine_getBlobsV2",
 		"engine_getBlobsV3",
+		"engine_getPayloadBodiesByHashV1",
+		"engine_getPayloadBodiesByRangeV1",
 		"engine_getPayloadBodiesByHashV2",
 		"engine_getPayloadBodiesByRangeV2",
 		"engine_submitBuilderBidV1",
