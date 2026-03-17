@@ -62,4 +62,36 @@ var (
 	EngineNewPayload = DefaultRegistry.Counter("engine.new_payload")
 	// EngineFCU counts engine_forkchoiceUpdated calls.
 	EngineFCU = DefaultRegistry.Counter("engine.forkchoice_updated")
+
+	// ---- Async Payload Builder metrics ----
+
+	// EnginePayloadBuildTotal counts total payload builds started.
+	EnginePayloadBuildTotal = DefaultRegistry.Counter("engine.payload_build_total")
+	// EnginePayloadBuildSuccess counts successful payload builds.
+	EnginePayloadBuildSuccess = DefaultRegistry.Counter("engine.payload_build_success")
+	// EnginePayloadBuildFailed counts failed payload builds.
+	EnginePayloadBuildFailed = DefaultRegistry.Counter("engine.payload_build_failed")
+	// EnginePayloadBuildTimeout counts payload builds that timed out.
+	EnginePayloadBuildTimeout = DefaultRegistry.Counter("engine.payload_build_timeout")
+	// EnginePayloadBuildQueueSize tracks the current queue size.
+	EnginePayloadBuildQueueSize = DefaultRegistry.Gauge("engine.payload_build_queue_size")
+	// EnginePayloadBuildActive tracks the number of active builds.
+	EnginePayloadBuildActive = DefaultRegistry.Gauge("engine.payload_build_active")
+
+	// ---- Priority Handler metrics ----
+
+	// EngineRequestHighTotal counts high priority requests.
+	EngineRequestHighTotal = DefaultRegistry.Counter("engine.request_high_total")
+	// EngineRequestNormalTotal counts normal priority requests.
+	EngineRequestNormalTotal = DefaultRegistry.Counter("engine.request_normal_total")
+	// EngineRequestLowTotal counts low priority requests.
+	EngineRequestLowTotal = DefaultRegistry.Counter("engine.request_low_total")
+	// EngineRequestHighActive tracks active high priority requests.
+	EngineRequestHighActive = DefaultRegistry.Gauge("engine.request_high_active")
+	// EngineRequestNormalActive tracks active normal priority requests.
+	EngineRequestNormalActive = DefaultRegistry.Gauge("engine.request_normal_active")
+	// EngineRequestLowActive tracks active low priority requests.
+	EngineRequestLowActive = DefaultRegistry.Gauge("engine.request_low_active")
+	// EngineRequestTimeoutTotal counts requests that timed out.
+	EngineRequestTimeoutTotal = DefaultRegistry.Counter("engine.request_timeout_total")
 )
