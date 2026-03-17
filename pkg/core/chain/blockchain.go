@@ -1001,6 +1001,27 @@ func (bc *Blockchain) StateAtRoot(root types.Hash) (state.StateDB, error) {
 
 // StateAtBlock returns the state after executing up to the given block.
 // This is public for use by external packages (e.g. core/block).
+// HasStateAtBlock returns true if the state for the given block is immediately
+// available in the cache (no re-execution needed). This is used by the Engine API
+// to decide whether to return SYNCING status when the CL requests a new payload.
+func (bc *Blockchain) HasStateAtBlock(blk *types.Block) bool {
+	if blk == nil {
+		return false
+	}
+	// Genesis state is always available.
+	if blk.Hash() == bc.genesis.Hash() {
+		return true
+	}
+	// Check both caches.
+	if _, ok := bc.sc.get(blk.Hash()); ok {
+		return true
+	}
+	if _, ok := bc.memSC.get(blk.Hash()); ok {
+		return true
+	}
+	return false
+}
+
 // StateAtBlock returns the state after executing the given block.
 // It holds bc.mu only for in-memory lookups (state cache, block cache) and
 // releases the lock before any expensive re-execution so that concurrent RPC

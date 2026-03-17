@@ -1233,6 +1233,37 @@ func (b *engineBackend) ForkchoiceUpdated(
 		return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 	}
 
+	// Step 7a: check if parent state is immediately available.
+	// If the state is not in cache, re-execution would be needed which can take
+	// many seconds. Return SYNCING to signal the CL that EL is not ready to build.
+	// Start background state warming so the next FCU will find the state ready.
+	// This prevents the cascade of: cache miss → re-execution → timeout → EL offline.
+	if !bc.HasStateAtBlock(headBlock) {
+		slog.Warn("engine_forkchoiceUpdated: parent state not in cache, warming and returning SYNCING",
+			"headNum", headBlock.NumberU64(),
+			"headHash", headBlock.Hash(),
+		)
+		// Start background state warming (non-blocking).
+		go func() {
+			// StateAtBlock uses singleflight internally, so multiple concurrent
+			// warming requests for the same block will share the work.
+			_, err := bc.StateAtBlock(headBlock)
+			if err != nil {
+				slog.Warn("engine_forkchoiceUpdated: background state warming failed",
+					"headNum", headBlock.NumberU64(),
+					"err", err,
+				)
+			} else {
+				slog.Info("engine_forkchoiceUpdated: background state warming completed",
+					"headNum", headBlock.NumberU64(),
+				)
+			}
+		}()
+		return engine.ForkchoiceUpdatedResult{
+			PayloadStatus: engine.PayloadStatusV1{Status: engine.StatusSyncing},
+		}, nil
+	}
+
 	// Step 7b: payload attributes provided — start async block build.
 	slog.Debug("engine_forkchoiceUpdated: building payload",
 		"parentNum", headBlock.NumberU64(),
