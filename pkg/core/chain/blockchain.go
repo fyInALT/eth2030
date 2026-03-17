@@ -621,6 +621,11 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 		// always finds a nearby ancestor, avoiding full genesis re-execution.
 		bc.sc.put(hash, num, statedb)
 		bc.memSC.put(hash, num, statedb)
+		// Protect this canonical head state from eviction.
+		// This ensures StateAtBlock can always find the current head state
+		// quickly, preventing expensive re-execution during payload building.
+		bc.sc.protect(hash)
+		bc.memSC.protect(hash)
 
 		// Persist block, receipts, and chain indices to rawdb.
 		bc.writeBlock(blk)
@@ -1487,6 +1492,10 @@ func (bc *Blockchain) Reorg(newHead *types.Block) error {
 	// Update the canonical state pointer under a brief lock (only pointer/cache writes).
 	bc.mu.Lock()
 	bc.sc.put(newHead.Hash(), newHead.NumberU64(), statedb)
+	bc.memSC.put(newHead.Hash(), newHead.NumberU64(), statedb)
+	// Protect the new head state from eviction.
+	bc.sc.protect(newHead.Hash())
+	bc.memSC.protect(newHead.Hash())
 	bc.currentState = statedb
 	bc.mu.Unlock()
 
@@ -1601,9 +1610,16 @@ func (bc *Blockchain) reorg(newHead *types.Block) ([]*types.Block, state.StateDB
 	bc.hc.currentHeader = newHead.Header()
 	bc.hc.mu.Unlock()
 
+	// Protect the new head state before clearing the cache.
+	// This ensures the new head's state is preserved if it was already cached
+	// during a prior insertBlock (common for short reorgs).
+	bc.sc.protect(newHead.Hash())
+	bc.memSC.protect(newHead.Hash())
+
 	// Clear stale state cache entries: cached TrieStateDB Dups share the live
 	// db which now reflects the state after the old canonical chain. Re-using
 	// them as re-execution bases for the new fork would read wrong state.
+	// Note: clear() now preserves the protected entry (newHead's state).
 	bc.sc.clear()
 
 	// Pre-collect the ancestor blocks and base state needed for re-execution.
