@@ -17,6 +17,12 @@ type stateObject struct {
 	dirtyStorage     map[types.Hash]types.Hash
 	committedStorage map[types.Hash]types.Hash
 	selfDestructed   bool
+
+	// dbStorageRoot caches the storage Merkle root as stored in the DB at the
+	// time this account was loaded by TrieStateDB.loadFromDB.  It is the zero
+	// hash for freshly-created accounts.  TrieStateDB uses it as a fast path
+	// to skip recomputing the storage root when no slots were modified.
+	dbStorageRoot types.Hash
 }
 
 func newStateObject() *stateObject {

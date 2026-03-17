@@ -78,6 +78,20 @@ type TrieStateDB struct {
 	// builder) cannot corrupt the state-root computation.
 	// The map is shared across Dup() copies; callers must not mutate it.
 	frozenAccounts map[types.Address][]byte
+
+	// persistedStorage is a per-address index of all storage slots currently
+	// in the DB.  It is updated in Commit() with copy-on-write (COW) semantics
+	// so that Dup() copies share the inner maps cheaply.
+	//
+	// This replaces the O(N_total) MemoryDB prefix scan in computeStorageRootFromDB
+	// with an O(K_addr) per-address map lookup, eliminating the O(N²) CPU growth
+	// seen with storagespam workloads.
+	//
+	// The map is nil until the first Commit(). A nil map means "no persisted
+	// storage yet"; computeStorageRootFromDB treats it as an empty set and falls
+	// back to the DB iterator for correctness on instances that adopt a
+	// pre-existing DB (e.g. NewTrieStateDBFromMemory before genesis Commit).
+	persistedStorage map[types.Address]map[types.Hash]types.Hash
 }
 
 // GetMem returns a reference to the internal MemoryStateDB dirty buffer.
@@ -163,6 +177,7 @@ func (t *TrieStateDB) loadFromDB(addr types.Address) {
 		},
 		dirtyStorage:     make(map[types.Hash]types.Hash),
 		committedStorage: make(map[types.Hash]types.Hash),
+		dbStorageRoot:    types.BytesToHash(acc.Root),
 	}
 	copy(obj.account.CodeHash, acc.CodeHash)
 
@@ -196,10 +211,11 @@ func (t *TrieStateDB) loadSlotFromDB(addr types.Address, obj *stateObject, slot 
 }
 
 // computeStorageRootFromDB computes the storage Merkle root for addr by
-// merging all DB-persisted slots with the in-memory committed and dirty
-// overlays (dirty takes priority over committed which takes priority over DB).
-// This is used instead of computeStorageRoot when committedStorage may be
-// sparse due to lazy slot loading.
+// merging all persisted slots (from t.persistedStorage) with the in-memory
+// committed and dirty overlays (dirty > committed > persisted).
+//
+// Uses the O(K_addr) per-address index instead of an O(N_total) DB prefix
+// scan, eliminating the O(N²) CPU growth with storagespam workloads.
 func (t *TrieStateDB) computeStorageRootFromDB(addr types.Address, obj *stateObject) types.Hash {
 	// Build overlay: committed (sparse cache + recently-flushed dirty) then dirty.
 	overlay := make(map[types.Hash]types.Hash, len(obj.committedStorage)+len(obj.dirtyStorage))
@@ -213,20 +229,13 @@ func (t *TrieStateDB) computeStorageRootFromDB(addr types.Address, obj *stateObj
 	storageTrie := trie.New()
 	seen := make(map[types.Hash]bool, len(overlay))
 
-	// Walk DB slots as the base layer, applying overlay overrides.
-	iter := t.db.NewIterator(storageDBPrefix(addr))
-	for iter.Next() {
-		key := iter.Key()
-		if len(key) != 2+20+32 {
-			continue
-		}
-		var slot types.Hash
-		copy(slot[:], key[22:])
+	// Walk persisted slots for this address (O(K_addr), not O(N_total)).
+	// t.persistedStorage[addr] is nil for brand-new accounts — safe to range over nil map.
+	for slot, dbVal := range t.persistedStorage[addr] {
 		seen[slot] = true
-
 		val, overridden := overlay[slot]
 		if !overridden {
-			copy(val[:], iter.Value())
+			val = dbVal
 		}
 		if val != (types.Hash{}) {
 			hashedSlot := crypto.Keccak256(slot[:])
@@ -237,9 +246,8 @@ func (t *TrieStateDB) computeStorageRootFromDB(addr types.Address, obj *stateObj
 			}
 		}
 	}
-	iter.Release()
 
-	// Add overlay slots that are not in the DB (new slots written this block).
+	// Add overlay slots not yet in persistedStorage (new this block).
 	for slot, val := range overlay {
 		if seen[slot] {
 			continue
@@ -488,7 +496,16 @@ func (t *TrieStateDB) buildStateTrie() *trie.Trie {
 		if obj.selfDestructed {
 			continue // logically deleted; skip
 		}
-		storageRoot := t.computeStorageRootFromDB(addr, obj)
+		// Fast path: if no storage was modified this block AND the account was
+		// loaded from DB (dbStorageRoot != zero), the storage root is unchanged.
+		// New accounts (dbStorageRoot == zero) must go through computeStorageRootFromDB
+		// so that an empty trie returns EmptyRootHash, not the zero hash.
+		var storageRoot types.Hash
+		if len(obj.committedStorage) == 0 && len(obj.dirtyStorage) == 0 && obj.dbStorageRoot != (types.Hash{}) {
+			storageRoot = obj.dbStorageRoot
+		} else {
+			storageRoot = t.computeStorageRootFromDB(addr, obj)
+		}
 		codeHash := obj.account.CodeHash
 		if len(codeHash) == 0 {
 			codeHash = types.EmptyCodeHash.Bytes()
@@ -601,9 +618,15 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 		}
 
 		// Write account record (includes baked-in storage root for fast reload).
-		// committedStorage contains the freshly-flushed dirty values at this point,
-		// so computeStorageRootFromDB gives the correct post-block storage root.
-		storageRoot := t.computeStorageRootFromDB(addr, obj)
+		// Use the fast path when no storage was modified this block AND the account
+		// was loaded from DB (dbStorageRoot != zero).  dirtyStorage is always empty
+		// here (flushed to committedStorage above).
+		var storageRoot types.Hash
+		if len(obj.committedStorage) == 0 && obj.dbStorageRoot != (types.Hash{}) {
+			storageRoot = obj.dbStorageRoot
+		} else {
+			storageRoot = t.computeStorageRootFromDB(addr, obj)
+		}
 		codeHash := obj.account.CodeHash
 		if len(codeHash) == 0 {
 			codeHash = types.EmptyCodeHash.Bytes()
@@ -664,6 +687,69 @@ func (t *TrieStateDB) Commit() (types.Hash, error) {
 
 	if err := batch.Write(); err != nil {
 		return types.Hash{}, fmt.Errorf("flush state to db: %w", err)
+	}
+
+	// Update persistedStorage with COW semantics so Dup() copies sharing the
+	// old map are unaffected.  The inner maps for dirty addresses are deep-copied
+	// before modification; all other inner maps are shared read-only.
+	//
+	// Ordering: this runs AFTER buildStateTrie() so computeStorageRootFromDB
+	// (called from buildStateTrie) sees the pre-commit persistedStorage (slots
+	// from previous blocks only).  The updated map is used starting next block.
+	{
+		// Collect which addresses have dirty slots or need purging.
+		dirtyAddrs := make(map[types.Address]bool, len(t.mem.stateObjects))
+		for _, ds := range dirtySlots {
+			dirtyAddrs[ds.addr] = true
+		}
+
+		// Build new top-level map; share inner maps for unmodified addresses.
+		newPS := make(map[types.Address]map[types.Hash]types.Hash, len(t.persistedStorage)+len(dirtyAddrs))
+		for addr, slots := range t.persistedStorage {
+			newPS[addr] = slots // shared inner map (read-only from parent Dup)
+		}
+
+		// For dirty addresses: create an exclusive inner map (copy old, apply updates).
+		for addr := range dirtyAddrs {
+			_, isRecreated := t.recreated[addr]
+			old := t.persistedStorage[addr]
+			var fresh map[types.Hash]types.Hash
+			if isRecreated {
+				// Discard stale slots from the old incarnation; start fresh.
+				fresh = make(map[types.Hash]types.Hash)
+			} else {
+				fresh = make(map[types.Hash]types.Hash, len(old)+4)
+				for k, v := range old {
+					fresh[k] = v
+				}
+			}
+			newPS[addr] = fresh
+		}
+
+		// Apply dirty slot updates.
+		for _, ds := range dirtySlots {
+			if ds.val == (types.Hash{}) {
+				delete(newPS[ds.addr], ds.slot)
+			} else {
+				newPS[ds.addr][ds.slot] = ds.val
+			}
+		}
+
+		// Remove self-destructed accounts entirely.
+		for addr, obj := range t.mem.stateObjects {
+			if obj.selfDestructed {
+				delete(newPS, addr)
+			}
+		}
+
+		// Recreated accounts with NO dirty slots: clear stale persisted storage.
+		for addr := range t.recreated {
+			if !dirtyAddrs[addr] {
+				delete(newPS, addr)
+			}
+		}
+
+		t.persistedStorage = newPS
 	}
 
 	// Capture a frozen snapshot of all committed account RLPs.
@@ -731,11 +817,12 @@ func (t *TrieStateDB) Dup() StateDB {
 		}
 	}
 	return &TrieStateDB{
-		mem:            t.mem.Copy(),
-		db:             t.db,
-		gcMode:         t.gcMode,
-		recreated:      recreatedCopy,
-		frozenAccounts: t.frozenAccounts, // shared read-only; never mutated by callers
+		mem:              t.mem.Copy(),
+		db:               t.db,
+		gcMode:           t.gcMode,
+		recreated:        recreatedCopy,
+		frozenAccounts:   t.frozenAccounts,   // shared read-only; never mutated by callers
+		persistedStorage: t.persistedStorage, // shared read-only; COW in Commit()
 	}
 }
 
