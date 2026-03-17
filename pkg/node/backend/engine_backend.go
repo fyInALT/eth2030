@@ -38,7 +38,11 @@ type blockProcResp struct {
 	err    error
 }
 
-const fcuCacheSize = 8
+const (
+	fcuCacheSize       = 8  // Number of FCU entries to cache
+	defaultMaxPayloads = 32 // Default number of payloads to cache
+	processChSize      = 8  // Buffer size for block processing channel
+)
 
 // fcuCacheEntry records a (head,safe,finalized) triple from a processed FCU.
 type fcuCacheEntry struct {
@@ -72,7 +76,6 @@ type EngineBackend struct {
 	finalizedHash types.Hash
 
 	processCh chan blockProcReq
-	procChCap int
 	stopCh    chan struct{}
 
 	fcuCache   [fcuCacheSize]fcuCacheEntry
@@ -101,15 +104,14 @@ func NewEngineBackend(node NodeDeps) *EngineBackend {
 	builder := block.NewBlockBuilder(node.Blockchain().Config(), node.Blockchain(), pool)
 	maxPayloads := node.Config().CacheEnginePayloads
 	if maxPayloads <= 0 {
-		maxPayloads = 32
+		maxPayloads = defaultMaxPayloads
 	}
 	b := &EngineBackend{
 		node:        node,
 		payloads:    make(map[payload.PayloadID]*pendingPayload),
 		maxPayloads: maxPayloads,
 		builder:     builder,
-		processCh:   make(chan blockProcReq, 8),
-		procChCap:   8,
+		processCh:   make(chan blockProcReq, processChSize),
 		stopCh:      make(chan struct{}),
 		postFCUCh:   make(chan postFCUWork, 1),
 		blobCache:   make(map[types.Hash][]byte),

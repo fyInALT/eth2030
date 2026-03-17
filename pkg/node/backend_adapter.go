@@ -42,40 +42,12 @@ func (a *nodeDepsAdapter) Config() *backend.Config {
 }
 
 func (a *nodeDepsAdapter) GasOracle() any                     { return a.n.gasOracle }
-func (a *nodeDepsAdapter) EthHandler() any                    { return a.n.ethHandler }
-func (a *nodeDepsAdapter) TxJournal() any                     { return a.n.txJournal }
-func (a *nodeDepsAdapter) SharedPool() any                    { return a.n.sharedPool }
-func (a *nodeDepsAdapter) RollupSeq() any                     { return a.n.rollupSeq }
 func (a *nodeDepsAdapter) MEVConfig() *mev.MEVProtectionConfig { return a.n.mevConfig }
-func (a *nodeDepsAdapter) SnapshotTree() any                  { return a.n.snapshotTree }
-func (a *nodeDepsAdapter) TriePruner() any                    { return a.n.triePruner }
-func (a *nodeDepsAdapter) TrieMigrator() any                  { return a.n.trieMigrator }
-func (a *nodeDepsAdapter) TrieAnnouncer() any                 { return a.n.trieAnnouncer }
-func (a *nodeDepsAdapter) StackTrie() any                     { return a.n.stackTrie }
-func (a *nodeDepsAdapter) BlobSyncMgr() any                   { return a.n.blobSyncMgr }
-func (a *nodeDepsAdapter) StateHealer() any                   { return a.n.stateHealer }
-func (a *nodeDepsAdapter) StateSyncSched() any                { return a.n.stateSyncSched }
-func (a *nodeDepsAdapter) FCStateManager() any                { return a.n.fcStateManager }
-func (a *nodeDepsAdapter) FCTracker() any                     { return a.n.fcTracker }
-func (a *nodeDepsAdapter) EPBSAuction() any                   { return a.n.epbsAuction }
-func (a *nodeDepsAdapter) EPBSBuilder() any                   { return a.n.epbsBuilder }
-func (a *nodeDepsAdapter) EPBSEscrow() any                    { return a.n.epbsEscrow }
-func (a *nodeDepsAdapter) EPBSCommit() any                    { return a.n.epbsCommit }
-func (a *nodeDepsAdapter) EPBSBid() any                       { return a.n.epbsBid }
-func (a *nodeDepsAdapter) EPBSMEVBurn() any                   { return a.n.epbsMEVBurn }
-func (a *nodeDepsAdapter) EngineAuction() any                 { return a.n.engineAuction }
-func (a *nodeDepsAdapter) RollupBridge() any                  { return a.n.rollupBridge }
-func (a *nodeDepsAdapter) RollupAnchor() any                  { return a.n.rollupAnchor }
-func (a *nodeDepsAdapter) RollupProof() any                   { return a.n.rollupProof }
-func (a *nodeDepsAdapter) PortalRouter() any                  { return a.n.portalRouter }
-func (a *nodeDepsAdapter) EncryptedProtocol() any             { return a.n.encryptedProtocol }
-func (a *nodeDepsAdapter) EncryptedPool() any                 { return a.n.encryptedPool }
-func (a *nodeDepsAdapter) AcctTracker() any                   { return a.n.acctTracker }
-func (a *nodeDepsAdapter) NonceTracker() any                  { return a.n.nonceTracker }
-func (a *nodeDepsAdapter) PayloadChunker() any                { return a.n.payloadChunker }
-func (a *nodeDepsAdapter) NonceAnnouncer() any                { return a.n.nonceAnnouncer }
-func (a *nodeDepsAdapter) GasRateTracker() any                { return a.n.gasRateTracker }
-func (a *nodeDepsAdapter) StarkFrameProver() any              { return a.n.starkFrameProver }
+func (a *nodeDepsAdapter) FCStateManager() any                 { return a.n.fcStateManager }
+func (a *nodeDepsAdapter) StarkFrameProver() any               { return a.n.starkFrameProver }
+func (a *nodeDepsAdapter) EthHandler() any                     { return a.n.ethHandler }
+func (a *nodeDepsAdapter) TxJournal() any                      { return a.n.txJournal }
+
 func (a *nodeDepsAdapter) P2PServer() backend.P2PServerDeps {
 	if a.n.p2pServer == nil {
 		return nil

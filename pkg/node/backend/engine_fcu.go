@@ -320,18 +320,17 @@ func (b *EngineBackend) fcuCacheContains(e fcuCacheEntry) bool {
 }
 
 // sendPostFCUWork dispatches work to the background goroutine non-blocking.
+// If the channel is full, the previous work is discarded and replaced with new work.
 func (b *EngineBackend) sendPostFCUWork(work postFCUWork) {
 	select {
 	case b.postFCUCh <- work:
 	default:
+		// Channel full, drain and retry
 		select {
 		case <-b.postFCUCh:
 		default:
 		}
-		select {
-		case b.postFCUCh <- work:
-		default:
-		}
+		b.postFCUCh <- work
 	}
 }
 

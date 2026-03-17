@@ -14,6 +14,7 @@ import (
 
 // NodeDeps provides access to all node dependencies for backend implementations.
 // This interface abstracts the Node to enable testing with mocks.
+// Only methods actually used by backend implementations are included.
 type NodeDeps interface {
 	// Core (frequently accessed)
 	Blockchain() *chain.Blockchain
@@ -23,51 +24,12 @@ type NodeDeps interface {
 	Config() *Config
 
 	// Optional dependencies (return nil if not available)
-	GasOracle() any
-	EthHandler() any
-	TxJournal() any
-	SharedPool() any
-	RollupSeq() any
-	MEVConfig() *mev.MEVProtectionConfig
-
-	// State management
-	SnapshotTree() any
-	TriePruner() any
-	TrieMigrator() any
-	TrieAnnouncer() any
-	StackTrie() any
-	BlobSyncMgr() any
-	StateHealer() any
-	StateSyncSched() any
-
-	// Forkchoice
-	FCStateManager() any
-	FCTracker() any
-
-	// ePBS
-	EPBSAuction() any
-	EPBSBuilder() any
-	EPBSEscrow() any
-	EPBSCommit() any
-	EPBSBid() any
-	EPBSMEVBurn() any
-	EngineAuction() any
-
-	// Rollup
-	RollupBridge() any
-	RollupAnchor() any
-	RollupProof() any
-
-	// Misc
-	PortalRouter() any
-	EncryptedProtocol() any
-	EncryptedPool() any
-	AcctTracker() any
-	NonceTracker() any
-	PayloadChunker() any
-	NonceAnnouncer() any
-	GasRateTracker() any
-	StarkFrameProver() any
+	GasOracle() any                          // For recording block gas prices
+	MEVConfig() *mev.MEVProtectionConfig     // For MEV protection in tx pool
+	FCStateManager() any                     // For forkchoice state tracking
+	StarkFrameProver() any                   // For STARK proof generation
+	EthHandler() any                         // For transaction broadcast
+	TxJournal() any                          // For transaction journaling
 
 	// P2P
 	P2PServer() P2PServerDeps
