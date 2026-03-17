@@ -192,7 +192,7 @@ func (b *EngineBackend) ProcessBlock(
 		"timestamp", payload.Timestamp,
 	)
 
-	blk, err := payloadToBlock(payload)
+	blk, err := payloadToBlock(payload, parentBeaconBlockRoot)
 	if err != nil {
 		errMsg := err.Error()
 		backendLog.Warn("payload_invalid",
@@ -209,7 +209,9 @@ func (b *EngineBackend) ProcessBlock(
 	}
 
 	// Validate block hash: the hash computed from the header fields must match
-	// the blockHash provided in the payload.
+	// the blockHash provided in the payload. This validation ensures that the
+	// CL's block hash calculation (which includes TxHash, WithdrawalsHash,
+	// ParentBeaconRoot, etc.) matches what we compute from the payload.
 	computedHash := blk.Hash()
 	if payload.BlockHash != (types.Hash{}) && computedHash != payload.BlockHash {
 		errMsg := fmt.Sprintf("block hash mismatch: computed %s, payload %s", computedHash, payload.BlockHash)
@@ -578,11 +580,10 @@ func (b *EngineBackend) generatePayloadID(parentHash types.Hash, timestamp uint6
 }
 
 // payloadToBlock converts an ExecutionPayloadV3 to a types.Block.
-func payloadToBlock(payload *ExecutionPayloadV3) (*types.Block, error) {
-	// Use the existing PayloadToHeader helper (which takes V4).
-	v4 := &ExecutionPayloadV4{ExecutionPayloadV3: *payload}
-	header := PayloadToHeader(v4)
-
+// IMPORTANT: This function computes the correct TxHash, WithdrawalsHash, and
+// sets ParentBeaconRoot from the provided parameter. These fields are required
+// for the block hash to match what the CL computes.
+func payloadToBlock(payload *ExecutionPayloadV3, parentBeaconBlockRoot types.Hash) (*types.Block, error) {
 	// Decode transactions.
 	txs := make([]*types.Transaction, len(payload.Transactions))
 	for i, enc := range payload.Transactions {
@@ -593,17 +594,60 @@ func payloadToBlock(payload *ExecutionPayloadV3) (*types.Block, error) {
 		txs = append(txs[:i], tx)
 	}
 
+	// Compute transactions root from decoded transactions.
+	// This matches the CL's ordered_trie_root computation.
+	txsRoot := block.DeriveTxsRoot(txs)
+
 	// Convert withdrawals.
 	var withdrawals []*types.Withdrawal
 	if payload.Withdrawals != nil {
 		withdrawals = WithdrawalsToCore(payload.Withdrawals)
 	}
 
-	block := types.NewBlock(header, &types.Body{
+	// Compute withdrawals root.
+	// This matches the CL's ordered_trie_root computation for withdrawals.
+	var withdrawalsHash *types.Hash
+	if len(withdrawals) > 0 {
+		wr := block.DeriveWithdrawalsRoot(withdrawals)
+		withdrawalsHash = &wr
+	}
+
+	// Build header with all required fields for correct block hash.
+	blobGasUsed := payload.BlobGasUsed
+	excessBlobGas := payload.ExcessBlobGas
+	header := &types.Header{
+		ParentHash:    payload.ParentHash,
+		UncleHash:     types.EmptyUncleHash,
+		Coinbase:      payload.FeeRecipient,
+		Root:          payload.StateRoot,
+		TxHash:        txsRoot, // Computed from transactions
+		ReceiptHash:   payload.ReceiptsRoot,
+		Bloom:         payload.LogsBloom,
+		Difficulty:    new(big.Int),
+		Number:        new(big.Int).SetUint64(payload.BlockNumber),
+		GasLimit:      payload.GasLimit,
+		GasUsed:       payload.GasUsed,
+		Time:          payload.Timestamp,
+		Extra:         payload.ExtraData,
+		MixDigest:     payload.PrevRandao,
+		BaseFee:       payload.BaseFeePerGas,
+		BlobGasUsed:   &blobGasUsed,
+		ExcessBlobGas: &excessBlobGas,
+		// Post-Shanghai fields
+		WithdrawalsHash: withdrawalsHash,
+	}
+
+	// Post-Cancun fields (EIP-4788): only set if non-zero.
+	// Per consensus spec, parent_beacon_block_root is optional in the header
+	// and should only be included when present (non-zero).
+	if parentBeaconBlockRoot != (types.Hash{}) {
+		header.ParentBeaconRoot = &parentBeaconBlockRoot
+	}
+
+	return types.NewBlock(header, &types.Body{
 		Transactions: txs,
 		Withdrawals:  withdrawals,
-	})
-	return block, nil
+	}), nil
 }
 
 // restoreCalldataGasFields recomputes CalldataGasUsed and CalldataExcessGas
@@ -669,7 +713,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	)
 
 	// First, process the block through the standard path.
-	blk, err := payloadToBlock(&payload.ExecutionPayloadV3)
+	blk, err := payloadToBlock(&payload.ExecutionPayloadV3, parentBeaconBlockRoot)
 	if err != nil {
 		errMsg := err.Error()
 		backendLog.Warn("payload_invalid",
