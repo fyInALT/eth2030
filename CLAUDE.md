@@ -177,7 +177,7 @@ cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh
 cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh epbs focil native-aa blobs
 
 # Launch a general devnet (single-client, multi-client, stress-test, blob-test, eip7702-test, full-feature)
-cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh single-client
+cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh full-feature
 
 # Check consensus across EL nodes
 cd pkg/devnet/kurtosis && ./scripts/check-consensus.sh eth2030-devnet
@@ -196,7 +196,7 @@ NOTE: The go.mod is in pkg/ (not project root) to avoid module conflicts with re
 Use kurtosis to boot devnet then to check if blockchain is work well:
 
 ```bash
-cd pkg/devnet/kurtosis && ./scripts/cleanup.sh eth2030-devnet && ./scripts/run-devnet.sh single-client
+cd pkg/devnet/kurtosis && ./scripts/cleanup.sh eth2030-devnet && ./scripts/run-devnet.sh full-feature
 ```
 
 When run finished check cl node 's log no error:

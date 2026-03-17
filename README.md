@@ -114,7 +114,7 @@ cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh
 cd pkg/devnet/kurtosis && ./scripts/run-feature-tests.sh epbs focil native-aa
 
 # Launch a general devnet
-cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh single-client
+cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh full-feature
 ```
 
 **40 Feature Tests** — All passing consensus checks, covering all 65 roadmap items:

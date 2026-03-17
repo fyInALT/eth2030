@@ -20,8 +20,8 @@ cd pkg && docker build -t eth2030:local .
 ```bash
 cd pkg/devnet/kurtosis
 
-# Launch a single-client devnet (builds image + starts)
-./scripts/run-devnet.sh single-client
+# Launch a full-feature devnet (builds image + starts)
+./scripts/run-devnet.sh full-feature
 
 # Or manually
 kurtosis run github.com/ethpandaops/ethereum-package \
