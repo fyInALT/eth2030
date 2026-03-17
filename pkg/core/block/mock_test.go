@@ -75,6 +75,10 @@ func (m *mockChain) StateAtBlock(block *types.Block) (state.StateDB, error) {
 	return state.NewMemoryStateDB(), nil
 }
 
+func (m *mockChain) GetHashFn() func(uint64) types.Hash {
+	return func(uint64) types.Hash { return types.Hash{} }
+}
+
 // mockPool implements TxPoolReader for testing.
 type mockPool struct{ txs []*types.Transaction }
 
