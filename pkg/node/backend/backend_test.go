@@ -19,16 +19,16 @@ type mockNodeDeps struct {
 	config     *Config
 }
 
-func (m *mockNodeDeps) Blockchain() *chain.Blockchain          { return m.blockchain }
-func (m *mockNodeDeps) TxPool() *txpool.TxPool                 { return m.txPool }
-func (m *mockNodeDeps) Config() *Config                        { return m.config }
-func (m *mockNodeDeps) GasOracle() GasOracleDeps               { return nil }
-func (m *mockNodeDeps) EthHandler() EthHandlerDeps             { return nil }
-func (m *mockNodeDeps) TxJournal() TxJournalDeps               { return nil }
-func (m *mockNodeDeps) MEVConfig() *mev.MEVProtectionConfig    { return nil }
-func (m *mockNodeDeps) FCStateManager() FCStateManagerDeps     { return nil }
+func (m *mockNodeDeps) Blockchain() *chain.Blockchain           { return m.blockchain }
+func (m *mockNodeDeps) TxPool() *txpool.TxPool                  { return m.txPool }
+func (m *mockNodeDeps) Config() *Config                         { return m.config }
+func (m *mockNodeDeps) GasOracle() GasOracleDeps                { return nil }
+func (m *mockNodeDeps) EthHandler() EthHandlerDeps              { return nil }
+func (m *mockNodeDeps) TxJournal() TxJournalDeps                { return nil }
+func (m *mockNodeDeps) MEVConfig() *mev.MEVProtectionConfig     { return nil }
+func (m *mockNodeDeps) FCStateManager() FCStateManagerDeps      { return nil }
 func (m *mockNodeDeps) StarkFrameProver() ValidationFrameProver { return nil }
-func (m *mockNodeDeps) P2PServer() P2PServerDeps               { return nil }
+func (m *mockNodeDeps) P2PServer() P2PServerDeps                { return nil }
 
 // ValidationFrameProver is an alias for testing without importing proofs package.
 type ValidationFrameProver = interface {
