@@ -1,4 +1,4 @@
-package node
+package backend
 
 import (
 	"fmt"
@@ -7,21 +7,22 @@ import (
 	"github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/core/vm"
 	"github.com/eth2030/eth2030/engine"
+	"github.com/eth2030/eth2030/engine/payload"
 )
 
-func (b *engineBackend) ForkchoiceUpdated(
-	fcState engine.ForkchoiceStateV1,
-	payloadAttributes *engine.PayloadAttributesV3,
-) (engine.ForkchoiceUpdatedResult, error) {
-	bc := b.node.blockchain
+// ForkchoiceUpdated processes a forkchoice state update from the consensus layer.
+func (b *EngineBackend) ForkchoiceUpdated(
+	fcState payload.ForkchoiceStateV1,
+	attrs *payload.PayloadAttributesV3,
+) (payload.ForkchoiceUpdatedResult, error) {
+	bc := b.node.Blockchain()
 
 	slog.Debug("engine_forkchoiceUpdated",
 		"headBlockHash", fcState.HeadBlockHash,
 		"safeBlockHash", fcState.SafeBlockHash,
 		"finalizedBlockHash", fcState.FinalizedBlockHash,
-		"hasPayloadAttrs", payloadAttributes != nil,
+		"hasPayloadAttrs", attrs != nil,
 		"genesisHash", bc.Genesis().Hash(),
 	)
 
@@ -33,13 +34,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 			"genesisHash", bc.Genesis().Hash(),
 			"currentHead", bc.CurrentBlock().Hash(),
 		)
-		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: engine.PayloadStatusV1{Status: engine.StatusSyncing},
+		return payload.ForkchoiceUpdatedResult{
+			PayloadStatus: payload.PayloadStatusV1{Status: engine.StatusSyncing},
 		}, nil
 	}
 
 	headHash := headBlock.Hash()
-	payloadStatus := engine.PayloadStatusV1{
+	payloadStatus := payload.PayloadStatusV1{
 		Status:          engine.StatusValid,
 		LatestValidHash: &headHash,
 	}
@@ -71,7 +72,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 		safe:      fcState.SafeBlockHash,
 		finalized: fcState.FinalizedBlockHash,
 	}
-	if payloadAttributes == nil && !finalHashChanged && !safeHashChanged {
+	if attrs == nil && !finalHashChanged && !safeHashChanged {
 		b.fcuCacheMu.Lock()
 		hit := b.fcuCacheContains(triple)
 		b.fcuCacheMu.Unlock()
@@ -79,7 +80,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 			slog.Debug("engine_forkchoiceUpdated: cache hit, returning immediately",
 				"headBlockHash", headHash,
 			)
-			return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
+			return payload.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 		}
 	}
 
@@ -106,7 +107,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 		headBlock:  headBlock,
 		finalBlock: finalBlock,
 		safeBlock:  safeBlock,
-		hasAttrs:   payloadAttributes != nil,
+		hasAttrs:   attrs != nil,
 	})
 
 	// Step 6: store triple in FCU cache.
@@ -116,11 +117,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 	b.fcuCacheMu.Unlock()
 
 	// Step 7: no payload attributes — return immediately.
-	if payloadAttributes == nil {
+	if attrs == nil {
 		slog.Debug("engine_forkchoiceUpdated: no attrs, done",
 			"headNum", headBlock.NumberU64(),
 		)
-		return engine.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
+		return payload.ForkchoiceUpdatedResult{PayloadStatus: payloadStatus}, nil
 	}
 
 	// Step 7a: check if we can quickly obtain the parent state.
@@ -143,8 +144,8 @@ func (b *engineBackend) ForkchoiceUpdated(
 				)
 			}
 		}()
-		return engine.ForkchoiceUpdatedResult{
-			PayloadStatus: engine.PayloadStatusV1{Status: engine.StatusSyncing},
+		return payload.ForkchoiceUpdatedResult{
+			PayloadStatus: payload.PayloadStatusV1{Status: engine.StatusSyncing},
 		}, nil
 	}
 
@@ -152,14 +153,14 @@ func (b *engineBackend) ForkchoiceUpdated(
 	slog.Debug("engine_forkchoiceUpdated: building payload",
 		"parentNum", headBlock.NumberU64(),
 		"parentHash", headBlock.Hash(),
-		"timestamp", payloadAttributes.Timestamp,
-		"feeRecipient", payloadAttributes.SuggestedFeeRecipient,
+		"timestamp", attrs.Timestamp,
+		"feeRecipient", attrs.SuggestedFeeRecipient,
 	)
 	parentHeader := headBlock.Header()
 
 	// Convert engine withdrawals to core types.
 	var withdrawals []*types.Withdrawal
-	for _, w := range payloadAttributes.Withdrawals {
+	for _, w := range attrs.Withdrawals {
 		withdrawals = append(withdrawals, &types.Withdrawal{
 			Index:          w.Index,
 			ValidatorIndex: w.ValidatorIndex,
@@ -168,18 +169,18 @@ func (b *engineBackend) ForkchoiceUpdated(
 		})
 	}
 
-	beaconRoot := payloadAttributes.ParentBeaconBlockRoot
-	attrs := &block.BuildBlockAttributes{
-		Timestamp:    payloadAttributes.Timestamp,
-		FeeRecipient: payloadAttributes.SuggestedFeeRecipient,
-		Random:       payloadAttributes.PrevRandao,
+	beaconRoot := attrs.ParentBeaconBlockRoot
+	buildAttrs := &block.BuildBlockAttributes{
+		Timestamp:    attrs.Timestamp,
+		FeeRecipient: attrs.SuggestedFeeRecipient,
+		Random:       attrs.PrevRandao,
 		Withdrawals:  withdrawals,
 		BeaconRoot:   &beaconRoot,
 		GasLimit:     parentHeader.GasLimit,
 	}
 
 	// Generate payload ID.
-	payloadID := generatePayloadID(parentHeader.Hash(), attrs)
+	payloadID := generatePayloadID(parentHeader.Hash(), buildAttrs)
 
 	// Idempotency check.
 	b.mu.Lock()
@@ -188,7 +189,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 		slog.Debug("engine_forkchoiceUpdated: payload already building, reusing slot",
 			"payloadID", payloadID,
 		)
-		return engine.ForkchoiceUpdatedResult{
+		return payload.ForkchoiceUpdatedResult{
 			PayloadStatus: payloadStatus,
 			PayloadID:     &payloadID,
 		}, nil
@@ -207,11 +208,11 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 	// Build the block in the background.
 	go func() {
-		parentBlock := b.node.blockchain.GetBlock(parentHeader.Hash())
+		parentBlock := b.node.Blockchain().GetBlock(parentHeader.Hash())
 		var statedb state.StateDB
 		if parentBlock != nil {
 			var err error
-			statedb, err = b.node.blockchain.StateAtBlock(parentBlock)
+			statedb, err = b.node.Blockchain().StateAtBlock(parentBlock)
 			if err != nil {
 				slog.Warn("engine_forkchoiceUpdated: state fetch failed",
 					"parentNum", parentHeader.Number,
@@ -239,7 +240,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 			"parentNum", parentHeader.Number,
 			"parentHash", parentHeader.Hash(),
 		)
-		builtBlock, receipts, err := b.builder.BuildBlock(parentHeader, attrs)
+		builtBlock, receipts, err := b.builder.BuildBlock(parentHeader, buildAttrs)
 		if err != nil {
 			slog.Warn("engine_forkchoiceUpdated: build block failed",
 				"parentNum", parentHeader.Number,
@@ -251,11 +252,13 @@ func (b *engineBackend) ForkchoiceUpdated(
 		}
 
 		// Replace VERIFY frame calldata with STARK proof when enabled.
-		if prover := b.node.starkFrameProver; prover != nil {
-			if sealed, _, serr := vm.ReplaceValidationFrames(builtBlock, prover); serr != nil {
-				slog.Warn("frame stark replacement failed", "err", serr)
-			} else {
-				builtBlock = sealed
+		if prover := b.node.StarkFrameProver(); prover != nil {
+			if p, ok := prover.(interface {
+				ReplaceValidationFrames(*types.Block) (*types.Block, error)
+			}); ok {
+				if sealed, serr := p.ReplaceValidationFrames(builtBlock); serr == nil {
+					builtBlock = sealed
+				}
 			}
 		}
 
@@ -270,7 +273,7 @@ func (b *engineBackend) ForkchoiceUpdated(
 
 		b.cacheBlobsFromBlock(builtBlock)
 
-		if insertErr := b.node.blockchain.InsertBlock(builtBlock); insertErr != nil {
+		if insertErr := b.node.Blockchain().InsertBlock(builtBlock); insertErr != nil {
 			slog.Warn("engine_forkchoiceUpdated: pre-insert built block failed",
 				"blockNum", builtBlock.NumberU64(),
 				"blockHash", builtBlock.Hash(),
@@ -288,14 +291,26 @@ func (b *engineBackend) ForkchoiceUpdated(
 		)
 	}()
 
-	return engine.ForkchoiceUpdatedResult{
+	return payload.ForkchoiceUpdatedResult{
 		PayloadStatus: payloadStatus,
 		PayloadID:     &payloadID,
 	}, nil
 }
 
+// ForkchoiceUpdatedV4 processes a forkchoice update with V4 payload attributes.
+func (b *EngineBackend) ForkchoiceUpdatedV4(
+	fcState payload.ForkchoiceStateV1,
+	attrs *payload.PayloadAttributesV4,
+) (payload.ForkchoiceUpdatedResult, error) {
+	var v3Attrs *payload.PayloadAttributesV3
+	if attrs != nil {
+		v3Attrs = &attrs.PayloadAttributesV3
+	}
+	return b.ForkchoiceUpdated(fcState, v3Attrs)
+}
+
 // fcuCacheContains reports whether e is present in the FCU cache.
-func (b *engineBackend) fcuCacheContains(e fcuCacheEntry) bool {
+func (b *EngineBackend) fcuCacheContains(e fcuCacheEntry) bool {
 	for _, c := range b.fcuCache {
 		if c == e {
 			return true
@@ -305,7 +320,7 @@ func (b *engineBackend) fcuCacheContains(e fcuCacheEntry) bool {
 }
 
 // sendPostFCUWork dispatches work to the background goroutine non-blocking.
-func (b *engineBackend) sendPostFCUWork(work postFCUWork) {
+func (b *EngineBackend) sendPostFCUWork(work postFCUWork) {
 	select {
 	case b.postFCUCh <- work:
 	default:
@@ -320,8 +335,8 @@ func (b *engineBackend) sendPostFCUWork(work postFCUWork) {
 	}
 }
 
-// postFCULoop processes deferred FCU work in the background.
-func (b *engineBackend) postFCULoop() {
+// postFCULoop handles slow post-FCU state updates.
+func (b *EngineBackend) postFCULoop() {
 	for {
 		select {
 		case <-b.stopCh:
@@ -330,4 +345,28 @@ func (b *engineBackend) postFCULoop() {
 			b.doPostFCUWork(work)
 		}
 	}
+}
+
+// doPostFCUWork performs state updates after ForkchoiceUpdated.
+func (b *EngineBackend) doPostFCUWork(work postFCUWork) {
+	bc := b.node.Blockchain()
+	if bc == nil {
+		return
+	}
+
+	if work.finalBlock != nil {
+		bc.SetFinalized(work.finalBlock)
+	}
+	if work.safeBlock != nil {
+		bc.SetSafe(work.safeBlock)
+	}
+
+	b.fcuCacheMu.Lock()
+	b.fcuCache[b.fcuCacheWr] = fcuCacheEntry{
+		head:      work.fcState.HeadBlockHash,
+		safe:      work.fcState.SafeBlockHash,
+		finalized: work.fcState.FinalizedBlockHash,
+	}
+	b.fcuCacheWr = (b.fcuCacheWr + 1) % fcuCacheSize
+	b.fcuCacheMu.Unlock()
 }

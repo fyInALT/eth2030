@@ -23,6 +23,7 @@ import (
 	"github.com/eth2030/eth2030/consensus/vdf"
 	"github.com/eth2030/eth2030/core/chain"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	nodebackend "github.com/eth2030/eth2030/node/backend"
 	"github.com/eth2030/eth2030/core/gigagas"
 	mevpkg "github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/rawdb"
@@ -109,7 +110,7 @@ type Node struct {
 	rpcServer     *rpc.ExtServer
 	rpcHandler    *rpc.Server
 	engineServer  *engine.EngineAPI
-	engBackend    *engineBackend // processor goroutine owner; closed on Stop
+	engBackend    *nodebackend.EngineBackend // processor goroutine owner; closed on Stop
 	p2pServer     *p2p.Server
 	metricsServer *http.Server
 	wsServer      *http.Server
@@ -625,13 +626,13 @@ func New(config *Config) (*Node, error) {
 	}
 
 	// Initialize RPC server with blockchain backend.
-	backend := newNodeBackend(n)
-	adminBackend := newNodeAdminBackend(n)
-	netBackend := newNodeNetBackend(n)
-	n.rpcHandler = rpc.NewServer(backend)
+	rpcBackend := nodebackend.NewRPCBackend(toNodeDeps(n), n.engBackend)
+	adminBackend := nodebackend.NewAdminBackend(toNodeDeps(n))
+	netBackend := nodebackend.NewNetBackend(toNodeDeps(n))
+	n.rpcHandler = rpc.NewServer(rpcBackend)
 	n.rpcHandler.SetAdminBackend(adminBackend)
 	n.rpcHandler.SetNetBackend(netBackend)
-	n.rpcServer = rpc.NewExtServer(backend, rpc.ServerConfig{
+	n.rpcServer = rpc.NewExtServer(rpcBackend, rpc.ServerConfig{
 		MaxRequestSize:   config.RPCMaxRequestSize,
 		ReadTimeout:      30 * time.Second,
 		WriteTimeout:     30 * time.Second,
@@ -855,7 +856,7 @@ func New(config *Config) (*Node, error) {
 	})
 
 	// Initialize Engine API server.
-	n.engBackend = newEngineBackend(n)
+	n.engBackend = nodebackend.NewEngineBackend(toNodeDeps(n))
 	n.engineServer = engine.NewEngineAPI(n.engBackend)
 	// Forward eth_/web3_/net_/admin_ methods on the engine port to the RPC handler.
 	n.engineServer.SetEthHandler(n.rpcHandler.Handler())

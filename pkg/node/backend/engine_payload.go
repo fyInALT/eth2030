@@ -1,0 +1,373 @@
+package backend
+
+import (
+	"crypto/rand"
+	"encoding/binary"
+	"fmt"
+	"log/slog"
+	"math/big"
+	"time"
+
+	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto/bls"
+	"github.com/eth2030/eth2030/engine/payload"
+	enginepayload "github.com/eth2030/eth2030/engine/payload"
+)
+
+// GetPayloadByID retrieves a previously requested payload by its ID.
+func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloadResponse, error) {
+	slog.Debug("engine_getPayload", "payloadID", id)
+
+	b.mu.Lock()
+	p, ok := b.payloads[id]
+	b.mu.Unlock()
+
+	if !ok {
+		slog.Warn("engine_getPayload: payload not found", "payloadID", id)
+		return nil, fmt.Errorf("payload %v not found", id)
+	}
+
+	select {
+	case <-p.done:
+	case <-time.After(8 * time.Second):
+		slog.Warn("engine_getPayload: build timed out", "payloadID", id)
+		return nil, fmt.Errorf("payload %v build timed out", id)
+	}
+
+	if p.err != nil {
+		return nil, p.err
+	}
+
+	blk := p.block
+	header := blk.Header()
+
+	var blobGasUsed, excessBlobGas uint64
+	if header.BlobGasUsed != nil {
+		blobGasUsed = *header.BlobGasUsed
+	}
+	if header.ExcessBlobGas != nil {
+		excessBlobGas = *header.ExcessBlobGas
+	}
+	execPayload := &payload.ExecutionPayloadV4{
+		ExecutionPayloadV3: payload.ExecutionPayloadV3{
+			ExecutionPayloadV2: payload.ExecutionPayloadV2{
+				ExecutionPayloadV1: payload.ExecutionPayloadV1{
+					ParentHash:    header.ParentHash,
+					FeeRecipient:  header.Coinbase,
+					StateRoot:     header.Root,
+					ReceiptsRoot:  header.ReceiptHash,
+					LogsBloom:     header.Bloom,
+					PrevRandao:    header.MixDigest,
+					BlockNumber:   blk.NumberU64(),
+					GasLimit:      header.GasLimit,
+					GasUsed:       header.GasUsed,
+					Timestamp:     header.Time,
+					ExtraData:     header.Extra,
+					BaseFeePerGas: header.BaseFee,
+					BlockHash:     blk.Hash(),
+					Transactions:  encodeTxsRLP(blk.Transactions()),
+				},
+			},
+			BlobGasUsed:   blobGasUsed,
+			ExcessBlobGas: excessBlobGas,
+		},
+	}
+
+	if ws := blk.Withdrawals(); ws != nil {
+		for _, w := range ws {
+			execPayload.Withdrawals = append(execPayload.Withdrawals, &payload.Withdrawal{
+				Index:          w.Index,
+				ValidatorIndex: w.ValidatorIndex,
+				Address:        w.Address,
+				Amount:         w.Amount,
+			})
+		}
+	}
+
+	blockValue := new(big.Int)
+	for _, receipt := range p.receipts {
+		if receipt.EffectiveGasPrice != nil && header.BaseFee != nil {
+			tip := new(big.Int).Sub(receipt.EffectiveGasPrice, header.BaseFee)
+			if tip.Sign() > 0 {
+				tipTotal := new(big.Int).Mul(tip, new(big.Int).SetUint64(receipt.GasUsed))
+				blockValue.Add(blockValue, tipTotal)
+			}
+		}
+	}
+
+	slog.Debug("engine_getPayload: returning payload",
+		"payloadID", id,
+		"blockNumber", blk.NumberU64(),
+		"blockHash", blk.Hash(),
+		"txCount", len(blk.Transactions()),
+		"blockValue", blockValue,
+	)
+
+	blobsBundle := &payload.BlobsBundleV1{}
+	blobTxCount := 0
+	for _, tx := range blk.Transactions() {
+		if tx.Type() != types.BlobTxType {
+			continue
+		}
+		blobTxCount++
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			slog.Debug("engine_getPayload: blob tx missing sidecar",
+				"txHash", tx.Hash(),
+				"blockNumber", blk.NumberU64(),
+			)
+			continue
+		}
+		blobsBundle.Commitments = append(blobsBundle.Commitments, sc.Commitments...)
+		blobsBundle.Proofs = append(blobsBundle.Proofs, sc.Proofs...)
+		blobsBundle.Blobs = append(blobsBundle.Blobs, sc.Blobs...)
+	}
+	if blobTxCount > 0 {
+		slog.Debug("engine_getPayload: blobsBundle",
+			"blobTxCount", blobTxCount,
+			"blobCount", len(blobsBundle.Blobs),
+			"blockNumber", blk.NumberU64(),
+		)
+	}
+
+	return &payload.GetPayloadResponse{
+		ExecutionPayload: execPayload,
+		BlockValue:       blockValue,
+		BlobsBundle:      blobsBundle,
+		Override:         false,
+	}, nil
+}
+
+// GetPayloadV4ByID retrieves a previously built payload for getPayloadV4 (Prague).
+func (b *EngineBackend) GetPayloadV4ByID(id payload.PayloadID) (*payload.GetPayloadV4Response, error) {
+	resp, err := b.GetPayloadByID(id)
+	if err != nil {
+		return nil, err
+	}
+	return &payload.GetPayloadV4Response{
+		ExecutionPayload:  &resp.ExecutionPayload.ExecutionPayloadV3,
+		BlockValue:        resp.BlockValue,
+		BlobsBundle:       resp.BlobsBundle,
+		ExecutionRequests: [][]byte{},
+	}, nil
+}
+
+// GetPayloadV6ByID retrieves a previously built payload for getPayloadV6 (Amsterdam).
+func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayloadV6Response, error) {
+	resp, err := b.GetPayloadByID(id)
+	if err != nil {
+		return nil, err
+	}
+	var blobsBundleV2 *payload.BlobsBundleV2
+	if b1 := resp.BlobsBundle; b1 != nil {
+		blobsBundleV2 = &payload.BlobsBundleV2{
+			Commitments: b1.Commitments,
+			Proofs:      b1.Proofs,
+			Blobs:       b1.Blobs,
+		}
+	}
+	return &payload.GetPayloadV6Response{
+		ExecutionPayload: &payload.ExecutionPayloadV5{
+			ExecutionPayloadV4: *resp.ExecutionPayload,
+		},
+		BlockValue:        resp.BlockValue,
+		BlobsBundle:       blobsBundleV2,
+		ExecutionRequests: [][]byte{},
+	}, nil
+}
+
+// GetPayloadBodiesByHash returns payload bodies for the given block hashes.
+func (b *EngineBackend) GetPayloadBodiesByHash(hashes []types.Hash) ([]*payload.ExecutionPayloadBodyV2, error) {
+	results := make([]*payload.ExecutionPayloadBodyV2, len(hashes))
+	for i, h := range hashes {
+		blk := b.node.Blockchain().GetBlock(h)
+		if blk == nil {
+			results[i] = nil
+			continue
+		}
+		results[i] = enginepayload.BlockToPayloadBodyV2(blk)
+	}
+	return results, nil
+}
+
+// GetPayloadBodiesByRange returns payload bodies for a range of block numbers.
+func (b *EngineBackend) GetPayloadBodiesByRange(start, count uint64) ([]*payload.ExecutionPayloadBodyV2, error) {
+	results := make([]*payload.ExecutionPayloadBodyV2, count)
+	for i := uint64(0); i < count; i++ {
+		num := start + i
+		blk := b.node.Blockchain().GetBlockByNumber(num)
+		if blk == nil {
+			results[i] = nil
+			continue
+		}
+		results[i] = enginepayload.BlockToPayloadBodyV2(blk)
+	}
+	return results, nil
+}
+
+// GetBlobsByVersionedHashes returns blobs by versioned hashes.
+func (b *EngineBackend) GetBlobsByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV1 {
+	if b.node.TxPool() == nil {
+		return make([]*payload.BlobAndProofV1, len(hashes))
+	}
+	raw := b.node.TxPool().GetBlobsByVersionedHashes(hashes)
+	result := make([]*payload.BlobAndProofV1, len(raw))
+	for i, r := range raw {
+		if r != nil {
+			result[i] = &payload.BlobAndProofV1{
+				Blob:       r.Blob,
+				Commitment: r.Commitment,
+				Proof:      r.Proof,
+			}
+		}
+	}
+	return result
+}
+
+// GetBlobsV2ByVersionedHashes returns blobs with cell proofs.
+func (b *EngineBackend) GetBlobsV2ByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV2 {
+	return b.computeBlobsV2(hashes)
+}
+
+// GetBlobsV3ByVersionedHashes returns blobs with cell proofs (sparse).
+func (b *EngineBackend) GetBlobsV3ByVersionedHashes(hashes []types.Hash) []*payload.BlobAndProofV2 {
+	return b.computeBlobsV2(hashes)
+}
+
+func (b *EngineBackend) computeBlobsV2(hashes []types.Hash) []*payload.BlobAndProofV2 {
+	result := make([]*payload.BlobAndProofV2, len(hashes))
+	kzg := bls.DefaultKZGBackend()
+
+	b.blobCacheMu.RLock()
+	cachedBlobs := make([][]byte, len(hashes))
+	cacheHits := 0
+	for i, h := range hashes {
+		if blob, ok := b.blobCache[h]; ok {
+			cachedBlobs[i] = blob
+			cacheHits++
+		}
+	}
+	cacheSize := len(b.blobCache)
+	b.blobCacheMu.RUnlock()
+
+	if len(hashes) > 0 {
+		slog.Debug("computeBlobsV2: looking up blobs",
+			"requested", len(hashes),
+			"cacheHits", cacheHits,
+			"cacheSize", cacheSize,
+		)
+	}
+
+	for i, blob := range cachedBlobs {
+		if blob == nil || len(blob) == 0 {
+			continue
+		}
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+		if err != nil {
+			slog.Warn("computeBlobsV2: ComputeCellsAndProofs failed for cached blob",
+				"hash", hashes[i], "err", err)
+			continue
+		}
+		proofs := make([][]byte, len(cellProofs))
+		for j, p := range cellProofs {
+			cp := p
+			proofs[j] = cp[:]
+		}
+		result[i] = &payload.BlobAndProofV2{
+			Blob:   blob,
+			Proofs: proofs,
+		}
+	}
+
+	if b.node.TxPool() != nil {
+		var pendingHashes []types.Hash
+		pendingIdx := make(map[int]int)
+		for i, h := range hashes {
+			if result[i] == nil {
+				pendingIdx[len(pendingHashes)] = i
+				pendingHashes = append(pendingHashes, h)
+			}
+		}
+		if len(pendingHashes) > 0 {
+			raw := b.node.TxPool().GetBlobsByVersionedHashes(pendingHashes)
+			poolHits := 0
+			for j, r := range raw {
+				if r == nil || len(r.Blob) == 0 {
+					continue
+				}
+				poolHits++
+				origIdx := pendingIdx[j]
+				_, cellProofs, err := kzg.ComputeCellsAndProofs(r.Blob)
+				if err != nil {
+					slog.Warn("computeBlobsV2: ComputeCellsAndProofs failed",
+						"hash", pendingHashes[j], "err", err)
+					continue
+				}
+				proofs := make([][]byte, len(cellProofs))
+				for k, p := range cellProofs {
+					cp := p
+					proofs[k] = cp[:]
+				}
+				result[origIdx] = &payload.BlobAndProofV2{
+					Blob:   r.Blob,
+					Proofs: proofs,
+				}
+			}
+			slog.Debug("computeBlobsV2: txpool lookup",
+				"pending", len(pendingHashes),
+				"poolHits", poolHits,
+			)
+		}
+	}
+
+	found := 0
+	for _, r := range result {
+		if r != nil {
+			found++
+		}
+	}
+	if found < len(hashes) && len(hashes) > 0 {
+		slog.Warn("computeBlobsV2: missing blobs",
+			"requested", len(hashes),
+			"found", found,
+		)
+	}
+	return result
+}
+
+func generatePayloadID(parentHash types.Hash, attrs *block.BuildBlockAttributes) payload.PayloadID {
+	var buf [8]byte
+	copy(buf[:], parentHash[:8])
+	var tsBytes [8]byte
+	binary.BigEndian.PutUint64(tsBytes[:], attrs.Timestamp)
+	for i := range buf {
+		buf[i] ^= tsBytes[i]
+	}
+	for i := 0; i < 8; i++ {
+		buf[i] ^= attrs.FeeRecipient[i]
+	}
+	for i := 0; i < 8; i++ {
+		buf[i] ^= attrs.Random[8+i]
+	}
+
+	var id payload.PayloadID
+	copy(id[:], buf[:])
+
+	if id == (payload.PayloadID{}) {
+		rand.Read(id[:])
+	}
+	return id
+}
+
+func encodeTxsRLP(txs []*types.Transaction) [][]byte {
+	encoded := make([][]byte, 0, len(txs))
+	for _, tx := range txs {
+		raw, err := tx.EncodeRLP()
+		if err != nil {
+			continue
+		}
+		encoded = append(encoded, raw)
+	}
+	return encoded
+}
