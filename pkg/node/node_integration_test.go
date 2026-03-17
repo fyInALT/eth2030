@@ -2,6 +2,8 @@ package node
 
 import (
 	"testing"
+
+	nodebackend "github.com/eth2030/eth2030/node/backend"
 )
 
 // TestNodeCreate verifies that a Node can be created with default config
@@ -195,7 +197,7 @@ func TestNodeBackendIntegration(t *testing.T) {
 	cfg := makeTestConfig(t)
 	n := newTestNode(t, &cfg)
 
-	backend := newNodeBackend(n)
+	backend := nodebackend.NewRPCBackend(toNodeDeps(n), n.engBackend)
 
 	// ChainID should match mainnet (1).
 	chainID := backend.ChainID()
