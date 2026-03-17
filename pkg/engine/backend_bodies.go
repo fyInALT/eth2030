@@ -10,23 +10,36 @@ import (
 
 // GetHeadHash returns the current canonical head block hash.
 func (b *EngineBackend) GetHeadHash() types.Hash {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.headHash
+	hash, err := b.getActorHeadHash()
+	if err != nil {
+		// Fallback to mutex for compatibility during migration.
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		return b.headHash
+	}
+	return hash
 }
 
 // GetSafeHash returns the current safe (justified) block hash.
 func (b *EngineBackend) GetSafeHash() types.Hash {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.safeHash
+	hash, err := b.getActorSafeHash()
+	if err != nil {
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		return b.safeHash
+	}
+	return hash
 }
 
 // GetFinalizedHash returns the current finalized block hash.
 func (b *EngineBackend) GetFinalizedHash() types.Hash {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.finalHash
+	hash, err := b.getActorFinalHash()
+	if err != nil {
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		return b.finalHash
+	}
+	return hash
 }
 
 // GetPayloadBodiesByHash returns payload bodies for the given block hashes.
@@ -73,19 +86,19 @@ func (b *EngineBackend) GetPayloadBodiesByRange(start, count uint64) ([]*enginep
 	results := make([]*enginepayload.ExecutionPayloadBodyV2, count)
 	for i := uint64(0); i < count; i++ {
 		num := start + i
-		var found *types.Block
-		for _, blk := range b.blocks {
-			if blk.NumberU64() == num {
-				found = blk
-				break
-			}
-		}
-		if found == nil || !rawdb.IsBALRetained(headNum, num) {
+		// Use numberIndex for O(1) lookup instead of O(n) scan.
+		hash, ok := b.numberIndex[num]
+		if !ok {
 			results[i] = nil
 			continue
 		}
-		body := enginepayload.BlockToPayloadBodyV2(found)
-		if bal, ok := b.bals[found.Hash()]; ok {
+		block, ok := b.blocks[hash]
+		if !ok || !rawdb.IsBALRetained(headNum, num) {
+			results[i] = nil
+			continue
+		}
+		body := enginepayload.BlockToPayloadBodyV2(block)
+		if bal, ok := b.bals[hash]; ok {
 			balBytes, _ := json.Marshal(bal)
 			body.BlockAccessList = balBytes
 		}

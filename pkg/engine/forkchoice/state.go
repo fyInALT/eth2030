@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/payload"
@@ -135,8 +136,8 @@ type ForkchoiceStateManager struct {
 	reorgListeners []ReorgListener
 
 	// Statistics.
-	updateCount uint64
-	reorgCount  uint64
+	updateCount atomic.Uint64
+	reorgCount  atomic.Uint64
 }
 
 // NewForkchoiceStateManager creates a new fork choice state manager with
@@ -194,7 +195,7 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 
 	m.mu.Lock()
 
-	m.updateCount++
+	m.updateCount.Add(1)
 
 	// Verify the head block is known.
 	headInfo, headKnown := m.blocks[update.HeadBlockHash]
@@ -223,7 +224,7 @@ func (m *ForkchoiceStateManager) ProcessForkchoiceUpdate(update payload.Forkchoi
 				OldHeadNumber: oldInfo.Number,
 				NewHeadNumber: headInfo.Number,
 			}
-			m.reorgCount++
+			m.reorgCount.Add(1)
 		}
 	}
 
@@ -390,9 +391,7 @@ func (m *ForkchoiceStateManager) OnReorg(listener ReorgListener) {
 
 // Stats returns fork choice statistics.
 func (m *ForkchoiceStateManager) Stats() (updateCount, reorgCount uint64) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.updateCount, m.reorgCount
+	return m.updateCount.Load(), m.reorgCount.Load()
 }
 
 // GetForkchoiceState returns the current fork choice state as a
