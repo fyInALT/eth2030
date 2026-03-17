@@ -3,20 +3,13 @@ participants:
     el_image: eth2030:local
     el_log_level: debug
     el_extra_params: ["--rpc.rate_limit=0"]
-    cl_type: lighthouse
+    cl_type: prysm
     cl_log_level: debug
-    cl_image: sigp/lighthouse:latest
-    # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
-    # count: 3 forms a triangle gossip mesh — if any pair temporarily disconnects
-    # at the Fulu sync_committee deadline (slot 40 = epoch 1 slot 8), the third
-    # node provides an alternative path for attestation propagation, enabling
-    # reliable reconnection and finalization.
-    cl_extra_params: ["--subscribe-all-subnets"]
-    count: 3
+    count: 2
 
 network_params:
   network: kurtosis
-  seconds_per_slot: 2
+  seconds_per_slot: 4
   genesis_delay: 60
   # fulu_fork_epoch: 1 pushes the first Fulu sync_committee deadline to slot 40,
   # giving nodes 40 slots (80s) to accumulate peer score before the brief gossip

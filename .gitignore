@@ -51,3 +51,5 @@ CLAUDE.md
 docs/plans/memory/
 
 pkg/eth2030
+
+*.log
