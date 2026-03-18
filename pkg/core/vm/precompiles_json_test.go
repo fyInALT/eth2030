@@ -3,6 +3,7 @@ package vm
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -30,6 +31,9 @@ func loadPrecompileFixtures(t *testing.T, filename string) []precompileFixture {
 	t.Helper()
 	data, err := os.ReadFile("testdata/precompiles/" + filename)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skipf("skipping precompile fixture test: %s is not present in this checkout", filename)
+		}
 		t.Fatalf("failed to read fixture %s: %v", filename, err)
 	}
 	var fixtures []precompileFixture
@@ -43,6 +47,9 @@ func loadPrecompileFailFixtures(t *testing.T, filename string) []precompileFailF
 	t.Helper()
 	data, err := os.ReadFile("testdata/precompiles/" + filename)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skipf("skipping precompile failure fixture test: %s is not present in this checkout", filename)
+		}
 		t.Fatalf("failed to read fixture %s: %v", filename, err)
 	}
 	var fixtures []precompileFailFixture

@@ -264,17 +264,12 @@ func (b *EngineBackend) evictOldBlocks() {
 	headHash := b.headHash
 	b.stateMu.RUnlock()
 
-	b.blocksMu.RLock()
 	head, ok := b.blocks[headHash]
-	b.blocksMu.RUnlock()
-
 	if !ok || head.NumberU64() < 64 {
 		return
 	}
 	cutoff := head.NumberU64() - 64
 
-	b.blocksMu.Lock()
-	defer b.blocksMu.Unlock()
 	for hash, blk := range b.blocks {
 		if blk.NumberU64() < cutoff {
 			delete(b.numberIndex, blk.NumberU64())
