@@ -1621,17 +1621,6 @@ func (b *EngineBackend) clearActorInclusionLists() error {
 	return actors.ClearInclusionLists(b.actorTimeout)
 }
 
-// evictActorBlocks evicts old blocks using the actor backend.
-func (b *EngineBackend) evictActorBlocks() error {
-	b.actorMu.RLock()
-	actors := b.actors
-	b.actorMu.RUnlock()
-	if actors == nil {
-		return fmt.Errorf("actors not initialized")
-	}
-	return actors.EvictOldBlocks(b.actorTimeout)
-}
-
 // withdrawalsToActor converts engine Withdrawals to actor Withdrawals.
 func withdrawalsToActor(ws []*Withdrawal) []*actor.Withdrawal {
 	if ws == nil {
