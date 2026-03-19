@@ -1,9 +1,6 @@
 package engine
 
 import (
-	"encoding/json"
-
-	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/types"
 	enginepayload "github.com/eth2030/eth2030/engine/payload"
 )
@@ -12,10 +9,7 @@ import (
 func (b *EngineBackend) GetHeadHash() types.Hash {
 	hash, err := b.getActorHeadHash()
 	if err != nil {
-		// Fallback to stateMu for compatibility during migration.
-		b.stateMu.RLock()
-		defer b.stateMu.RUnlock()
-		return b.headHash
+		return b.getHeadHash()
 	}
 	return hash
 }
@@ -24,9 +18,8 @@ func (b *EngineBackend) GetHeadHash() types.Hash {
 func (b *EngineBackend) GetSafeHash() types.Hash {
 	hash, err := b.getActorSafeHash()
 	if err != nil {
-		b.stateMu.RLock()
-		defer b.stateMu.RUnlock()
-		return b.safeHash
+		_, safeHash, _ := b.getForkchoiceState()
+		return safeHash
 	}
 	return hash
 }
@@ -35,9 +28,8 @@ func (b *EngineBackend) GetSafeHash() types.Hash {
 func (b *EngineBackend) GetFinalizedHash() types.Hash {
 	hash, err := b.getActorFinalHash()
 	if err != nil {
-		b.stateMu.RLock()
-		defer b.stateMu.RUnlock()
-		return b.finalHash
+		_, _, finalHash := b.getForkchoiceState()
+		return finalHash
 	}
 	return hash
 }
@@ -47,33 +39,7 @@ func (b *EngineBackend) GetFinalizedHash() types.Hash {
 // Implements backendapi.PayloadBodiesBackend.
 // P1: Uses fine-grained locks for better concurrency.
 func (b *EngineBackend) GetPayloadBodiesByHash(hashes []types.Hash) ([]*enginepayload.ExecutionPayloadBodyV2, error) {
-	b.stateMu.RLock()
-	headHash := b.headHash
-	b.stateMu.RUnlock()
-
-	b.blocksMu.RLock()
-	defer b.blocksMu.RUnlock()
-
-	headNum := uint64(0)
-	if head, ok := b.blocks[headHash]; ok {
-		headNum = head.NumberU64()
-	}
-
-	results := make([]*enginepayload.ExecutionPayloadBodyV2, len(hashes))
-	for i, h := range hashes {
-		block, found := b.blocks[h]
-		if !found || !rawdb.IsBALRetained(headNum, block.NumberU64()) {
-			results[i] = nil
-			continue
-		}
-		body := enginepayload.BlockToPayloadBodyV2(block)
-		if bal, ok := b.bals[h]; ok {
-			balBytes, _ := json.Marshal(bal)
-			body.BlockAccessList = balBytes
-		}
-		results[i] = body
-	}
-	return results, nil
+	return b.loadPayloadBodiesByHash(hashes), nil
 }
 
 // GetPayloadBodiesByRange returns payload bodies for count blocks starting at start.
@@ -81,38 +47,5 @@ func (b *EngineBackend) GetPayloadBodiesByHash(hashes []types.Hash) ([]*enginepa
 // Implements backendapi.PayloadBodiesBackend.
 // P1: Uses fine-grained locks for better concurrency.
 func (b *EngineBackend) GetPayloadBodiesByRange(start, count uint64) ([]*enginepayload.ExecutionPayloadBodyV2, error) {
-	b.stateMu.RLock()
-	headHash := b.headHash
-	b.stateMu.RUnlock()
-
-	b.blocksMu.RLock()
-	defer b.blocksMu.RUnlock()
-
-	headNum := uint64(0)
-	if head, ok := b.blocks[headHash]; ok {
-		headNum = head.NumberU64()
-	}
-
-	results := make([]*enginepayload.ExecutionPayloadBodyV2, count)
-	for i := uint64(0); i < count; i++ {
-		num := start + i
-		// Use numberIndex for O(1) lookup instead of O(n) scan.
-		hash, ok := b.numberIndex[num]
-		if !ok {
-			results[i] = nil
-			continue
-		}
-		block, ok := b.blocks[hash]
-		if !ok || !rawdb.IsBALRetained(headNum, num) {
-			results[i] = nil
-			continue
-		}
-		body := enginepayload.BlockToPayloadBodyV2(block)
-		if bal, ok := b.bals[hash]; ok {
-			balBytes, _ := json.Marshal(bal)
-			body.BlockAccessList = balBytes
-		}
-		results[i] = body
-	}
-	return results, nil
+	return b.loadPayloadBodiesByRange(start, count), nil
 }

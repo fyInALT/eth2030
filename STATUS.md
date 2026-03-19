@@ -10,6 +10,7 @@
 - Add backend accessor methods that encapsulate `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` reads/writes.
 - Migrate existing call sites in `pkg/engine/backend.go` to the accessors without changing lock ordering or behavior.
 - Follow up on the accessor refactor by removing remaining unsynchronized forkchoice field reads in `ForkchoiceUpdated`.
+- Extend the accessor refactor into `pkg/engine/backend_bodies.go` to remove direct mutex usage there as well.
 - Verify the `pkg/engine` build and tests after the refactor.
 
 **Verification:**

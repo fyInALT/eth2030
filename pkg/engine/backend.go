@@ -16,6 +16,7 @@ import (
 	coreconfig "github.com/eth2030/eth2030/core/config"
 	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/bls"
@@ -338,6 +339,65 @@ func (b *EngineBackend) clearInclusionLists() {
 	b.ilMu.Lock()
 	defer b.ilMu.Unlock()
 	b.ils = b.ils[:0]
+}
+
+func (b *EngineBackend) loadPayloadBodiesByHash(hashes []types.Hash) []*enginepayload.ExecutionPayloadBodyV2 {
+	headHash := b.getHeadHash()
+
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+
+	headNum := uint64(0)
+	if head, ok := b.blocks[headHash]; ok {
+		headNum = head.NumberU64()
+	}
+
+	results := make([]*enginepayload.ExecutionPayloadBodyV2, len(hashes))
+	for i, h := range hashes {
+		block, found := b.blocks[h]
+		if !found || !rawdb.IsBALRetained(headNum, block.NumberU64()) {
+			continue
+		}
+		body := enginepayload.BlockToPayloadBodyV2(block)
+		if blockBAL, ok := b.bals[h]; ok {
+			balBytes, _ := json.Marshal(blockBAL)
+			body.BlockAccessList = balBytes
+		}
+		results[i] = body
+	}
+	return results
+}
+
+func (b *EngineBackend) loadPayloadBodiesByRange(start, count uint64) []*enginepayload.ExecutionPayloadBodyV2 {
+	headHash := b.getHeadHash()
+
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+
+	headNum := uint64(0)
+	if head, ok := b.blocks[headHash]; ok {
+		headNum = head.NumberU64()
+	}
+
+	results := make([]*enginepayload.ExecutionPayloadBodyV2, count)
+	for i := uint64(0); i < count; i++ {
+		num := start + i
+		hash, ok := b.numberIndex[num]
+		if !ok {
+			continue
+		}
+		block, ok := b.blocks[hash]
+		if !ok || !rawdb.IsBALRetained(headNum, num) {
+			continue
+		}
+		body := enginepayload.BlockToPayloadBodyV2(block)
+		if blockBAL, ok := b.bals[hash]; ok {
+			balBytes, _ := json.Marshal(blockBAL)
+			body.BlockAccessList = balBytes
+		}
+		results[i] = body
+	}
+	return results
 }
 
 // evictOldBlocks removes block entries that are more than 64 blocks behind the

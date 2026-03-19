@@ -4,6 +4,7 @@
 - [x] Add mutex-backed accessor helpers for `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` in `pkg/engine/backend.go`.
 - [x] Migrate direct lock/unlock call sites in `pkg/engine/backend.go` to the accessors.
 - [x] Remove remaining direct forkchoice field reads from `ForkchoiceUpdated`.
+- [x] Refactor `pkg/engine/backend_bodies.go` to use backend accessors instead of direct mutex operations.
 - [x] Run the relevant `pkg/engine` Go tests successfully.
 
 ## Go Test Repair (2026-03-19)
