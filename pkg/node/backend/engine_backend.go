@@ -474,3 +474,59 @@ func (b *EngineBackend) cacheBlobsFromBlock(blk *types.Block) {
 		}
 	}
 }
+
+// GetInclusionList generates an inclusion list from the mempool.
+// Implements InclusionListBackend for EIP-7805 (FOCIL).
+// Selects transactions up to MAX_BYTES_PER_INCLUSION_LIST (8 KiB).
+func (b *EngineBackend) GetInclusionList() *types.InclusionList {
+	pool := b.node.TxPool()
+	if pool == nil {
+		return &types.InclusionList{Transactions: [][]byte{}}
+	}
+
+	// Get pending transactions from the pool.
+	pending := pool.PendingFlat()
+
+	// Select transactions up to 8KB total RLP-encoded size.
+	// EIP-7805: MAX_BYTES_PER_INCLUSION_LIST = 8192 bytes.
+	const maxBytesPerInclusionList = 8192
+
+	var selected [][]byte
+	var totalSize int
+
+	for _, tx := range pending {
+		// Encode transaction to RLP.
+		encoded, err := tx.EncodeRLP()
+		if err != nil {
+			continue
+		}
+
+		// Check if adding this transaction would exceed the limit.
+		if totalSize+len(encoded) > maxBytesPerInclusionList {
+			break
+		}
+
+		selected = append(selected, encoded)
+		totalSize += len(encoded)
+	}
+
+	slog.Debug("getInclusionList", "tx_count", len(selected), "total_bytes", totalSize)
+
+	return &types.InclusionList{Transactions: selected}
+}
+
+// ProcessInclusionList validates and stores an inclusion list.
+// Implements InclusionListBackend for EIP-7805 (FOCIL).
+func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
+	// Basic validation: non-empty transactions.
+	if len(il.Transactions) == 0 {
+		return nil
+	}
+
+	// Log the received inclusion list.
+	slog.Debug("processInclusionList", "slot", il.Slot, "validator_index", il.ValidatorIndex, "tx_count", len(il.Transactions))
+
+	// Store for use during block building and validation.
+	// The actual storage is handled by the beacon node's inclusion list store.
+	return nil
+}

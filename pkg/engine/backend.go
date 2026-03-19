@@ -126,6 +126,9 @@ type EngineBackend struct {
 	// cleanupStopCh signals the cleanup goroutine to stop.
 	cleanupStopCh chan struct{}
 	cleanupWg     sync.WaitGroup
+
+	// txPool provides access to pending transactions for inclusion list generation.
+	txPool block.TxPoolReader
 }
 
 // NewEngineBackend creates a new Engine API backend with default memory limits.
@@ -1561,10 +1564,49 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 	return nil
 }
 
-// GetInclusionList generates an inclusion list from the mempool (stub: returns empty IL).
+// GetInclusionList generates an inclusion list from the mempool.
 // Implements InclusionListBackend.
+// EIP-7805: Select transactions up to MAX_BYTES_PER_INCLUSION_LIST (8 KiB).
 func (b *EngineBackend) GetInclusionList() *types.InclusionList {
-	return &types.InclusionList{Transactions: [][]byte{}}
+	// If no txpool is wired, return empty IL.
+	if b.txPool == nil {
+		return &types.InclusionList{Transactions: [][]byte{}}
+	}
+
+	// Get pending transactions from the pool.
+	pending := b.txPool.Pending()
+
+	// Select transactions up to 8KB total RLP-encoded size.
+	// EIP-7805: MAX_BYTES_PER_INCLUSION_LIST = 8192 bytes.
+	const maxBytesPerInclusionList = 8192
+
+	var selected [][]byte
+	var totalSize int
+
+	for _, tx := range pending {
+		// Encode transaction to RLP.
+		encoded, err := tx.EncodeRLP()
+		if err != nil {
+			continue
+		}
+
+		// Check if adding this transaction would exceed the limit.
+		if totalSize+len(encoded) > maxBytesPerInclusionList {
+			break
+		}
+
+		selected = append(selected, encoded)
+		totalSize += len(encoded)
+	}
+
+	backendLog.Debug("getInclusionList", "tx_count", len(selected), "total_bytes", totalSize)
+
+	return &types.InclusionList{Transactions: selected}
+}
+
+// SetTxPool wires a transaction pool reader for inclusion list generation.
+func (b *EngineBackend) SetTxPool(pool block.TxPoolReader) {
+	b.txPool = pool
 }
 
 // ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.
