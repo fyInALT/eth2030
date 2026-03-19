@@ -21,12 +21,12 @@ network_params:
   # Fork schedule:
   # - fulu_fork_epoch: 1 → Fulu (PeerDAS) starts at epoch 1 (slot 32)
   # - gloas_fork_epoch: 2 → Gloas (ePBS/EIP-7732) starts at epoch 2 (slot 64)
-  # - eip7805_fork_epoch: 3 → Heze (FOCIL/EIP-7805) starts at epoch 3 (slot 96)
+  # - heze_fork_epoch: 3 → Heze (FOCIL/EIP-7805) starts at epoch 3 (slot 96)
   # Note: Lighthouse warns about non-256-aligned fork epochs — this is acceptable
   # for a devnet where stability is more important than period alignment.
   fulu_fork_epoch: 1
   gloas_fork_epoch: 2
-  eip7805_fork_epoch: 3
+  heze_fork_epoch: 3
 
 additional_services:
   - dora
