@@ -329,6 +329,12 @@ func (b *AsyncBuilder) QueueBuild(
 
 	// Store in pending map
 	b.mu.Lock()
+
+	// Check if this ID already exists - fail the old one if so
+	if old, exists := b.pending[id]; exists {
+		old.SetFailed(fmt.Errorf("replaced by new build request with same ID"))
+	}
+
 	b.pending[id] = pending
 	b.pendingOrder = append(b.pendingOrder, id)
 
@@ -336,6 +342,9 @@ func (b *AsyncBuilder) QueueBuild(
 	for len(b.pending) > b.maxPending && len(b.pendingOrder) > 0 {
 		oldest := b.pendingOrder[0]
 		b.pendingOrder = b.pendingOrder[1:]
+		if old, exists := b.pending[oldest]; exists {
+			old.SetFailed(fmt.Errorf("evicted to make room for new build"))
+		}
 		delete(b.pending, oldest)
 	}
 	queueSize := len(b.queue)

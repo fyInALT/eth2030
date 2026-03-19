@@ -561,7 +561,11 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
 
+		// P2: Get parentBlock under lock protection to avoid race condition
+		b.blocksMu.RLock()
 		parentBlock := b.blocks[fcState.HeadBlockHash]
+		b.blocksMu.RUnlock()
+
 		if parentBlock == nil {
 			return ForkchoiceUpdatedResult{}, ErrInvalidForkchoiceState
 		}
