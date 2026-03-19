@@ -3,6 +3,7 @@ package vm
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -21,6 +22,9 @@ func loadTestVectors(t *testing.T, filename string) []testVector {
 	t.Helper()
 	data, err := os.ReadFile(filename)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skipf("skipping JSON vector test: fixture %s is not present in this checkout", filename)
+		}
 		t.Fatalf("failed to read %s: %v", filename, err)
 	}
 	var vectors []testVector

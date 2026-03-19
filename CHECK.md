@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Go Test Repair (2026-03-19)
+- [x] Reproduce the failing or hanging `go test ./...` behavior from `pkg/`.
+- [x] Isolate the package or test causing the issue.
+- [x] Implement the minimal fix and add or update unit tests.
+- [x] Run the affected tests and the full module test suite successfully.
+
 ## Ongoing
 - [x] Extend EVM formal core with jump-family opcodes (`JUMP`, `JUMPI`, `JUMPDEST`, `POP`).
 - [x] Expand compiler decoding for jump-family opcodes.

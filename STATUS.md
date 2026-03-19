@@ -1,5 +1,18 @@
 # Project Status
 
+## Go Test Repair (2026-03-19)
+
+### Current Status: COMPLETE
+
+**Scope:** Reproduce and fix failing or hanging `go test ./...` runs from the Go module root at `pkg/`.
+
+**Resolved Issues:**
+- `pkg/core/vm` JSON-vector and precompile fixture tests no longer fail when the optional external fixture corpus is absent from the checkout; they now skip cleanly on missing files.
+- `pkg/engine` no longer deadlocks while storing processed blocks: `ProcessBlock` and `ProcessBlockV5` were calling `evictOldBlocks` with `blocksMu` already held, while the helper tried to lock `blocksMu` again.
+
+**Verification:**
+- `cd pkg && go test ./...`
+
 ## Devnet Testing (2026-03-16)
 
 ### Current Status: WORKING
