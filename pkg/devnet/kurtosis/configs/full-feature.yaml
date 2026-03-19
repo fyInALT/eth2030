@@ -16,7 +16,7 @@ participants:
 
 network_params:
   network: kurtosis
-  seconds_per_slot: 2
+  seconds_per_slot: 15
   genesis_delay: 60
   # Fork schedule:
   # - fulu_fork_epoch: 1 → Fulu (PeerDAS) starts at epoch 1 (slot 32)
