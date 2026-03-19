@@ -1,5 +1,19 @@
 # Project Status
 
+## Engine Lock Wrapper Refactor (2026-03-19)
+
+### Current Status: COMPLETE
+
+**Scope:** Refactor `pkg/engine/backend.go` so accesses guarded by `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` go through helper functions instead of open-coded lock/unlock pairs.
+
+**Completed Work:**
+- Add backend helper methods that wrap read/write access for each fine-grained mutex.
+- Migrate existing call sites in `pkg/engine/backend.go` to the new helpers without changing lock ordering or behavior.
+- Verify the `pkg/engine` build and tests after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
 ## Go Test Repair (2026-03-19)
 
 ### Current Status: COMPLETE
