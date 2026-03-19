@@ -3,6 +3,7 @@
 ## Engine Lock Wrapper Refactor (2026-03-19)
 - [x] Add mutex-backed accessor helpers for `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` in `pkg/engine/backend.go`.
 - [x] Migrate direct lock/unlock call sites in `pkg/engine/backend.go` to the accessors.
+- [x] Remove remaining direct forkchoice field reads from `ForkchoiceUpdated`.
 - [x] Run the relevant `pkg/engine` Go tests successfully.
 
 ## Go Test Repair (2026-03-19)

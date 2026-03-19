@@ -263,6 +263,12 @@ func (b *EngineBackend) getHeadHash() types.Hash {
 	return b.headHash
 }
 
+func (b *EngineBackend) getForkchoiceState() (headHash, safeHash, finalHash types.Hash) {
+	b.stateMu.RLock()
+	defer b.stateMu.RUnlock()
+	return b.headHash, b.safeHash, b.finalHash
+}
+
 func (b *EngineBackend) setForkchoiceState(headHash, safeHash, finalHash types.Hash) {
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()
@@ -574,7 +580,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		backendLog.Debug("actor_final_update_failed", "error", err)
 	}
 
-	headHash := b.getHeadHash()
+	headHash, safeHash, finalHash := b.getForkchoiceState()
 	headBlock, headOk := b.getBlock(headHash)
 
 	headNum := uint64(0)
@@ -583,16 +589,16 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	}
 	backendLog.Info("fcu_updated",
 		"event", "fcu_updated",
-		"head", b.headHash.Hex(),
+		"head", headHash.Hex(),
 		"headNum", headNum,
-		"safe", b.safeHash.Hex(),
-		"finalized", b.finalHash.Hex(),
+		"safe", safeHash.Hex(),
+		"finalized", finalHash.Hex(),
 		"hasAttrs", attrs != nil,
 	)
 
 	status := PayloadStatusV1{
 		Status:          StatusValid,
-		LatestValidHash: &b.headHash,
+		LatestValidHash: &headHash,
 	}
 
 	result := ForkchoiceUpdatedResult{PayloadStatus: status}
