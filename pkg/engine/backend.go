@@ -1334,6 +1334,66 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 	}, nil
 }
 
+// GetPayloadV5 retrieves a previously built payload for getPayloadV5 (Gloas/Heze).
+// Implements GlamsterdamBackend interface.
+func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error) {
+	// P0: Check async payloads first (supports in-progress builds).
+	b.asyncPayloadsMu.RLock()
+	asyncPending, asyncOk := b.asyncPayloads[id]
+	b.asyncPayloadsMu.RUnlock()
+
+	if asyncOk {
+		// Wait for build to complete with timeout.
+		result, err := asyncPending.Wait(8 * time.Second)
+		if err != nil {
+			backendLog.Warn("payload_build_timeout",
+				"event", "payload_build_timeout",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", err,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusFailed {
+			backendLog.Error("payload_build_failed",
+				"event", "payload_build_failed",
+				"payloadID", fmt.Sprintf("%x", id),
+				"error", result.Error,
+			)
+			return nil, ErrUnknownPayload
+		}
+
+		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
+			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
+			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+			ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+			return &GetPayloadV5Response{
+				ExecutionPayload:  &ep4.ExecutionPayloadV3,
+				BlockValue:        result.BlockValue.Bytes(),
+				BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
+				Override:          false,
+				ExecutionRequests: [][]byte{},
+			}, nil
+		}
+	}
+
+	// Fallback to mutex-protected payloads.
+	pending, ok := b.getPayload(id)
+	if !ok {
+		return nil, ErrUnknownPayload
+	}
+
+	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+
+	return &GetPayloadV5Response{
+		ExecutionPayload:  &ep4.ExecutionPayloadV3,
+		BlockValue:        pending.blockValue.Bytes(),
+		BlobsBundle:       collectBlobsBundleV2(pending.block.Transactions()),
+		Override:          false,
+		ExecutionRequests: [][]byte{},
+	}, nil
+}
+
 // GetPayloadV6ByID retrieves a previously built payload for getPayloadV6 (Amsterdam).
 // NOTE: EIP-8141 FrameTx receipts use the standard Receipt structure for gas
 // accounting. Per-frame results are available via FrameTxReceipt if needed by
@@ -1453,6 +1513,26 @@ func collectBlobsBundleV1(txs []*types.Transaction) *BlobsBundleV1 {
 		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
 		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
 		bundle.Proofs = append(bundle.Proofs, sc.Proofs...)
+	}
+	return bundle
+}
+
+// collectBlobsBundleV2 collects blob sidecars with cell proofs (V2 format).
+// Used for engine_getPayloadV5 responses (Gloas/Heze fork).
+func collectBlobsBundleV2(txs []*types.Transaction) *enginepayload.BlobsBundleV2 {
+	bundle := &enginepayload.BlobsBundleV2{}
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
+		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
+		// V2 uses cell proofs (multiple proofs per blob)
+		// For now, use V1 proofs as the cell proof format
+		for _, proof := range sc.Proofs {
+			bundle.Proofs = append(bundle.Proofs, proof)
+		}
 	}
 	return bundle
 }
