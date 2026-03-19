@@ -257,58 +257,87 @@ func (b *EngineBackend) cleanupFailedAsyncPayloads() {
 	}
 }
 
-func withReadLock(mu *sync.RWMutex, fn func()) {
-	mu.RLock()
-	defer mu.RUnlock()
-	fn()
+func (b *EngineBackend) getHeadHash() types.Hash {
+	b.stateMu.RLock()
+	defer b.stateMu.RUnlock()
+	return b.headHash
 }
 
-func withWriteLock(mu *sync.RWMutex, fn func()) {
-	mu.Lock()
-	defer mu.Unlock()
-	fn()
+func (b *EngineBackend) setForkchoiceState(headHash, safeHash, finalHash types.Hash) {
+	b.stateMu.Lock()
+	defer b.stateMu.Unlock()
+	b.headHash = headHash
+	b.safeHash = safeHash
+	b.finalHash = finalHash
 }
 
-func (b *EngineBackend) withStateRead(fn func()) {
-	withReadLock(&b.stateMu, fn)
+func (b *EngineBackend) hasBlock(hash types.Hash) bool {
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+	_, ok := b.blocks[hash]
+	return ok
 }
 
-func (b *EngineBackend) withStateWrite(fn func()) {
-	withWriteLock(&b.stateMu, fn)
+func (b *EngineBackend) getBlock(hash types.Hash) (*types.Block, bool) {
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+	blk, ok := b.blocks[hash]
+	return blk, ok
 }
 
-func (b *EngineBackend) withBlocksRead(fn func()) {
-	withReadLock(&b.blocksMu, fn)
+func (b *EngineBackend) storeBlock(blk *types.Block, blockBAL *bal.BlockAccessList) {
+	b.blocksMu.Lock()
+	defer b.blocksMu.Unlock()
+
+	blockHash := blk.Hash()
+	b.blocks[blockHash] = blk
+	b.numberIndex[blk.NumberU64()] = blockHash
+	if blockBAL != nil {
+		b.bals[blockHash] = blockBAL
+	}
+	b.evictOldBlocks()
 }
 
-func (b *EngineBackend) withBlocksWrite(fn func()) {
-	withWriteLock(&b.blocksMu, fn)
+func (b *EngineBackend) getPayload(id PayloadID) (*pendingPayload, bool) {
+	b.payloadMu.RLock()
+	defer b.payloadMu.RUnlock()
+	pending, ok := b.payloads[id]
+	return pending, ok
 }
 
-func (b *EngineBackend) withPayloadRead(fn func()) {
-	withReadLock(&b.payloadMu, fn)
+func (b *EngineBackend) storePayload(id PayloadID, pending *pendingPayload) {
+	b.payloadMu.Lock()
+	defer b.payloadMu.Unlock()
+	b.payloads[id] = pending
+	b.payloadOrder = append(b.payloadOrder, id)
+	b.evictOldestPayload()
 }
 
-func (b *EngineBackend) withPayloadWrite(fn func()) {
-	withWriteLock(&b.payloadMu, fn)
+func (b *EngineBackend) getInclusionListCount() int {
+	b.ilMu.RLock()
+	defer b.ilMu.RUnlock()
+	return len(b.ils)
 }
 
-func (b *EngineBackend) withILRead(fn func()) {
-	withReadLock(&b.ilMu, fn)
+func (b *EngineBackend) addInclusionList(il *types.InclusionList) {
+	b.ilMu.Lock()
+	defer b.ilMu.Unlock()
+	b.ils = append(b.ils, il)
+	if len(b.ils) > b.maxILs {
+		b.ils = b.ils[len(b.ils)-b.maxILs:]
+	}
 }
 
-func (b *EngineBackend) withILWrite(fn func()) {
-	withWriteLock(&b.ilMu, fn)
+func (b *EngineBackend) clearInclusionLists() {
+	b.ilMu.Lock()
+	defer b.ilMu.Unlock()
+	b.ils = b.ils[:0]
 }
 
 // evictOldBlocks removes block entries that are more than 64 blocks behind the
 // current head from b.blocks and b.bals. Must be called with blocksMu held.
 func (b *EngineBackend) evictOldBlocks() {
-	var headHash types.Hash
-	b.withStateRead(func() {
-		headHash = b.headHash
-	})
-
+	headHash := b.getHeadHash()
 	head, ok := b.blocks[headHash]
 	if !ok || head.NumberU64() < 64 {
 		return
@@ -395,13 +424,7 @@ func (b *EngineBackend) ProcessBlock(
 	// P1: Use fine-grained locks instead of single b.mu.
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
-	var (
-		parentBlock *types.Block
-		parentOk    bool
-	)
-	b.withBlocksRead(func() {
-		parentBlock, parentOk = b.blocks[parentHash]
-	})
+	parentBlock, parentOk := b.getBlock(parentHash)
 
 	if !parentOk {
 		backendLog.Debug("payload_syncing",
@@ -451,11 +474,7 @@ func (b *EngineBackend) ProcessBlock(
 
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
-	b.withBlocksWrite(func() {
-		b.blocks[blockHash] = blk
-		b.numberIndex[blk.NumberU64()] = blockHash
-		b.evictOldBlocks()
-	})
+	b.storeBlock(blk, nil)
 	b.statedb = stateCopy
 
 	// Dual-write to actors for migration.
@@ -491,30 +510,22 @@ func (b *EngineBackend) ProcessBlockV4(
 
 // GetHeadTimestamp returns the timestamp of the current head block.
 func (b *EngineBackend) GetHeadTimestamp() uint64 {
-	var headHash types.Hash
-	b.withStateRead(func() {
-		headHash = b.headHash
-	})
-
-	var timestamp uint64
-	b.withBlocksRead(func() {
-		if headBlock, ok := b.blocks[headHash]; ok {
-			timestamp = headBlock.Header().Time
-		}
-	})
-	return timestamp
+	headHash := b.getHeadHash()
+	headBlock, ok := b.getBlock(headHash)
+	if !ok {
+		return 0
+	}
+	return headBlock.Header().Time
 }
 
 // GetBlockTimestamp returns the timestamp of the block with the given hash,
 // or 0 if the block is not known.
 func (b *EngineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
-	var timestamp uint64
-	b.withBlocksRead(func() {
-		if blk, ok := b.blocks[hash]; ok {
-			timestamp = blk.Header().Time
-		}
-	})
-	return timestamp
+	blk, ok := b.getBlock(hash)
+	if !ok {
+		return 0
+	}
+	return blk.Header().Time
 }
 
 // IsCancun returns true if the given timestamp falls within the Cancun fork.
@@ -539,28 +550,18 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 	// P1: Use fine-grained locks instead of single b.mu.
 	// Validate head block exists.
-	if fcState.HeadBlockHash != (types.Hash{}) {
-		ok := false
-		b.withBlocksRead(func() {
-			_, ok = b.blocks[fcState.HeadBlockHash]
-		})
-		if !ok {
-			backendLog.Debug("fcu_syncing",
-				"event", "fcu_syncing",
-				"head", fcState.HeadBlockHash.Hex(),
-			)
-			return ForkchoiceUpdatedResult{
-				PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
-			}, nil
-		}
+	if fcState.HeadBlockHash != (types.Hash{}) && !b.hasBlock(fcState.HeadBlockHash) {
+		backendLog.Debug("fcu_syncing",
+			"event", "fcu_syncing",
+			"head", fcState.HeadBlockHash.Hex(),
+		)
+		return ForkchoiceUpdatedResult{
+			PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
+		}, nil
 	}
 
 	// Update forkchoice pointers with stateMu.
-	b.withStateWrite(func() {
-		b.headHash = fcState.HeadBlockHash
-		b.safeHash = fcState.SafeBlockHash
-		b.finalHash = fcState.FinalizedBlockHash
-	})
+	b.setForkchoiceState(fcState.HeadBlockHash, fcState.SafeBlockHash, fcState.FinalizedBlockHash)
 
 	// Dual-write to actors for migration.
 	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
@@ -573,18 +574,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		backendLog.Debug("actor_final_update_failed", "error", err)
 	}
 
-	var headHash types.Hash
-	b.withStateRead(func() {
-		headHash = b.headHash
-	})
-
-	var (
-		headBlock *types.Block
-		headOk    bool
-	)
-	b.withBlocksRead(func() {
-		headBlock, headOk = b.blocks[headHash]
-	})
+	headHash := b.getHeadHash()
+	headBlock, headOk := b.getBlock(headHash)
 
 	headNum := uint64(0)
 	if headOk {
@@ -613,11 +604,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		}
 
 		// P2: Get parentBlock under lock protection to avoid race condition
-		var parentBlock *types.Block
-		b.withBlocksRead(func() {
-			parentBlock = b.blocks[fcState.HeadBlockHash]
-		})
-
+		parentBlock, _ := b.getBlock(fcState.HeadBlockHash)
 		if parentBlock == nil {
 			return ForkchoiceUpdatedResult{}, ErrInvalidForkchoiceState
 		}
@@ -794,13 +781,7 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 	}
 
 	// Fallback to mutex-protected payloads.
-	var (
-		pending *pendingPayload
-		ok      bool
-	)
-	b.withPayloadRead(func() {
-		pending, ok = b.payloads[id]
-	})
+	pending, ok := b.getPayload(id)
 	if !ok {
 		backendLog.Warn("payload_get_miss",
 			"event", "payload_get_miss",
@@ -989,13 +970,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	// P1: Use fine-grained locks instead of single b.mu.
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
-	var (
-		parentBlock *types.Block
-		parentOk    bool
-	)
-	b.withBlocksRead(func() {
-		parentBlock, parentOk = b.blocks[parentHash]
-	})
+	parentBlock, parentOk := b.getBlock(parentHash)
 
 	if !parentOk {
 		backendLog.Debug("payload_syncing",
@@ -1072,11 +1047,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	}
 
 	// EIP-7805: check IL satisfaction against block and stored ILs.
-	ilsLen := 0
-	b.withILRead(func() {
-		ilsLen = len(b.ils)
-	})
-
+	ilsLen := b.getInclusionListCount()
 	if ilsLen > 0 {
 		ils := b.ilsAsFocil()
 		gasRemaining := blk.GasLimit() - blk.GasUsed()
@@ -1096,15 +1067,7 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
-	b.withBlocksWrite(func() {
-		b.blocks[blockHash] = blk
-		b.numberIndex[blk.NumberU64()] = blockHash
-		// Store BAL for engine_getPayloadBodiesByHashV2.
-		if result.BlockAccessList != nil {
-			b.bals[blockHash] = result.BlockAccessList
-		}
-		b.evictOldBlocks()
-	})
+	b.storeBlock(blk, result.BlockAccessList)
 	b.statedb = stateCopy
 
 	// Dual-write to actors for migration.
@@ -1114,9 +1077,7 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	// ILs are slot-scoped: once a block is accepted, the ILs for that slot
 	// are consumed. Clear them to prevent unbounded growth across slots.
-	b.withILWrite(func() {
-		b.ils = b.ils[:0]
-	})
+	b.clearInclusionLists()
 
 	// Clear actor ILs as well.
 	if err := b.clearActorInclusionLists(); err != nil {
@@ -1145,26 +1106,15 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 	attrs *PayloadAttributesV4,
 ) (ForkchoiceUpdatedResult, error) {
 	// Validate head block exists.
-	if fcState.HeadBlockHash != (types.Hash{}) {
-		ok := false
-		b.withBlocksRead(func() {
-			_, ok = b.blocks[fcState.HeadBlockHash]
-		})
-		if !ok {
-			return ForkchoiceUpdatedResult{
-				PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
-			}, nil
-		}
+	if fcState.HeadBlockHash != (types.Hash{}) && !b.hasBlock(fcState.HeadBlockHash) {
+		return ForkchoiceUpdatedResult{
+			PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
+		}, nil
 	}
 
 	// Update forkchoice pointers (per spec: must NOT be rolled back on attribute errors).
-	headHash := types.Hash{}
-	b.withStateWrite(func() {
-		b.headHash = fcState.HeadBlockHash
-		b.safeHash = fcState.SafeBlockHash
-		b.finalHash = fcState.FinalizedBlockHash
-		headHash = b.headHash
-	})
+	b.setForkchoiceState(fcState.HeadBlockHash, fcState.SafeBlockHash, fcState.FinalizedBlockHash)
+	headHash := b.getHeadHash()
 
 	// Dual-write to actors for migration.
 	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
@@ -1191,11 +1141,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
-		var parentBlock *types.Block
-		b.withBlocksRead(func() {
-			parentBlock = b.blocks[fcState.HeadBlockHash]
-		})
-
+		parentBlock, _ := b.getBlock(fcState.HeadBlockHash)
 		if parentBlock == nil {
 			return ForkchoiceUpdatedResult{}, ErrInvalidForkchoiceState
 		}
@@ -1231,20 +1177,16 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			}
 		}
 
-		b.withPayloadWrite(func() {
-			b.payloads[id] = &pendingPayload{
-				block:        blk,
-				receipts:     receipts,
-				bal:          blockBAL,
-				blockValue:   new(big.Int),
-				parentHash:   fcState.HeadBlockHash,
-				timestamp:    attrs.Timestamp,
-				feeRecipient: attrs.SuggestedFeeRecipient,
-				prevRandao:   attrs.PrevRandao,
-				withdrawals:  attrs.Withdrawals,
-			}
-			b.payloadOrder = append(b.payloadOrder, id)
-			b.evictOldestPayload()
+		b.storePayload(id, &pendingPayload{
+			block:        blk,
+			receipts:     receipts,
+			bal:          blockBAL,
+			blockValue:   new(big.Int),
+			parentHash:   fcState.HeadBlockHash,
+			timestamp:    attrs.Timestamp,
+			feeRecipient: attrs.SuggestedFeeRecipient,
+			prevRandao:   attrs.PrevRandao,
+			withdrawals:  attrs.Withdrawals,
 		})
 
 		// Dual-write to actors for migration.
@@ -1311,13 +1253,7 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 	}
 
 	// Fallback to mutex-protected payloads.
-	var (
-		pending *pendingPayload
-		ok      bool
-	)
-	b.withPayloadRead(func() {
-		pending, ok = b.payloads[id]
-	})
+	pending, ok := b.getPayload(id)
 	if !ok {
 		return nil, ErrUnknownPayload
 	}
@@ -1377,13 +1313,7 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	}
 
 	// Fallback to mutex-protected payloads.
-	var (
-		pending *pendingPayload
-		ok      bool
-	)
-	b.withPayloadRead(func() {
-		pending, ok = b.payloads[id]
-	})
+	pending, ok := b.getPayload(id)
 	if !ok {
 		return nil, ErrUnknownPayload
 	}
@@ -1475,13 +1405,7 @@ func (b *EngineBackend) IsAmsterdam(timestamp uint64) bool {
 // Implements InclusionListBackend.
 // P1: Uses fine-grained lock for IL storage.
 func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
-	b.withILWrite(func() {
-		b.ils = append(b.ils, il)
-		// Bound the IL slice: drop oldest entries beyond b.maxILs.
-		if len(b.ils) > b.maxILs {
-			b.ils = b.ils[len(b.ils)-b.maxILs:]
-		}
-	})
+	b.addInclusionList(il)
 
 	// Dual-write to actors for migration.
 	if err := b.storeActorInclusionList(il); err != nil {
@@ -1500,22 +1424,22 @@ func (b *EngineBackend) GetInclusionList() *types.InclusionList {
 // ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.
 // P1: Caller must hold ilMu or ensure thread-safe access.
 func (b *EngineBackend) ilsAsFocil() []*focil.InclusionList {
-	var result []*focil.InclusionList
-	b.withILRead(func() {
-		result = make([]*focil.InclusionList, len(b.ils))
-		for i, il := range b.ils {
-			entries := make([]focil.InclusionListEntry, len(il.Transactions))
-			for j, tx := range il.Transactions {
-				entries[j] = focil.InclusionListEntry{Transaction: tx, Index: uint64(j)}
-			}
-			result[i] = &focil.InclusionList{
-				Slot:          il.Slot,
-				ProposerIndex: il.ValidatorIndex,
-				CommitteeRoot: il.CommitteeRoot,
-				Entries:       entries,
-			}
+	b.ilMu.RLock()
+	defer b.ilMu.RUnlock()
+
+	result := make([]*focil.InclusionList, len(b.ils))
+	for i, il := range b.ils {
+		entries := make([]focil.InclusionListEntry, len(il.Transactions))
+		for j, tx := range il.Transactions {
+			entries[j] = focil.InclusionListEntry{Transaction: tx, Index: uint64(j)}
 		}
-	})
+		result[i] = &focil.InclusionList{
+			Slot:          il.Slot,
+			ProposerIndex: il.ValidatorIndex,
+			CommitteeRoot: il.CommitteeRoot,
+			Entries:       entries,
+		}
+	}
 	return result
 }
 

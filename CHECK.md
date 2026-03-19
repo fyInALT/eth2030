@@ -1,8 +1,8 @@
 # Lean4 Verification Check-list
 
 ## Engine Lock Wrapper Refactor (2026-03-19)
-- [x] Add mutex helper wrappers for `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` in `pkg/engine/backend.go`.
-- [x] Migrate direct lock/unlock call sites in `pkg/engine/backend.go` to the wrappers.
+- [x] Add mutex-backed accessor helpers for `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` in `pkg/engine/backend.go`.
+- [x] Migrate direct lock/unlock call sites in `pkg/engine/backend.go` to the accessors.
 - [x] Run the relevant `pkg/engine` Go tests successfully.
 
 ## Go Test Repair (2026-03-19)
