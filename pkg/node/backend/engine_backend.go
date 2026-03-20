@@ -159,12 +159,31 @@ func (b *EngineBackend) GetSafeHash() types.Hash {
 
 // GetFinalizedHash returns the current finalized block hash.
 func (b *EngineBackend) GetFinalizedHash() types.Hash {
-	if blk := b.node.Blockchain().CurrentFinalBlock(); blk != nil {
+	bc := b.node.Blockchain()
+	if bc == nil {
+		slog.Warn("GetFinalizedHash: blockchain is nil")
+		return types.Hash{}
+	}
+	if blk := bc.CurrentFinalBlock(); blk != nil {
+		slog.Debug("GetFinalizedHash: returning from CurrentFinalBlock",
+			"blockHash", blk.Hash(),
+			"blockNum", blk.NumberU64(),
+		)
 		return blk.Hash()
 	}
 	b.fcMu.RLock()
-	defer b.fcMu.RUnlock()
-	return b.finalizedHash
+	hash := b.finalizedHash
+	b.fcMu.RUnlock()
+	if hash == (types.Hash{}) {
+		slog.Warn("GetFinalizedHash: no finalized block found",
+			"currentHead", bc.CurrentBlock().NumberU64(),
+		)
+	} else {
+		slog.Debug("GetFinalizedHash: returning from internal finalizedHash",
+			"hash", hash,
+		)
+	}
+	return hash
 }
 
 // GetHeadTimestamp returns the timestamp of the current head block.

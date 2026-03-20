@@ -347,13 +347,27 @@ func (b *EngineBackend) postFCULoop() {
 func (b *EngineBackend) doPostFCUWork(work postFCUWork) {
 	bc := b.node.Blockchain()
 	if bc == nil {
+		slog.Warn("doPostFCUWork: blockchain is nil")
 		return
 	}
 
 	if work.finalBlock != nil {
+		slog.Info("doPostFCUWork: setting finalized block",
+			"blockHash", work.finalBlock.Hash(),
+			"blockNum", work.finalBlock.NumberU64(),
+			"finalizedBlockHash", work.fcState.FinalizedBlockHash,
+		)
 		bc.SetFinalized(work.finalBlock)
+	} else if work.fcState.FinalizedBlockHash != (types.Hash{}) {
+		slog.Warn("doPostFCUWork: finalBlock is nil but finalizedBlockHash is set",
+			"finalizedBlockHash", work.fcState.FinalizedBlockHash,
+		)
 	}
 	if work.safeBlock != nil {
+		slog.Debug("doPostFCUWork: setting safe block",
+			"blockHash", work.safeBlock.Hash(),
+			"blockNum", work.safeBlock.NumberU64(),
+		)
 		bc.SetSafe(work.safeBlock)
 	}
 
