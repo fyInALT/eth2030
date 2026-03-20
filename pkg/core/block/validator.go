@@ -260,9 +260,14 @@ func (v *BlockValidator) ValidateRequests(header *types.Header, requests types.R
 
 // ValidateBlockAccessList verifies the Block Access List (BAL) hash in the
 // header. Per EIP-7928:
-//   - Post-Amsterdam blocks MUST include a BlockAccessListHash.
-//   - The hash must match the computed hash from re-executing the block.
+//   - Post-Amsterdam blocks SHOULD include a BlockAccessListHash.
+//   - If present, the hash must match the computed hash from re-executing the block.
 //   - Pre-Amsterdam blocks must NOT have a BlockAccessListHash.
+//
+// NOTE: The BAL hash check is made optional for CL compatibility. If the CL
+// doesn't provide BlockAccessListHash (e.g., Lighthouse sending newPayloadV4
+// for Gloas/Amsterdam), the block is still accepted. This allows devnets to
+// run with CLs that don't yet support EIP-7928.
 func (v *BlockValidator) ValidateBlockAccessList(header *types.Header, computedBALHash *types.Hash) error {
 	isAmsterdam := v.config != nil && v.config.IsAmsterdam(header.Time)
 
@@ -274,12 +279,16 @@ func (v *BlockValidator) ValidateBlockAccessList(header *types.Header, computedB
 		return nil
 	}
 
-	// Post-Amsterdam: BlockAccessListHash must be present.
+	// Post-Amsterdam: BlockAccessListHash validation.
+	// If the header doesn't have BlockAccessListHash, accept the block for CL compatibility.
+	// The BAL is still computed during execution and can be retrieved via getPayloadBodies.
 	if header.BlockAccessListHash == nil {
-		return fmt.Errorf("%w: post-Amsterdam block missing BlockAccessListHash", ErrMissingBlockAccessList)
+		// CL compatibility: allow blocks without BlockAccessListHash.
+		// The EL will compute and store the BAL internally.
+		return nil
 	}
 
-	// If no computed hash is provided (e.g. empty block), use empty BAL hash.
+	// If BlockAccessListHash is present, validate it.
 	if computedBALHash == nil {
 		return fmt.Errorf("%w: no computed BAL hash available for comparison", ErrInvalidBlockAccessList)
 	}

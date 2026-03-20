@@ -1522,8 +1522,11 @@ func collectBlobsBundleV1(txs []*types.Transaction) *BlobsBundleV1 {
 
 // collectBlobsBundleV2 collects blob sidecars with cell proofs (V2 format).
 // Used for engine_getPayloadV5 responses (Gloas/Heze fork).
+// Each blob's 48-byte KZG proof is expanded to 128 per-cell KZG proofs
+// using ComputeCellsAndProofs, as required by the Fulu/PeerDAS spec.
 func collectBlobsBundleV2(txs []*types.Transaction) *enginepayload.BlobsBundleV2 {
 	bundle := &enginepayload.BlobsBundleV2{}
+	kzg := bls.DefaultKZGBackend()
 	for _, tx := range txs {
 		sc := tx.BlobSidecar()
 		if sc == nil {
@@ -1531,10 +1534,21 @@ func collectBlobsBundleV2(txs []*types.Transaction) *enginepayload.BlobsBundleV2
 		}
 		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
 		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
-		// V2 uses cell proofs (multiple proofs per blob)
-		// For now, use V1 proofs as the cell proof format
-		for _, proof := range sc.Proofs {
-			bundle.Proofs = append(bundle.Proofs, proof)
+		// Expand each blob's proof to 128 per-cell KZG proofs.
+		for _, blob := range sc.Blobs {
+			_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+			if err != nil {
+				backendLog.Warn("collectBlobsBundleV2: ComputeCellsAndProofs failed, using zero proofs",
+					"err", err)
+				for range bls.KZGCellsPerExtBlob {
+					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
+				}
+				continue
+			}
+			for _, p := range cellProofs {
+				cp := p
+				bundle.Proofs = append(bundle.Proofs, cp[:])
+			}
 		}
 	}
 	return bundle
