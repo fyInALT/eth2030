@@ -11,6 +11,54 @@ import (
 	"github.com/eth2030/eth2030/engine/backendapi"
 )
 
+// hexBytes is a []byte that unmarshals from hex-encoded JSON strings (0x prefix).
+// Go's default []byte JSON unmarshal uses base64, but Ethereum uses hex encoding.
+type hexBytes []byte
+
+func (h hexBytes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("0x%x", []byte(h)))
+}
+
+func (h *hexBytes) UnmarshalJSON(data []byte) error {
+	// Try string first (hex-encoded)
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		// Strip 0x prefix if present
+		s = strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
+		decoded, err := hexDecodeString(s)
+		if err != nil {
+			return fmt.Errorf("hexBytes: invalid hex string: %w", err)
+		}
+		*h = decoded
+		return nil
+	}
+
+	// Fallback: try as raw JSON array of numbers
+	var rawBytes []byte
+	if err := json.Unmarshal(data, &rawBytes); err != nil {
+		return fmt.Errorf("hexBytes: expected hex string or byte array, got %s", string(data))
+	}
+	*h = rawBytes
+	return nil
+}
+
+// hexDecodeString decodes a hex string to bytes.
+func hexDecodeString(s string) ([]byte, error) {
+	// Handle odd-length strings
+	if len(s)%2 != 0 {
+		s = "0" + s
+	}
+	result := make([]byte, len(s)/2)
+	for i := 0; i < len(s); i += 2 {
+		b, err := strconv.ParseUint(s[i:i+2], 16, 8)
+		if err != nil {
+			return nil, err
+		}
+		result[i/2] = byte(b)
+	}
+	return result, nil
+}
+
 // flexibleUint64 can unmarshal from a JSON number, decimal string, or hex string.
 // This handles different serialization formats from CL implementations.
 type flexibleUint64 uint64
@@ -54,11 +102,12 @@ func (f *flexibleUint64) UnmarshalJSON(data []byte) error {
 
 // InclusionListV1 is the Engine API representation of an inclusion list.
 // Sent from the CL to the EL via engine_newInclusionListV1.
+// Transactions are hex-encoded strings with 0x prefix (Ethereum JSON-RPC convention).
 type InclusionListV1 struct {
 	Slot           flexibleUint64 `json:"slot"`
 	ValidatorIndex flexibleUint64 `json:"validatorIndex"`
 	CommitteeRoot  types.Hash     `json:"inclusionListCommitteeRoot"`
-	Transactions   [][]byte       `json:"transactions"`
+	Transactions   []hexBytes     `json:"transactions"`
 }
 
 // InclusionListStatusV1 is the response to engine_newInclusionListV1.
@@ -81,21 +130,31 @@ const (
 
 // ToCore converts the Engine API inclusion list to the core types representation.
 func (il *InclusionListV1) ToCore() *types.InclusionList {
+	// Convert hexBytes to [][]byte
+	txs := make([][]byte, len(il.Transactions))
+	for i, tx := range il.Transactions {
+		txs[i] = []byte(tx)
+	}
 	return &types.InclusionList{
 		Slot:           uint64(il.Slot),
 		ValidatorIndex: uint64(il.ValidatorIndex),
 		CommitteeRoot:  il.CommitteeRoot,
-		Transactions:   il.Transactions,
+		Transactions:   txs,
 	}
 }
 
 // InclusionListFromCore converts a core types InclusionList to Engine API format.
 func InclusionListFromCore(il *types.InclusionList) *InclusionListV1 {
+	// Convert [][]byte to hexBytes
+	txs := make([]hexBytes, len(il.Transactions))
+	for i, tx := range il.Transactions {
+		txs[i] = hexBytes(tx)
+	}
 	return &InclusionListV1{
 		Slot:           flexibleUint64(il.Slot),
 		ValidatorIndex: flexibleUint64(il.ValidatorIndex),
 		CommitteeRoot:  il.CommitteeRoot,
-		Transactions:   il.Transactions,
+		Transactions:   txs,
 	}
 }
 
