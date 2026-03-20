@@ -24,8 +24,9 @@ type InclusionListStatusV1 struct {
 }
 
 // GetInclusionListResponseV1 is the response to engine_getInclusionListV1.
+// Transactions are hex-encoded strings with 0x prefix (JSON-RPC convention).
 type GetInclusionListResponseV1 struct {
-	Transactions [][]byte `json:"transactions"`
+	Transactions []string `json:"transactions"`
 }
 
 // Inclusion list status values.
@@ -83,12 +84,17 @@ func (api *EngineAPI) NewInclusionListV1(il InclusionListV1) (InclusionListStatu
 func (api *EngineAPI) GetInclusionListV1() (*GetInclusionListResponseV1, error) {
 	ilBackend, ok := api.backend.(InclusionListBackend)
 	if !ok {
-		return &GetInclusionListResponseV1{Transactions: [][]byte{}}, nil
+		return &GetInclusionListResponseV1{Transactions: []string{}}, nil
 	}
 
 	il := ilBackend.GetInclusionList()
+	// Convert transactions to hex-encoded strings with 0x prefix
+	txs := make([]string, len(il.Transactions))
+	for i, tx := range il.Transactions {
+		txs[i] = fmt.Sprintf("0x%x", tx)
+	}
 	return &GetInclusionListResponseV1{
-		Transactions: il.Transactions,
+		Transactions: txs,
 	}, nil
 }
 
