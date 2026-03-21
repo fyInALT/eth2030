@@ -1,7 +1,11 @@
 // Package payload: Glamsterdam-era payload types.
 package payload
 
-import "github.com/eth2030/eth2030/core/types"
+import (
+	"math/big"
+
+	"github.com/eth2030/eth2030/core/types"
+)
 
 // GlamsterdamPayloadAttributes contains attributes for building a post-Glamsterdam
 // payload. Extends V3 with targetBlobCount and slot number.
@@ -31,7 +35,7 @@ type BlobsBundleV2 struct {
 // GetPayloadV5Response is the response for engine_getPayloadV5 (Osaka spec).
 type GetPayloadV5Response struct {
 	ExecutionPayload  *ExecutionPayloadV3 `json:"executionPayload"`
-	BlockValue        []byte              `json:"blockValue"`
+	BlockValue        *big.Int            `json:"blockValue"`
 	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
 	Override          bool                `json:"shouldOverrideBuilder"`
 	ExecutionRequests [][]byte            `json:"executionRequests"`

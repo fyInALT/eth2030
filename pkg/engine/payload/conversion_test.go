@@ -1,7 +1,9 @@
 package payload
 
 import (
+	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/eth2030/eth2030/core/types"
@@ -125,5 +127,52 @@ func TestHeaderToPayloadFields(t *testing.T) {
 	}
 	if payload.BlockNumber != 42 {
 		t.Errorf("BlockNumber = %d, want 42", payload.BlockNumber)
+	}
+}
+
+func TestGetPayloadV5ResponseJSON(t *testing.T) {
+	// Test that blockValue and executionRequests are hex-encoded per Engine API spec.
+	resp := &GetPayloadV5Response{
+		ExecutionPayload: &ExecutionPayloadV3{
+			ExecutionPayloadV2: ExecutionPayloadV2{
+				ExecutionPayloadV1: ExecutionPayloadV1{
+					BlockNumber: 123,
+					BlockHash:   [32]byte{0x01, 0x02, 0x03},
+				},
+			},
+		},
+		BlockValue:        big.NewInt(123456789), // 0x75bcd15
+		BlobsBundle:       &BlobsBundleV2{},
+		Override:          false,
+		ExecutionRequests: [][]byte{{0x01, 0x02, 0x03}, {0xaa, 0xbb}},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	jsonStr := string(data)
+
+	// Verify blockValue is hex string (not base64 or number)
+	if !strings.Contains(jsonStr, `"blockValue":"0x75bcd15"`) {
+		t.Errorf("blockValue not hex-encoded correctly. Got: %s", jsonStr)
+	}
+
+	// Verify executionRequests is array of hex strings
+	if !strings.Contains(jsonStr, `"executionRequests":["0x010203","0xaabb"]`) {
+		t.Errorf("executionRequests not hex-encoded correctly. Got: %s", jsonStr)
+	}
+
+	// Round-trip test
+	var parsed GetPayloadV5Response
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if parsed.BlockValue.Cmp(resp.BlockValue) != 0 {
+		t.Errorf("blockValue round-trip failed: got %s, want %s", parsed.BlockValue, resp.BlockValue)
+	}
+	if len(parsed.ExecutionRequests) != 2 {
+		t.Errorf("executionRequests length mismatch")
 	}
 }

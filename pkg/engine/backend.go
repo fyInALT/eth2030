@@ -1372,7 +1372,7 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 			ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
 			return &GetPayloadV5Response{
 				ExecutionPayload:  &ep4.ExecutionPayloadV3,
-				BlockValue:        result.BlockValue.Bytes(),
+				BlockValue:        result.BlockValue,
 				BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
 				Override:          false,
 				ExecutionRequests: [][]byte{},
@@ -1390,7 +1390,7 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 
 	return &GetPayloadV5Response{
 		ExecutionPayload:  &ep4.ExecutionPayloadV3,
-		BlockValue:        pending.blockValue.Bytes(),
+		BlockValue:        pending.blockValue,
 		BlobsBundle:       collectBlobsBundleV2(pending.block.Transactions()),
 		Override:          false,
 		ExecutionRequests: [][]byte{},

@@ -698,6 +698,45 @@ func (p *PayloadAttributesV7) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ── GetPayloadV5Response ─────────────────────────────────────────────────────
+
+type getPayloadV5ResponseJSON struct {
+	ExecutionPayload  *ExecutionPayloadV3 `json:"executionPayload"`
+	BlockValue        *hexBig             `json:"blockValue"`
+	BlobsBundle       *BlobsBundleV2      `json:"blobsBundle"`
+	Override          bool                `json:"shouldOverrideBuilder"`
+	ExecutionRequests []hexBytes          `json:"executionRequests"`
+}
+
+// MarshalJSON implements json.Marshaler for GetPayloadV5Response.
+func (r GetPayloadV5Response) MarshalJSON() ([]byte, error) {
+	blobsBundle := r.BlobsBundle
+	if blobsBundle == nil {
+		blobsBundle = &BlobsBundleV2{}
+	}
+	return json.Marshal(getPayloadV5ResponseJSON{
+		ExecutionPayload:  r.ExecutionPayload,
+		BlockValue:        newHexBig(r.BlockValue),
+		BlobsBundle:       blobsBundle,
+		Override:          r.Override,
+		ExecutionRequests: toHexBytesSlice(r.ExecutionRequests),
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for GetPayloadV5Response.
+func (r *GetPayloadV5Response) UnmarshalJSON(data []byte) error {
+	var j getPayloadV5ResponseJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	r.ExecutionPayload = j.ExecutionPayload
+	r.BlockValue = toBigInt(j.BlockValue)
+	r.BlobsBundle = j.BlobsBundle
+	r.Override = j.Override
+	r.ExecutionRequests = fromHexBytesSlice(j.ExecutionRequests)
+	return nil
+}
+
 // ── GlamsterdamPayloadAttributes ─────────────────────────────────────────────
 
 type glamsterdamPayloadAttributesJSON struct {
