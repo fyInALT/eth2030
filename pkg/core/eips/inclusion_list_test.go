@@ -201,6 +201,50 @@ func TestValidateInclusionListState(t *testing.T) {
 	})
 }
 
+func TestSelectTransactionsForInclusionListSkipsOversizedEntries(t *testing.T) {
+	addr := types.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	smallA := makeILTx(0, 21000, big.NewInt(1e9), addr, big.NewInt(0))
+	smallB := makeILTx(2, 21000, big.NewInt(1e9), addr, big.NewInt(0))
+	oversized := types.NewTransaction(&types.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(1e9),
+		Gas:      21000,
+		To:       &addr,
+		Value:    big.NewInt(0),
+		Data:     make([]byte, 512),
+		V:        big.NewInt(27),
+		R:        big.NewInt(1),
+		S:        big.NewInt(1),
+	})
+
+	smallABytes := encodeTx(t, smallA)
+	oversizedBytes := encodeTx(t, oversized)
+	smallBBytes := encodeTx(t, smallB)
+
+	maxBytes := len(smallABytes) + len(smallBBytes)
+	if len(oversizedBytes) <= maxBytes-len(smallABytes) {
+		t.Fatalf("test setup invalid: oversized tx len=%d remaining budget=%d", len(oversizedBytes), maxBytes-len(smallABytes))
+	}
+
+	selected, totalSize := SelectTransactionsForInclusionList(
+		[]*types.Transaction{smallA, oversized, smallB},
+		maxBytes,
+	)
+
+	if len(selected) != 2 {
+		t.Fatalf("expected 2 selected txs, got %d", len(selected))
+	}
+	if string(selected[0]) != string(smallABytes) {
+		t.Fatal("first selected tx mismatch")
+	}
+	if string(selected[1]) != string(smallBBytes) {
+		t.Fatal("expected helper to skip oversized tx and keep scanning")
+	}
+	if totalSize != len(smallABytes)+len(smallBBytes) {
+		t.Fatalf("unexpected total size %d", totalSize)
+	}
+}
+
 func TestCheckBlockSatisfiesInclusionList(t *testing.T) {
 	addr := types.HexToAddress("0xaabbccdd11223344aabbccdd11223344aabbccdd")
 

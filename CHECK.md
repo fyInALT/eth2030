@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Inclusion List Selection Refactor (2026-03-21)
+- [x] Extract shared inclusion-list transaction selection helper.
+- [x] Switch engine and node backends to the shared helper.
+- [x] Add or update tests for oversized transaction skipping.
+- [x] Run the relevant Go tests successfully.
+
 ## Engine Review Follow-Up (2026-03-21)
 - [x] Verify whether `engine_getPayloadV5` JSON encoding has already been fixed on this branch.
 - [x] Reject overflowed hex values in `pkg/engine/inclusion_list.go` `flexibleUint64`.

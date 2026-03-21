@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/types"
@@ -506,31 +507,7 @@ func (b *EngineBackend) GetInclusionList() *types.InclusionList {
 		return &types.InclusionList{Transactions: [][]byte{}}
 	}
 
-	// Get pending transactions from the pool.
-	pending := pool.PendingFlat()
-
-	// Select transactions up to 8KB total RLP-encoded size.
-	// EIP-7805: MAX_BYTES_PER_INCLUSION_LIST = 8192 bytes.
-	const maxBytesPerInclusionList = 8192
-
-	var selected [][]byte
-	var totalSize int
-
-	for _, tx := range pending {
-		// Encode transaction to RLP.
-		encoded, err := tx.EncodeRLP()
-		if err != nil {
-			continue
-		}
-
-		// Check if adding this transaction would exceed the limit.
-		if totalSize+len(encoded) > maxBytesPerInclusionList {
-			break
-		}
-
-		selected = append(selected, encoded)
-		totalSize += len(encoded)
-	}
+	selected, totalSize := eips.SelectTransactionsForInclusionList(pool.PendingFlat(), eips.MaxBytesPerInclusionList)
 
 	slog.Debug("getInclusionList", "tx_count", len(selected), "total_bytes", totalSize)
 

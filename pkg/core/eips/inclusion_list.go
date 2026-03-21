@@ -27,6 +27,10 @@ var (
 // validity in the next slot. Per EIP-7547.
 const BaseFeeBufferPercent = 1125 // 112.5% expressed as 1125/1000
 
+// MaxBytesPerInclusionList is the maximum total RLP-encoded size of
+// transactions returned by engine_getInclusionListV1.
+const MaxBytesPerInclusionList = 8192
+
 // TxPoolReader is an interface for reading pending transactions from a pool.
 // Defined here to avoid circular import with core.
 type TxPoolReader interface {
@@ -428,6 +432,25 @@ func GetInclusionListFromPool(
 	}
 
 	return il
+}
+
+// SelectTransactionsForInclusionList encodes and selects pending transactions
+// up to maxBytes total size. Transactions that fail RLP encoding or individually
+// exceed the remaining byte budget are skipped so later transactions can still
+// be considered.
+func SelectTransactionsForInclusionList(pending []*types.Transaction, maxBytes int) (selected [][]byte, totalSize int) {
+	for _, tx := range pending {
+		encoded, err := tx.EncodeRLP()
+		if err != nil {
+			continue
+		}
+		if totalSize+len(encoded) > maxBytes {
+			continue
+		}
+		selected = append(selected, encoded)
+		totalSize += len(encoded)
+	}
+	return selected, totalSize
 }
 
 // inclusionListsEqual compares two inclusion lists for content equality.

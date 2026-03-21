@@ -1,5 +1,20 @@
 # Project Status
 
+## Inclusion List Selection Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Deduplicate inclusion-list transaction selection across engine backends and make oversized pending transactions skippable instead of aborting the whole selection pass.
+
+**Completed Work:**
+- Extract shared inclusion-list transaction selection into a helper in `pkg/core/eips/inclusion_list.go`.
+- Use the helper from both `pkg/engine/backend.go` and `pkg/node/backend/engine_backend.go`.
+- Add a focused test for oversized-transaction skipping.
+- Verify the relevant Go test suites after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./core/eips ./engine/... ./node/backend/...`
+
 ## Engine Review Follow-Up (2026-03-21)
 
 ### Current Status: COMPLETE
