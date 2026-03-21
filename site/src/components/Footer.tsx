@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { GITHUB_URL, DOCS_URL } from '@/lib/constants';
 
 export default function Footer() {
@@ -43,12 +44,19 @@ export default function Footer() {
           </div>
 
           <div>
-            <h4 className="text-sm font-semibold text-eth-text uppercase tracking-wider mb-3">Built With</h4>
-            <ul className="space-y-2 text-sm text-eth-dim">
-              <li>Go 1.23</li>
-              <li>go-ethereum v1.17.0</li>
-              <li>48 packages, 713K LOC</li>
-              <li>LGPL-3.0 / GPL-3.0</li>
+            <h4 className="text-sm font-semibold text-eth-text uppercase tracking-wider mb-3">Legal</h4>
+            <ul className="space-y-2">
+              <li>
+                <Link href="/terms" className="text-sm text-eth-dim hover:text-eth-purple transition-colors">
+                  Terms of Service
+                </Link>
+              </li>
+              <li>
+                <Link href="/privacy" className="text-sm text-eth-dim hover:text-eth-purple transition-colors">
+                  Privacy Policy
+                </Link>
+              </li>
+              <li className="text-sm text-eth-dim">LGPL-3.0 / GPL-3.0</li>
             </ul>
           </div>
         </div>

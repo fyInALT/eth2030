@@ -11,7 +11,10 @@
   <img src="https://img.shields.io/badge/Build-In%20Progress-yellow?style=for-the-badge" alt="Build In Progress" />
 </p>
 
-> **Warning**: This is an experimental research project and **reference implementation** under active development. It is **not** production-ready and is intended primarily for study, research, and prototyping. Use at your own risk. APIs, data formats, and behavior may change without notice.
+> [!WARNING]
+> **This is an experimental research project under active development.** It is a reference implementation intended for study, research, and prototyping. It is **not** production-ready and has **not** been formally audited for security. APIs, data formats, and behavior may change without notice.
+>
+> **Do not use this software to manage real funds, validate mainnet blocks, or run production infrastructure.** Exercise extreme caution with anything that touches wallets, private keys, seed phrases, or transaction signing. Always review the source code and do your own research (DYOR) before running any Ethereum client software. Use entirely at your own risk.
 
 <p align="center">
   <a href="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml"><img src="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
