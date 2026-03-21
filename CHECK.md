@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Engine Review Follow-Up (2026-03-21)
+- [x] Verify whether `engine_getPayloadV5` JSON encoding has already been fixed on this branch.
+- [x] Reject overflowed hex values in `pkg/engine/inclusion_list.go` `flexibleUint64`.
+- [x] Make node backend `ProcessInclusionList` fail explicitly when inclusion-list storage is unsupported.
+- [x] Add or update tests for the inclusion-list fixes.
+- [x] Run the relevant Go tests successfully.
+
 ## Engine Lock Wrapper Refactor (2026-03-19)
 - [x] Add mutex-backed accessor helpers for `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` in `pkg/engine/backend.go`.
 - [x] Migrate direct lock/unlock call sites in `pkg/engine/backend.go` to the accessors.

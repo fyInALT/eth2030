@@ -1,5 +1,20 @@
 # Project Status
 
+## Engine Review Follow-Up (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Recheck branch review findings, confirm whether `engine_getPayloadV5` JSON encoding is already fixed, and address the remaining safe bugs in inclusion-list handling.
+
+**Completed Work:**
+- Verified that the `engine_getPayloadV5` response encoding issue was already fixed on this branch by `fdd0820`.
+- Reject oversized hex input in `flexibleUint64` instead of truncating it.
+- Make the node backend return an explicit error for `ProcessInclusionList` until real storage/wiring exists.
+- Add tests for the inclusion-list fixes and rerun the relevant engine/node test suites.
+
+**Verification:**
+- `cd pkg && go test ./engine/... ./node/backend/...`
+
 ## Engine Lock Wrapper Refactor (2026-03-19)
 
 ### Current Status: COMPLETE

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
@@ -91,6 +92,18 @@ func TestGeneratePayloadID(t *testing.T) {
 	id := generatePayloadID(parentHash, attrs)
 	if id == (payload.PayloadID{}) {
 		t.Error("generatePayloadID returned zero ID")
+	}
+}
+
+func TestEngineBackendProcessInclusionListRejectsUnsupportedStorage(t *testing.T) {
+	b := &EngineBackend{}
+	err := b.ProcessInclusionList(&types.InclusionList{
+		Slot:           1,
+		ValidatorIndex: 2,
+		Transactions:   [][]byte{{0x01}},
+	})
+	if !errors.Is(err, errInclusionListStorageUnsupported) {
+		t.Fatalf("expected %v, got %v", errInclusionListStorageUnsupported, err)
 	}
 }
 

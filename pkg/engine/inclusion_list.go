@@ -87,6 +87,9 @@ func (f *flexibleUint64) UnmarshalJSON(data []byte) error {
 		if _, ok := n.SetString(s[2:], 16); !ok {
 			return fmt.Errorf("flexibleUint64: invalid hex %q", s)
 		}
+		if n.Sign() < 0 || n.BitLen() > 64 {
+			return fmt.Errorf("flexibleUint64: hex value out of uint64 range %q", s)
+		}
 		*f = flexibleUint64(n.Uint64())
 		return nil
 	}

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"errors"
 	"log/slog"
 	"math/big"
 	"sync"
@@ -37,6 +38,8 @@ type blockProcResp struct {
 	status payload.PayloadStatusV1
 	err    error
 }
+
+var errInclusionListStorageUnsupported = errors.New("inclusion list storage not wired in node backend")
 
 const (
 	fcuCacheSize       = 8  // Number of FCU entries to cache
@@ -545,7 +548,8 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 	// Log the received inclusion list.
 	slog.Debug("processInclusionList", "slot", il.Slot, "validator_index", il.ValidatorIndex, "tx_count", len(il.Transactions))
 
-	// Store for use during block building and validation.
-	// The actual storage is handled by the beacon node's inclusion list store.
-	return nil
+	// The node backend does not yet wire incoming inclusion lists into a real
+	// store or block-building path, so reject them instead of falsely
+	// acknowledging successful processing.
+	return errInclusionListStorageUnsupported
 }
