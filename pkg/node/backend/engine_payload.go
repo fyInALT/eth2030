@@ -136,24 +136,32 @@ func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloa
 	// because engine_newPayload doesn't receive blob data.
 	if len(blobsBundle.Blobs) > 0 {
 		b.blobCacheMu.Lock()
+		// Clear old cache entries to avoid stale data
+		b.blobCache = make(map[types.Hash][]byte)
 		for _, tx := range blk.Transactions() {
 			if tx.Type() != types.BlobTxType {
 				continue
 			}
 			sc := tx.BlobSidecar()
 			if sc == nil {
+				slog.Warn("engine_getPayload: BlobSidecar is nil for blob tx")
 				continue
 			}
 			blobHashes := tx.BlobHashes()
+			slog.Debug("engine_getPayload: caching blob hashes",
+				"blobHashes", len(blobHashes),
+				"scBlobs", len(sc.Blobs),
+			)
 			for i, hash := range blobHashes {
 				if i < len(sc.Blobs) && len(sc.Blobs[i]) > 0 {
 					b.blobCache[hash] = sc.Blobs[i]
+					slog.Debug("engine_getPayload: cached blob", "hash", hash.Hex(), "index", i)
 				}
 			}
 		}
 		b.blobCacheMu.Unlock()
 		slog.Debug("engine_getPayload: cached blobs for getBlobsV2",
-			"blobCount", len(blobsBundle.Blobs),
+			"blobCount", len(b.blobCache),
 			"blockNumber", blk.NumberU64(),
 		)
 	}
@@ -276,6 +284,19 @@ func (b *EngineBackend) computeBlobsV2(hashes []types.Hash) []*payload.BlobAndPr
 	b.blobCacheMu.RLock()
 	cachedBlobs := make([][]byte, len(hashes))
 	cacheHits := 0
+	// Debug: log the requested hashes and cache keys
+	var requestedHashes []string
+	for _, h := range hashes {
+		requestedHashes = append(requestedHashes, h.Hex())
+	}
+	var cacheKeys []string
+	for h := range b.blobCache {
+		cacheKeys = append(cacheKeys, h.Hex())
+	}
+	slog.Debug("computeBlobsV2: hash comparison",
+		"requested", requestedHashes,
+		"cacheKeys", cacheKeys,
+	)
 	for i, h := range hashes {
 		if blob, ok := b.blobCache[h]; ok {
 			cachedBlobs[i] = blob

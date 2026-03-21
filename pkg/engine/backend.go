@@ -1497,6 +1497,12 @@ func collectBlobsBundleV2(txs []*types.Transaction) *enginepayload.BlobsBundleV2
 	bundle.Blobs = blobs
 	bundle.Commitments = commitments
 	bundle.Proofs, _ = expandBlobCellProofs(sidecarBlobs, "collectBlobsBundleV2: ComputeCellsAndProofs failed, using zero proofs")
+	backendLog.Debug("collectBlobsBundleV2: result",
+		"blobCount", len(blobs),
+		"commitmentCount", len(commitments),
+		"proofCount", len(bundle.Proofs),
+		"expectedProofs", len(sidecarBlobs)*bls.KZGCellsPerExtBlob,
+	)
 	return bundle
 }
 
