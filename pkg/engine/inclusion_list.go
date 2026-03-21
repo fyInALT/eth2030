@@ -15,6 +15,26 @@ import (
 // Go's default []byte JSON unmarshal uses base64, but Ethereum uses hex encoding.
 type hexBytes []byte
 
+func trim0xPrefix(s string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
+}
+
+func toByteSlices[T ~[]byte](in []T) [][]byte {
+	out := make([][]byte, len(in))
+	for i, v := range in {
+		out[i] = []byte(v)
+	}
+	return out
+}
+
+func toHexBytesSlice(in [][]byte) []hexBytes {
+	out := make([]hexBytes, len(in))
+	for i, v := range in {
+		out[i] = hexBytes(v)
+	}
+	return out
+}
+
 func (h hexBytes) MarshalJSON() ([]byte, error) {
 	return json.Marshal(fmt.Sprintf("0x%x", []byte(h)))
 }
@@ -23,9 +43,7 @@ func (h *hexBytes) UnmarshalJSON(data []byte) error {
 	// Try string first (hex-encoded)
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
-		// Strip 0x prefix if present
-		s = strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
-		decoded, err := hexDecodeString(s)
+		decoded, err := hexDecodeString(trim0xPrefix(s))
 		if err != nil {
 			return fmt.Errorf("hexBytes: invalid hex string: %w", err)
 		}
@@ -134,30 +152,21 @@ const (
 // ToCore converts the Engine API inclusion list to the core types representation.
 func (il *InclusionListV1) ToCore() *types.InclusionList {
 	// Convert hexBytes to [][]byte
-	txs := make([][]byte, len(il.Transactions))
-	for i, tx := range il.Transactions {
-		txs[i] = []byte(tx)
-	}
 	return &types.InclusionList{
 		Slot:           uint64(il.Slot),
 		ValidatorIndex: uint64(il.ValidatorIndex),
 		CommitteeRoot:  il.CommitteeRoot,
-		Transactions:   txs,
+		Transactions:   toByteSlices(il.Transactions),
 	}
 }
 
 // InclusionListFromCore converts a core types InclusionList to Engine API format.
 func InclusionListFromCore(il *types.InclusionList) *InclusionListV1 {
-	// Convert [][]byte to hexBytes
-	txs := make([]hexBytes, len(il.Transactions))
-	for i, tx := range il.Transactions {
-		txs[i] = hexBytes(tx)
-	}
 	return &InclusionListV1{
 		Slot:           flexibleUint64(il.Slot),
 		ValidatorIndex: flexibleUint64(il.ValidatorIndex),
 		CommitteeRoot:  il.CommitteeRoot,
-		Transactions:   txs,
+		Transactions:   toHexBytesSlice(il.Transactions),
 	}
 }
 

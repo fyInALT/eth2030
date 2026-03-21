@@ -33,6 +33,40 @@ func TestFlexibleUint64RejectsOverflowHex(t *testing.T) {
 	}
 }
 
+func TestFlexibleUint64ParsesQuotedDecimalAndHex(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want flexibleUint64
+	}{
+		{name: "decimal string", in: `"42"`, want: flexibleUint64(42)},
+		{name: "hex string", in: `"0x2a"`, want: flexibleUint64(42)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got flexibleUint64
+			if err := json.Unmarshal([]byte(tt.in), &got); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("want %d, got %d", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestHexBytesParsesQuotedHex(t *testing.T) {
+	var got hexBytes
+	if err := json.Unmarshal([]byte(`"0x0102ff"`), &got); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []byte{0x01, 0x02, 0xff}
+	if string(got) != string(want) {
+		t.Fatalf("want %x, got %x", want, []byte(got))
+	}
+}
+
 func TestNewInclusionListV1ReturnsInvalidOnBackendError(t *testing.T) {
 	backendErr := errors.New("backend failed")
 	api := NewEngineAPI(&inclusionListAPIMock{processErr: backendErr})

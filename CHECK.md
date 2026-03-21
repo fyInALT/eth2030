@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Inclusion List JSON Refactor (2026-03-21)
+- [x] Extract small inclusion-list JSON parsing helpers in `pkg/engine/inclusion_list.go`.
+- [x] Reuse the helpers from the custom marshal/unmarshal code.
+- [x] Add or update focused parsing tests.
+- [x] Run the relevant Go tests successfully.
+
 ## Blob Bundle Refactor (2026-03-21)
 - [x] Extract shared blob sidecar / cell-proof expansion helper in `pkg/engine/backend.go`.
 - [x] Reuse the helper from the V2 and V6 blob-bundle builders.

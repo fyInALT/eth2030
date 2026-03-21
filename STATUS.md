@@ -1,5 +1,19 @@
 # Project Status
 
+## Inclusion List JSON Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Simplify the local inclusion-list JSON parsing helpers in `pkg/engine/inclusion_list.go` without changing the wire format or validation behavior.
+
+**Completed Work:**
+- Extract small helper functions for repeated hex-prefix stripping and byte-slice conversion.
+- Reuse the helpers from the custom JSON marshal/unmarshal paths.
+- Add focused parsing tests and rerun the relevant engine test suites.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
 ## Blob Bundle Refactor (2026-03-21)
 
 ### Current Status: COMPLETE
