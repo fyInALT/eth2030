@@ -46,6 +46,7 @@ const (
 	fcuCacheSize       = 8  // Number of FCU entries to cache
 	defaultMaxPayloads = 32 // Default number of payloads to cache
 	processChSize      = 8  // Buffer size for block processing channel
+	blobCacheMaxSize   = 256 // Maximum number of blobs to cache for getBlobsV2
 )
 
 // fcuCacheEntry records a (head,safe,finalized) triple from a processed FCU.
@@ -472,6 +473,7 @@ func (b *EngineBackend) registerBlockInFCState(p *payload.ExecutionPayloadV3) {
 }
 
 // cacheBlobsFromBlock caches blobs from a block for later retrieval.
+// Limits cache size to blobCacheMaxSize to prevent unbounded memory growth.
 func (b *EngineBackend) cacheBlobsFromBlock(blk *types.Block) {
 	if blk == nil {
 		return
@@ -483,6 +485,32 @@ func (b *EngineBackend) cacheBlobsFromBlock(blk *types.Block) {
 
 	b.blobCacheMu.Lock()
 	defer b.blobCacheMu.Unlock()
+
+	// Count new blobs to be added.
+	newBlobs := 0
+	for _, tx := range txs {
+		if tx.BlobSidecar() != nil {
+			newBlobs += len(tx.BlobHashes())
+		}
+	}
+
+	// If cache would exceed limit, evict oldest entries (simple FIFO via random eviction).
+	if len(b.blobCache)+newBlobs > blobCacheMaxSize {
+		evictCount := (len(b.blobCache) + newBlobs) - blobCacheMaxSize/2
+		if evictCount > 0 {
+			for hash := range b.blobCache {
+				delete(b.blobCache, hash)
+				evictCount--
+				if evictCount <= 0 {
+					break
+				}
+			}
+			slog.Debug("cacheBlobsFromBlock: evicted old entries",
+				"remaining", len(b.blobCache),
+				"newBlobs", newBlobs,
+			)
+		}
+	}
 
 	for _, tx := range txs {
 		sidecar := tx.BlobSidecar()
