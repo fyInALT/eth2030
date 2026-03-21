@@ -35,6 +35,9 @@ type Receipt struct {
 	// GAP-2.2: DimStorage gas used (SSTORE state-creation premium, Glamsterdam+)
 	DimStorageGas uint64
 
+	// EIP-7778: Block gas used (pre-refund) for block gas limit validation
+	BlockGasUsed uint64
+
 	// Inclusion information
 	BlockHash        Hash
 	BlockNumber      *big.Int

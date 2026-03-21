@@ -828,6 +828,10 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 	// GAP-2.2: propagate DimStorage gas to receipt for block-level cap enforcement.
 	receipt.DimStorageGas = result.DimStorageGas
 
+	// EIP-7778: propagate BlockGasUsed for block gas limit validation.
+	// This is the pre-refund gas used, which should match header.GasUsed.
+	receipt.BlockGasUsed = result.BlockGasUsed
+
 	// Collect logs from state and compute bloom filter.
 	receipt.Logs = statedb.GetLogs(tx.Hash())
 	receipt.Bloom = types.LogsBloom(receipt.Logs)
