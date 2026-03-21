@@ -187,12 +187,19 @@ func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayl
 		return nil, err
 	}
 	var blobsBundleV2 *payload.BlobsBundleV2
-	if b1 := resp.BlobsBundle; b1 != nil {
+	if b1 := resp.BlobsBundle; b1 != nil && len(b1.Blobs) > 0 {
+		// Expand KZG proofs to cell proofs (128 per blob) for PeerDAS.
+		cellProofs, _ := expandBlobCellProofs(b1.Blobs, "GetPayloadV6ByID: ComputeCellsAndProofs failed")
 		blobsBundleV2 = &payload.BlobsBundleV2{
 			Commitments: b1.Commitments,
-			Proofs:      b1.Proofs,
+			Proofs:      cellProofs,
 			Blobs:       b1.Blobs,
 		}
+		slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
+			"blobCount", len(b1.Blobs),
+			"cellProofs", len(cellProofs),
+			"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
+		)
 	}
 	return &payload.GetPayloadV6Response{
 		ExecutionPayload: &payload.ExecutionPayloadV5{
@@ -397,4 +404,33 @@ func encodeTxsRLP(txs []*types.Transaction) [][]byte {
 		encoded = append(encoded, raw)
 	}
 	return encoded
+}
+
+// expandBlobCellProofs expands each blob's KZG proof to 128 per-cell KZG proofs.
+// This is required by the Fulu/PeerDAS spec for BlobsBundleV2.
+func expandBlobCellProofs(blobs [][]byte, warnLabel string) ([][]byte, int) {
+	if len(blobs) == 0 {
+		return nil, 0
+	}
+
+	kzg := bls.DefaultKZGBackend()
+	proofs := make([][]byte, 0, len(blobs)*bls.KZGCellsPerExtBlob)
+	totalProofs := 0
+	for _, blob := range blobs {
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+		if err != nil {
+			slog.Warn(warnLabel, "err", err)
+			for range bls.KZGCellsPerExtBlob {
+				proofs = append(proofs, make([]byte, bls.KZGBytesPerProof))
+				totalProofs++
+			}
+			continue
+		}
+		for _, p := range cellProofs {
+			cp := p
+			proofs = append(proofs, cp[:])
+			totalProofs++
+		}
+	}
+	return proofs, totalProofs
 }
