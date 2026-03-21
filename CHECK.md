@@ -1,5 +1,10 @@
 # Lean4 Verification Check-list
 
+## Blob Bundle Refactor (2026-03-21)
+- [x] Extract shared blob sidecar / cell-proof expansion helper in `pkg/engine/backend.go`.
+- [x] Reuse the helper from the V2 and V6 blob-bundle builders.
+- [x] Run the relevant Go tests successfully.
+
 ## Payload Retrieval Refactor (2026-03-21)
 - [x] Extract shared helpers for async and stored payload lookup in `pkg/engine/backend.go`.
 - [x] Reuse the helpers from the V3/V4/V5/V6 payload retrieval methods.

@@ -1,5 +1,19 @@
 # Project Status
 
+## Blob Bundle Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Deduplicate the cell-proof expansion logic shared by the V2 and V6 blob-bundle builders in `pkg/engine/backend.go` without changing output formats.
+
+**Completed Work:**
+- Extract shared blob sidecar collection and cell-proof expansion logic.
+- Reuse the helper from the V2 and V6 blob-bundle builders.
+- Verify the relevant engine test suites after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
 ## Payload Retrieval Refactor (2026-03-21)
 
 ### Current Status: COMPLETE

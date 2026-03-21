@@ -1403,44 +1403,65 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	}, nil
 }
 
+func collectBlobSidecars(txs []*types.Transaction) (blobs, commitments [][]byte, sidecarBlobs [][]byte) {
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		blobs = append(blobs, sc.Blobs...)
+		commitments = append(commitments, sc.Commitments...)
+		sidecarBlobs = append(sidecarBlobs, sc.Blobs...)
+	}
+	return blobs, commitments, sidecarBlobs
+}
+
+func expandBlobCellProofs(blobs [][]byte, warnLabel string) ([][]byte, int) {
+	if len(blobs) == 0 {
+		return nil, 0
+	}
+
+	kzg := bls.DefaultKZGBackend()
+	proofs := make([][]byte, 0, len(blobs)*bls.KZGCellsPerExtBlob)
+	totalProofs := 0
+	for _, blob := range blobs {
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+		if err != nil {
+			backendLog.Warn(warnLabel,
+				"err", err)
+			for range bls.KZGCellsPerExtBlob {
+				proofs = append(proofs, make([]byte, bls.KZGBytesPerProof))
+				totalProofs++
+			}
+			continue
+		}
+		for _, p := range cellProofs {
+			cp := p
+			proofs = append(proofs, cp[:])
+			totalProofs++
+		}
+	}
+	return proofs, totalProofs
+}
+
 // collectBlobsBundle builds a BlobsBundleV2 from the blob sidecar data attached
 // to the given transactions. Each blob's 48-byte KZG proof is expanded to 128
 // per-cell KZG proofs using ComputeCellsAndProofs, as required by the Fulu/PeerDAS
 // spec (engine_getPayloadV6 blobsBundle.proofs must have 128*N entries).
 func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 	bundle := &BlobsBundleV2{}
-	kzg := bls.DefaultKZGBackend()
 	blobTxCount := 0
-	totalBlobs := 0
 	totalProofs := 0
 	for _, tx := range txs {
-		sc := tx.BlobSidecar()
-		if sc == nil {
-			continue
-		}
-		blobTxCount++
-		totalBlobs += len(sc.Blobs)
-		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
-		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
-		// Expand each blob's proof to 128 per-cell KZG proofs.
-		for _, blob := range sc.Blobs {
-			_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
-			if err != nil {
-				backendLog.Warn("collectBlobsBundle: ComputeCellsAndProofs failed, using zero proofs",
-					"err", err)
-				for range bls.KZGCellsPerExtBlob {
-					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
-					totalProofs++
-				}
-				continue
-			}
-			for _, p := range cellProofs {
-				cp := p
-				bundle.Proofs = append(bundle.Proofs, cp[:])
-				totalProofs++
-			}
+		if tx.BlobSidecar() != nil {
+			blobTxCount++
 		}
 	}
+	blobs, commitments, sidecarBlobs := collectBlobSidecars(txs)
+	bundle.Blobs = blobs
+	bundle.Commitments = commitments
+	totalBlobs := len(sidecarBlobs)
+	bundle.Proofs, totalProofs = expandBlobCellProofs(sidecarBlobs, "collectBlobsBundle: ComputeCellsAndProofs failed, using zero proofs")
 	backendLog.Debug("collectBlobsBundle: result",
 		"blobTxCount", blobTxCount,
 		"totalBlobs", totalBlobs,
@@ -1472,31 +1493,10 @@ func collectBlobsBundleV1(txs []*types.Transaction) *BlobsBundleV1 {
 // using ComputeCellsAndProofs, as required by the Fulu/PeerDAS spec.
 func collectBlobsBundleV2(txs []*types.Transaction) *enginepayload.BlobsBundleV2 {
 	bundle := &enginepayload.BlobsBundleV2{}
-	kzg := bls.DefaultKZGBackend()
-	for _, tx := range txs {
-		sc := tx.BlobSidecar()
-		if sc == nil {
-			continue
-		}
-		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
-		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
-		// Expand each blob's proof to 128 per-cell KZG proofs.
-		for _, blob := range sc.Blobs {
-			_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
-			if err != nil {
-				backendLog.Warn("collectBlobsBundleV2: ComputeCellsAndProofs failed, using zero proofs",
-					"err", err)
-				for range bls.KZGCellsPerExtBlob {
-					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
-				}
-				continue
-			}
-			for _, p := range cellProofs {
-				cp := p
-				bundle.Proofs = append(bundle.Proofs, cp[:])
-			}
-		}
-	}
+	blobs, commitments, sidecarBlobs := collectBlobSidecars(txs)
+	bundle.Blobs = blobs
+	bundle.Commitments = commitments
+	bundle.Proofs, _ = expandBlobCellProofs(sidecarBlobs, "collectBlobsBundleV2: ComputeCellsAndProofs failed, using zero proofs")
 	return bundle
 }
 
