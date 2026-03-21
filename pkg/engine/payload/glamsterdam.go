@@ -21,15 +21,15 @@ type GlamsterdamPayloadAttributes struct {
 
 // BlobAndProofV2 represents a blob with its cell proofs (Osaka spec).
 type BlobAndProofV2 struct {
-	Blob   []byte   `json:"blob"`
-	Proofs [][]byte `json:"proofs"`
+	Blob   []byte
+	Proofs [][]byte
 }
 
 // BlobsBundleV2 extends BlobsBundleV1 with cell proofs per EIP-7594.
 type BlobsBundleV2 struct {
-	Commitments [][]byte `json:"commitments"`
-	Proofs      [][]byte `json:"proofs"`
-	Blobs       [][]byte `json:"blobs"`
+	Commitments [][]byte
+	Proofs      [][]byte
+	Blobs       [][]byte
 }
 
 // GetPayloadV5Response is the response for engine_getPayloadV5 (Osaka spec).

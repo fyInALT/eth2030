@@ -2,17 +2,20 @@
 
 BIN_DIR := ./bin
 
+# Build tags: goethkzg enables production KZG backend for EIP-4844/EIP-7594.
+BUILD_TAGS := goethkzg
+
 all: build
 
 build: eth2030 eth2030-geth
 
 eth2030:
 	@mkdir -p $(BIN_DIR)
-	go build -o $(BIN_DIR)/eth2030 ./cmd/eth2030
+	go build -tags $(BUILD_TAGS) -o $(BIN_DIR)/eth2030 ./cmd/eth2030
 
 eth2030-geth:
 	@mkdir -p $(BIN_DIR)
-	go build -o $(BIN_DIR)/eth2030-geth ./cmd/eth2030-geth
+	go build -tags $(BUILD_TAGS) -o $(BIN_DIR)/eth2030-geth ./cmd/eth2030-geth
 
 DOCKER_IMAGE := eth2030
 DOCKER_TAG := latest

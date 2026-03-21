@@ -203,11 +203,21 @@ func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayl
 			Proofs:      cellProofs,
 			Blobs:       b1.Blobs,
 		}
-		slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
-			"blobCount", len(b1.Blobs),
-			"cellProofs", len(cellProofs),
-			"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
-		)
+		// Debug: print first proof bytes to verify non-zero
+		if len(cellProofs) > 0 && len(cellProofs[0]) >= 16 {
+			slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
+				"blobCount", len(b1.Blobs),
+				"cellProofs", len(cellProofs),
+				"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
+				"firstProofHex", fmt.Sprintf("%x", cellProofs[0][:16]),
+			)
+		} else {
+			slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
+				"blobCount", len(b1.Blobs),
+				"cellProofs", len(cellProofs),
+				"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
+			)
+		}
 	}
 	return &payload.GetPayloadV6Response{
 		ExecutionPayload: &payload.ExecutionPayloadV5{
