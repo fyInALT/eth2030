@@ -1,5 +1,19 @@
 # Project Status
 
+## Payload Retrieval Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Deduplicate the repeated payload retrieval paths in `pkg/engine/backend.go` without changing API-specific response contents or async eviction behavior.
+
+**Completed Work:**
+- Extract shared helpers for async payload waiting and mutex-protected payload lookup.
+- Reuse the helpers from `GetPayloadByID`, `GetPayloadV4ByID`, `GetPayloadV5`, and `GetPayloadV6ByID`.
+- Verify the relevant engine test suites after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
 ## Inclusion List Selection Refactor (2026-03-21)
 
 ### Current Status: COMPLETE

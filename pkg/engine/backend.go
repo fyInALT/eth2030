@@ -316,6 +316,14 @@ func (b *EngineBackend) getPayload(id PayloadID) (*pendingPayload, bool) {
 	return pending, ok
 }
 
+func (b *EngineBackend) getStoredPayload(id PayloadID) (*pendingPayload, error) {
+	pending, ok := b.getPayload(id)
+	if !ok {
+		return nil, ErrUnknownPayload
+	}
+	return pending, nil
+}
+
 func (b *EngineBackend) storePayload(id PayloadID, pending *pendingPayload) {
 	b.payloadMu.Lock()
 	defer b.payloadMu.Unlock()
@@ -343,6 +351,50 @@ func (b *EngineBackend) clearInclusionLists() {
 	b.ilMu.Lock()
 	defer b.ilMu.Unlock()
 	b.ils = b.ils[:0]
+}
+
+func (b *EngineBackend) waitAsyncPayload(id PayloadID, pin bool) (*enginepayload.PendingPayload, *enginepayload.BuildResult, func(), error) {
+	b.asyncPayloadsMu.RLock()
+	asyncPending, asyncOk := b.asyncPayloads[id]
+	release := func() {}
+	if pin && asyncOk && asyncPending != nil {
+		if !asyncPending.Acquire() {
+			b.asyncPayloadsMu.RUnlock()
+			asyncOk = false
+		} else {
+			release = asyncPending.Release
+		}
+	}
+	b.asyncPayloadsMu.RUnlock()
+
+	if !asyncOk || asyncPending == nil {
+		return nil, nil, nil, nil
+	}
+
+	result, err := asyncPending.Wait(8 * time.Second)
+	if err != nil {
+		backendLog.Warn("payload_build_timeout",
+			"event", "payload_build_timeout",
+			"payloadID", fmt.Sprintf("%x", id),
+			"error", err,
+		)
+		return nil, nil, release, ErrUnknownPayload
+	}
+
+	if result.Status == enginepayload.BuildStatusFailed {
+		backendLog.Error("payload_build_failed",
+			"event", "payload_build_failed",
+			"payloadID", fmt.Sprintf("%x", id),
+			"error", result.Error,
+		)
+		return nil, nil, release, ErrUnknownPayload
+	}
+
+	if result.Status != enginepayload.BuildStatusCompleted || result.Block == nil {
+		return nil, nil, release, nil
+	}
+
+	return asyncPending, result, release, nil
 }
 
 func (b *EngineBackend) loadPayloadBodiesByHash(hashes []types.Hash) []*enginepayload.ExecutionPayloadBodyV2 {
@@ -760,63 +812,31 @@ func (b *EngineBackend) ForkchoiceUpdated(
 // P0: Supports async payload building - waits for completion if still building.
 // P2: Uses reference counting to prevent premature eviction during Wait.
 func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	// P2: Acquire reference to prevent eviction during Wait
-	if asyncOk && asyncPending != nil {
-		if !asyncPending.Acquire() {
-			b.asyncPayloadsMu.RUnlock()
-			// Payload was already released, fall through to check other sources
-			asyncOk = false
-		}
+	asyncPending, result, release, err := b.waitAsyncPayload(id, true)
+	if release != nil {
+		defer release()
 	}
-	b.asyncPayloadsMu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
 
-	if asyncOk && asyncPending != nil {
-		// Ensure we release the reference when done
-		defer asyncPending.Release()
+		backendLog.Debug("payload_get",
+			"event", "payload_get",
+			"payloadID", fmt.Sprintf("%x", id),
+			"blockHash", result.Block.Hash().Hex(),
+			"blockNum", result.Block.NumberU64(),
+			"txCount", len(result.Block.Transactions()),
+			"source", "async",
+		)
 
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
-
-			backendLog.Debug("payload_get",
-				"event", "payload_get",
-				"payloadID", fmt.Sprintf("%x", id),
-				"blockHash", result.Block.Hash().Hex(),
-				"blockNum", result.Block.NumberU64(),
-				"txCount", len(result.Block.Transactions()),
-				"source", "async",
-			)
-
-			return &GetPayloadResponse{
-				ExecutionPayload: ep,
-				BlockValue:       result.BlockValue,
-				BlobsBundle:      collectBlobsBundleV1(result.Block.Transactions()),
-			}, nil
-		}
+		return &GetPayloadResponse{
+			ExecutionPayload: ep,
+			BlockValue:       result.BlockValue,
+			BlobsBundle:      collectBlobsBundleV1(result.Block.Transactions()),
+		}, nil
 	}
 
 	// Try actor next.
@@ -851,13 +871,13 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 	}
 
 	// Fallback to mutex-protected payloads.
-	pending, ok := b.getPayload(id)
-	if !ok {
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
 		backendLog.Warn("payload_get_miss",
 			"event", "payload_get_miss",
 			"payloadID", fmt.Sprintf("%x", id),
 		)
-		return nil, ErrUnknownPayload
+		return nil, err
 	}
 
 	ep := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
@@ -1283,49 +1303,24 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 // GetPayloadV4ByID retrieves a previously built payload for getPayloadV4 (Prague).
 func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	b.asyncPayloadsMu.RUnlock()
-
-	if asyncOk {
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
-			return &GetPayloadV4Response{
-				ExecutionPayload:  &ep4.ExecutionPayloadV3,
-				BlockValue:        result.BlockValue,
-				BlobsBundle:       collectBlobsBundleV1(result.Block.Transactions()),
-				ExecutionRequests: [][]byte{},
-			}, nil
-		}
+	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+		return &GetPayloadV4Response{
+			ExecutionPayload:  &ep4.ExecutionPayloadV3,
+			BlockValue:        result.BlockValue,
+			BlobsBundle:       collectBlobsBundleV1(result.Block.Transactions()),
+			ExecutionRequests: [][]byte{},
+		}, nil
 	}
 
-	// Fallback to mutex-protected payloads.
-	pending, ok := b.getPayload(id)
-	if !ok {
-		return nil, ErrUnknownPayload
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
+		return nil, err
 	}
 
 	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
@@ -1341,50 +1336,25 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 // GetPayloadV5 retrieves a previously built payload for getPayloadV5 (Gloas/Heze).
 // Implements GlamsterdamBackend interface.
 func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	b.asyncPayloadsMu.RUnlock()
-
-	if asyncOk {
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
-			return &GetPayloadV5Response{
-				ExecutionPayload:  &ep4.ExecutionPayloadV3,
-				BlockValue:        result.BlockValue,
-				BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
-				Override:          false,
-				ExecutionRequests: [][]byte{},
-			}, nil
-		}
+	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+		return &GetPayloadV5Response{
+			ExecutionPayload:  &ep4.ExecutionPayloadV3,
+			BlockValue:        result.BlockValue,
+			BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
+			Override:          false,
+			ExecutionRequests: [][]byte{},
+		}, nil
 	}
 
-	// Fallback to mutex-protected payloads.
-	pending, ok := b.getPayload(id)
-	if !ok {
-		return nil, ErrUnknownPayload
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
+		return nil, err
 	}
 
 	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
@@ -1403,49 +1373,24 @@ func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error
 // accounting. Per-frame results are available via FrameTxReceipt if needed by
 // downstream consumers (e.g., block explorers).
 func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	b.asyncPayloadsMu.RUnlock()
-
-	if asyncOk {
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL)
-			return &GetPayloadV6Response{
-				ExecutionPayload:  ep5,
-				BlockValue:        result.BlockValue,
-				BlobsBundle:       collectBlobsBundle(result.Block.Transactions()),
-				ExecutionRequests: [][]byte{},
-			}, nil
-		}
+	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL)
+		return &GetPayloadV6Response{
+			ExecutionPayload:  ep5,
+			BlockValue:        result.BlockValue,
+			BlobsBundle:       collectBlobsBundle(result.Block.Transactions()),
+			ExecutionRequests: [][]byte{},
+		}, nil
 	}
 
-	// Fallback to mutex-protected payloads.
-	pending, ok := b.getPayload(id)
-	if !ok {
-		return nil, ErrUnknownPayload
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
+		return nil, err
 	}
 
 	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)

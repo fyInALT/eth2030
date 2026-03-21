@@ -1,5 +1,10 @@
 # Lean4 Verification Check-list
 
+## Payload Retrieval Refactor (2026-03-21)
+- [x] Extract shared helpers for async and stored payload lookup in `pkg/engine/backend.go`.
+- [x] Reuse the helpers from the V3/V4/V5/V6 payload retrieval methods.
+- [x] Run the relevant Go tests successfully.
+
 ## Inclusion List Selection Refactor (2026-03-21)
 - [x] Extract shared inclusion-list transaction selection helper.
 - [x] Switch engine and node backends to the shared helper.
