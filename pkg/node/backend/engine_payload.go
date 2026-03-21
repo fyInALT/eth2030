@@ -131,6 +131,33 @@ func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloa
 		)
 	}
 
+	// Cache blobs for engine_getBlobsV2 (PeerDAS).
+	// When the CL calls engine_getBlobsV2, it needs to find blobs in the cache
+	// because engine_newPayload doesn't receive blob data.
+	if len(blobsBundle.Blobs) > 0 {
+		b.blobCacheMu.Lock()
+		for _, tx := range blk.Transactions() {
+			if tx.Type() != types.BlobTxType {
+				continue
+			}
+			sc := tx.BlobSidecar()
+			if sc == nil {
+				continue
+			}
+			blobHashes := tx.BlobHashes()
+			for i, hash := range blobHashes {
+				if i < len(sc.Blobs) && len(sc.Blobs[i]) > 0 {
+					b.blobCache[hash] = sc.Blobs[i]
+				}
+			}
+		}
+		b.blobCacheMu.Unlock()
+		slog.Debug("engine_getPayload: cached blobs for getBlobsV2",
+			"blobCount", len(blobsBundle.Blobs),
+			"blockNumber", blk.NumberU64(),
+		)
+	}
+
 	return &payload.GetPayloadResponse{
 		ExecutionPayload: execPayload,
 		BlockValue:       blockValue,
