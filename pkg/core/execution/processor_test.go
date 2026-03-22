@@ -363,6 +363,67 @@ func TestTransactionToMessage(t *testing.T) {
 	}
 }
 
+func TestApplyMessage_AATxUsesAASpecificIntrinsicGas(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+
+	sender := types.HexToAddress("0x1111")
+	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)))
+
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+	tx.SetSender(sender)
+
+	msg := config.TransactionToMessage(tx)
+	header := newTestHeader()
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+
+	if _, err := ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp); err != nil {
+		t.Fatalf("AA tx should pass intrinsic gas validation, got: %v", err)
+	}
+}
+
+func TestApplyTransactionInternal_RecoversAATxSenderFromEmbeddedField(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+
+	sender := types.HexToAddress("0x1111")
+	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)))
+
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+
+	if tx.Sender() != nil {
+		t.Fatal("test requires AA tx sender cache to start empty")
+	}
+
+	header := newTestHeader()
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+
+	if _, _, err := applyTransactionInternal(config.TestConfig, nil, statedb, header, tx, gp, nil, nil); err != nil {
+		t.Fatalf("AA tx should recover sender from embedded field, got: %v", err)
+	}
+	if recovered := tx.Sender(); recovered == nil || *recovered != sender {
+		t.Fatalf("cached sender: want %s, got %v", sender.Hex(), recovered)
+	}
+}
+
 func TestContractCreation(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 

@@ -245,14 +245,26 @@ func ValidateTransaction(tx *types.Transaction, statedb state.StateDB, header *t
 func txIntrinsicGas(tx *types.Transaction) uint64 {
 	isCreate := tx.To() == nil
 	gas := execution.TxGas
-	if isCreate {
-		gas += execution.TxCreateGas
-	}
-	for _, b := range tx.Data() {
-		if b == 0 {
-			gas += execution.TxDataZeroGas
-		} else {
-			gas += execution.TxDataNonZeroGas
+	if tx.Type() == types.AATxType {
+		gas = types.AABaseCost
+		if aatx, ok := tx.Inner().(*types.AATx); ok {
+			if aatx.Deployer != nil && *aatx.Deployer != aatx.Sender {
+				gas += 2400
+			}
+			if aatx.Paymaster != nil && *aatx.Paymaster != aatx.Sender {
+				gas += 2400
+			}
+		}
+	} else {
+		if isCreate {
+			gas += execution.TxCreateGas
+		}
+		for _, b := range tx.Data() {
+			if b == 0 {
+				gas += execution.TxDataZeroGas
+			} else {
+				gas += execution.TxDataNonZeroGas
+			}
 		}
 	}
 	// EIP-2930 access list costs.

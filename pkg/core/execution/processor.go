@@ -32,6 +32,42 @@ func balTrackerOrNil(t *bal.AccessTracker) vm.BALTracker {
 	return t
 }
 
+type AAPostExecutionInfo struct {
+	Sender      types.Address
+	NonceBefore uint64
+	NonceAfter  uint64
+}
+
+func txSenderHex(tx *types.Transaction) string {
+	if sender := tx.Sender(); sender != nil {
+		return sender.Hex()
+	}
+	return ""
+}
+
+// ApplyAAPostExecution mirrors the successful AA post-execution state mutation
+// used during block replay so block building and verification compute the same root.
+func ApplyAAPostExecution(statedb state.StateDB, tx *types.Transaction, receipt *types.Receipt, usedGas uint64, paymasterValidator eips.PaymasterValidator) *AAPostExecutionInfo {
+	if tx.Type() != types.AATxType || receipt.Status != types.ReceiptStatusSuccessful {
+		return nil
+	}
+	aatx, ok := tx.Inner().(*types.AATx)
+	if !ok {
+		return nil
+	}
+	info := &AAPostExecutionInfo{
+		Sender:      aatx.Sender,
+		NonceBefore: statedb.GetNonce(aatx.Sender),
+	}
+	eips.IncrementSmartNonce(statedb, aatx.Sender)
+	info.NonceAfter = statedb.GetNonce(aatx.Sender)
+	if paymasterValidator != nil {
+		uo := buildAAUserOp(aatx)
+		_ = paymasterValidator.PostOp(uo, nil, usedGas, statedb)
+	}
+	return info
+}
+
 const (
 	// TxGas is the base gas cost of a transaction (21000).
 	TxGas uint64 = 21000
@@ -272,6 +308,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		receipt, usedGas, err := applyTransactionFull(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker), p.slasher)
 		if err != nil {
+			fromHex = txSenderHex(tx)
 			execLog.Error("tx_evm_error",
 				"event", "tx_evm_error",
 				"blockNum", block.NumberU64(),
@@ -285,6 +322,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		}
 
 		// Log execution outcome: TX_EXECUTED (success) or TX_REVERTED (EVM revert).
+		fromHex = txSenderHex(tx)
 		if receipt.Status == types.ReceiptStatusSuccessful {
 			contractHex := ""
 			if receipt.ContractAddress != (types.Address{}) {
@@ -317,15 +355,18 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		// EIP-7701: post-execution AA lifecycle hooks for successful AA txs.
 		// Native AA is activated at the Amsterdam fork (part of Glamsterdam).
-		if balActive && tx.Type() == types.AATxType && receipt.Status == types.ReceiptStatusSuccessful {
-			if aatx, ok := tx.Inner().(*types.AATx); ok {
-				// Increment the sender's smart-account 2D nonce after execution.
-				eips.IncrementSmartNonce(statedb, aatx.Sender)
-				// Notify paymaster of actual gas usage if a validator is configured.
-				if p.paymasterValidator != nil {
-					uo := buildAAUserOp(aatx)
-					_ = p.paymasterValidator.PostOp(uo, nil, usedGas, statedb)
-				}
+		if balActive {
+			if aaInfo := ApplyAAPostExecution(statedb, tx, receipt, usedGas, p.paymasterValidator); aaInfo != nil {
+				execLog.Debug("tx_aa_post_exec",
+					"event", "tx_aa_post_exec",
+					"blockNum", block.NumberU64(),
+					"txIndex", i,
+					"txHash", tx.Hash().Hex(),
+					"sender", aaInfo.Sender.Hex(),
+					"nonceBefore", aaInfo.NonceBefore,
+					"nonceAfter", aaInfo.NonceAfter,
+					"gasUsed", usedGas,
+				)
 			}
 		}
 
@@ -767,7 +808,9 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 
 	// Recover sender if not already cached.
 	if tx.Sender() == nil {
-		if tx.Type() == types.PQTransactionType {
+		if aatx, ok := tx.Inner().(*types.AATx); ok {
+			tx.SetSender(aatx.Sender)
+		} else if tx.Type() == types.PQTransactionType {
 			if pk := tx.PQPublicKey(); len(pk) > 0 {
 				tx.SetSender(types.PQPubKeyToAddress(pk))
 			}

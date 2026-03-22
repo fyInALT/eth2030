@@ -294,6 +294,62 @@ func TestBuildBlock_GasLimitEnforcement(t *testing.T) {
 	}
 }
 
+func TestBuildBlock_AATxReplayMatchesBuiltStateRoot(t *testing.T) {
+	builderState := state.NewMemoryStateDB()
+	replayState := state.NewMemoryStateDB()
+	sender := types.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	funds := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18))
+	builderState.AddBalance(sender, funds)
+	replayState.AddBalance(sender, new(big.Int).Set(funds))
+
+	genesis := makeGenesisInteg(30_000_000, big.NewInt(1))
+	db := rawdb.NewMemoryDB()
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, builderState, db)
+	if err != nil {
+		t.Fatalf("NewBlockchain: %v", err)
+	}
+
+	aaTx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+
+	pool := &mockTxPoolInteg{txs: []*types.Transaction{aaTx}}
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &block.BuildBlockAttributes{
+		Timestamp:    12,
+		FeeRecipient: types.BytesToAddress([]byte{0xff}),
+		GasLimit:     30_000_000,
+	}
+
+	blk, receipts, err := builder.BuildBlock(genesis.Header(), attrs)
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("receipt count = %d, want 1", len(receipts))
+	}
+
+	proc := execution.NewStateProcessor(config.TestConfig)
+	if _, err := proc.ProcessWithBAL(blk, replayState); err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	if blk.Root() != replayState.GetRoot() {
+		t.Fatalf("state root mismatch: built=%s replay=%s", blk.Root(), replayState.GetRoot())
+	}
+	if replayState.GetNonce(sender) == 0 {
+		t.Fatalf("replay sender nonce = %d, want AA post-execution nonce increment", replayState.GetNonce(sender))
+	}
+}
+
 // TestBuildBlock_WithdrawalProcessing tests that withdrawals are applied
 // correctly during block building.
 func TestBuildBlock_WithdrawalProcessing(t *testing.T) {

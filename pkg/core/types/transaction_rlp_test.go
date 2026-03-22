@@ -221,6 +221,25 @@ func TestSetCodeTxRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAATxRoundTrip(t *testing.T) {
+	inner := makeTestAATx()
+	tx := NewTransaction(inner)
+
+	enc, err := tx.EncodeRLP()
+	if err != nil {
+		t.Fatalf("EncodeRLP: %v", err)
+	}
+	if enc[0] != AATxType {
+		t.Fatalf("expected type byte 0x%02x, got 0x%02x", AATxType, enc[0])
+	}
+
+	decoded, err := DecodeTxRLP(enc)
+	if err != nil {
+		t.Fatalf("DecodeTxRLP: %v", err)
+	}
+	assertTxEqual(t, tx, decoded)
+}
+
 func TestLegacyTxContractCreationRoundTrip(t *testing.T) {
 	inner := &LegacyTx{
 		Nonce:    0,
@@ -423,7 +442,7 @@ func TestDecodeInvalidData(t *testing.T) {
 	}
 
 	// Unknown type byte.
-	_, err = DecodeTxRLP([]byte{0x05, 0xc0})
+	_, err = DecodeTxRLP([]byte{0x09, 0xc0})
 	if err == nil {
 		t.Fatal("expected error for unsupported type")
 	}

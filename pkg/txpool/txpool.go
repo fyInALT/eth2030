@@ -662,12 +662,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 
 	// EIP-2930 access list gas accounting: include access list cost in intrinsic gas.
 	// Use Glamsterdam costs when active to match the builder's intrinsic gas check.
-	intrinsicGas := IntrinsicGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan)
-	if pool.config.IsGlamsterdan {
-		intrinsicGas += AccessListGasGlamst(tx.AccessList())
-	} else {
-		intrinsicGas += AccessListGas(tx.AccessList())
-	}
+	intrinsicGas := pool.intrinsicGas(tx)
 	// EIP-7702: charge both base cost and empty-account cost per authorization.
 	// The pool cannot recover each authority from state, so it conservatively
 	// charges PerEmptyAccountCost for every entry. This matches the worst case
@@ -684,7 +679,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	// EIP-7623 / EIP-7976: enforce calldata floor gas (Prague+).
 	// The block processor enforces this floor; txs that fail it are
 	// silently skipped by the builder, wasting pool space. Reject them here.
-	if pool.config.IsPrague {
+	if pool.config.IsPrague && tx.Type() != types.AATxType {
 		floor := CalldataFloorGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan, tx.AccessList())
 		if tx.Gas() < floor {
 			return ErrIntrinsicGas
@@ -734,8 +729,8 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	// Balance check: sender must have enough for value + gas * gasPrice.
-	from := pool.senderOf(tx)
-	balance := pool.state.GetBalance(from)
+	payer := pool.payerOf(tx)
+	balance := pool.state.GetBalance(payer)
 	if balance != nil {
 		cost := pool.txCost(tx)
 		if balance.Cmp(cost) < 0 {
@@ -744,6 +739,34 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	return nil
+}
+
+func (pool *TxPool) intrinsicGas(tx *types.Transaction) uint64 {
+	if tx.Type() == types.AATxType {
+		gas := types.AABaseCost
+		if aatx, ok := tx.Inner().(*types.AATx); ok {
+			if aatx.Deployer != nil && *aatx.Deployer != aatx.Sender {
+				gas += AccessListAddressCost
+			}
+			if aatx.Paymaster != nil && *aatx.Paymaster != aatx.Sender {
+				gas += AccessListAddressCost
+			}
+		}
+		if pool.config.IsGlamsterdan {
+			gas += AccessListGasGlamst(tx.AccessList())
+		} else {
+			gas += AccessListGas(tx.AccessList())
+		}
+		return gas
+	}
+
+	gas := IntrinsicGas(tx.Data(), tx.To() == nil, pool.config.IsGlamsterdan)
+	if pool.config.IsGlamsterdan {
+		gas += AccessListGasGlamst(tx.AccessList())
+	} else {
+		gas += AccessListGas(tx.AccessList())
+	}
+	return gas
 }
 
 // txCost returns the maximum cost a transaction could incur:
@@ -766,6 +789,16 @@ func (pool *TxPool) txCost(tx *types.Transaction) *big.Int {
 		}
 	}
 	return cost
+}
+
+func (pool *TxPool) payerOf(tx *types.Transaction) types.Address {
+	if aatx, ok := tx.Inner().(*types.AATx); ok {
+		if aatx.Paymaster != nil {
+			return *aatx.Paymaster
+		}
+		return aatx.Sender
+	}
+	return pool.senderOf(tx)
 }
 
 func (pool *TxPool) addPending(from types.Address, tx *types.Transaction) {
@@ -1015,6 +1048,10 @@ func (pool *TxPool) Reset(stateReader StateReader) {
 func (pool *TxPool) senderOf(tx *types.Transaction) types.Address {
 	if from := tx.Sender(); from != nil {
 		return *from
+	}
+	if aatx, ok := tx.Inner().(*types.AATx); ok {
+		tx.SetSender(aatx.Sender)
+		return aatx.Sender
 	}
 	// Recover sender from signature using ecrecover.
 	sigHash := tx.SigningHash()

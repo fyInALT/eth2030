@@ -38,6 +38,7 @@ assertoor_params:
   run_stability_check: true
 
 spamoor_params:
+  image: spamoor:local
   # Resource management for spamoor
   # CPU is milicores
   # RAM is in MB

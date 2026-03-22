@@ -469,6 +469,60 @@ func TestValidateTx_InsufficientBalance(t *testing.T) {
 	}
 }
 
+func TestValidateTx_AATxUsesEmbeddedSenderForBalanceCheck(t *testing.T) {
+	state := newMockState()
+	sender := types.BytesToAddress([]byte{0xaa})
+	state.balances[sender] = new(big.Int).Mul(big.NewInt(1e18), big.NewInt(10))
+
+	pool := New(DefaultConfig(), state)
+
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+	})
+
+	if err := pool.AddLocal(tx); err != nil {
+		t.Fatalf("expected embedded sender AA tx to pass balance checks, got: %v", err)
+	}
+}
+
+func TestValidateTx_AATxIntrinsicGasIgnoresSenderExecutionData(t *testing.T) {
+	state := newMockState()
+	sender := types.BytesToAddress([]byte{0xbb})
+	state.balances[sender] = new(big.Int).Mul(big.NewInt(1e18), big.NewInt(10))
+
+	pool := New(DefaultConfig(), state)
+
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderExecutionData:  bytesRepeat(0x01, 5_000),
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+	})
+	tx.SetSender(sender)
+
+	if err := pool.AddLocal(tx); err != nil {
+		t.Fatalf("expected AA tx intrinsic gas to ignore sender execution data, got: %v", err)
+	}
+}
+
+func bytesRepeat(b byte, n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = b
+	}
+	return out
+}
+
 // TestValidateTx_NonceTooLow verifies that txs with nonces below the state nonce
 // are rejected.
 func TestValidateTx_NonceTooLow(t *testing.T) {

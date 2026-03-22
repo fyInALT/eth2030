@@ -74,6 +74,26 @@ func TestTxIntrinsicGasWithData(t *testing.T) {
 	}
 }
 
+func TestTxIntrinsicGasAATxUsesAABaseCost(t *testing.T) {
+	sender := types.BytesToAddress([]byte{0xAA})
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+	tx.SetSender(sender)
+
+	if got := txIntrinsicGas(tx); got != types.AABaseCost {
+		t.Fatalf("txIntrinsicGas(aa) = %d, want %d", got, types.AABaseCost)
+	}
+}
+
 func TestTxCostSimple(t *testing.T) {
 	addr := types.BytesToAddress([]byte{0x01})
 	tx := makeLegacyTx(0, &addr, big.NewInt(100), 21000, big.NewInt(10), nil)
