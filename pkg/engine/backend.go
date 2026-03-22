@@ -14,8 +14,10 @@ import (
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/block"
 	coreconfig "github.com/eth2030/eth2030/core/config"
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
+	"github.com/eth2030/eth2030/core/rawdb"
 	"github.com/eth2030/eth2030/core/state"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/crypto/bls"
@@ -125,6 +127,9 @@ type EngineBackend struct {
 	// cleanupStopCh signals the cleanup goroutine to stop.
 	cleanupStopCh chan struct{}
 	cleanupWg     sync.WaitGroup
+
+	// txPool provides access to pending transactions for inclusion list generation.
+	txPool block.TxPoolReader
 }
 
 // NewEngineBackend creates a new Engine API backend with default memory limits.
@@ -257,13 +262,204 @@ func (b *EngineBackend) cleanupFailedAsyncPayloads() {
 	}
 }
 
+func (b *EngineBackend) getHeadHash() types.Hash {
+	b.stateMu.RLock()
+	defer b.stateMu.RUnlock()
+	return b.headHash
+}
+
+func (b *EngineBackend) getForkchoiceState() (headHash, safeHash, finalHash types.Hash) {
+	b.stateMu.RLock()
+	defer b.stateMu.RUnlock()
+	return b.headHash, b.safeHash, b.finalHash
+}
+
+func (b *EngineBackend) setForkchoiceState(headHash, safeHash, finalHash types.Hash) {
+	b.stateMu.Lock()
+	defer b.stateMu.Unlock()
+	b.headHash = headHash
+	b.safeHash = safeHash
+	b.finalHash = finalHash
+}
+
+func (b *EngineBackend) hasBlock(hash types.Hash) bool {
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+	_, ok := b.blocks[hash]
+	return ok
+}
+
+func (b *EngineBackend) getBlock(hash types.Hash) (*types.Block, bool) {
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+	blk, ok := b.blocks[hash]
+	return blk, ok
+}
+
+func (b *EngineBackend) storeBlock(blk *types.Block, blockBAL *bal.BlockAccessList) {
+	b.blocksMu.Lock()
+	defer b.blocksMu.Unlock()
+
+	blockHash := blk.Hash()
+	b.blocks[blockHash] = blk
+	b.numberIndex[blk.NumberU64()] = blockHash
+	if blockBAL != nil {
+		b.bals[blockHash] = blockBAL
+	}
+	b.evictOldBlocks()
+}
+
+func (b *EngineBackend) getPayload(id PayloadID) (*pendingPayload, bool) {
+	b.payloadMu.RLock()
+	defer b.payloadMu.RUnlock()
+	pending, ok := b.payloads[id]
+	return pending, ok
+}
+
+func (b *EngineBackend) getStoredPayload(id PayloadID) (*pendingPayload, error) {
+	pending, ok := b.getPayload(id)
+	if !ok {
+		return nil, ErrUnknownPayload
+	}
+	return pending, nil
+}
+
+func (b *EngineBackend) storePayload(id PayloadID, pending *pendingPayload) {
+	b.payloadMu.Lock()
+	defer b.payloadMu.Unlock()
+	b.payloads[id] = pending
+	b.payloadOrder = append(b.payloadOrder, id)
+	b.evictOldestPayload()
+}
+
+func (b *EngineBackend) getInclusionListCount() int {
+	b.ilMu.RLock()
+	defer b.ilMu.RUnlock()
+	return len(b.ils)
+}
+
+func (b *EngineBackend) addInclusionList(il *types.InclusionList) {
+	b.ilMu.Lock()
+	defer b.ilMu.Unlock()
+	b.ils = append(b.ils, il)
+	if len(b.ils) > b.maxILs {
+		b.ils = b.ils[len(b.ils)-b.maxILs:]
+	}
+}
+
+func (b *EngineBackend) clearInclusionLists() {
+	b.ilMu.Lock()
+	defer b.ilMu.Unlock()
+	b.ils = b.ils[:0]
+}
+
+func (b *EngineBackend) waitAsyncPayload(id PayloadID, pin bool) (*enginepayload.PendingPayload, *enginepayload.BuildResult, func(), error) {
+	b.asyncPayloadsMu.RLock()
+	asyncPending, asyncOk := b.asyncPayloads[id]
+	release := func() {}
+	if pin && asyncOk && asyncPending != nil {
+		if !asyncPending.Acquire() {
+			b.asyncPayloadsMu.RUnlock()
+			asyncOk = false
+		} else {
+			release = asyncPending.Release
+		}
+	}
+	b.asyncPayloadsMu.RUnlock()
+
+	if !asyncOk || asyncPending == nil {
+		return nil, nil, nil, nil
+	}
+
+	result, err := asyncPending.Wait(8 * time.Second)
+	if err != nil {
+		backendLog.Warn("payload_build_timeout",
+			"event", "payload_build_timeout",
+			"payloadID", fmt.Sprintf("%x", id),
+			"error", err,
+		)
+		return nil, nil, release, ErrUnknownPayload
+	}
+
+	if result.Status == enginepayload.BuildStatusFailed {
+		backendLog.Error("payload_build_failed",
+			"event", "payload_build_failed",
+			"payloadID", fmt.Sprintf("%x", id),
+			"error", result.Error,
+		)
+		return nil, nil, release, ErrUnknownPayload
+	}
+
+	if result.Status != enginepayload.BuildStatusCompleted || result.Block == nil {
+		return nil, nil, release, nil
+	}
+
+	return asyncPending, result, release, nil
+}
+
+func (b *EngineBackend) loadPayloadBodiesByHash(hashes []types.Hash) []*enginepayload.ExecutionPayloadBodyV2 {
+	headHash := b.getHeadHash()
+
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+
+	headNum := uint64(0)
+	if head, ok := b.blocks[headHash]; ok {
+		headNum = head.NumberU64()
+	}
+
+	results := make([]*enginepayload.ExecutionPayloadBodyV2, len(hashes))
+	for i, h := range hashes {
+		block, found := b.blocks[h]
+		if !found || !rawdb.IsBALRetained(headNum, block.NumberU64()) {
+			continue
+		}
+		body := enginepayload.BlockToPayloadBodyV2(block)
+		if blockBAL, ok := b.bals[h]; ok {
+			balBytes, _ := json.Marshal(blockBAL)
+			body.BlockAccessList = balBytes
+		}
+		results[i] = body
+	}
+	return results
+}
+
+func (b *EngineBackend) loadPayloadBodiesByRange(start, count uint64) []*enginepayload.ExecutionPayloadBodyV2 {
+	headHash := b.getHeadHash()
+
+	b.blocksMu.RLock()
+	defer b.blocksMu.RUnlock()
+
+	headNum := uint64(0)
+	if head, ok := b.blocks[headHash]; ok {
+		headNum = head.NumberU64()
+	}
+
+	results := make([]*enginepayload.ExecutionPayloadBodyV2, count)
+	for i := uint64(0); i < count; i++ {
+		num := start + i
+		hash, ok := b.numberIndex[num]
+		if !ok {
+			continue
+		}
+		block, ok := b.blocks[hash]
+		if !ok || !rawdb.IsBALRetained(headNum, num) {
+			continue
+		}
+		body := enginepayload.BlockToPayloadBodyV2(block)
+		if blockBAL, ok := b.bals[hash]; ok {
+			balBytes, _ := json.Marshal(blockBAL)
+			body.BlockAccessList = balBytes
+		}
+		results[i] = body
+	}
+	return results
+}
+
 // evictOldBlocks removes block entries that are more than 64 blocks behind the
 // current head from b.blocks and b.bals. Must be called with blocksMu held.
 func (b *EngineBackend) evictOldBlocks() {
-	b.stateMu.RLock()
-	headHash := b.headHash
-	b.stateMu.RUnlock()
-
+	headHash := b.getHeadHash()
 	head, ok := b.blocks[headHash]
 	if !ok || head.NumberU64() < 64 {
 		return
@@ -350,9 +546,7 @@ func (b *EngineBackend) ProcessBlock(
 	// P1: Use fine-grained locks instead of single b.mu.
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
-	b.blocksMu.RLock()
-	parentBlock, parentOk := b.blocks[parentHash]
-	b.blocksMu.RUnlock()
+	parentBlock, parentOk := b.getBlock(parentHash)
 
 	if !parentOk {
 		backendLog.Debug("payload_syncing",
@@ -402,11 +596,7 @@ func (b *EngineBackend) ProcessBlock(
 
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
-	b.blocksMu.Lock()
-	b.blocks[blockHash] = blk
-	b.numberIndex[blk.NumberU64()] = blockHash
-	b.evictOldBlocks()
-	b.blocksMu.Unlock()
+	b.storeBlock(blk, nil)
 	b.statedb = stateCopy
 
 	// Dual-write to actors for migration.
@@ -442,29 +632,22 @@ func (b *EngineBackend) ProcessBlockV4(
 
 // GetHeadTimestamp returns the timestamp of the current head block.
 func (b *EngineBackend) GetHeadTimestamp() uint64 {
-	b.stateMu.RLock()
-	headHash := b.headHash
-	b.stateMu.RUnlock()
-
-	b.blocksMu.RLock()
-	defer b.blocksMu.RUnlock()
-
-	if headBlock, ok := b.blocks[headHash]; ok {
-		return headBlock.Header().Time
+	headHash := b.getHeadHash()
+	headBlock, ok := b.getBlock(headHash)
+	if !ok {
+		return 0
 	}
-	return 0
+	return headBlock.Header().Time
 }
 
 // GetBlockTimestamp returns the timestamp of the block with the given hash,
 // or 0 if the block is not known.
 func (b *EngineBackend) GetBlockTimestamp(hash types.Hash) uint64 {
-	b.blocksMu.RLock()
-	defer b.blocksMu.RUnlock()
-
-	if blk, ok := b.blocks[hash]; ok {
-		return blk.Header().Time
+	blk, ok := b.getBlock(hash)
+	if !ok {
+		return 0
 	}
-	return 0
+	return blk.Header().Time
 }
 
 // IsCancun returns true if the given timestamp falls within the Cancun fork.
@@ -489,27 +672,18 @@ func (b *EngineBackend) ForkchoiceUpdated(
 
 	// P1: Use fine-grained locks instead of single b.mu.
 	// Validate head block exists.
-	if fcState.HeadBlockHash != (types.Hash{}) {
-		b.blocksMu.RLock()
-		_, ok := b.blocks[fcState.HeadBlockHash]
-		b.blocksMu.RUnlock()
-		if !ok {
-			backendLog.Debug("fcu_syncing",
-				"event", "fcu_syncing",
-				"head", fcState.HeadBlockHash.Hex(),
-			)
-			return ForkchoiceUpdatedResult{
-				PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
-			}, nil
-		}
+	if fcState.HeadBlockHash != (types.Hash{}) && !b.hasBlock(fcState.HeadBlockHash) {
+		backendLog.Debug("fcu_syncing",
+			"event", "fcu_syncing",
+			"head", fcState.HeadBlockHash.Hex(),
+		)
+		return ForkchoiceUpdatedResult{
+			PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
+		}, nil
 	}
 
 	// Update forkchoice pointers with stateMu.
-	b.stateMu.Lock()
-	b.headHash = fcState.HeadBlockHash
-	b.safeHash = fcState.SafeBlockHash
-	b.finalHash = fcState.FinalizedBlockHash
-	b.stateMu.Unlock()
+	b.setForkchoiceState(fcState.HeadBlockHash, fcState.SafeBlockHash, fcState.FinalizedBlockHash)
 
 	// Dual-write to actors for migration.
 	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
@@ -522,13 +696,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 		backendLog.Debug("actor_final_update_failed", "error", err)
 	}
 
-	b.stateMu.RLock()
-	headHash := b.headHash
-	b.stateMu.RUnlock()
-
-	b.blocksMu.RLock()
-	headBlock, headOk := b.blocks[headHash]
-	b.blocksMu.RUnlock()
+	headHash, safeHash, finalHash := b.getForkchoiceState()
+	headBlock, headOk := b.getBlock(headHash)
 
 	headNum := uint64(0)
 	if headOk {
@@ -536,16 +705,16 @@ func (b *EngineBackend) ForkchoiceUpdated(
 	}
 	backendLog.Info("fcu_updated",
 		"event", "fcu_updated",
-		"head", b.headHash.Hex(),
+		"head", headHash.Hex(),
 		"headNum", headNum,
-		"safe", b.safeHash.Hex(),
-		"finalized", b.finalHash.Hex(),
+		"safe", safeHash.Hex(),
+		"finalized", finalHash.Hex(),
 		"hasAttrs", attrs != nil,
 	)
 
 	status := PayloadStatusV1{
 		Status:          StatusValid,
-		LatestValidHash: &b.headHash,
+		LatestValidHash: &headHash,
 	}
 
 	result := ForkchoiceUpdatedResult{PayloadStatus: status}
@@ -556,7 +725,8 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			return ForkchoiceUpdatedResult{}, ErrInvalidPayloadAttributes
 		}
 
-		parentBlock := b.blocks[fcState.HeadBlockHash]
+		// P2: Get parentBlock under lock protection to avoid race condition
+		parentBlock, _ := b.getBlock(fcState.HeadBlockHash)
 		if parentBlock == nil {
 			return ForkchoiceUpdatedResult{}, ErrInvalidForkchoiceState
 		}
@@ -642,63 +812,31 @@ func (b *EngineBackend) ForkchoiceUpdated(
 // P0: Supports async payload building - waits for completion if still building.
 // P2: Uses reference counting to prevent premature eviction during Wait.
 func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	// P2: Acquire reference to prevent eviction during Wait
-	if asyncOk && asyncPending != nil {
-		if !asyncPending.Acquire() {
-			b.asyncPayloadsMu.RUnlock()
-			// Payload was already released, fall through to check other sources
-			asyncOk = false
-		}
+	asyncPending, result, release, err := b.waitAsyncPayload(id, true)
+	if release != nil {
+		defer release()
 	}
-	b.asyncPayloadsMu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
 
-	if asyncOk && asyncPending != nil {
-		// Ensure we release the reference when done
-		defer asyncPending.Release()
+		backendLog.Debug("payload_get",
+			"event", "payload_get",
+			"payloadID", fmt.Sprintf("%x", id),
+			"blockHash", result.Block.Hash().Hex(),
+			"blockNum", result.Block.NumberU64(),
+			"txCount", len(result.Block.Transactions()),
+			"source", "async",
+		)
 
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
-
-			backendLog.Debug("payload_get",
-				"event", "payload_get",
-				"payloadID", fmt.Sprintf("%x", id),
-				"blockHash", result.Block.Hash().Hex(),
-				"blockNum", result.Block.NumberU64(),
-				"txCount", len(result.Block.Transactions()),
-				"source", "async",
-			)
-
-			return &GetPayloadResponse{
-				ExecutionPayload: ep,
-				BlockValue:       result.BlockValue,
-				BlobsBundle:      collectBlobsBundleV1(result.Block.Transactions()),
-			}, nil
-		}
+		return &GetPayloadResponse{
+			ExecutionPayload: ep,
+			BlockValue:       result.BlockValue,
+			BlobsBundle:      collectBlobsBundleV1(result.Block.Transactions()),
+		}, nil
 	}
 
 	// Try actor next.
@@ -733,16 +871,13 @@ func (b *EngineBackend) GetPayloadByID(id PayloadID) (*GetPayloadResponse, error
 	}
 
 	// Fallback to mutex-protected payloads.
-	b.payloadMu.RLock()
-	defer b.payloadMu.RUnlock()
-
-	pending, ok := b.payloads[id]
-	if !ok {
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
 		backendLog.Warn("payload_get_miss",
 			"event", "payload_get_miss",
 			"payloadID", fmt.Sprintf("%x", id),
 		)
-		return nil, ErrUnknownPayload
+		return nil, err
 	}
 
 	ep := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
@@ -925,9 +1060,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	// P1: Use fine-grained locks instead of single b.mu.
 	// Check that the parent exists.
 	parentHash := blk.ParentHash()
-	b.blocksMu.RLock()
-	parentBlock, parentOk := b.blocks[parentHash]
-	b.blocksMu.RUnlock()
+	parentBlock, parentOk := b.getBlock(parentHash)
 
 	if !parentOk {
 		backendLog.Debug("payload_syncing",
@@ -1004,10 +1137,7 @@ func (b *EngineBackend) ProcessBlockV5(
 	}
 
 	// EIP-7805: check IL satisfaction against block and stored ILs.
-	b.ilMu.RLock()
-	ilsLen := len(b.ils)
-	b.ilMu.RUnlock()
-
+	ilsLen := b.getInclusionListCount()
 	if ilsLen > 0 {
 		ils := b.ilsAsFocil()
 		gasRemaining := blk.GasLimit() - blk.GasUsed()
@@ -1027,15 +1157,7 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	// Store the block and update state (evict old blocks to bound memory).
 	blockHash := blk.Hash()
-	b.blocksMu.Lock()
-	b.blocks[blockHash] = blk
-	b.numberIndex[blk.NumberU64()] = blockHash
-	// Store BAL for engine_getPayloadBodiesByHashV2.
-	if result.BlockAccessList != nil {
-		b.bals[blockHash] = result.BlockAccessList
-	}
-	b.evictOldBlocks()
-	b.blocksMu.Unlock()
+	b.storeBlock(blk, result.BlockAccessList)
 	b.statedb = stateCopy
 
 	// Dual-write to actors for migration.
@@ -1045,9 +1167,7 @@ func (b *EngineBackend) ProcessBlockV5(
 
 	// ILs are slot-scoped: once a block is accepted, the ILs for that slot
 	// are consumed. Clear them to prevent unbounded growth across slots.
-	b.ilMu.Lock()
-	b.ils = b.ils[:0]
-	b.ilMu.Unlock()
+	b.clearInclusionLists()
 
 	// Clear actor ILs as well.
 	if err := b.clearActorInclusionLists(); err != nil {
@@ -1076,24 +1196,15 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 	attrs *PayloadAttributesV4,
 ) (ForkchoiceUpdatedResult, error) {
 	// Validate head block exists.
-	if fcState.HeadBlockHash != (types.Hash{}) {
-		b.blocksMu.RLock()
-		_, ok := b.blocks[fcState.HeadBlockHash]
-		b.blocksMu.RUnlock()
-		if !ok {
-			return ForkchoiceUpdatedResult{
-				PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
-			}, nil
-		}
+	if fcState.HeadBlockHash != (types.Hash{}) && !b.hasBlock(fcState.HeadBlockHash) {
+		return ForkchoiceUpdatedResult{
+			PayloadStatus: PayloadStatusV1{Status: StatusSyncing},
+		}, nil
 	}
 
 	// Update forkchoice pointers (per spec: must NOT be rolled back on attribute errors).
-	b.stateMu.Lock()
-	b.headHash = fcState.HeadBlockHash
-	b.safeHash = fcState.SafeBlockHash
-	b.finalHash = fcState.FinalizedBlockHash
-	headHash := b.headHash
-	b.stateMu.Unlock()
+	b.setForkchoiceState(fcState.HeadBlockHash, fcState.SafeBlockHash, fcState.FinalizedBlockHash)
+	headHash := b.getHeadHash()
 
 	// Dual-write to actors for migration.
 	if err := b.setActorHeadHash(fcState.HeadBlockHash); err != nil {
@@ -1120,10 +1231,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 		id := b.generatePayloadID(fcState.HeadBlockHash, attrs.Timestamp)
 
-		b.blocksMu.RLock()
-		parentBlock := b.blocks[fcState.HeadBlockHash]
-		b.blocksMu.RUnlock()
-
+		parentBlock, _ := b.getBlock(fcState.HeadBlockHash)
 		if parentBlock == nil {
 			return ForkchoiceUpdatedResult{}, ErrInvalidForkchoiceState
 		}
@@ -1159,8 +1267,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			}
 		}
 
-		b.payloadMu.Lock()
-		b.payloads[id] = &pendingPayload{
+		b.storePayload(id, &pendingPayload{
 			block:        blk,
 			receipts:     receipts,
 			bal:          blockBAL,
@@ -1170,10 +1277,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			feeRecipient: attrs.SuggestedFeeRecipient,
 			prevRandao:   attrs.PrevRandao,
 			withdrawals:  attrs.Withdrawals,
-		}
-		b.payloadOrder = append(b.payloadOrder, id)
-		b.evictOldestPayload()
-		b.payloadMu.Unlock()
+		})
 
 		// Dual-write to actors for migration.
 		actorPayload := &actor.PendingPayload{
@@ -1199,52 +1303,24 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 
 // GetPayloadV4ByID retrieves a previously built payload for getPayloadV4 (Prague).
 func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	b.asyncPayloadsMu.RUnlock()
-
-	if asyncOk {
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
-			return &GetPayloadV4Response{
-				ExecutionPayload:  &ep4.ExecutionPayloadV3,
-				BlockValue:        result.BlockValue,
-				BlobsBundle:       collectBlobsBundleV1(result.Block.Transactions()),
-				ExecutionRequests: [][]byte{},
-			}, nil
-		}
+	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+		return &GetPayloadV4Response{
+			ExecutionPayload:  &ep4.ExecutionPayloadV3,
+			BlockValue:        result.BlockValue,
+			BlobsBundle:       collectBlobsBundleV1(result.Block.Transactions()),
+			ExecutionRequests: [][]byte{},
+		}, nil
 	}
 
-	// Fallback to mutex-protected payloads.
-	b.payloadMu.RLock()
-	defer b.payloadMu.RUnlock()
-
-	pending, ok := b.payloads[id]
-	if !ok {
-		return nil, ErrUnknownPayload
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
+		return nil, err
 	}
 
 	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
@@ -1257,57 +1333,64 @@ func (b *EngineBackend) GetPayloadV4ByID(id PayloadID) (*GetPayloadV4Response, e
 	}, nil
 }
 
+// GetPayloadV5 retrieves a previously built payload for getPayloadV5 (Gloas/Heze).
+// Implements GlamsterdamBackend interface.
+func (b *EngineBackend) GetPayloadV5(id PayloadID) (*GetPayloadV5Response, error) {
+	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep4 := enginepayload.BlockToPayload(result.Block, asyncPending.PrevRandao, engineWithdrawals)
+		return &GetPayloadV5Response{
+			ExecutionPayload:  &ep4.ExecutionPayloadV3,
+			BlockValue:        result.BlockValue,
+			BlobsBundle:       collectBlobsBundleV2(result.Block.Transactions()),
+			Override:          false,
+			ExecutionRequests: [][]byte{},
+		}, nil
+	}
+
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
+		return nil, err
+	}
+
+	ep4 := enginepayload.BlockToPayload(pending.block, pending.prevRandao, pending.withdrawals)
+
+	return &GetPayloadV5Response{
+		ExecutionPayload:  &ep4.ExecutionPayloadV3,
+		BlockValue:        pending.blockValue,
+		BlobsBundle:       collectBlobsBundleV2(pending.block.Transactions()),
+		Override:          false,
+		ExecutionRequests: [][]byte{},
+	}, nil
+}
+
 // GetPayloadV6ByID retrieves a previously built payload for getPayloadV6 (Amsterdam).
 // NOTE: EIP-8141 FrameTx receipts use the standard Receipt structure for gas
 // accounting. Per-frame results are available via FrameTxReceipt if needed by
 // downstream consumers (e.g., block explorers).
 func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, error) {
-	// P0: Check async payloads first (supports in-progress builds).
-	b.asyncPayloadsMu.RLock()
-	asyncPending, asyncOk := b.asyncPayloads[id]
-	b.asyncPayloadsMu.RUnlock()
-
-	if asyncOk {
-		// Wait for build to complete with timeout.
-		result, err := asyncPending.Wait(8 * time.Second)
-		if err != nil {
-			backendLog.Warn("payload_build_timeout",
-				"event", "payload_build_timeout",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", err,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusFailed {
-			backendLog.Error("payload_build_failed",
-				"event", "payload_build_failed",
-				"payloadID", fmt.Sprintf("%x", id),
-				"error", result.Error,
-			)
-			return nil, ErrUnknownPayload
-		}
-
-		if result.Status == enginepayload.BuildStatusCompleted && result.Block != nil {
-			// Convert types.Withdrawal to engine Withdrawal for BlockToPayload
-			engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
-			ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL)
-			return &GetPayloadV6Response{
-				ExecutionPayload:  ep5,
-				BlockValue:        result.BlockValue,
-				BlobsBundle:       collectBlobsBundle(result.Block.Transactions()),
-				ExecutionRequests: [][]byte{},
-			}, nil
-		}
+	asyncPending, result, _, err := b.waitAsyncPayload(id, false)
+	if err != nil {
+		return nil, err
+	}
+	if asyncPending != nil && result != nil {
+		engineWithdrawals := enginepayload.WithdrawalsToEngine(asyncPending.Withdrawals)
+		ep5 := enginepayload.BlockToPayloadV5(result.Block, asyncPending.PrevRandao, engineWithdrawals, result.BAL)
+		return &GetPayloadV6Response{
+			ExecutionPayload:  ep5,
+			BlockValue:        result.BlockValue,
+			BlobsBundle:       collectBlobsBundle(result.Block.Transactions()),
+			ExecutionRequests: [][]byte{},
+		}, nil
 	}
 
-	// Fallback to mutex-protected payloads.
-	b.payloadMu.RLock()
-	defer b.payloadMu.RUnlock()
-
-	pending, ok := b.payloads[id]
-	if !ok {
-		return nil, ErrUnknownPayload
+	pending, err := b.getStoredPayload(id)
+	if err != nil {
+		return nil, err
 	}
 
 	ep5 := enginepayload.BlockToPayloadV5(pending.block, pending.prevRandao, pending.withdrawals, pending.bal)
@@ -1320,44 +1403,65 @@ func (b *EngineBackend) GetPayloadV6ByID(id PayloadID) (*GetPayloadV6Response, e
 	}, nil
 }
 
+func collectBlobSidecars(txs []*types.Transaction) (blobs, commitments [][]byte, sidecarBlobs [][]byte) {
+	for _, tx := range txs {
+		sc := tx.BlobSidecar()
+		if sc == nil {
+			continue
+		}
+		blobs = append(blobs, sc.Blobs...)
+		commitments = append(commitments, sc.Commitments...)
+		sidecarBlobs = append(sidecarBlobs, sc.Blobs...)
+	}
+	return blobs, commitments, sidecarBlobs
+}
+
+func expandBlobCellProofs(blobs [][]byte, warnLabel string) ([][]byte, int) {
+	if len(blobs) == 0 {
+		return nil, 0
+	}
+
+	kzg := bls.DefaultKZGBackend()
+	proofs := make([][]byte, 0, len(blobs)*bls.KZGCellsPerExtBlob)
+	totalProofs := 0
+	for _, blob := range blobs {
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+		if err != nil {
+			backendLog.Warn(warnLabel,
+				"err", err)
+			for range bls.KZGCellsPerExtBlob {
+				proofs = append(proofs, make([]byte, bls.KZGBytesPerProof))
+				totalProofs++
+			}
+			continue
+		}
+		for _, p := range cellProofs {
+			cp := p
+			proofs = append(proofs, cp[:])
+			totalProofs++
+		}
+	}
+	return proofs, totalProofs
+}
+
 // collectBlobsBundle builds a BlobsBundleV2 from the blob sidecar data attached
 // to the given transactions. Each blob's 48-byte KZG proof is expanded to 128
 // per-cell KZG proofs using ComputeCellsAndProofs, as required by the Fulu/PeerDAS
 // spec (engine_getPayloadV6 blobsBundle.proofs must have 128*N entries).
 func collectBlobsBundle(txs []*types.Transaction) *BlobsBundleV2 {
 	bundle := &BlobsBundleV2{}
-	kzg := bls.DefaultKZGBackend()
 	blobTxCount := 0
-	totalBlobs := 0
 	totalProofs := 0
 	for _, tx := range txs {
-		sc := tx.BlobSidecar()
-		if sc == nil {
-			continue
-		}
-		blobTxCount++
-		totalBlobs += len(sc.Blobs)
-		bundle.Blobs = append(bundle.Blobs, sc.Blobs...)
-		bundle.Commitments = append(bundle.Commitments, sc.Commitments...)
-		// Expand each blob's proof to 128 per-cell KZG proofs.
-		for _, blob := range sc.Blobs {
-			_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
-			if err != nil {
-				backendLog.Warn("collectBlobsBundle: ComputeCellsAndProofs failed, using zero proofs",
-					"err", err)
-				for range bls.KZGCellsPerExtBlob {
-					bundle.Proofs = append(bundle.Proofs, make([]byte, bls.KZGBytesPerProof))
-					totalProofs++
-				}
-				continue
-			}
-			for _, p := range cellProofs {
-				cp := p
-				bundle.Proofs = append(bundle.Proofs, cp[:])
-				totalProofs++
-			}
+		if tx.BlobSidecar() != nil {
+			blobTxCount++
 		}
 	}
+	blobs, commitments, sidecarBlobs := collectBlobSidecars(txs)
+	bundle.Blobs = blobs
+	bundle.Commitments = commitments
+	totalBlobs := len(sidecarBlobs)
+	bundle.Proofs, totalProofs = expandBlobCellProofs(sidecarBlobs, "collectBlobsBundle: ComputeCellsAndProofs failed, using zero proofs")
 	backendLog.Debug("collectBlobsBundle: result",
 		"blobTxCount", blobTxCount,
 		"totalBlobs", totalBlobs,
@@ -1383,6 +1487,25 @@ func collectBlobsBundleV1(txs []*types.Transaction) *BlobsBundleV1 {
 	return bundle
 }
 
+// collectBlobsBundleV2 collects blob sidecars with cell proofs (V2 format).
+// Used for engine_getPayloadV5 responses (Gloas/Heze fork).
+// Each blob's 48-byte KZG proof is expanded to 128 per-cell KZG proofs
+// using ComputeCellsAndProofs, as required by the Fulu/PeerDAS spec.
+func collectBlobsBundleV2(txs []*types.Transaction) *enginepayload.BlobsBundleV2 {
+	bundle := &enginepayload.BlobsBundleV2{}
+	blobs, commitments, sidecarBlobs := collectBlobSidecars(txs)
+	bundle.Blobs = blobs
+	bundle.Commitments = commitments
+	bundle.Proofs, _ = expandBlobCellProofs(sidecarBlobs, "collectBlobsBundleV2: ComputeCellsAndProofs failed, using zero proofs")
+	backendLog.Debug("collectBlobsBundleV2: result",
+		"blobCount", len(blobs),
+		"commitmentCount", len(commitments),
+		"proofCount", len(bundle.Proofs),
+		"expectedProofs", len(sidecarBlobs)*bls.KZGCellsPerExtBlob,
+	)
+	return bundle
+}
+
 // IsPrague returns true if the given timestamp falls within the Prague fork.
 func (b *EngineBackend) IsPrague(timestamp uint64) bool {
 	return b.config.IsPrague(timestamp)
@@ -1397,13 +1520,7 @@ func (b *EngineBackend) IsAmsterdam(timestamp uint64) bool {
 // Implements InclusionListBackend.
 // P1: Uses fine-grained lock for IL storage.
 func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
-	b.ilMu.Lock()
-	defer b.ilMu.Unlock()
-	b.ils = append(b.ils, il)
-	// Bound the IL slice: drop oldest entries beyond b.maxILs.
-	if len(b.ils) > b.maxILs {
-		b.ils = b.ils[len(b.ils)-b.maxILs:]
-	}
+	b.addInclusionList(il)
 
 	// Dual-write to actors for migration.
 	if err := b.storeActorInclusionList(il); err != nil {
@@ -1413,10 +1530,25 @@ func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
 	return nil
 }
 
-// GetInclusionList generates an inclusion list from the mempool (stub: returns empty IL).
+// GetInclusionList generates an inclusion list from the mempool.
 // Implements InclusionListBackend.
+// EIP-7805: Select transactions up to MAX_BYTES_PER_INCLUSION_LIST (8 KiB).
 func (b *EngineBackend) GetInclusionList() *types.InclusionList {
-	return &types.InclusionList{Transactions: [][]byte{}}
+	// If no txpool is wired, return empty IL.
+	if b.txPool == nil {
+		return &types.InclusionList{Transactions: [][]byte{}}
+	}
+
+	selected, totalSize := eips.SelectTransactionsForInclusionList(b.txPool.Pending(), eips.MaxBytesPerInclusionList)
+
+	backendLog.Debug("getInclusionList", "tx_count", len(selected), "total_bytes", totalSize)
+
+	return &types.InclusionList{Transactions: selected}
+}
+
+// SetTxPool wires a transaction pool reader for inclusion list generation.
+func (b *EngineBackend) SetTxPool(pool block.TxPoolReader) {
+	b.txPool = pool
 }
 
 // ilsAsFocil converts stored types.InclusionList entries to focil.InclusionList format.

@@ -1,5 +1,41 @@
 # Lean4 Verification Check-list
 
+## Inclusion List JSON Refactor (2026-03-21)
+- [x] Extract small inclusion-list JSON parsing helpers in `pkg/engine/inclusion_list.go`.
+- [x] Reuse the helpers from the custom marshal/unmarshal code.
+- [x] Add or update focused parsing tests.
+- [x] Run the relevant Go tests successfully.
+
+## Blob Bundle Refactor (2026-03-21)
+- [x] Extract shared blob sidecar / cell-proof expansion helper in `pkg/engine/backend.go`.
+- [x] Reuse the helper from the V2 and V6 blob-bundle builders.
+- [x] Run the relevant Go tests successfully.
+
+## Payload Retrieval Refactor (2026-03-21)
+- [x] Extract shared helpers for async and stored payload lookup in `pkg/engine/backend.go`.
+- [x] Reuse the helpers from the V3/V4/V5/V6 payload retrieval methods.
+- [x] Run the relevant Go tests successfully.
+
+## Inclusion List Selection Refactor (2026-03-21)
+- [x] Extract shared inclusion-list transaction selection helper.
+- [x] Switch engine and node backends to the shared helper.
+- [x] Add or update tests for oversized transaction skipping.
+- [x] Run the relevant Go tests successfully.
+
+## Engine Review Follow-Up (2026-03-21)
+- [x] Verify whether `engine_getPayloadV5` JSON encoding has already been fixed on this branch.
+- [x] Reject overflowed hex values in `pkg/engine/inclusion_list.go` `flexibleUint64`.
+- [x] Make node backend `ProcessInclusionList` fail explicitly when inclusion-list storage is unsupported.
+- [x] Add or update tests for the inclusion-list fixes.
+- [x] Run the relevant Go tests successfully.
+
+## Engine Lock Wrapper Refactor (2026-03-19)
+- [x] Add mutex-backed accessor helpers for `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` in `pkg/engine/backend.go`.
+- [x] Migrate direct lock/unlock call sites in `pkg/engine/backend.go` to the accessors.
+- [x] Remove remaining direct forkchoice field reads from `ForkchoiceUpdated`.
+- [x] Refactor `pkg/engine/backend_bodies.go` to use backend accessors instead of direct mutex operations.
+- [x] Run the relevant `pkg/engine` Go tests successfully.
+
 ## Go Test Repair (2026-03-19)
 - [x] Reproduce the failing or hanging `go test ./...` behavior from `pkg/`.
 - [x] Isolate the package or test causing the issue.

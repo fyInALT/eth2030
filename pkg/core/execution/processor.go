@@ -250,7 +250,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		}
 
 		// EIP-7701: pre-execution AA validation and gas estimation for AA txs.
-		if tx.Type() == types.AATxType {
+		// Native AA is activated at the Amsterdam fork (part of Glamsterdam).
+		if balActive && tx.Type() == types.AATxType {
 			if aatx, ok := tx.Inner().(*types.AATx); ok {
 				uo := buildAAUserOp(aatx)
 				// ValidateUserOpState checks balance, nonce, and paymaster allowance.
@@ -315,7 +316,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		}
 
 		// EIP-7701: post-execution AA lifecycle hooks for successful AA txs.
-		if tx.Type() == types.AATxType && receipt.Status == types.ReceiptStatusSuccessful {
+		// Native AA is activated at the Amsterdam fork (part of Glamsterdam).
+		if balActive && tx.Type() == types.AATxType && receipt.Status == types.ReceiptStatusSuccessful {
 			if aatx, ok := tx.Inner().(*types.AATx); ok {
 				// Increment the sender's smart-account 2D nonce after execution.
 				eips.IncrementSmartNonce(statedb, aatx.Sender)
@@ -825,6 +827,10 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 
 	// GAP-2.2: propagate DimStorage gas to receipt for block-level cap enforcement.
 	receipt.DimStorageGas = result.DimStorageGas
+
+	// EIP-7778: propagate BlockGasUsed for block gas limit validation.
+	// This is the pre-refund gas used, which should match header.GasUsed.
+	receipt.BlockGasUsed = result.BlockGasUsed
 
 	// Collect logs from state and compute bloom filter.
 	receipt.Logs = statedb.GetLogs(tx.Hash())

@@ -1,11 +1,13 @@
 package backend
 
 import (
+	"errors"
 	"log/slog"
 	"math/big"
 	"sync"
 
 	"github.com/eth2030/eth2030/core/block"
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/mev"
 	"github.com/eth2030/eth2030/core/types"
@@ -38,10 +40,13 @@ type blockProcResp struct {
 	err    error
 }
 
+var errInclusionListStorageUnsupported = errors.New("inclusion list storage not wired in node backend")
+
 const (
 	fcuCacheSize       = 8  // Number of FCU entries to cache
 	defaultMaxPayloads = 32 // Default number of payloads to cache
 	processChSize      = 8  // Buffer size for block processing channel
+	blobCacheMaxSize   = 256 // Maximum number of blobs to cache for getBlobsV2
 )
 
 // fcuCacheEntry records a (head,safe,finalized) triple from a processed FCU.
@@ -159,12 +164,31 @@ func (b *EngineBackend) GetSafeHash() types.Hash {
 
 // GetFinalizedHash returns the current finalized block hash.
 func (b *EngineBackend) GetFinalizedHash() types.Hash {
-	if blk := b.node.Blockchain().CurrentFinalBlock(); blk != nil {
+	bc := b.node.Blockchain()
+	if bc == nil {
+		slog.Warn("GetFinalizedHash: blockchain is nil")
+		return types.Hash{}
+	}
+	if blk := bc.CurrentFinalBlock(); blk != nil {
+		slog.Debug("GetFinalizedHash: returning from CurrentFinalBlock",
+			"blockHash", blk.Hash(),
+			"blockNum", blk.NumberU64(),
+		)
 		return blk.Hash()
 	}
 	b.fcMu.RLock()
-	defer b.fcMu.RUnlock()
-	return b.finalizedHash
+	hash := b.finalizedHash
+	b.fcMu.RUnlock()
+	if hash == (types.Hash{}) {
+		slog.Warn("GetFinalizedHash: no finalized block found",
+			"currentHead", bc.CurrentBlock().NumberU64(),
+		)
+	} else {
+		slog.Debug("GetFinalizedHash: returning from internal finalizedHash",
+			"hash", hash,
+		)
+	}
+	return hash
 }
 
 // GetHeadTimestamp returns the timestamp of the current head block.
@@ -449,6 +473,7 @@ func (b *EngineBackend) registerBlockInFCState(p *payload.ExecutionPayloadV3) {
 }
 
 // cacheBlobsFromBlock caches blobs from a block for later retrieval.
+// Limits cache size to blobCacheMaxSize to prevent unbounded memory growth.
 func (b *EngineBackend) cacheBlobsFromBlock(blk *types.Block) {
 	if blk == nil {
 		return
@@ -460,6 +485,32 @@ func (b *EngineBackend) cacheBlobsFromBlock(blk *types.Block) {
 
 	b.blobCacheMu.Lock()
 	defer b.blobCacheMu.Unlock()
+
+	// Count new blobs to be added.
+	newBlobs := 0
+	for _, tx := range txs {
+		if tx.BlobSidecar() != nil {
+			newBlobs += len(tx.BlobHashes())
+		}
+	}
+
+	// If cache would exceed limit, evict oldest entries (simple FIFO via random eviction).
+	if len(b.blobCache)+newBlobs > blobCacheMaxSize {
+		evictCount := (len(b.blobCache) + newBlobs) - blobCacheMaxSize/2
+		if evictCount > 0 {
+			for hash := range b.blobCache {
+				delete(b.blobCache, hash)
+				evictCount--
+				if evictCount <= 0 {
+					break
+				}
+			}
+			slog.Debug("cacheBlobsFromBlock: evicted old entries",
+				"remaining", len(b.blobCache),
+				"newBlobs", newBlobs,
+			)
+		}
+	}
 
 	for _, tx := range txs {
 		sidecar := tx.BlobSidecar()
@@ -473,4 +524,37 @@ func (b *EngineBackend) cacheBlobsFromBlock(blk *types.Block) {
 			}
 		}
 	}
+}
+
+// GetInclusionList generates an inclusion list from the mempool.
+// Implements InclusionListBackend for EIP-7805 (FOCIL).
+// Selects transactions up to MAX_BYTES_PER_INCLUSION_LIST (8 KiB).
+func (b *EngineBackend) GetInclusionList() *types.InclusionList {
+	pool := b.node.TxPool()
+	if pool == nil {
+		return &types.InclusionList{Transactions: [][]byte{}}
+	}
+
+	selected, totalSize := eips.SelectTransactionsForInclusionList(pool.PendingFlat(), eips.MaxBytesPerInclusionList)
+
+	slog.Debug("getInclusionList", "tx_count", len(selected), "total_bytes", totalSize)
+
+	return &types.InclusionList{Transactions: selected}
+}
+
+// ProcessInclusionList validates and stores an inclusion list.
+// Implements InclusionListBackend for EIP-7805 (FOCIL).
+func (b *EngineBackend) ProcessInclusionList(il *types.InclusionList) error {
+	// Basic validation: non-empty transactions.
+	if len(il.Transactions) == 0 {
+		return nil
+	}
+
+	// Log the received inclusion list.
+	slog.Debug("processInclusionList", "slot", il.Slot, "validator_index", il.ValidatorIndex, "tx_count", len(il.Transactions))
+
+	// The node backend does not yet wire incoming inclusion lists into a real
+	// store or block-building path, so reject them instead of falsely
+	// acknowledging successful processing.
+	return errInclusionListStorageUnsupported
 }

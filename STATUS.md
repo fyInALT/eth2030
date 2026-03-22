@@ -1,5 +1,93 @@
 # Project Status
 
+## Inclusion List JSON Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Simplify the local inclusion-list JSON parsing helpers in `pkg/engine/inclusion_list.go` without changing the wire format or validation behavior.
+
+**Completed Work:**
+- Extract small helper functions for repeated hex-prefix stripping and byte-slice conversion.
+- Reuse the helpers from the custom JSON marshal/unmarshal paths.
+- Add focused parsing tests and rerun the relevant engine test suites.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
+## Blob Bundle Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Deduplicate the cell-proof expansion logic shared by the V2 and V6 blob-bundle builders in `pkg/engine/backend.go` without changing output formats.
+
+**Completed Work:**
+- Extract shared blob sidecar collection and cell-proof expansion logic.
+- Reuse the helper from the V2 and V6 blob-bundle builders.
+- Verify the relevant engine test suites after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
+## Payload Retrieval Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Deduplicate the repeated payload retrieval paths in `pkg/engine/backend.go` without changing API-specific response contents or async eviction behavior.
+
+**Completed Work:**
+- Extract shared helpers for async payload waiting and mutex-protected payload lookup.
+- Reuse the helpers from `GetPayloadByID`, `GetPayloadV4ByID`, `GetPayloadV5`, and `GetPayloadV6ByID`.
+- Verify the relevant engine test suites after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
+## Inclusion List Selection Refactor (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Deduplicate inclusion-list transaction selection across engine backends and make oversized pending transactions skippable instead of aborting the whole selection pass.
+
+**Completed Work:**
+- Extract shared inclusion-list transaction selection into a helper in `pkg/core/eips/inclusion_list.go`.
+- Use the helper from both `pkg/engine/backend.go` and `pkg/node/backend/engine_backend.go`.
+- Add a focused test for oversized-transaction skipping.
+- Verify the relevant Go test suites after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./core/eips ./engine/... ./node/backend/...`
+
+## Engine Review Follow-Up (2026-03-21)
+
+### Current Status: COMPLETE
+
+**Scope:** Recheck branch review findings, confirm whether `engine_getPayloadV5` JSON encoding is already fixed, and address the remaining safe bugs in inclusion-list handling.
+
+**Completed Work:**
+- Verified that the `engine_getPayloadV5` response encoding issue was already fixed on this branch by `fdd0820`.
+- Reject oversized hex input in `flexibleUint64` instead of truncating it.
+- Make the node backend return an explicit error for `ProcessInclusionList` until real storage/wiring exists.
+- Add tests for the inclusion-list fixes and rerun the relevant engine/node test suites.
+
+**Verification:**
+- `cd pkg && go test ./engine/... ./node/backend/...`
+
+## Engine Lock Wrapper Refactor (2026-03-19)
+
+### Current Status: COMPLETE
+
+**Scope:** Refactor `pkg/engine/backend.go` so accesses guarded by `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` go through helper functions instead of open-coded lock/unlock pairs.
+
+**Completed Work:**
+- Add backend accessor methods that encapsulate `stateMu`, `blocksMu`, `payloadMu`, and `ilMu` reads/writes.
+- Migrate existing call sites in `pkg/engine/backend.go` to the accessors without changing lock ordering or behavior.
+- Follow up on the accessor refactor by removing remaining unsynchronized forkchoice field reads in `ForkchoiceUpdated`.
+- Extend the accessor refactor into `pkg/engine/backend_bodies.go` to remove direct mutex usage there as well.
+- Verify the `pkg/engine` build and tests after the refactor.
+
+**Verification:**
+- `cd pkg && go test ./engine/...`
+
 ## Go Test Repair (2026-03-19)
 
 ### Current Status: COMPLETE

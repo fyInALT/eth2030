@@ -330,7 +330,12 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 			txs = append(txs, ilTx)
 			receipts = append(receipts, receipt)
-			gasUsed += used
+			// EIP-7778: Under Glamsterdam, header.GasUsed uses pre-refund gas (BlockGasUsed).
+			if glamActive && receipt.BlockGasUsed > 0 {
+				gasUsed += receipt.BlockGasUsed
+			} else {
+				gasUsed += used
+			}
 
 			if ilTx.Type() == types.BlobTxType && cancunActive {
 				blobGasUsed += ilTx.BlobGas()
@@ -456,13 +461,20 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)
-		gasUsed += used
+		// EIP-7778: Under Glamsterdam, header.GasUsed uses pre-refund gas (BlockGasUsed).
+		if glamActive && receipt.BlockGasUsed > 0 {
+			gasUsed += receipt.BlockGasUsed
+		} else {
+			gasUsed += used
+		}
 		slog.Debug("builder: included tx",
 			"event", "builder_tx_gas",
 			"blockNum", header.Number.Uint64(),
 			"txIndex", txIndex,
 			"txHash", tx.Hash().Hex(),
 			"gasUsed", used,
+			"blockGasUsed", receipt.BlockGasUsed,
+			"glamActive", glamActive,
 		)
 
 		// Feed the ReceiptGenerator with per-tx outcome for enhanced bloom and
@@ -809,7 +821,12 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)
-		gasUsed += used
+		// EIP-7778: Under Glamsterdam, header.GasUsed uses pre-refund gas (BlockGasUsed).
+		if glamActiveLegacy && receipt.BlockGasUsed > 0 {
+			gasUsed += receipt.BlockGasUsed
+		} else {
+			gasUsed += used
+		}
 
 		// Track blob gas.
 		if tx.Type() == types.BlobTxType && cancunActive {

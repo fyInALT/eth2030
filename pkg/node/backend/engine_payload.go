@@ -131,6 +131,41 @@ func (b *EngineBackend) GetPayloadByID(id payload.PayloadID) (*payload.GetPayloa
 		)
 	}
 
+	// Cache blobs for engine_getBlobsV2 (PeerDAS).
+	// When the CL calls engine_getBlobsV2, it needs to find blobs in the cache
+	// because engine_newPayload doesn't receive blob data.
+	if len(blobsBundle.Blobs) > 0 {
+		b.blobCacheMu.Lock()
+		// Clear old cache entries to avoid stale data
+		b.blobCache = make(map[types.Hash][]byte)
+		for _, tx := range blk.Transactions() {
+			if tx.Type() != types.BlobTxType {
+				continue
+			}
+			sc := tx.BlobSidecar()
+			if sc == nil {
+				slog.Warn("engine_getPayload: BlobSidecar is nil for blob tx")
+				continue
+			}
+			blobHashes := tx.BlobHashes()
+			slog.Debug("engine_getPayload: caching blob hashes",
+				"blobHashes", len(blobHashes),
+				"scBlobs", len(sc.Blobs),
+			)
+			for i, hash := range blobHashes {
+				if i < len(sc.Blobs) && len(sc.Blobs[i]) > 0 {
+					b.blobCache[hash] = sc.Blobs[i]
+					slog.Debug("engine_getPayload: cached blob", "hash", hash.Hex(), "index", i)
+				}
+			}
+		}
+		b.blobCacheMu.Unlock()
+		slog.Debug("engine_getPayload: cached blobs for getBlobsV2",
+			"blobCount", len(b.blobCache),
+			"blockNumber", blk.NumberU64(),
+		)
+	}
+
 	return &payload.GetPayloadResponse{
 		ExecutionPayload: execPayload,
 		BlockValue:       blockValue,
@@ -160,11 +195,28 @@ func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayl
 		return nil, err
 	}
 	var blobsBundleV2 *payload.BlobsBundleV2
-	if b1 := resp.BlobsBundle; b1 != nil {
+	if b1 := resp.BlobsBundle; b1 != nil && len(b1.Blobs) > 0 {
+		// Expand KZG proofs to cell proofs (128 per blob) for PeerDAS.
+		cellProofs, _ := expandBlobCellProofs(b1.Blobs, "GetPayloadV6ByID: ComputeCellsAndProofs failed")
 		blobsBundleV2 = &payload.BlobsBundleV2{
 			Commitments: b1.Commitments,
-			Proofs:      b1.Proofs,
+			Proofs:      cellProofs,
 			Blobs:       b1.Blobs,
+		}
+		// Debug: print first proof bytes to verify non-zero
+		if len(cellProofs) > 0 && len(cellProofs[0]) >= 16 {
+			slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
+				"blobCount", len(b1.Blobs),
+				"cellProofs", len(cellProofs),
+				"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
+				"firstProofHex", fmt.Sprintf("%x", cellProofs[0][:16]),
+			)
+		} else {
+			slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
+				"blobCount", len(b1.Blobs),
+				"cellProofs", len(cellProofs),
+				"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
+			)
 		}
 	}
 	return &payload.GetPayloadV6Response{
@@ -242,6 +294,19 @@ func (b *EngineBackend) computeBlobsV2(hashes []types.Hash) []*payload.BlobAndPr
 	b.blobCacheMu.RLock()
 	cachedBlobs := make([][]byte, len(hashes))
 	cacheHits := 0
+	// Debug: log the requested hashes and cache keys
+	var requestedHashes []string
+	for _, h := range hashes {
+		requestedHashes = append(requestedHashes, h.Hex())
+	}
+	var cacheKeys []string
+	for h := range b.blobCache {
+		cacheKeys = append(cacheKeys, h.Hex())
+	}
+	slog.Debug("computeBlobsV2: hash comparison",
+		"requested", requestedHashes,
+		"cacheKeys", cacheKeys,
+	)
 	for i, h := range hashes {
 		if blob, ok := b.blobCache[h]; ok {
 			cachedBlobs[i] = blob
@@ -370,4 +435,33 @@ func encodeTxsRLP(txs []*types.Transaction) [][]byte {
 		encoded = append(encoded, raw)
 	}
 	return encoded
+}
+
+// expandBlobCellProofs expands each blob's KZG proof to 128 per-cell KZG proofs.
+// This is required by the Fulu/PeerDAS spec for BlobsBundleV2.
+func expandBlobCellProofs(blobs [][]byte, warnLabel string) ([][]byte, int) {
+	if len(blobs) == 0 {
+		return nil, 0
+	}
+
+	kzg := bls.DefaultKZGBackend()
+	proofs := make([][]byte, 0, len(blobs)*bls.KZGCellsPerExtBlob)
+	totalProofs := 0
+	for _, blob := range blobs {
+		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
+		if err != nil {
+			slog.Warn(warnLabel, "err", err)
+			for range bls.KZGCellsPerExtBlob {
+				proofs = append(proofs, make([]byte, bls.KZGBytesPerProof))
+				totalProofs++
+			}
+			continue
+		}
+		for _, p := range cellProofs {
+			cp := p
+			proofs = append(proofs, cp[:])
+			totalProofs++
+		}
+	}
+	return proofs, totalProofs
 }

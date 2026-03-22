@@ -5,7 +5,7 @@ participants:
     el_extra_params: ["--rpc.rate_limit=0"]
     cl_type: lighthouse
     cl_log_level: debug
-    cl_image: sigp/lighthouse:latest
+    cl_image: eth2030cl:local
     # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
     # count: 3 forms a triangle gossip mesh — if any pair temporarily disconnects
     # at the Fulu sync_committee deadline (slot 40 = epoch 1 slot 8), the third
@@ -16,14 +16,17 @@ participants:
 
 network_params:
   network: kurtosis
-  seconds_per_slot: 2
+  seconds_per_slot: 15
   genesis_delay: 60
-  # fulu_fork_epoch: 1 pushes the first Fulu sync_committee deadline to slot 40,
-  # giving nodes 40 slots (80s) to accumulate peer score before the brief gossip
-  # disruption. With count: 3, nodes can reconnect via the third peer.
+  # Fork schedule:
+  # - fulu_fork_epoch: 1 → Fulu (PeerDAS) starts at epoch 1 (slot 32)
+  # - gloas_fork_epoch: 2 → Gloas (ePBS/EIP-7732) starts at epoch 2 (slot 64)
+  # - heze_fork_epoch: 3 → Heze (FOCIL/EIP-7805) starts at epoch 3 (slot 96)
   # Note: Lighthouse warns about non-256-aligned fork epochs — this is acceptable
   # for a devnet where stability is more important than period alignment.
   fulu_fork_epoch: 1
+  gloas_fork_epoch: 2
+  heze_fork_epoch: 3
 
 additional_services:
   - dora

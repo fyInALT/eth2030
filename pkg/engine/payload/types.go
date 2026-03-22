@@ -149,17 +149,17 @@ type GetPayloadV6Response struct {
 
 // BlobsBundleV1 is the blobs bundle returned by engine_getPayload.
 type BlobsBundleV1 struct {
-	Commitments [][]byte `json:"commitments"`
-	Proofs      [][]byte `json:"proofs"`
-	Blobs       [][]byte `json:"blobs"`
+	Commitments [][]byte
+	Proofs      [][]byte
+	Blobs       [][]byte
 }
 
 // BlobAndProofV1 is a single blob with its KZG commitment and proof,
 // returned by engine_getBlobsV1.
 type BlobAndProofV1 struct {
-	Blob       []byte `json:"blob"`
-	Commitment []byte `json:"commitment"`
-	Proof      []byte `json:"proof"`
+	Blob       []byte
+	Commitment []byte
+	Proof      []byte
 }
 
 // GetPayloadResponse is the combined response for engine_getPayload.

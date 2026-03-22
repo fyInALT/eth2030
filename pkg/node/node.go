@@ -31,6 +31,7 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/core/vops"
 	"github.com/eth2030/eth2030/crypto"
+	"github.com/eth2030/eth2030/crypto/bls"
 	dasblobpool "github.com/eth2030/eth2030/das/blobpool"
 	dasnetwork "github.com/eth2030/eth2030/das/network"
 	dasvalidator "github.com/eth2030/eth2030/das/validator"
@@ -276,6 +277,15 @@ func New(config *Config) (*Node, error) {
 		slog.Info("BLS backend: pure-go")
 	} else {
 		slog.Info("BLS backend: blst (default)")
+	}
+
+	// Initialize KZG backend for EIP-4844 blobs and EIP-7594 PeerDAS cell proofs.
+	// This is required for computing cell proofs in BlobsBundleV2 (Fulu+).
+	if kzgBackend, err := bls.NewGoEthKZGBackend(); err != nil {
+		slog.Warn("failed to initialize KZG backend, using placeholder (cell proofs will be zero)", "err", err)
+	} else {
+		bls.SetKZGBackend(kzgBackend)
+		slog.Info("KZG backend initialized", "backend", kzgBackend.Name())
 	}
 
 	// GAP-5.2: log finality mode selection.

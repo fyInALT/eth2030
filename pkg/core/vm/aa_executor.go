@@ -24,8 +24,8 @@ var (
 	ErrAABundlePartialFailure = errors.New("aa: bundle contains failed transactions")
 )
 
-// AATxType is the transaction type byte for EIP-7701 AA transactions.
-const AATxType byte = 0x04
+// Use types.AATxType for the transaction type byte (0x05).
+// This is defined in core/types/tx_aa.go per EIP-7701.
 
 // CallerRole identifies the entity performing a call in an AA context.
 type CallerRole uint8

@@ -3,18 +3,132 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
+	"strconv"
+	"strings"
 
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/backendapi"
 )
 
+// hexBytes is a []byte that unmarshals from hex-encoded JSON strings (0x prefix).
+// Go's default []byte JSON unmarshal uses base64, but Ethereum uses hex encoding.
+type hexBytes []byte
+
+func trim0xPrefix(s string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
+}
+
+func toByteSlices[T ~[]byte](in []T) [][]byte {
+	out := make([][]byte, len(in))
+	for i, v := range in {
+		out[i] = []byte(v)
+	}
+	return out
+}
+
+func toHexBytesSlice(in [][]byte) []hexBytes {
+	out := make([]hexBytes, len(in))
+	for i, v := range in {
+		out[i] = hexBytes(v)
+	}
+	return out
+}
+
+func (h hexBytes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("0x%x", []byte(h)))
+}
+
+func (h *hexBytes) UnmarshalJSON(data []byte) error {
+	// Try string first (hex-encoded)
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		decoded, err := hexDecodeString(trim0xPrefix(s))
+		if err != nil {
+			return fmt.Errorf("hexBytes: invalid hex string: %w", err)
+		}
+		*h = decoded
+		return nil
+	}
+
+	// Fallback: try as raw JSON array of numbers
+	var rawBytes []byte
+	if err := json.Unmarshal(data, &rawBytes); err != nil {
+		return fmt.Errorf("hexBytes: expected hex string or byte array, got %s", string(data))
+	}
+	*h = rawBytes
+	return nil
+}
+
+// hexDecodeString decodes a hex string to bytes.
+func hexDecodeString(s string) ([]byte, error) {
+	// Handle odd-length strings
+	if len(s)%2 != 0 {
+		s = "0" + s
+	}
+	result := make([]byte, len(s)/2)
+	for i := 0; i < len(s); i += 2 {
+		b, err := strconv.ParseUint(s[i:i+2], 16, 8)
+		if err != nil {
+			return nil, err
+		}
+		result[i/2] = byte(b)
+	}
+	return result, nil
+}
+
+// flexibleUint64 can unmarshal from a JSON number, decimal string, or hex string.
+// This handles different serialization formats from CL implementations.
+type flexibleUint64 uint64
+
+func (f flexibleUint64) MarshalJSON() ([]byte, error) {
+	return json.Marshal(strconv.FormatUint(uint64(f), 10))
+}
+
+func (f *flexibleUint64) UnmarshalJSON(data []byte) error {
+	// Try JSON number first
+	var num uint64
+	if err := json.Unmarshal(data, &num); err == nil {
+		*f = flexibleUint64(num)
+		return nil
+	}
+
+	// Try string
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("flexibleUint64: expected number or string, got %s", string(data))
+	}
+
+	// Try hex prefix
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		n := new(big.Int)
+		if _, ok := n.SetString(s[2:], 16); !ok {
+			return fmt.Errorf("flexibleUint64: invalid hex %q", s)
+		}
+		if n.Sign() < 0 || n.BitLen() > 64 {
+			return fmt.Errorf("flexibleUint64: hex value out of uint64 range %q", s)
+		}
+		*f = flexibleUint64(n.Uint64())
+		return nil
+	}
+
+	// Try decimal
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("flexibleUint64: invalid decimal %q: %w", s, err)
+	}
+	*f = flexibleUint64(n)
+	return nil
+}
+
 // InclusionListV1 is the Engine API representation of an inclusion list.
 // Sent from the CL to the EL via engine_newInclusionListV1.
+// Transactions are hex-encoded strings with 0x prefix (Ethereum JSON-RPC convention).
 type InclusionListV1 struct {
-	Slot           uint64     `json:"slot"`
-	ValidatorIndex uint64     `json:"validatorIndex"`
-	CommitteeRoot  types.Hash `json:"inclusionListCommitteeRoot"`
-	Transactions   [][]byte   `json:"transactions"`
+	Slot           flexibleUint64 `json:"slot"`
+	ValidatorIndex flexibleUint64 `json:"validatorIndex"`
+	CommitteeRoot  types.Hash     `json:"inclusionListCommitteeRoot"`
+	Transactions   []hexBytes     `json:"transactions"`
 }
 
 // InclusionListStatusV1 is the response to engine_newInclusionListV1.
@@ -24,8 +138,9 @@ type InclusionListStatusV1 struct {
 }
 
 // GetInclusionListResponseV1 is the response to engine_getInclusionListV1.
+// Transactions are hex-encoded strings with 0x prefix (JSON-RPC convention).
 type GetInclusionListResponseV1 struct {
-	Transactions [][]byte `json:"transactions"`
+	Transactions []string `json:"transactions"`
 }
 
 // Inclusion list status values.
@@ -36,21 +151,22 @@ const (
 
 // ToCore converts the Engine API inclusion list to the core types representation.
 func (il *InclusionListV1) ToCore() *types.InclusionList {
+	// Convert hexBytes to [][]byte
 	return &types.InclusionList{
-		Slot:           il.Slot,
-		ValidatorIndex: il.ValidatorIndex,
+		Slot:           uint64(il.Slot),
+		ValidatorIndex: uint64(il.ValidatorIndex),
 		CommitteeRoot:  il.CommitteeRoot,
-		Transactions:   il.Transactions,
+		Transactions:   toByteSlices(il.Transactions),
 	}
 }
 
 // InclusionListFromCore converts a core types InclusionList to Engine API format.
 func InclusionListFromCore(il *types.InclusionList) *InclusionListV1 {
 	return &InclusionListV1{
-		Slot:           il.Slot,
-		ValidatorIndex: il.ValidatorIndex,
+		Slot:           flexibleUint64(il.Slot),
+		ValidatorIndex: flexibleUint64(il.ValidatorIndex),
 		CommitteeRoot:  il.CommitteeRoot,
-		Transactions:   il.Transactions,
+		Transactions:   toHexBytesSlice(il.Transactions),
 	}
 }
 
@@ -83,12 +199,17 @@ func (api *EngineAPI) NewInclusionListV1(il InclusionListV1) (InclusionListStatu
 func (api *EngineAPI) GetInclusionListV1() (*GetInclusionListResponseV1, error) {
 	ilBackend, ok := api.backend.(InclusionListBackend)
 	if !ok {
-		return &GetInclusionListResponseV1{Transactions: [][]byte{}}, nil
+		return &GetInclusionListResponseV1{Transactions: []string{}}, nil
 	}
 
 	il := ilBackend.GetInclusionList()
+	// Convert transactions to hex-encoded strings with 0x prefix
+	txs := make([]string, len(il.Transactions))
+	for i, tx := range il.Transactions {
+		txs[i] = fmt.Sprintf("0x%x", tx)
+	}
 	return &GetInclusionListResponseV1{
-		Transactions: il.Transactions,
+		Transactions: txs,
 	}, nil
 }
 

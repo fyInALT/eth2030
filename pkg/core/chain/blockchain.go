@@ -475,9 +475,16 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	receipts := result.Receipts
 
 	// Validate gas used.
+	// EIP-7778: Under Glamsterdam, header.GasUsed uses pre-refund gas (BlockGasUsed).
+	// Pre-Glamsterdam, header.GasUsed uses post-refund gas (GasUsed).
 	var totalGasUsed uint64
+	isGlamsterdan := bc.config != nil && bc.config.IsGlamsterdan(header.Time)
 	for _, r := range receipts {
-		totalGasUsed += r.GasUsed
+		if isGlamsterdan && r.BlockGasUsed > 0 {
+			totalGasUsed += r.BlockGasUsed
+		} else {
+			totalGasUsed += r.GasUsed
+		}
 	}
 	if header.GasUsed != totalGasUsed {
 		err := fmt.Errorf("%w: header=%d computed=%d", block.ErrInvalidGasUsedTotal, header.GasUsed, totalGasUsed)
@@ -497,6 +504,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 				"txIndex", i,
 				"txHash", r.TxHash.Hex(),
 				"gasUsed", r.GasUsed,
+				"blockGasUsed", r.BlockGasUsed,
 			)
 		}
 		return err
@@ -1270,8 +1278,17 @@ func (bc *Blockchain) readBlock(hash types.Hash) *types.Block {
 	// Read body.
 	bodyData, err := rawdb.ReadBody(bc.db, num, hash)
 	if err != nil || len(bodyData) == 0 {
-		// Body may be empty for blocks with no transactions; create block with header only.
-		return types.NewBlock(header, nil)
+		// Body may have been migrated to AncientStore; try there.
+		if bc.ancientStore != nil {
+			bodyData, err = bc.ancientStore.ReadBody(num)
+			if err != nil || len(bodyData) == 0 {
+				// Body may be empty for blocks with no transactions.
+				return types.NewBlock(header, nil)
+			}
+		} else {
+			// No AncientStore; create block with header only.
+			return types.NewBlock(header, nil)
+		}
 	}
 	body, err := decodeBlockBody(bodyData)
 	if err != nil {

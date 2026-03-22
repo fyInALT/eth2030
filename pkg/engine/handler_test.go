@@ -289,7 +289,7 @@ func TestHandler_InclusionListV1(t *testing.T) {
 		Slot:           5,
 		ValidatorIndex: 1,
 		CommitteeRoot:  types.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
-		Transactions:   [][]byte{{0x01, 0x02}},
+		Transactions:   []hexBytes{{0x01, 0x02}},
 	}
 	ilJSON, _ := json.Marshal(il)
 	params := []json.RawMessage{ilJSON}
@@ -421,5 +421,92 @@ func TestHandler_SubmitBlindedBlockV1_MissingParams(t *testing.T) {
 	}
 	if rpcErr.Code != InvalidParamsCode {
 		t.Fatalf("want code %d, got %d", InvalidParamsCode, rpcErr.Code)
+	}
+}
+
+// TestHexBytes_JSON tests hexBytes JSON marshaling/unmarshaling.
+func TestHexBytes_JSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []byte
+	}{
+		{
+			name:     "hex with 0x prefix",
+			input:    `"0x0102"`,
+			expected: []byte{0x01, 0x02},
+		},
+		{
+			name:     "hex with 0X prefix",
+			input:    `"0X0a0b"`,
+			expected: []byte{0x0a, 0x0b},
+		},
+		{
+			name:     "hex without prefix",
+			input:    `"deadbeef"`,
+			expected: []byte{0xde, 0xad, 0xbe, 0xef},
+		},
+		{
+			name:     "odd length hex",
+			input:    `"0x1"`,
+			expected: []byte{0x01},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var h hexBytes
+			if err := json.Unmarshal([]byte(tt.input), &h); err != nil {
+				t.Fatalf("unmarshal error: %v", err)
+			}
+			if string(h) != string(tt.expected) {
+				t.Fatalf("want %x, got %x", tt.expected, h)
+			}
+		})
+	}
+}
+
+// TestHexBytes_Marshal tests hexBytes marshals to hex string with 0x prefix.
+func TestHexBytes_Marshal(t *testing.T) {
+	h := hexBytes{0x01, 0x02, 0x03}
+	data, err := json.Marshal(h)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	expected := `"0x010203"`
+	if string(data) != expected {
+		t.Fatalf("want %s, got %s", expected, string(data))
+	}
+}
+
+// TestInclusionListV1_JSON tests InclusionListV1 JSON with hex-encoded transactions.
+func TestInclusionListV1_JSON(t *testing.T) {
+	// Simulate what Lighthouse sends (hex-encoded strings with 0x prefix)
+	jsonInput := `{
+		"slot": "123",
+		"validatorIndex": "456",
+		"inclusionListCommitteeRoot": "0x1111111111111111111111111111111111111111111111111111111111111111",
+		"transactions": ["0x0102", "0xdeadbeef"]
+	}`
+
+	var il InclusionListV1
+	if err := json.Unmarshal([]byte(jsonInput), &il); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if uint64(il.Slot) != 123 {
+		t.Fatalf("want slot 123, got %d", il.Slot)
+	}
+	if uint64(il.ValidatorIndex) != 456 {
+		t.Fatalf("want validatorIndex 456, got %d", il.ValidatorIndex)
+	}
+	if len(il.Transactions) != 2 {
+		t.Fatalf("want 2 transactions, got %d", len(il.Transactions))
+	}
+	if string(il.Transactions[0]) != string([]byte{0x01, 0x02}) {
+		t.Fatalf("want first tx [01 02], got %x", il.Transactions[0])
+	}
+	if string(il.Transactions[1]) != string([]byte{0xde, 0xad, 0xbe, 0xef}) {
+		t.Fatalf("want second tx [de ad be ef], got %x", il.Transactions[1])
 	}
 }
