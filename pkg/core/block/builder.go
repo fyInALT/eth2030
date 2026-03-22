@@ -473,6 +473,8 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			"txIndex", txIndex,
 			"txHash", tx.Hash().Hex(),
 			"gasUsed", used,
+			"blockGasUsed", receipt.BlockGasUsed,
+			"glamActive", glamActive,
 		)
 
 		// Feed the ReceiptGenerator with per-tx outcome for enhanced bloom and

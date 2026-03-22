@@ -504,6 +504,7 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 				"txIndex", i,
 				"txHash", r.TxHash.Hex(),
 				"gasUsed", r.GasUsed,
+				"blockGasUsed", r.BlockGasUsed,
 			)
 		}
 		return err

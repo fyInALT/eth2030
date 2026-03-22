@@ -42,12 +42,16 @@ type chainConfigJSON struct {
 
 	TerminalTotalDifficulty *bigIntJSON `json:"terminalTotalDifficulty"`
 
-	ShanghaiTime  *uint64 `json:"shanghaiTime"`
-	CancunTime    *uint64 `json:"cancunTime"`
-	PragueTime    *uint64 `json:"pragueTime"`
-	AmsterdamTime *uint64 `json:"amsterdamTime"`
-	HogotaTime    *uint64 `json:"hogotaTime"`
-	IPlusTime     *uint64 `json:"iPlusTime"`
+	ShanghaiTime        *uint64 `json:"shanghaiTime"`
+	CancunTime          *uint64 `json:"cancunTime"`
+	PragueTime          *uint64 `json:"pragueTime"`
+	AmsterdamTime       *uint64 `json:"amsterdamTime"`
+	GlamsterdanTime     *uint64 `json:"glamsterdanTime"`
+	HogotaTime          *uint64 `json:"hogotaTime"`
+	IPlusTime           *uint64 `json:"iPlusTime"`
+	BPO1Time            *uint64 `json:"bpo1Time"`
+	BPO2Time            *uint64 `json:"bpo2Time"`
+	EIP7864FinalHashTime *uint64 `json:"eip7864FinalHashTime"`
 }
 
 // allocAccountJSON is an account in the genesis alloc.
@@ -234,8 +238,12 @@ func loadGenesisFile(cfg *Config) (*coreconfig.Genesis, error) {
 	chainCfg.CancunTime = gj.Config.CancunTime
 	chainCfg.PragueTime = gj.Config.PragueTime
 	chainCfg.AmsterdamTime = gj.Config.AmsterdamTime
+	chainCfg.GlamsterdanTime = gj.Config.GlamsterdanTime
 	chainCfg.HogotaTime = gj.Config.HogotaTime
 	chainCfg.IPlusTime = gj.Config.IPlusTime
+	chainCfg.BPO1Time = gj.Config.BPO1Time
+	chainCfg.BPO2Time = gj.Config.BPO2Time
+	chainCfg.EIP7864FinalHashTime = gj.Config.EIP7864FinalHashTime
 
 	// Apply fork override timestamps from CLI flags.
 	applyForkOverrides(chainCfg, cfg)
