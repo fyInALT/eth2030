@@ -42,15 +42,15 @@ type chainConfigJSON struct {
 
 	TerminalTotalDifficulty *bigIntJSON `json:"terminalTotalDifficulty"`
 
-	ShanghaiTime        *uint64 `json:"shanghaiTime"`
-	CancunTime          *uint64 `json:"cancunTime"`
-	PragueTime          *uint64 `json:"pragueTime"`
-	AmsterdamTime       *uint64 `json:"amsterdamTime"`
-	GlamsterdanTime     *uint64 `json:"glamsterdanTime"`
-	HogotaTime          *uint64 `json:"hogotaTime"`
-	IPlusTime           *uint64 `json:"iPlusTime"`
-	BPO1Time            *uint64 `json:"bpo1Time"`
-	BPO2Time            *uint64 `json:"bpo2Time"`
+	ShanghaiTime         *uint64 `json:"shanghaiTime"`
+	CancunTime           *uint64 `json:"cancunTime"`
+	PragueTime           *uint64 `json:"pragueTime"`
+	AmsterdamTime        *uint64 `json:"amsterdamTime"`
+	GlamsterdanTime      *uint64 `json:"glamsterdanTime"`
+	HogotaTime           *uint64 `json:"hogotaTime"`
+	IPlusTime            *uint64 `json:"iPlusTime"`
+	BPO1Time             *uint64 `json:"bpo1Time"`
+	BPO2Time             *uint64 `json:"bpo2Time"`
 	EIP7864FinalHashTime *uint64 `json:"eip7864FinalHashTime"`
 }
 

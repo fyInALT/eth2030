@@ -43,9 +43,9 @@ type blockProcResp struct {
 var errInclusionListStorageUnsupported = errors.New("inclusion list storage not wired in node backend")
 
 const (
-	fcuCacheSize       = 8  // Number of FCU entries to cache
-	defaultMaxPayloads = 32 // Default number of payloads to cache
-	processChSize      = 8  // Buffer size for block processing channel
+	fcuCacheSize       = 8   // Number of FCU entries to cache
+	defaultMaxPayloads = 32  // Default number of payloads to cache
+	processChSize      = 8   // Buffer size for block processing channel
 	blobCacheMaxSize   = 256 // Maximum number of blobs to cache for getBlobsV2
 )
 
