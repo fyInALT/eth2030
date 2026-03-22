@@ -347,8 +347,10 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 				continue
 			}
 			blockDimStorageUsed += receipt.DimStorageGas
-			aaInfo := execution.ApplyAAPostExecution(statedb, ilTx, receipt, used, nil)
-			logBuilderAAPostExecution(header, ilTx, txIndex, used, aaInfo, false)
+			if balActive {
+				aaInfo := execution.ApplyAAPostExecution(statedb, ilTx, receipt, used, nil)
+				logBuilderAAPostExecution(header, ilTx, txIndex, used, aaInfo, false)
+			}
 
 			txs = append(txs, ilTx)
 			receipts = append(receipts, receipt)
@@ -480,8 +482,10 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			continue
 		}
 		blockDimStorageUsed += receipt.DimStorageGas
-		aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
-		logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, false)
+		if balActive {
+			aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
+			logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, false)
+		}
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)
@@ -842,8 +846,10 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 			continue
 		}
 		blockDimStorageUsedLegacy += receipt.DimStorageGas
-		aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
-		logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, true)
+		if balActive {
+			aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
+			logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, true)
+		}
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)

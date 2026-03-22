@@ -14,6 +14,12 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
+func testConfigWithoutAmsterdam() *config.ChainConfig {
+	cfg := *config.TestConfig
+	cfg.AmsterdamTime = nil
+	return &cfg
+}
+
 // makeGenesisInteg creates a genesis block for integration tests.
 func makeGenesisInteg(gasLimit uint64, baseFee *big.Int) *types.Block {
 	blobGasUsed := uint64(0)
@@ -347,6 +353,63 @@ func TestBuildBlock_AATxReplayMatchesBuiltStateRoot(t *testing.T) {
 	}
 	if replayState.GetNonce(sender) == 0 {
 		t.Fatalf("replay sender nonce = %d, want AA post-execution nonce increment", replayState.GetNonce(sender))
+	}
+}
+
+func TestBuildBlock_AATxReplayMatchesBuiltStateRoot_PreAmsterdam(t *testing.T) {
+	cfg := testConfigWithoutAmsterdam()
+	builderState := state.NewMemoryStateDB()
+	replayState := state.NewMemoryStateDB()
+	sender := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	funds := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18))
+	builderState.AddBalance(sender, funds)
+	replayState.AddBalance(sender, new(big.Int).Set(funds))
+
+	genesis := makeGenesisInteg(30_000_000, big.NewInt(1))
+	db := rawdb.NewMemoryDB()
+	bc, err := chain.NewBlockchain(cfg, genesis, builderState, db)
+	if err != nil {
+		t.Fatalf("NewBlockchain: %v", err)
+	}
+
+	aaTx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+
+	pool := &mockTxPoolInteg{txs: []*types.Transaction{aaTx}}
+	builder := block.NewBlockBuilder(cfg, bc, pool)
+	attrs := &block.BuildBlockAttributes{
+		Timestamp:    12,
+		FeeRecipient: types.BytesToAddress([]byte{0xff}),
+		GasLimit:     30_000_000,
+	}
+
+	blk, receipts, err := builder.BuildBlock(genesis.Header(), attrs)
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("receipt count = %d, want 1", len(receipts))
+	}
+
+	proc := execution.NewStateProcessor(cfg)
+	if _, err := proc.ProcessWithBAL(blk, replayState); err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	if blk.Root() != replayState.GetRoot() {
+		t.Fatalf("state root mismatch: built=%s replay=%s", blk.Root(), replayState.GetRoot())
+	}
+	if replayState.GetNonce(sender) != 1 {
+		t.Fatalf("pre-Amsterdam AA sender nonce = %d, want 1", replayState.GetNonce(sender))
 	}
 }
 
