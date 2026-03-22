@@ -52,6 +52,7 @@ type StateDB interface {
 	AddSlotToAccessList(addr types.Address, slot types.Hash)
 	AddressInAccessList(addr types.Address) bool
 	SlotInAccessList(addr types.Address, slot types.Hash) (addressOk bool, slotOk bool)
+	ClearAccessList()
 
 	// Transient storage (EIP-1153)
 	GetTransientState(addr types.Address, key types.Hash) types.Hash

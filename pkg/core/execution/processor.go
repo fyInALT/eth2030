@@ -825,6 +825,40 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 	// AA-1.3: wire slasher so applyMessage can slash paymasters on bad settlement.
 	msg.Slasher = slasher
 
+	preexistingFromWarm := statedb.AddressInAccessList(msg.From)
+	preexistingToWarm := false
+	if msg.To != nil {
+		preexistingToWarm = statedb.AddressInAccessList(*msg.To)
+	}
+	preexistingCoinbaseWarm := statedb.AddressInAccessList(header.Coinbase)
+	preexistingWarmSlots := 0
+	for _, tuple := range msg.AccessList {
+		for _, key := range tuple.StorageKeys {
+			if _, warm := statedb.SlotInAccessList(tuple.Address, key); warm {
+				preexistingWarmSlots++
+			}
+		}
+	}
+	if preexistingFromWarm || preexistingToWarm || preexistingCoinbaseWarm || preexistingWarmSlots > 0 {
+		toHex := ""
+		if msg.To != nil {
+			toHex = msg.To.Hex()
+		}
+		execLog.Debug("tx_access_list_reset",
+			"event", "tx_access_list_reset",
+			"blockNum", header.Number.Uint64(),
+			"txHash", tx.Hash().Hex(),
+			"txType", tx.Type(),
+			"from", msg.From.Hex(),
+			"to", toHex,
+			"fromWarm", preexistingFromWarm,
+			"toWarm", preexistingToWarm,
+			"coinbaseWarm", preexistingCoinbaseWarm,
+			"warmSlots", preexistingWarmSlots,
+		)
+	}
+	statedb.ClearAccessList()
+
 	snapshot := statedb.Snapshot()
 
 	result, err := applyMessage(config, getHash, statedb, header, &msg, gp, tracker)

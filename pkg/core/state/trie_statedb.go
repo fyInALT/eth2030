@@ -504,6 +504,10 @@ func (t *TrieStateDB) SlotInAccessList(addr types.Address, slot types.Hash) (boo
 	return t.mem.SlotInAccessList(addr, slot)
 }
 
+func (t *TrieStateDB) ClearAccessList() {
+	t.mem.ClearAccessList()
+}
+
 // --- StateDB interface: transient storage (EIP-1153) ---
 
 func (t *TrieStateDB) GetTransientState(addr types.Address, key types.Hash) types.Hash {
