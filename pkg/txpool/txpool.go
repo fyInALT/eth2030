@@ -653,6 +653,22 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 				maxCost := eips.MaxUserOpGasCost(uo, pool.baseFee)
 				senderBal := pool.state.GetBalance(aatx.Sender)
 				if senderBal.Cmp(maxCost) < 0 {
+					txpoolLog.Debug("aa_tx_balance_check_failed",
+						"event", "aa_tx_balance_check_failed",
+						"hash", tx.Hash().Hex(),
+						"sender", aatx.Sender.Hex(),
+						"paymaster", addressHex(aatx.Paymaster),
+						"nonce", aatx.Nonce,
+						"baseFee", bigIntString(pool.baseFee),
+						"senderBalance", bigIntString(senderBal),
+						"requiredBalance", bigIntString(maxCost),
+						"callGasLimit", aatx.SenderExecutionGas,
+						"verificationGasLimit", aatx.SenderValidationGas,
+						"paymasterVerificationGasLimit", aatx.PaymasterValidationGas,
+						"paymasterPostOpGasLimit", aatx.PaymasterPostOpGas,
+						"maxFeePerGas", bigIntString(aatx.MaxFeePerGas),
+						"maxPriorityFeePerGas", bigIntString(aatx.MaxPriorityFeePerGas),
+					)
 					return fmt.Errorf("aa: insufficient balance for gas: have %s need %s",
 						senderBal, maxCost)
 				}
@@ -734,6 +750,25 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	if balance != nil {
 		cost := pool.txCost(tx)
 		if balance.Cmp(cost) < 0 {
+			if aatx, ok := tx.Inner().(*types.AATx); ok {
+				txpoolLog.Debug("aa_tx_payer_cost_check_failed",
+					"event", "aa_tx_payer_cost_check_failed",
+					"hash", tx.Hash().Hex(),
+					"sender", aatx.Sender.Hex(),
+					"payer", payer.Hex(),
+					"nonce", aatx.Nonce,
+					"payerBalance", bigIntString(balance),
+					"requiredCost", bigIntString(cost),
+					"gas", tx.Gas(),
+					"gasPrice", bigIntString(tx.GasPrice()),
+					"maxFeePerGas", bigIntString(aatx.MaxFeePerGas),
+					"maxPriorityFeePerGas", bigIntString(aatx.MaxPriorityFeePerGas),
+					"senderValidationGas", aatx.SenderValidationGas,
+					"paymasterValidationGas", aatx.PaymasterValidationGas,
+					"senderExecutionGas", aatx.SenderExecutionGas,
+					"paymasterPostOpGas", aatx.PaymasterPostOpGas,
+				)
+			}
 			return ErrInsufficientFunds
 		}
 	}
@@ -799,6 +834,20 @@ func (pool *TxPool) payerOf(tx *types.Transaction) types.Address {
 		return aatx.Sender
 	}
 	return pool.senderOf(tx)
+}
+
+func bigIntString(v *big.Int) string {
+	if v == nil {
+		return "0"
+	}
+	return v.String()
+}
+
+func addressHex(addr *types.Address) string {
+	if addr == nil {
+		return ""
+	}
+	return addr.Hex()
 }
 
 func (pool *TxPool) addPending(from types.Address, tx *types.Transaction) {

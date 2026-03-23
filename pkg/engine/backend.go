@@ -301,6 +301,15 @@ func (b *EngineBackend) storeBlock(blk *types.Block, blockBAL *bal.BlockAccessLi
 	defer b.blocksMu.Unlock()
 
 	blockHash := blk.Hash()
+	if prevHash, ok := b.numberIndex[blk.NumberU64()]; ok && prevHash != blockHash {
+		backendLog.Debug("block_number_collision",
+			"event", "block_number_collision",
+			"blockNum", blk.NumberU64(),
+			"newHash", blockHash.Hex(),
+			"prevHash", prevHash.Hex(),
+			"parentHash", blk.ParentHash().Hex(),
+		)
+	}
 	b.blocks[blockHash] = blk
 	b.numberIndex[blk.NumberU64()] = blockHash
 	if blockBAL != nil {
@@ -435,12 +444,52 @@ func (b *EngineBackend) loadPayloadBodiesByRange(start, count uint64) []*enginep
 		headNum = head.NumberU64()
 	}
 
+	canonical := make(map[uint64]types.Hash, count)
+	if head, ok := b.blocks[headHash]; ok {
+		minNum := start
+		for cur := head; cur != nil && cur.NumberU64() >= minNum; {
+			num := cur.NumberU64()
+			if num >= start && num < start+count {
+				canonical[num] = cur.Hash()
+				if len(canonical) == int(count) {
+					break
+				}
+			}
+			if num == 0 {
+				break
+			}
+			parent, ok := b.blocks[cur.ParentHash()]
+			if !ok {
+				backendLog.Debug("payload_bodies_range_missing_parent",
+					"event", "payload_bodies_range_missing_parent",
+					"headHash", headHash.Hex(),
+					"blockNum", num,
+					"blockHash", cur.Hash().Hex(),
+					"missingParentHash", cur.ParentHash().Hex(),
+					"start", start,
+					"count", count,
+				)
+				break
+			}
+			cur = parent
+		}
+	}
+
 	results := make([]*enginepayload.ExecutionPayloadBodyV2, count)
 	for i := uint64(0); i < count; i++ {
 		num := start + i
-		hash, ok := b.numberIndex[num]
+		hash, ok := canonical[num]
 		if !ok {
 			continue
+		}
+		if indexedHash, indexed := b.numberIndex[num]; indexed && indexedHash != hash {
+			backendLog.Debug("payload_bodies_range_canonical_mismatch",
+				"event", "payload_bodies_range_canonical_mismatch",
+				"blockNum", num,
+				"headHash", headHash.Hex(),
+				"canonicalHash", hash.Hex(),
+				"indexedHash", indexedHash.Hex(),
+			)
 		}
 		block, ok := b.blocks[hash]
 		if !ok || !rawdb.IsBALRetained(headNum, num) {
@@ -452,6 +501,16 @@ func (b *EngineBackend) loadPayloadBodiesByRange(start, count uint64) []*enginep
 			body.BlockAccessList = balBytes
 		}
 		results[i] = body
+	}
+	if len(canonical) != int(count) {
+		backendLog.Debug("payload_bodies_range_incomplete",
+			"event", "payload_bodies_range_incomplete",
+			"headHash", headHash.Hex(),
+			"headNum", headNum,
+			"start", start,
+			"count", count,
+			"resolved", len(canonical),
+		)
 	}
 	return results
 }

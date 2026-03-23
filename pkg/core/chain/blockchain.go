@@ -478,8 +478,11 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// EIP-7778: Under Glamsterdam, header.GasUsed uses pre-refund gas (BlockGasUsed).
 	// Pre-Glamsterdam, header.GasUsed uses post-refund gas (GasUsed).
 	var totalGasUsed uint64
+	var totalBlockGasUsed uint64
 	isGlamsterdan := bc.config != nil && bc.config.IsGlamsterdan(header.Time)
+	isAmsterdam := bc.config != nil && bc.config.IsAmsterdam(header.Time)
 	for _, r := range receipts {
+		totalBlockGasUsed += r.BlockGasUsed
 		if isGlamsterdan && r.BlockGasUsed > 0 {
 			totalGasUsed += r.BlockGasUsed
 		} else {
@@ -496,6 +499,9 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			"parentNum", num-1,
 			"headerGasUsed", header.GasUsed,
 			"computedGasUsed", totalGasUsed,
+			"computedBlockGasUsed", totalBlockGasUsed,
+			"amsterdamActive", isAmsterdam,
+			"glamsterdamActive", isGlamsterdan,
 			"txCount", len(blk.Transactions()),
 			"currentHeadHash", bc.CurrentBlock().Hash().Hex(),
 			"currentHeadNum", bc.CurrentBlock().NumberU64(),

@@ -236,10 +236,13 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	}
 
 	var cumulativeGasUsed uint64
+	var cumulativeBlockGasUsed uint64
 	var cumulativeCalldataGasUsed uint64
+	amsterdamActive := p.config != nil && p.config.IsAmsterdam(header.Time)
+	glamsterdamActive := p.config != nil && p.config.IsGlamsterdan(header.Time)
 
 	// EIP-7706: compute calldata gas limit for this block.
-	calldataGasActive := p.config != nil && p.config.IsGlamsterdan(header.Time) && header.CalldataExcessGas != nil
+	calldataGasActive := glamsterdamActive && header.CalldataExcessGas != nil
 	var calldataGasLimit uint64
 	if calldataGasActive {
 		calldataGasLimit = gas.CalcCalldataGasLimit(header.GasLimit)
@@ -372,6 +375,21 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		metrics.EVMExecutions.Inc()
 		metrics.EVMGasUsed.Add(int64(usedGas))
+		cumulativeBlockGasUsed += receipt.BlockGasUsed
+		if receipt.BlockGasUsed > receipt.GasUsed {
+			execLog.Debug("tx_gas_accounting_split",
+				"event", "tx_gas_accounting_split",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"txType", tx.Type(),
+				"gasUsed", receipt.GasUsed,
+				"blockGasUsed", receipt.BlockGasUsed,
+				"delta", receipt.BlockGasUsed-receipt.GasUsed,
+				"amsterdamActive", amsterdamActive,
+				"glamsterdamActive", glamsterdamActive,
+			)
+		}
 
 		// Track cumulative gas across all transactions in the block.
 		cumulativeGasUsed += usedGas
@@ -484,6 +502,9 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		"num", block.NumberU64(),
 		"txCount", len(block.Transactions()),
 		"gasUsed", cumulativeGasUsed,
+		"blockGasUsed", cumulativeBlockGasUsed,
+		"amsterdamActive", amsterdamActive,
+		"glamsterdamActive", glamsterdamActive,
 		"receiptCount", len(receipts),
 		"balEntries", func() int {
 			if blockBAL != nil {
