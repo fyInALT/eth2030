@@ -179,6 +179,13 @@ func NewEngineBackendWithConfig(config *coreconfig.ChainConfig, statedb state.St
 		Timeout:    30 * time.Second,
 		MaxPending: cfg.MaxPayloads,
 	})
+	// Set parent validation to prevent building on stale parents during reorgs.
+	// This is critical to avoid ParentBlockHashMismatch errors when the CL
+	// expects a block built on a different parent than what was queued.
+	b.asyncBuilder.SetValidateParent(func(parentHash types.Hash) bool {
+		headHash := b.getHeadHash()
+		return headHash == parentHash
+	})
 	b.asyncBuilder.Start()
 
 	// Start cleanup goroutine for failed async payloads.
@@ -820,6 +827,7 @@ func (b *EngineBackend) ForkchoiceUpdated(
 			PrevRandao:   attrs.PrevRandao,
 			GasLimit:     parentBlock.Header().GasLimit,
 			Withdrawals:  WithdrawalsToCore(attrs.Withdrawals),
+			BeaconRoot:   &attrs.ParentBeaconBlockRoot,
 		}
 
 		pending, queueErr := b.asyncBuilder.QueueBuild(
@@ -1310,6 +1318,7 @@ func (b *EngineBackend) ForkchoiceUpdatedV4(
 			Random:           attrs.PrevRandao,
 			GasLimit:         parentHeader.GasLimit,
 			Withdrawals:      WithdrawalsToCore(attrs.Withdrawals),
+			BeaconRoot:       &attrs.ParentBeaconBlockRoot,
 			InclusionListTxs: attrs.InclusionListTransactions,
 		})
 		if err != nil {
