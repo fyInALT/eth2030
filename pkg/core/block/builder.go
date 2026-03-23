@@ -347,8 +347,9 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 				continue
 			}
 			blockDimStorageUsed += receipt.DimStorageGas
+			// EIP-7701: nonce increment must happen for all AA txs regardless of BAL status.
+			aaInfo := execution.ApplyAAPostExecution(statedb, ilTx, receipt, used, nil)
 			if balActive {
-				aaInfo := execution.ApplyAAPostExecution(statedb, ilTx, receipt, used, nil)
 				logBuilderAAPostExecution(header, ilTx, txIndex, used, aaInfo, false)
 			}
 
@@ -482,8 +483,9 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			continue
 		}
 		blockDimStorageUsed += receipt.DimStorageGas
+		// EIP-7701: nonce increment must happen for all AA txs regardless of BAL status.
+		aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
 		if balActive {
-			aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
 			logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, false)
 		}
 
@@ -846,8 +848,9 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 			continue
 		}
 		blockDimStorageUsedLegacy += receipt.DimStorageGas
+		// EIP-7701: nonce increment must happen for all AA txs regardless of BAL status.
+		aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
 		if balActive {
-			aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
 			logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, true)
 		}
 

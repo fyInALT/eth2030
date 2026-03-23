@@ -74,6 +74,34 @@ func ApplyAAPostExecution(statedb state.StateDB, tx *types.Transaction, receipt 
 	return info
 }
 
+// logAccountStateChanges logs balance and nonce changes for key accounts involved in a transaction.
+// This is used for debugging state root mismatches and consensus issues.
+func logAccountStateChanges(statedb state.StateDB, tx *types.Transaction, preBalances map[types.Address]*big.Int, preNonces map[types.Address]uint64, blockNum uint64, txIndex int) {
+	if len(preBalances) == 0 && len(preNonces) == 0 {
+		return
+	}
+	for addr, preBal := range preBalances {
+		postBal := statedb.GetBalance(addr)
+		preNonce := preNonces[addr]
+		postNonce := statedb.GetNonce(addr)
+		if preBal.Cmp(postBal) != 0 || preNonce != postNonce {
+			execLog.Debug("tx_account_state_change",
+				"event", "tx_account_state_change",
+				"blockNum", blockNum,
+				"txIndex", txIndex,
+				"txHash", tx.Hash().Hex(),
+				"address", addr.Hex(),
+				"preBalance", preBal.String(),
+				"postBalance", postBal.String(),
+				"balanceDelta", new(big.Int).Sub(postBal, preBal).String(),
+				"preNonce", preNonce,
+				"postNonce", postNonce,
+				"nonceDelta", int64(postNonce)-int64(preNonce),
+			)
+		}
+	}
+}
+
 const (
 	// TxGas is the base gas cost of a transaction (21000).
 	TxGas uint64 = 21000
@@ -332,6 +360,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		// Log execution outcome: TX_EXECUTED (success) or TX_REVERTED (EVM revert).
 		fromHex = txSenderHex(tx)
+		txType := tx.Type()
 		if receipt.Status == types.ReceiptStatusSuccessful {
 			contractHex := ""
 			if receipt.ContractAddress != (types.Address{}) {
@@ -342,10 +371,12 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
+				"txType", txType,
 				"from", fromHex,
 				"to", toHex,
 				"nonce", tx.Nonce(),
 				"gasUsed", usedGas,
+				"blockGasUsed", receipt.BlockGasUsed,
 				"logCount", len(receipt.Logs),
 				"contractCreated", contractHex,
 			)
@@ -355,28 +386,30 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
+				"txType", txType,
 				"from", fromHex,
 				"to", toHex,
 				"nonce", tx.Nonce(),
 				"gasUsed", usedGas,
+				"blockGasUsed", receipt.BlockGasUsed,
 			)
 		}
 
 		// EIP-7701: post-execution AA lifecycle hooks for successful AA txs.
-		// Native AA is activated at the Amsterdam fork (part of Glamsterdam).
-		if balActive {
-			if aaInfo := ApplyAAPostExecution(statedb, tx, receipt, usedGas, p.paymasterValidator); aaInfo != nil {
-				execLog.Debug("tx_aa_post_exec",
-					"event", "tx_aa_post_exec",
-					"blockNum", block.NumberU64(),
-					"txIndex", i,
-					"txHash", tx.Hash().Hex(),
-					"sender", aaInfo.Sender.Hex(),
-					"nonceBefore", aaInfo.NonceBefore,
-					"nonceAfter", aaInfo.NonceAfter,
-					"gasUsed", usedGas,
-				)
-			}
+		// The nonce increment MUST happen for all AA transactions, regardless of
+		// Amsterdam/BAL status. Paymaster PostOp is only called when Amsterdam is active.
+		aaInfo := ApplyAAPostExecution(statedb, tx, receipt, usedGas, p.paymasterValidator)
+		if balActive && aaInfo != nil {
+			execLog.Debug("tx_aa_post_exec",
+				"event", "tx_aa_post_exec",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"sender", aaInfo.Sender.Hex(),
+				"nonceBefore", aaInfo.NonceBefore,
+				"nonceAfter", aaInfo.NonceAfter,
+				"gasUsed", usedGas,
+			)
 		}
 
 		metrics.EVMExecutions.Inc()
@@ -395,6 +428,11 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				"amsterdamActive", amsterdamActive,
 				"glamsterdamActive", glamsterdamActive,
 			)
+		}
+
+		// Debug log for account state changes (helps debug consensus issues).
+		if balActive {
+			logAccountStateChanges(statedb, tx, preBalances, preNonces, block.NumberU64(), i)
 		}
 
 		// Track cumulative gas across all transactions in the block.
