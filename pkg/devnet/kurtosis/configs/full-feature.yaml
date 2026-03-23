@@ -34,6 +34,9 @@ additional_services:
   - rakoon
   - assertoor
 
+dora_params:
+  image: "dora:local"
+
 assertoor_params:
   run_stability_check: true
 
