@@ -47,6 +47,8 @@ func txSenderHex(tx *types.Transaction) string {
 
 // ApplyAAPostExecution mirrors the successful AA post-execution state mutation
 // used during block replay so block building and verification compute the same root.
+// Per EIP-7701, the SCA validates its own nonce during the validation phase.
+// After successful execution, the protocol increments the nonce (same as legacy txs).
 func ApplyAAPostExecution(statedb state.StateDB, tx *types.Transaction, receipt *types.Receipt, usedGas uint64, paymasterValidator eips.PaymasterValidator) *AAPostExecutionInfo {
 	if tx.Type() != types.AATxType || receipt.Status != types.ReceiptStatusSuccessful {
 		return nil
@@ -55,12 +57,16 @@ func ApplyAAPostExecution(statedb state.StateDB, tx *types.Transaction, receipt 
 	if !ok {
 		return nil
 	}
+	nonceBefore := statedb.GetNonce(aatx.Sender)
+	// Increment nonce after successful AA transaction execution.
+	// The SCA validates nonce during validation phase, but the protocol
+	// increments it post-execution (same semantics as legacy transactions).
+	statedb.SetNonce(aatx.Sender, nonceBefore+1)
 	info := &AAPostExecutionInfo{
 		Sender:      aatx.Sender,
-		NonceBefore: statedb.GetNonce(aatx.Sender),
+		NonceBefore: nonceBefore,
+		NonceAfter:  statedb.GetNonce(aatx.Sender),
 	}
-	eips.IncrementSmartNonce(statedb, aatx.Sender)
-	info.NonceAfter = statedb.GetNonce(aatx.Sender)
 	if paymasterValidator != nil {
 		uo := buildAAUserOp(aatx)
 		_ = paymasterValidator.PostOp(uo, nil, usedGas, statedb)
@@ -1222,7 +1228,9 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 
 	// Increment nonce (for contract creation, EVM.Create handles it).
 	// EIP-8141: FrameTx nonce is incremented after frame execution, not before.
-	if !isCreate && msg.TxType != types.FrameTxType {
+	// EIP-7701: AA transactions manage their own nonce through the SCA's validation
+	// and execution phases. The protocol does not increment nonce for AA transactions.
+	if !isCreate && msg.TxType != types.FrameTxType && msg.TxType != types.AATxType {
 		statedb.SetNonce(msg.From, msg.Nonce+1)
 	}
 
