@@ -2,8 +2,16 @@ participants:
   - el_type: geth
     el_image: eth2030:local
     el_log_level: debug
+    el_extra_params: ["--rpc.rate_limit=0"]
     cl_type: lighthouse
-    cl_image: sigp/lighthouse:latest
+    cl_log_level: debug
+    cl_image: eth2030cl:local
+    # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
+    # count: 3 forms a triangle gossip mesh — if any pair temporarily disconnects
+    # at the Fulu sync_committee deadline (slot 40 = epoch 1 slot 8), the third
+    # node provides an alternative path for attestation propagation, enabling
+    # reliable reconnection and finalization.
+    cl_extra_params: ["--subscribe-all-subnets"]
     count: 1
 
 network_params:
@@ -15,6 +23,9 @@ network_params:
 additional_services:
   - dora
   - assertoor
+
+dora_params:
+  image: "eth2030/dora:v0.0.1"
 
 assertoor_params:
   run_stability_check: true
