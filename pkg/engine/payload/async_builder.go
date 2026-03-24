@@ -230,10 +230,10 @@ type ValidateParentFunc func(parentHash types.Hash) bool
 
 // AsyncBuilder manages asynchronous payload building with a worker pool.
 type AsyncBuilder struct {
-	config       *coreconfig.ChainConfig
-	txPool       block.TxPoolReader
-	workers      int
-	timeout      time.Duration
+	config         *coreconfig.ChainConfig
+	txPool         block.TxPoolReader
+	workers        int
+	timeout        time.Duration
 	validateParent ValidateParentFunc // Optional validation for parent blocks
 
 	mu           sync.RWMutex

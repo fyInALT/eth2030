@@ -17,9 +17,9 @@ var defaultPriorityFee = big.NewInt(1_000_000_000)
 
 // EthAPI implements the eth_, net_, web3_, and txpool_ namespace JSON-RPC methods.
 type EthAPI struct {
-	backend Backend
-	subs    SubscriptionService
-	txpool  *TxPoolAPI
+	backend   Backend
+	subs      SubscriptionService
+	txpool    *TxPoolAPI
 	userOpsMu sync.RWMutex
 	userOps   map[types.Hash]types.Hash
 }
