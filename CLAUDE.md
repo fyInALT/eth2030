@@ -246,7 +246,7 @@ curl -s "http://$(kurtosis port print eth2030-devnet cl-1-lighthouse-geth http)/
 ```bash
 cd ../dora && go build -o ../dora-config/dora-explorer ./cmd/dora-explorer
 cd ../dora-config && ./dora-explorer --config dora-config-local.yaml
-```
+
 cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)
 ```
 

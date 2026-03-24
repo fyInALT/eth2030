@@ -29,6 +29,10 @@ eth2030/
 └── tools/            # Development tools
 ```
 
+NOTE: `refs/` is a read-only reference to EIPs and other specs, not for editing.
+
+REMEMBER: every change MUST be written based on EIPs, u can find the EIP docs in `eth2030/refs/EIPs` and `eth2030/refs/consensus-specs`, read them line by line.
+
 ## Sibling Repositories
 
 Each is an independent git repo; commit separately:
