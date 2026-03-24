@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sync"
 
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/types"
@@ -16,9 +17,11 @@ var defaultPriorityFee = big.NewInt(1_000_000_000)
 
 // EthAPI implements the eth_, net_, web3_, and txpool_ namespace JSON-RPC methods.
 type EthAPI struct {
-	backend Backend
-	subs    SubscriptionService
-	txpool  *TxPoolAPI
+	backend   Backend
+	subs      SubscriptionService
+	txpool    *TxPoolAPI
+	userOpsMu sync.RWMutex
+	userOps   map[types.Hash]types.Hash
 }
 
 // NewEthAPI creates a new EthAPI that uses the provided SubscriptionService.
@@ -28,6 +31,7 @@ func NewEthAPI(backend Backend, subs SubscriptionService) *EthAPI {
 		backend: backend,
 		subs:    subs,
 		txpool:  NewTxPoolAPI(backend),
+		userOps: make(map[types.Hash]types.Hash),
 	}
 }
 
@@ -66,10 +70,14 @@ func (api *EthAPI) HandleRequest(req *Request) *Response {
 		return api.estimateGas(req)
 	case "eth_sendRawTransaction":
 		return api.sendRawTransaction(req)
+	case "eth_sendUserOperation":
+		return api.sendUserOperation(req)
 	case "eth_getLogs":
 		return api.getLogs(req)
 	case "eth_getBlockReceipts":
 		return api.getBlockReceipts(req)
+	case "eth_getUserOperationReceipt":
+		return api.getUserOperationReceipt(req)
 	case "eth_maxPriorityFeePerGas":
 		return api.maxPriorityFeePerGas(req)
 	case "eth_feeHistory":

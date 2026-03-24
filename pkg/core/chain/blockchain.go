@@ -478,8 +478,11 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 	// EIP-7778: Under Glamsterdam, header.GasUsed uses pre-refund gas (BlockGasUsed).
 	// Pre-Glamsterdam, header.GasUsed uses post-refund gas (GasUsed).
 	var totalGasUsed uint64
+	var totalBlockGasUsed uint64
 	isGlamsterdan := bc.config != nil && bc.config.IsGlamsterdan(header.Time)
+	isAmsterdam := bc.config != nil && bc.config.IsAmsterdam(header.Time)
 	for _, r := range receipts {
+		totalBlockGasUsed += r.BlockGasUsed
 		if isGlamsterdan && r.BlockGasUsed > 0 {
 			totalGasUsed += r.BlockGasUsed
 		} else {
@@ -492,19 +495,36 @@ func (bc *Blockchain) insertBlock(blk *types.Block) error {
 			"event", "block_gas_mismatch",
 			"hash", hash.Hex(),
 			"num", num,
+			"parentHash", header.ParentHash.Hex(),
+			"parentNum", num-1,
 			"headerGasUsed", header.GasUsed,
 			"computedGasUsed", totalGasUsed,
+			"computedBlockGasUsed", totalBlockGasUsed,
+			"amsterdamActive", isAmsterdam,
+			"glamsterdamActive", isGlamsterdan,
+			"txCount", len(blk.Transactions()),
+			"currentHeadHash", bc.CurrentBlock().Hash().Hex(),
+			"currentHeadNum", bc.CurrentBlock().NumberU64(),
 			"error", err,
 		)
 		// Log per-tx breakdown to identify which transaction causes the mismatch.
 		for i, r := range receipts {
+			tx := blk.Transactions()[i]
+			toHex := ""
+			if tx.To() != nil {
+				toHex = tx.To().Hex()
+			}
 			blockchainLog.Warn("block_gas_mismatch_tx",
 				"event", "block_gas_mismatch_tx",
 				"num", num,
 				"txIndex", i,
 				"txHash", r.TxHash.Hex(),
+				"txType", tx.Type(),
+				"to", toHex,
+				"status", r.Status,
 				"gasUsed", r.GasUsed,
 				"blockGasUsed", r.BlockGasUsed,
+				"cumulativeGasUsed", r.CumulativeGasUsed,
 			)
 		}
 		return err

@@ -130,6 +130,57 @@ func TestGetPayloadBodiesByRangeV2_Genesis(t *testing.T) {
 	}
 }
 
+func TestGetPayloadBodiesByRangeV2_UsesCanonicalHeadAncestry(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+	genesis := makeGenesis()
+	backend := NewEngineBackend(coreconfig.TestConfig, statedb, genesis)
+	api := NewEngineAPI(backend)
+
+	canonicalTx := types.NewTransaction(&types.DynamicFeeTx{
+		ChainID:   big.NewInt(1),
+		Nonce:     1,
+		GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(2),
+		Gas:       21_000,
+		To:        ptrAddress(types.HexToAddress("0x1001")),
+		Value:     big.NewInt(1),
+	})
+	sideTx := types.NewTransaction(&types.DynamicFeeTx{
+		ChainID:   big.NewInt(1),
+		Nonce:     2,
+		GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(2),
+		Gas:       21_000,
+		To:        ptrAddress(types.HexToAddress("0x1002")),
+		Value:     big.NewInt(2),
+	})
+
+	canonicalBlock := makeChildBlock(genesis, 1, 1700000012, canonicalTx)
+	sideBlock := makeChildBlock(genesis, 1, 1700000013, sideTx)
+
+	backend.storeBlock(canonicalBlock, nil)
+	backend.setForkchoiceState(canonicalBlock.Hash(), genesis.Hash(), genesis.Hash())
+	backend.storeBlock(sideBlock, nil)
+
+	results, err := api.GetPayloadBodiesByRangeV2(1, 1)
+	if err != nil {
+		t.Fatalf("GetPayloadBodiesByRangeV2: %v", err)
+	}
+	if len(results) != 1 || results[0] == nil {
+		t.Fatalf("expected one non-nil result, got %#v", results)
+	}
+	if got, want := len(results[0].Transactions), 1; got != want {
+		t.Fatalf("transaction count = %d, want %d", got, want)
+	}
+	wantTx, err := canonicalTx.EncodeRLP()
+	if err != nil {
+		t.Fatalf("EncodeRLP: %v", err)
+	}
+	if got, want := string(results[0].Transactions[0]), string(wantTx); got != want {
+		t.Fatalf("returned non-canonical tx body %x, want %x", []byte(got), []byte(want))
+	}
+}
+
 // TestHandleGetPayloadBodiesByHashV2_Handler verifies the JSON-RPC handler routing.
 func TestHandleGetPayloadBodiesByHashV2_Handler(t *testing.T) {
 	api, _ := makePayloadBodiesAPI(t)
@@ -146,6 +197,25 @@ func TestHandleGetPayloadBodiesByHashV2_Handler(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
+}
+
+func makeChildBlock(parent *types.Block, number uint64, ts uint64, txs ...*types.Transaction) *types.Block {
+	header := &types.Header{
+		ParentHash:  parent.Hash(),
+		Number:      new(big.Int).SetUint64(number),
+		GasLimit:    parent.GasLimit(),
+		BaseFee:     new(big.Int).Set(parent.BaseFee()),
+		Difficulty:  new(big.Int),
+		UncleHash:   types.EmptyUncleHash,
+		Root:        types.EmptyRootHash,
+		ReceiptHash: types.EmptyRootHash,
+		Time:        ts,
+	}
+	return types.NewBlock(header, &types.Body{Transactions: txs})
+}
+
+func ptrAddress(addr types.Address) *types.Address {
+	return &addr
 }
 
 // TestHandleGetPayloadBodiesByRangeV2_Handler verifies the JSON-RPC handler routing.

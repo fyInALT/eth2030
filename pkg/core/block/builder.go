@@ -123,6 +123,26 @@ func calldataFloorDelta(tx *types.Transaction, standardGasUsed uint64) uint64 {
 	return 0
 }
 
+func logBuilderAAPostExecution(header *types.Header, tx *types.Transaction, txIndex int, usedGas uint64, aaInfo *execution.AAPostExecutionInfo, legacy bool) {
+	if aaInfo == nil {
+		return
+	}
+	event := "builder_aa_post_exec"
+	if legacy {
+		event = "builder_aa_post_exec_legacy"
+	}
+	slog.Debug(event,
+		"event", event,
+		"blockNum", header.Number.Uint64(),
+		"txIndex", txIndex,
+		"txHash", tx.Hash().Hex(),
+		"sender", aaInfo.Sender.Hex(),
+		"nonceBefore", aaInfo.NonceBefore,
+		"nonceAfter", aaInfo.NonceAfter,
+		"gasUsed", usedGas,
+	)
+}
+
 // BuildBlock constructs a new block using payload attributes.
 // It selects transactions from the txpool, orders them by effective gas price
 // (descending), and applies them until the block gas limit is reached.
@@ -327,6 +347,11 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 				continue
 			}
 			blockDimStorageUsed += receipt.DimStorageGas
+			// EIP-7701: nonce increment must happen for all AA txs regardless of BAL status.
+			aaInfo := execution.ApplyAAPostExecution(statedb, ilTx, receipt, used, nil)
+			if balActive {
+				logBuilderAAPostExecution(header, ilTx, txIndex, used, aaInfo, false)
+			}
 
 			txs = append(txs, ilTx)
 			receipts = append(receipts, receipt)
@@ -458,6 +483,11 @@ func (b *BlockBuilder) BuildBlock(parent *types.Header, attrs *BuildBlockAttribu
 			continue
 		}
 		blockDimStorageUsed += receipt.DimStorageGas
+		// EIP-7701: nonce increment must happen for all AA txs regardless of BAL status.
+		aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
+		if balActive {
+			logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, false)
+		}
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)
@@ -818,6 +848,11 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 			continue
 		}
 		blockDimStorageUsedLegacy += receipt.DimStorageGas
+		// EIP-7701: nonce increment must happen for all AA txs regardless of BAL status.
+		aaInfo := execution.ApplyAAPostExecution(statedb, tx, receipt, used, nil)
+		if balActive {
+			logBuilderAAPostExecution(header, tx, txIndex, used, aaInfo, true)
+		}
 
 		txs = append(txs, tx)
 		receipts = append(receipts, receipt)

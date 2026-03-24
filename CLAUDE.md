@@ -3,6 +3,15 @@
 - Project: ETH2030 -- Ethereum client targeting the L1 Strawmap roadmap
 - GitHub issues/comments/PR comments: use literal multiline strings or `-F - <<'EOF'` for real newlines; never embed "\\n".
 
+## Related Repositories (Sibling Directories)
+
+This repo is part of a larger project structure with separate git repositories:
+- `../dora/` - Dora block explorer with FOCIL (EIP-7805) support for viewing Inclusion Lists in Heze blocks
+- `../lighthouse/` - Lighthouse CL fork with ePBS/FOCIL support
+- `../spamoor/` - Transaction spammer for devnet testing
+
+Each is an independent git repo; commit separately in each directory.
+
 ## L1 Strawmap (strawmap.org)
 
 Source: [strawmap.org](https://strawmap.org/) — EF Architecture team (Ansgar Dietrichs, Barnabé Monnot, Francesco D'Amato, Justin Drake), published Feb 25, 2026.
@@ -59,7 +68,7 @@ Three layers, each with sub-tracks:
 
 ### EIP Implementation Status
 - **Complete** (58): EIP-150, EIP-152, EIP-196/197, EIP-1153, EIP-1559, EIP-2200, EIP-2537, EIP-2718, EIP-2929, EIP-2930, EIP-2935, EIP-3529, EIP-3540, EIP-4444, EIP-4762, EIP-4788, EIP-4844 (incl. KZG), EIP-4895, EIP-5656, EIP-6110, EIP-6404, EIP-6780, EIP-7002, EIP-7069, EIP-7251, EIP-7480, EIP-7547, EIP-7549, EIP-7594, EIP-7620, EIP-7685, EIP-7691, EIP-7698, EIP-7701, EIP-7702, EIP-7706, EIP-7742, EIP-7745, EIP-7807, EIP-7825, EIP-7898, EIP-7904, EIP-7916, EIP-7918, EIP-7928, EIP-7939, EIP-8024, EIP-8070, EIP-8077, EIP-8079, EIP-8141
-- **Substantial** (5): EIP-7732 (ePBS), EIP-7864 (binary tree), EIP-7805 (FOCIL), EIP-8025 (execution proofs), PQC (Dilithium3/Falcon512/SPHINCS+)
+- **Substantial** (5): EIP-7732 (ePBS), EIP-7864 (binary tree), EIP-7805 (FOCIL, incl. Dora explorer support), EIP-8025 (execution proofs), PQC (Dilithium3/Falcon512/SPHINCS+)
 
 ## Project Structure & Module Organization
 
@@ -214,6 +223,30 @@ kurtosis service logs eth2030-devnet el-1-geth-lighthouse
 we need use this logs to find where cause chain errors, and use cast to got newest block:
 
 ```bash
+cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)
+```
+
+if always 0, it means devnet boot failed, should check log and codes.
+
+### FOCIL (EIP-7805) Testing
+
+To verify FOCIL Inclusion Lists are working:
+
+1. **Check CL API for IL data**: 
+```bash
+curl -s "http://$(kurtosis port print eth2030-devnet cl-1-lighthouse-geth http)/eth/v1/beacon/blocks/{slot}/inclusion_lists" | jq .
+```
+
+2. **View ILs in Dora explorer**: Open the Dora URL from the devnet output, navigate to a slot page, and click the "Inclusion Lists" tab to see:
+   - Inclusion List Bits (satisfaction bitmap)
+   - Satisfied/Not Satisfied status per IL
+   - Transaction count and data for each IL
+
+3. **Build and run local Dora** (for development):
+```bash
+cd ../dora && go build -o ../dora-config/dora-explorer ./cmd/dora-explorer
+cd ../dora-config && ./dora-explorer --config dora-config-local.yaml
+
 cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)
 ```
 

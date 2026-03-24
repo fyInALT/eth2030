@@ -165,6 +165,8 @@ func (tx *Transaction) EncodeRLP() ([]byte, error) {
 		return encodeTypedTx(BlobTxType, inner)
 	case *SetCodeTx:
 		return encodeTypedTx(SetCodeTxType, inner)
+	case *AATx:
+		return encodeTypedTx(AATxType, inner)
 	case *FrameTx:
 		return EncodeFrameTx(inner)
 	case *PQTransaction:
@@ -288,6 +290,40 @@ func encodeTypedTx(txType byte, inner TxData) ([]byte, error) {
 		}
 		payload, err = rlp.EncodeToBytes(enc)
 
+	case *AATx:
+		enc := aaTxRLP{
+			ChainID:                bigOrZero(tx.ChainID),
+			Nonce:                  tx.Nonce,
+			Sender:                 tx.Sender,
+			SenderValidationData:   copyBytes(tx.SenderValidationData),
+			Deployer:               addressPtrToBytes(tx.Deployer),
+			DeployerData:           copyBytes(tx.DeployerData),
+			Paymaster:              addressPtrToBytes(tx.Paymaster),
+			PaymasterData:          copyBytes(tx.PaymasterData),
+			SenderExecutionData:    copyBytes(tx.SenderExecutionData),
+			MaxPriorityFeePerGas:   bigOrZero(tx.MaxPriorityFeePerGas),
+			MaxFeePerGas:           bigOrZero(tx.MaxFeePerGas),
+			SenderValidationGas:    tx.SenderValidationGas,
+			PaymasterValidationGas: tx.PaymasterValidationGas,
+			SenderExecutionGas:     tx.SenderExecutionGas,
+			PaymasterPostOpGas:     tx.PaymasterPostOpGas,
+			AccessList:             encodeAccessList(tx.AccessList),
+			AuthorizationList:      encodeAuthList(tx.AuthorizationList),
+		}
+		if enc.SenderValidationData == nil {
+			enc.SenderValidationData = []byte{}
+		}
+		if enc.DeployerData == nil {
+			enc.DeployerData = []byte{}
+		}
+		if enc.PaymasterData == nil {
+			enc.PaymasterData = []byte{}
+		}
+		if enc.SenderExecutionData == nil {
+			enc.SenderExecutionData = []byte{}
+		}
+		payload, err = rlp.EncodeToBytes(enc)
+
 	default:
 		return nil, errUnknownTxType
 	}
@@ -364,6 +400,8 @@ func decodeTypedTx(txType byte, payload []byte) (*Transaction, error) {
 		return decodeBlobTx(payload)
 	case SetCodeTxType:
 		return decodeSetCodeTx(payload)
+	case AATxType:
+		return decodeAATxTyped(payload)
 	case FrameTxType:
 		return decodeFrameTxWrapped(payload)
 	case PQTransactionType:
@@ -373,6 +411,14 @@ func decodeTypedTx(txType byte, payload []byte) (*Transaction, error) {
 	default:
 		return nil, fmt.Errorf("unsupported transaction type: 0x%02x", txType)
 	}
+}
+
+func decodeAATxTyped(data []byte) (*Transaction, error) {
+	inner, err := DecodeAATx(data)
+	if err != nil {
+		return nil, err
+	}
+	return NewTransaction(inner), nil
 }
 
 func decodePQFromPayload(data []byte) (*Transaction, error) {

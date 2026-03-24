@@ -32,6 +32,76 @@ func balTrackerOrNil(t *bal.AccessTracker) vm.BALTracker {
 	return t
 }
 
+type AAPostExecutionInfo struct {
+	Sender      types.Address
+	NonceBefore uint64
+	NonceAfter  uint64
+}
+
+func txSenderHex(tx *types.Transaction) string {
+	if sender := tx.Sender(); sender != nil {
+		return sender.Hex()
+	}
+	return ""
+}
+
+// ApplyAAPostExecution mirrors the successful AA post-execution state mutation
+// used during block replay so block building and verification compute the same root.
+// Per EIP-7701, the SCA validates its own nonce during the validation phase.
+// After successful execution, the protocol increments the nonce (same as legacy txs).
+func ApplyAAPostExecution(statedb state.StateDB, tx *types.Transaction, receipt *types.Receipt, usedGas uint64, paymasterValidator eips.PaymasterValidator) *AAPostExecutionInfo {
+	if tx.Type() != types.AATxType || receipt.Status != types.ReceiptStatusSuccessful {
+		return nil
+	}
+	aatx, ok := tx.Inner().(*types.AATx)
+	if !ok {
+		return nil
+	}
+	nonceBefore := statedb.GetNonce(aatx.Sender)
+	// Increment nonce after successful AA transaction execution.
+	// The SCA validates nonce during validation phase, but the protocol
+	// increments it post-execution (same semantics as legacy transactions).
+	statedb.SetNonce(aatx.Sender, nonceBefore+1)
+	info := &AAPostExecutionInfo{
+		Sender:      aatx.Sender,
+		NonceBefore: nonceBefore,
+		NonceAfter:  statedb.GetNonce(aatx.Sender),
+	}
+	if paymasterValidator != nil {
+		uo := buildAAUserOp(aatx)
+		_ = paymasterValidator.PostOp(uo, nil, usedGas, statedb)
+	}
+	return info
+}
+
+// logAccountStateChanges logs balance and nonce changes for key accounts involved in a transaction.
+// This is used for debugging state root mismatches and consensus issues.
+func logAccountStateChanges(statedb state.StateDB, tx *types.Transaction, preBalances map[types.Address]*big.Int, preNonces map[types.Address]uint64, blockNum uint64, txIndex int) {
+	if len(preBalances) == 0 && len(preNonces) == 0 {
+		return
+	}
+	for addr, preBal := range preBalances {
+		postBal := statedb.GetBalance(addr)
+		preNonce := preNonces[addr]
+		postNonce := statedb.GetNonce(addr)
+		if preBal.Cmp(postBal) != 0 || preNonce != postNonce {
+			execLog.Debug("tx_account_state_change",
+				"event", "tx_account_state_change",
+				"blockNum", blockNum,
+				"txIndex", txIndex,
+				"txHash", tx.Hash().Hex(),
+				"address", addr.Hex(),
+				"preBalance", preBal.String(),
+				"postBalance", postBal.String(),
+				"balanceDelta", new(big.Int).Sub(postBal, preBal).String(),
+				"preNonce", preNonce,
+				"postNonce", postNonce,
+				"nonceDelta", int64(postNonce)-int64(preNonce),
+			)
+		}
+	}
+}
+
 const (
 	// TxGas is the base gas cost of a transaction (21000).
 	TxGas uint64 = 21000
@@ -200,10 +270,13 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 	}
 
 	var cumulativeGasUsed uint64
+	var cumulativeBlockGasUsed uint64
 	var cumulativeCalldataGasUsed uint64
+	amsterdamActive := p.config != nil && p.config.IsAmsterdam(header.Time)
+	glamsterdamActive := p.config != nil && p.config.IsGlamsterdan(header.Time)
 
 	// EIP-7706: compute calldata gas limit for this block.
-	calldataGasActive := p.config != nil && p.config.IsGlamsterdan(header.Time) && header.CalldataExcessGas != nil
+	calldataGasActive := glamsterdamActive && header.CalldataExcessGas != nil
 	var calldataGasLimit uint64
 	if calldataGasActive {
 		calldataGasLimit = gas.CalcCalldataGasLimit(header.GasLimit)
@@ -272,6 +345,7 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 
 		receipt, usedGas, err := applyTransactionFull(p.config, p.getHash, statedb, header, tx, gasPool, balTrackerOrNil(tracker), p.slasher)
 		if err != nil {
+			fromHex = txSenderHex(tx)
 			execLog.Error("tx_evm_error",
 				"event", "tx_evm_error",
 				"blockNum", block.NumberU64(),
@@ -285,6 +359,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		}
 
 		// Log execution outcome: TX_EXECUTED (success) or TX_REVERTED (EVM revert).
+		fromHex = txSenderHex(tx)
+		txType := tx.Type()
 		if receipt.Status == types.ReceiptStatusSuccessful {
 			contractHex := ""
 			if receipt.ContractAddress != (types.Address{}) {
@@ -295,10 +371,12 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
+				"txType", txType,
 				"from", fromHex,
 				"to", toHex,
 				"nonce", tx.Nonce(),
 				"gasUsed", usedGas,
+				"blockGasUsed", receipt.BlockGasUsed,
 				"logCount", len(receipt.Logs),
 				"contractCreated", contractHex,
 			)
@@ -308,29 +386,54 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 				"blockNum", block.NumberU64(),
 				"txIndex", i,
 				"txHash", tx.Hash().Hex(),
+				"txType", txType,
 				"from", fromHex,
 				"to", toHex,
 				"nonce", tx.Nonce(),
 				"gasUsed", usedGas,
+				"blockGasUsed", receipt.BlockGasUsed,
 			)
 		}
 
 		// EIP-7701: post-execution AA lifecycle hooks for successful AA txs.
-		// Native AA is activated at the Amsterdam fork (part of Glamsterdam).
-		if balActive && tx.Type() == types.AATxType && receipt.Status == types.ReceiptStatusSuccessful {
-			if aatx, ok := tx.Inner().(*types.AATx); ok {
-				// Increment the sender's smart-account 2D nonce after execution.
-				eips.IncrementSmartNonce(statedb, aatx.Sender)
-				// Notify paymaster of actual gas usage if a validator is configured.
-				if p.paymasterValidator != nil {
-					uo := buildAAUserOp(aatx)
-					_ = p.paymasterValidator.PostOp(uo, nil, usedGas, statedb)
-				}
-			}
+		// The nonce increment MUST happen for all AA transactions, regardless of
+		// Amsterdam/BAL status. Paymaster PostOp is only called when Amsterdam is active.
+		aaInfo := ApplyAAPostExecution(statedb, tx, receipt, usedGas, p.paymasterValidator)
+		if balActive && aaInfo != nil {
+			execLog.Debug("tx_aa_post_exec",
+				"event", "tx_aa_post_exec",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"sender", aaInfo.Sender.Hex(),
+				"nonceBefore", aaInfo.NonceBefore,
+				"nonceAfter", aaInfo.NonceAfter,
+				"gasUsed", usedGas,
+			)
 		}
 
 		metrics.EVMExecutions.Inc()
 		metrics.EVMGasUsed.Add(int64(usedGas))
+		cumulativeBlockGasUsed += receipt.BlockGasUsed
+		if receipt.BlockGasUsed > receipt.GasUsed {
+			execLog.Debug("tx_gas_accounting_split",
+				"event", "tx_gas_accounting_split",
+				"blockNum", block.NumberU64(),
+				"txIndex", i,
+				"txHash", tx.Hash().Hex(),
+				"txType", tx.Type(),
+				"gasUsed", receipt.GasUsed,
+				"blockGasUsed", receipt.BlockGasUsed,
+				"delta", receipt.BlockGasUsed-receipt.GasUsed,
+				"amsterdamActive", amsterdamActive,
+				"glamsterdamActive", glamsterdamActive,
+			)
+		}
+
+		// Debug log for account state changes (helps debug consensus issues).
+		if balActive {
+			logAccountStateChanges(statedb, tx, preBalances, preNonces, block.NumberU64(), i)
+		}
 
 		// Track cumulative gas across all transactions in the block.
 		cumulativeGasUsed += usedGas
@@ -443,6 +546,9 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		"num", block.NumberU64(),
 		"txCount", len(block.Transactions()),
 		"gasUsed", cumulativeGasUsed,
+		"blockGasUsed", cumulativeBlockGasUsed,
+		"amsterdamActive", amsterdamActive,
+		"glamsterdamActive", glamsterdamActive,
 		"receiptCount", len(receipts),
 		"balEntries", func() int {
 			if blockBAL != nil {
@@ -767,7 +873,9 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 
 	// Recover sender if not already cached.
 	if tx.Sender() == nil {
-		if tx.Type() == types.PQTransactionType {
+		if aatx, ok := tx.Inner().(*types.AATx); ok {
+			tx.SetSender(aatx.Sender)
+		} else if tx.Type() == types.PQTransactionType {
 			if pk := tx.PQPublicKey(); len(pk) > 0 {
 				tx.SetSender(types.PQPubKeyToAddress(pk))
 			}
@@ -781,6 +889,40 @@ func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashF
 	msg := corconfig.TransactionToMessage(tx)
 	// AA-1.3: wire slasher so applyMessage can slash paymasters on bad settlement.
 	msg.Slasher = slasher
+
+	preexistingFromWarm := statedb.AddressInAccessList(msg.From)
+	preexistingToWarm := false
+	if msg.To != nil {
+		preexistingToWarm = statedb.AddressInAccessList(*msg.To)
+	}
+	preexistingCoinbaseWarm := statedb.AddressInAccessList(header.Coinbase)
+	preexistingWarmSlots := 0
+	for _, tuple := range msg.AccessList {
+		for _, key := range tuple.StorageKeys {
+			if _, warm := statedb.SlotInAccessList(tuple.Address, key); warm {
+				preexistingWarmSlots++
+			}
+		}
+	}
+	if preexistingFromWarm || preexistingToWarm || preexistingCoinbaseWarm || preexistingWarmSlots > 0 {
+		toHex := ""
+		if msg.To != nil {
+			toHex = msg.To.Hex()
+		}
+		execLog.Debug("tx_access_list_reset",
+			"event", "tx_access_list_reset",
+			"blockNum", header.Number.Uint64(),
+			"txHash", tx.Hash().Hex(),
+			"txType", tx.Type(),
+			"from", msg.From.Hex(),
+			"to", toHex,
+			"fromWarm", preexistingFromWarm,
+			"toWarm", preexistingToWarm,
+			"coinbaseWarm", preexistingCoinbaseWarm,
+			"warmSlots", preexistingWarmSlots,
+		)
+	}
+	statedb.ClearAccessList()
 
 	snapshot := statedb.Snapshot()
 
@@ -1124,7 +1266,9 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 
 	// Increment nonce (for contract creation, EVM.Create handles it).
 	// EIP-8141: FrameTx nonce is incremented after frame execution, not before.
-	if !isCreate && msg.TxType != types.FrameTxType {
+	// EIP-7701: AA transactions manage their own nonce through the SCA's validation
+	// and execution phases. The protocol does not increment nonce for AA transactions.
+	if !isCreate && msg.TxType != types.FrameTxType && msg.TxType != types.AATxType {
 		statedb.SetNonce(msg.From, msg.Nonce+1)
 	}
 

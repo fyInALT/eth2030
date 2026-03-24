@@ -363,6 +363,67 @@ func TestTransactionToMessage(t *testing.T) {
 	}
 }
 
+func TestApplyMessage_AATxUsesAASpecificIntrinsicGas(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+
+	sender := types.HexToAddress("0x1111")
+	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)))
+
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+	tx.SetSender(sender)
+
+	msg := config.TransactionToMessage(tx)
+	header := newTestHeader()
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+
+	if _, err := ApplyMessage(config.TestConfig, nil, statedb, header, &msg, gp); err != nil {
+		t.Fatalf("AA tx should pass intrinsic gas validation, got: %v", err)
+	}
+}
+
+func TestApplyTransactionInternal_RecoversAATxSenderFromEmbeddedField(t *testing.T) {
+	statedb := state.NewMemoryStateDB()
+
+	sender := types.HexToAddress("0x1111")
+	statedb.AddBalance(sender, new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18)))
+
+	tx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(2),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+
+	if tx.Sender() != nil {
+		t.Fatal("test requires AA tx sender cache to start empty")
+	}
+
+	header := newTestHeader()
+	gp := new(gaspool.GasPool).AddGas(header.GasLimit)
+
+	if _, _, err := applyTransactionInternal(config.TestConfig, nil, statedb, header, tx, gp, nil, nil); err != nil {
+		t.Fatalf("AA tx should recover sender from embedded field, got: %v", err)
+	}
+	if recovered := tx.Sender(); recovered == nil || *recovered != sender {
+		t.Fatalf("cached sender: want %s, got %v", sender.Hex(), recovered)
+	}
+}
+
 func TestContractCreation(t *testing.T) {
 	statedb := state.NewMemoryStateDB()
 
@@ -474,6 +535,96 @@ func TestContractCall(t *testing.T) {
 	}
 	if result.ReturnData[31] != 0x42 {
 		t.Fatalf("return data[31] = 0x%02x, want 0x42", result.ReturnData[31])
+	}
+}
+
+func newSloadContractState() (*state.MemoryStateDB, types.Address, types.Address) {
+	statedb := state.NewMemoryStateDB()
+	sender := types.HexToAddress("0x1111")
+	contractAddr := types.HexToAddress("0x3333")
+
+	tenETH := new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(1e18))
+	statedb.AddBalance(sender, tenETH)
+	statedb.CreateAccount(contractAddr)
+	statedb.SetCode(contractAddr, []byte{
+		0x60, 0x00, // PUSH1 0x00
+		0x54,       // SLOAD
+		0x60, 0x00, // PUSH1 0x00
+		0x52,       // MSTORE
+		0x60, 0x20, // PUSH1 0x20
+		0x60, 0x00, // PUSH1 0x00
+		0xf3, // RETURN
+	})
+
+	slot0 := types.Hash{}
+	value := types.Hash{}
+	value[31] = 0x42
+	statedb.SetState(contractAddr, slot0, value)
+	statedb.FinalizePreState()
+
+	return statedb, sender, contractAddr
+}
+
+func newContractCallTx(nonce uint64, to types.Address) *types.Transaction {
+	tx := types.NewTransaction(&types.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: big.NewInt(1),
+		Gas:      100000,
+		To:       &to,
+		Value:    big.NewInt(0),
+		Data:     nil,
+	})
+	return tx
+}
+
+func TestApplyTransactionResetsAccessListPerTransaction(t *testing.T) {
+	statedb, sender, contractAddr := newSloadContractState()
+	header := newTestHeader()
+
+	tx1 := newContractCallTx(0, contractAddr)
+	tx1.SetSender(sender)
+	receipt1, _, err := applyTransactionInternal(config.TestConfig, nil, statedb, header, tx1, new(gaspool.GasPool).AddGas(header.GasLimit), nil, nil)
+	if err != nil {
+		t.Fatalf("first applyTransactionInternal: %v", err)
+	}
+
+	tx2 := newContractCallTx(1, contractAddr)
+	tx2.SetSender(sender)
+	receipt2, _, err := applyTransactionInternal(config.TestConfig, nil, statedb, header, tx2, new(gaspool.GasPool).AddGas(header.GasLimit), nil, nil)
+	if err != nil {
+		t.Fatalf("second applyTransactionInternal: %v", err)
+	}
+
+	if receipt1.GasUsed != receipt2.GasUsed {
+		t.Fatalf("gas used mismatch across transactions: first=%d second=%d", receipt1.GasUsed, receipt2.GasUsed)
+	}
+}
+
+func TestApplyTransactionClearsPreexistingWarmAccesses(t *testing.T) {
+	freshState, sender, contractAddr := newSloadContractState()
+	header := newTestHeader()
+
+	freshTx := newContractCallTx(0, contractAddr)
+	freshTx.SetSender(sender)
+	freshReceipt, _, err := applyTransactionInternal(config.TestConfig, nil, freshState, header, freshTx, new(gaspool.GasPool).AddGas(header.GasLimit), nil, nil)
+	if err != nil {
+		t.Fatalf("fresh applyTransactionInternal: %v", err)
+	}
+
+	pollutedState, sender, contractAddr := newSloadContractState()
+	slot0 := types.Hash{}
+	pollutedState.AddAddressToAccessList(contractAddr)
+	pollutedState.AddSlotToAccessList(contractAddr, slot0)
+
+	pollutedTx := newContractCallTx(0, contractAddr)
+	pollutedTx.SetSender(sender)
+	pollutedReceipt, _, err := applyTransactionInternal(config.TestConfig, nil, pollutedState, header, pollutedTx, new(gaspool.GasPool).AddGas(header.GasLimit), nil, nil)
+	if err != nil {
+		t.Fatalf("polluted applyTransactionInternal: %v", err)
+	}
+
+	if freshReceipt.GasUsed != pollutedReceipt.GasUsed {
+		t.Fatalf("gas used should not depend on preexisting warm accesses: fresh=%d polluted=%d", freshReceipt.GasUsed, pollutedReceipt.GasUsed)
 	}
 }
 

@@ -14,6 +14,20 @@ import (
 	"github.com/eth2030/eth2030/core/types"
 )
 
+func testConfigWithoutAmsterdam() *config.ChainConfig {
+	cfg := *config.TestConfig
+	cfg.AmsterdamTime = nil
+	return &cfg
+}
+
+func testConfigAmsterdamWithoutGlamsterdam() *config.ChainConfig {
+	cfg := *config.TestConfig
+	zero := uint64(0)
+	cfg.AmsterdamTime = &zero
+	cfg.GlamsterdanTime = nil
+	return &cfg
+}
+
 // makeGenesisInteg creates a genesis block for integration tests.
 func makeGenesisInteg(gasLimit uint64, baseFee *big.Int) *types.Block {
 	blobGasUsed := uint64(0)
@@ -291,6 +305,192 @@ func TestBuildBlock_GasLimitEnforcement(t *testing.T) {
 	}
 	if blk.GasUsed() > blk.GasLimit() {
 		t.Errorf("gas used %d exceeds gas limit %d", blk.GasUsed(), blk.GasLimit())
+	}
+}
+
+func TestBuildBlock_AATxReplayMatchesBuiltStateRoot(t *testing.T) {
+	builderState := state.NewMemoryStateDB()
+	replayState := state.NewMemoryStateDB()
+	sender := types.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	funds := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18))
+	builderState.AddBalance(sender, funds)
+	replayState.AddBalance(sender, new(big.Int).Set(funds))
+
+	genesis := makeGenesisInteg(30_000_000, big.NewInt(1))
+	db := rawdb.NewMemoryDB()
+	bc, err := chain.NewBlockchain(config.TestConfig, genesis, builderState, db)
+	if err != nil {
+		t.Fatalf("NewBlockchain: %v", err)
+	}
+
+	aaTx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+
+	pool := &mockTxPoolInteg{txs: []*types.Transaction{aaTx}}
+	builder := block.NewBlockBuilder(config.TestConfig, bc, pool)
+	attrs := &block.BuildBlockAttributes{
+		Timestamp:    12,
+		FeeRecipient: types.BytesToAddress([]byte{0xff}),
+		GasLimit:     30_000_000,
+	}
+
+	blk, receipts, err := builder.BuildBlock(genesis.Header(), attrs)
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("receipt count = %d, want 1", len(receipts))
+	}
+
+	proc := execution.NewStateProcessor(config.TestConfig)
+	if _, err := proc.ProcessWithBAL(blk, replayState); err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	if blk.Root() != replayState.GetRoot() {
+		t.Fatalf("state root mismatch: built=%s replay=%s", blk.Root(), replayState.GetRoot())
+	}
+	if replayState.GetNonce(sender) == 0 {
+		t.Fatalf("replay sender nonce = %d, want AA post-execution nonce increment", replayState.GetNonce(sender))
+	}
+}
+
+func TestBuildBlock_AATxReplayMatchesBuiltStateRoot_PreAmsterdam(t *testing.T) {
+	cfg := testConfigWithoutAmsterdam()
+	builderState := state.NewMemoryStateDB()
+	replayState := state.NewMemoryStateDB()
+	sender := types.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	funds := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18))
+	builderState.AddBalance(sender, funds)
+	replayState.AddBalance(sender, new(big.Int).Set(funds))
+
+	genesis := makeGenesisInteg(30_000_000, big.NewInt(1))
+	db := rawdb.NewMemoryDB()
+	bc, err := chain.NewBlockchain(cfg, genesis, builderState, db)
+	if err != nil {
+		t.Fatalf("NewBlockchain: %v", err)
+	}
+
+	aaTx := types.NewTransaction(&types.AATx{
+		ChainID:              big.NewInt(1),
+		Nonce:                0,
+		Sender:               sender,
+		SenderValidationGas:  50_000,
+		SenderExecutionGas:   21_000,
+		MaxPriorityFeePerGas: big.NewInt(1),
+		MaxFeePerGas:         big.NewInt(10),
+		SenderValidationData: []byte{},
+		SenderExecutionData:  []byte{},
+	})
+
+	pool := &mockTxPoolInteg{txs: []*types.Transaction{aaTx}}
+	builder := block.NewBlockBuilder(cfg, bc, pool)
+	attrs := &block.BuildBlockAttributes{
+		Timestamp:    12,
+		FeeRecipient: types.BytesToAddress([]byte{0xff}),
+		GasLimit:     30_000_000,
+	}
+
+	blk, receipts, err := builder.BuildBlock(genesis.Header(), attrs)
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("receipt count = %d, want 1", len(receipts))
+	}
+
+	proc := execution.NewStateProcessor(cfg)
+	if _, err := proc.ProcessWithBAL(blk, replayState); err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+
+	if blk.Root() != replayState.GetRoot() {
+		t.Fatalf("state root mismatch: built=%s replay=%s", blk.Root(), replayState.GetRoot())
+	}
+	if replayState.GetNonce(sender) != 1 {
+		t.Fatalf("pre-Amsterdam AA sender nonce = %d, want 1", replayState.GetNonce(sender))
+	}
+}
+
+func TestBuildBlock_AmsterdamWithoutGlamsterdamUsesUserGasForHeader(t *testing.T) {
+	cfg := testConfigAmsterdamWithoutGlamsterdam()
+	builderState := state.NewMemoryStateDB()
+	replayState := state.NewMemoryStateDB()
+	sender := types.HexToAddress("0xdddddddddddddddddddddddddddddddddddddddd")
+	contractAddr := types.HexToAddress("0x000000000000000000000000000000000000c1ea")
+	funds := new(big.Int).Mul(big.NewInt(10), big.NewInt(1e18))
+	slotZero := types.Hash{}
+	slotValue := types.HexToHash("0x01")
+	clearStorageCode := []byte{0x60, 0x00, 0x60, 0x00, 0x55, 0x00}
+
+	for _, db := range []*state.MemoryStateDB{builderState, replayState} {
+		db.AddBalance(sender, new(big.Int).Set(funds))
+		db.SetCode(contractAddr, clearStorageCode)
+		db.SetState(contractAddr, slotZero, slotValue)
+	}
+
+	genesis := makeGenesisInteg(30_000_000, big.NewInt(1))
+	db := rawdb.NewMemoryDB()
+	bc, err := chain.NewBlockchain(cfg, genesis, builderState, db)
+	if err != nil {
+		t.Fatalf("NewBlockchain: %v", err)
+	}
+
+	tx := types.NewTransaction(&types.DynamicFeeTx{
+		ChainID:   new(big.Int).Set(cfg.ChainID),
+		Nonce:     0,
+		GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(10),
+		Gas:       150_000,
+		To:        &contractAddr,
+		Value:     big.NewInt(0),
+	})
+	tx.SetSender(sender)
+
+	pool := &mockTxPoolInteg{txs: []*types.Transaction{tx}}
+	builder := block.NewBlockBuilder(cfg, bc, pool)
+	attrs := &block.BuildBlockAttributes{
+		Timestamp:    12,
+		FeeRecipient: types.BytesToAddress([]byte{0xff}),
+		GasLimit:     30_000_000,
+	}
+
+	blk, receipts, err := builder.BuildBlock(genesis.Header(), attrs)
+	if err != nil {
+		t.Fatalf("BuildBlock: %v", err)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("receipt count = %d, want 1", len(receipts))
+	}
+	if receipts[0].BlockGasUsed <= receipts[0].GasUsed {
+		t.Fatalf("expected refund-driven gas split, got blockGasUsed=%d gasUsed=%d", receipts[0].BlockGasUsed, receipts[0].GasUsed)
+	}
+	if blk.GasUsed() != receipts[0].GasUsed {
+		t.Fatalf("header gas used = %d, want post-refund gas %d before Glamsterdam", blk.GasUsed(), receipts[0].GasUsed)
+	}
+
+	proc := execution.NewStateProcessor(cfg)
+	result, err := proc.ProcessWithBAL(blk, replayState)
+	if err != nil {
+		t.Fatalf("ProcessWithBAL: %v", err)
+	}
+	if len(result.Receipts) != 1 {
+		t.Fatalf("replay receipt count = %d, want 1", len(result.Receipts))
+	}
+	if result.Receipts[0].GasUsed != blk.GasUsed() {
+		t.Fatalf("replay gas used = %d, want header gas %d", result.Receipts[0].GasUsed, blk.GasUsed())
+	}
+	if result.Receipts[0].BlockGasUsed != receipts[0].BlockGasUsed {
+		t.Fatalf("replay block gas used = %d, want %d", result.Receipts[0].BlockGasUsed, receipts[0].BlockGasUsed)
 	}
 }
 

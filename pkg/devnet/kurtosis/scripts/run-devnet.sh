@@ -22,13 +22,19 @@ if ! command -v kurtosis &>/dev/null; then
 fi
 
 ENCLAVE="${2:-eth2030-devnet}"
+KURTOSIS_PACKAGE="${KURTOSIS_PACKAGE:-github.com/ethpandaops/ethereum-package}"
 
-echo "=== Building eth2030-geth Docker image ==="
-docker build -t eth2030:local "$PKG_DIR"
+if [ "${SKIP_EL_IMAGE_BUILD:-0}" = "1" ]; then
+    echo "=== Reusing existing eth2030:local Docker image ==="
+else
+    echo "=== Building eth2030-geth Docker image ==="
+    docker build -t eth2030:local "$PKG_DIR"
+fi
 
 echo ""
 echo "=== Launching devnet: $CONFIG ==="
-kurtosis run github.com/ethpandaops/ethereum-package \
+echo "=== Kurtosis package: $KURTOSIS_PACKAGE ==="
+kurtosis run "$KURTOSIS_PACKAGE" \
     --args-file "$CONFIG_FILE" \
     --enclave "$ENCLAVE"
 

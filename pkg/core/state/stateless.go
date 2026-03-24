@@ -445,6 +445,10 @@ func (s *StatelessStateDB) SlotInAccessList(addr types.Address, slot types.Hash)
 	return s.accessList.ContainsSlot(addr, slot)
 }
 
+func (s *StatelessStateDB) ClearAccessList() {
+	s.accessList = newAccessList()
+}
+
 // --- Transient storage (EIP-1153) ---
 
 func (s *StatelessStateDB) GetTransientState(addr types.Address, key types.Hash) types.Hash {

@@ -34,54 +34,58 @@ additional_services:
   - rakoon
   - assertoor
 
+dora_params:
+  image: "eth2030/dora:v0.0.1"
+
 assertoor_params:
   run_stability_check: true
 
 spamoor_params:
+  image: eth2030/spamoor:v0.0.1
   # Resource management for spamoor
   # CPU is milicores
   # RAM is in MB
-  min_cpu: 10
-  max_cpu: 1000
+  min_cpu: 5
+  max_cpu: 30
   min_mem: 20
   max_mem: 300
   spammers:
     - scenario: eoatx
       name: "EOA Transfers"
       config:
-        throughput: 20
-        max_pending: 50
-        max_wallets: 30
+        throughput: 6
+        max_pending: 12
+        max_wallets: 12
         random_target: true
         tip_fee: 2
     - scenario: erc20tx
       name: "ERC20 Token Transfers"
       config:
-        throughput: 10
-        max_pending: 30
-        max_wallets: 20
+        throughput: 4
+        max_pending: 10
+        max_wallets: 10
         random_target: true
         tip_fee: 2
     - scenario: erc721tx
       name: "ERC721 NFT Transfers"
       config:
-        throughput: 5
-        max_pending: 20
-        max_wallets: 15
+        throughput: 2
+        max_pending: 6
+        max_wallets: 6
         tip_fee: 2
     - scenario: erc1155tx
       name: "ERC1155 Multi-Token"
       config:
-        throughput: 5
-        max_pending: 20
-        max_wallets: 15
+        throughput: 2
+        max_pending: 6
+        max_wallets: 6
         tip_fee: 2
     - scenario: setcodetx
       name: "EIP-7702 SetCode"
       config:
-        throughput: 5
-        max_pending: 20
-        max_wallets: 20
+        throughput: 2
+        max_pending: 6
+        max_wallets: 8
         # Use min = max for deterministic auth count (reference pattern).
         min_authorizations: 5
         max_authorizations: 5
@@ -94,31 +98,53 @@ spamoor_params:
         random_code_addr: true
         random_target: true
         tip_fee: 2
+    - scenario: aatx
+      name: "EIP-7701 Native AA Raw"
+      config:
+        submit_mode: raw_tx
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        sender_validation_gas: 50000
+        sender_execution_gas: 21000
+        sender_execution_data: "0x"
+        tip_fee: 2
+    - scenario: aatx
+      name: "EIP-7701 Native AA UserOp"
+      config:
+        submit_mode: user_operation
+        throughput: 1
+        max_pending: 4
+        max_wallets: 6
+        sender_validation_gas: 50000
+        sender_execution_gas: 21000
+        sender_execution_data: "0x"
+        tip_fee: 2
     - scenario: blobs
       name: "EIP-4844 Blob Transactions"
       config:
-        throughput: 3
-        max_pending: 10
-        max_wallets: 10
-        sidecars: 2
+        throughput: 1
+        max_pending: 3
+        max_wallets: 4
+        sidecars: 1
         tip_fee: 2
     - scenario: gasburnertx
       name: "Gas Burner"
       config:
-        throughput: 5
-        max_pending: 20
-        max_wallets: 15
+        throughput: 1
+        max_pending: 3
+        max_wallets: 4
         tip_fee: 2
         # Use 2M gas per tx (scenario default) to keep wallet funding affordable.
-        gas_units_to_burn: 2000000
+        gas_units_to_burn: 500000
     - scenario: storagespam
       name: "Storage Spam"
       config:
-        throughput: 5
-        max_pending: 20
-        max_wallets: 15
+        throughput: 1
+        max_pending: 3
+        max_wallets: 4
         tip_fee: 2
-        gas_units_to_burn: 2000000
+        gas_units_to_burn: 500000
 
 rakoon_params:
   tx_type: eip7702

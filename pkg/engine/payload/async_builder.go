@@ -65,6 +65,7 @@ type BuildAttributes struct {
 	PrevRandao       types.Hash
 	GasLimit         uint64
 	Withdrawals      []*types.Withdrawal
+	BeaconRoot       *types.Hash // ParentBeaconBlockRoot from CL (EIP-4788)
 	InclusionListTxs [][]byte
 }
 
@@ -222,12 +223,18 @@ func (p *PendingPayload) GetResult() (*BuildResult, error) {
 	}, nil
 }
 
+// ValidateParentFunc is a function that validates if a parent block is still
+// the current head. It returns true if the parent is valid for building.
+// This is used to prevent building on stale parents during chain reorgs.
+type ValidateParentFunc func(parentHash types.Hash) bool
+
 // AsyncBuilder manages asynchronous payload building with a worker pool.
 type AsyncBuilder struct {
-	config  *coreconfig.ChainConfig
-	txPool  block.TxPoolReader
-	workers int
-	timeout time.Duration
+	config         *coreconfig.ChainConfig
+	txPool         block.TxPoolReader
+	workers        int
+	timeout        time.Duration
+	validateParent ValidateParentFunc // Optional validation for parent blocks
 
 	mu           sync.RWMutex
 	pending      map[PayloadID]*PendingPayload
@@ -285,6 +292,13 @@ func NewAsyncBuilder(config *coreconfig.ChainConfig, txPool block.TxPoolReader, 
 		queue:      make(chan *BuildRequest, queueSize),
 		stopCh:     make(chan struct{}),
 	}
+}
+
+// SetValidateParent sets the parent validation function.
+// This should be called before starting the builder to enable
+// validation that prevents building on stale parents during reorgs.
+func (b *AsyncBuilder) SetValidateParent(fn ValidateParentFunc) {
+	b.validateParent = fn
 }
 
 // Start starts the builder workers.
@@ -436,6 +450,22 @@ func (b *AsyncBuilder) processRequest(req *BuildRequest, workerID int) {
 		return
 	}
 
+	// CRITICAL: Validate that the parent is still valid before building.
+	// This prevents building on stale parents during chain reorgs which causes
+	// ParentBlockHashMismatch errors when the CL expects a different parent.
+	if b.validateParent != nil && !b.validateParent(req.ParentHash) {
+		err := fmt.Errorf("parent block %s is no longer valid (chain reorg)", req.ParentHash.Hex())
+		pending.SetFailed(err)
+		metrics.EnginePayloadBuildFailed.Inc()
+		asyncBuilderLog.Warn("build_parent_invalid",
+			"workerID", workerID,
+			"payloadID", fmt.Sprintf("%x", req.ID),
+			"parentHash", req.ParentHash.Hex(),
+			"reason", "parent no longer current head",
+		)
+		return
+	}
+
 	pending.SetBuilding()
 	asyncBuilderLog.Debug("build_started",
 		"workerID", workerID,
@@ -453,6 +483,7 @@ func (b *AsyncBuilder) processRequest(req *BuildRequest, workerID int) {
 		Random:           req.Attrs.PrevRandao,
 		GasLimit:         req.Attrs.GasLimit,
 		Withdrawals:      req.Attrs.Withdrawals,
+		BeaconRoot:       req.Attrs.BeaconRoot,
 		InclusionListTxs: req.Attrs.InclusionListTxs,
 	})
 
