@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/eth2030/eth2030/rlp"
 )
@@ -180,4 +181,56 @@ func (r *FrameTxReceipt) AllLogs() []*Log {
 		logs = append(logs, fr.Logs...)
 	}
 	return logs
+}
+
+// DeriveStatus derives the overall transaction status from frame results.
+// Per EIP-8141: the transaction is successful if all frames succeeded.
+// Returns 1 (success) if all frames have status 1, otherwise 0 (failed).
+func (r *FrameTxReceipt) DeriveStatus() uint64 {
+	for _, fr := range r.FrameResults {
+		if fr.Status != ReceiptStatusSuccessful {
+			return ReceiptStatusFailed
+		}
+	}
+	return ReceiptStatusSuccessful
+}
+
+// ComputeBloom computes the bloom filter from all logs in the receipt.
+func (r *FrameTxReceipt) ComputeBloom() Bloom {
+	return LogsBloom(r.AllLogs())
+}
+
+// ToReceipt converts a FrameTxReceipt to a standard Receipt.
+// This enables compatibility with existing receipt storage and RPC APIs.
+// The caller must provide transaction context (hash, block info, etc.).
+func (r *FrameTxReceipt) ToReceipt(txHash Hash, blockHash Hash, blockNumber *big.Int, txIndex uint, effectiveGasPrice *big.Int) *Receipt {
+	return &Receipt{
+		// Consensus fields
+		Type:              FrameTxType,
+		Status:            r.DeriveStatus(),
+		CumulativeGasUsed: r.CumulativeGasUsed,
+		Bloom:             r.ComputeBloom(),
+		Logs:              r.AllLogs(),
+
+		// Derived fields
+		TxHash:            txHash,
+		GasUsed:           r.TotalGasUsed(),
+		EffectiveGasPrice: effectiveGasPrice,
+
+		// Inclusion information
+		BlockHash:        blockHash,
+		BlockNumber:      blockNumber,
+		TransactionIndex: txIndex,
+	}
+}
+
+// ToReceiptWithPayer converts a FrameTxReceipt to a standard Receipt
+// with additional payer information stored in the ContractAddress field
+// (repurposed for FrameTx to indicate the gas payer).
+func (r *FrameTxReceipt) ToReceiptWithPayer(txHash Hash, blockHash Hash, blockNumber *big.Int, txIndex uint, effectiveGasPrice *big.Int) *Receipt {
+	receipt := r.ToReceipt(txHash, blockHash, blockNumber, txIndex, effectiveGasPrice)
+	// Store payer address in ContractAddress field for FrameTx receipts.
+	// This is a repurposing of the field since FrameTx cannot create contracts.
+	receipt.ContractAddress = r.Payer
+	return receipt
 }

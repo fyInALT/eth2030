@@ -1295,6 +1295,102 @@ func TestFormatReceipt_FailedStatus(t *testing.T) {
 	}
 }
 
+// TestFormatReceipt_FrameTx tests EIP-8141 Frame transaction receipt formatting.
+// For FrameTx, the ContractAddress field is repurposed to hold the payer address.
+func TestFormatReceipt_FrameTx(t *testing.T) {
+	payer := types.HexToAddress("0xaabbccddeeff")
+	receipt := &types.Receipt{
+		Type:              types.FrameTxType, // 0x06
+		Status:            types.ReceiptStatusSuccessful,
+		CumulativeGasUsed: 100000,
+		GasUsed:           50000,
+		TxHash:            types.HexToHash("0x1111"),
+		BlockHash:         types.HexToHash("0x2222"),
+		BlockNumber:       big.NewInt(42),
+		TransactionIndex:  0,
+		ContractAddress:   payer, // Payer stored here for FrameTx
+		Logs:              []*types.Log{},
+	}
+
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
+
+	// Verify basic fields.
+	if rpcReceipt.Type != "0x6" {
+		t.Errorf("Type = %s, want 0x6", rpcReceipt.Type)
+	}
+	if rpcReceipt.Status != "0x1" {
+		t.Errorf("Status = %s, want 0x1", rpcReceipt.Status)
+	}
+
+	// For FrameTx, ContractAddress is repurposed as Payer.
+	// Both fields should be populated for RPC.
+	if rpcReceipt.ContractAddress == nil {
+		t.Fatal("expected non-nil contractAddress")
+	}
+	if *rpcReceipt.ContractAddress != rpctypes.EncodeAddress(payer) {
+		t.Errorf("contractAddress = %v, want %v", *rpcReceipt.ContractAddress, rpctypes.EncodeAddress(payer))
+	}
+
+	// Payer field should also be set for FrameTx.
+	if rpcReceipt.Payer == nil {
+		t.Fatal("expected non-nil payer for FrameTx")
+	}
+	if *rpcReceipt.Payer != rpctypes.EncodeAddress(payer) {
+		t.Errorf("payer = %v, want %v", *rpcReceipt.Payer, rpctypes.EncodeAddress(payer))
+	}
+}
+
+// TestFormatReceipt_FrameTx_NoPayer tests FrameTx receipt with zero payer.
+func TestFormatReceipt_FrameTx_NoPayer(t *testing.T) {
+	receipt := &types.Receipt{
+		Type:            types.FrameTxType,
+		Status:          types.ReceiptStatusSuccessful,
+		GasUsed:         21000,
+		TxHash:          types.HexToHash("0x1111"),
+		BlockHash:       types.HexToHash("0x2222"),
+		BlockNumber:     big.NewInt(42),
+		ContractAddress: types.Address{}, // Zero address = no payer
+		Logs:            []*types.Log{},
+	}
+
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
+
+	// Payer should be nil for zero address.
+	if rpcReceipt.Payer != nil {
+		t.Errorf("expected nil payer for zero address, got %v", *rpcReceipt.Payer)
+	}
+}
+
+// TestFormatReceipt_NonFrameTx_NoPayer tests that non-FrameTx receipts don't get payer field.
+func TestFormatReceipt_NonFrameTx_NoPayer(t *testing.T) {
+	contractAddr := types.HexToAddress("0xcccc")
+	receipt := &types.Receipt{
+		Type:            types.DynamicFeeTxType, // 0x02, not FrameTx
+		Status:          types.ReceiptStatusSuccessful,
+		GasUsed:         100000,
+		ContractAddress: contractAddr, // Contract creation, not payer
+		TxHash:          types.HexToHash("0x1111"),
+		BlockHash:       types.HexToHash("0x2222"),
+		BlockNumber:     big.NewInt(42),
+		Logs:            []*types.Log{},
+	}
+
+	rpcReceipt := rpctypes.FormatReceipt(receipt, nil, 0)
+
+	// ContractAddress should be set (this is a CREATE).
+	if rpcReceipt.ContractAddress == nil {
+		t.Fatal("expected non-nil contractAddress")
+	}
+	if *rpcReceipt.ContractAddress != rpctypes.EncodeAddress(contractAddr) {
+		t.Errorf("contractAddress = %v, want %v", *rpcReceipt.ContractAddress, rpctypes.EncodeAddress(contractAddr))
+	}
+
+	// Payer should NOT be set for non-FrameTx.
+	if rpcReceipt.Payer != nil {
+		t.Errorf("expected nil payer for non-FrameTx, got %v", *rpcReceipt.Payer)
+	}
+}
+
 func TestFormatReceipt_NilLogs(t *testing.T) {
 	receipt := &types.Receipt{
 		Status:      types.ReceiptStatusSuccessful,

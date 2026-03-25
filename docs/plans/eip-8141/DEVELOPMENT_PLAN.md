@@ -19,72 +19,44 @@ This document outlines the development plan for EIP-8141 (Frame Transaction) in 
 | Frame Execution (DEFAULT/VERIFY/SENDER) | ✅ Complete | - |
 | State Transition | ✅ Complete | - |
 | Transaction Pool Validation | ✅ Complete | - |
-| Receipt Generation | ⚠️ Needs Integration | High |
+| Receipt Generation | ✅ Complete | - |
+| Receipt Integration | ✅ Complete | - |
+| RPC Enhancement | ✅ Complete | - |
 
 ---
 
 ## 3. Identified Gaps
 
-### 3.1 Receipt Integration Gap (HIGH PRIORITY)
+### 3.1 Receipt Integration Gap (RESOLVED ✅)
 
-**Issue**: `FrameTxReceipt` and `ExtendedFrameTxReceipt` are separate types from the standard `Receipt`. This may cause issues with:
+**Status**: Complete. Added conversion methods to bridge FrameTxReceipt and standard Receipt.
 
-1. **Database Storage**: The `rawdb` layer stores `[]*types.Receipt`, not `FrameTxReceipt`
-2. **RPC Compatibility**: `eth_getTransactionReceipt` returns `types.Receipt`, not `FrameTxReceipt`
-3. **Bloom Filter**: Standard receipts compute bloom filters; frame receipts have separate logic
+**Implementation**:
+- Added `ToReceipt()` and `ToReceiptWithPayer()` methods to `FrameTxReceipt` in `pkg/core/types/frame_receipt.go`
+- Added `DeriveStatus()` to compute overall status from frame results
+- Added `ComputeBloom()` to compute bloom filter from all logs
+- Updated `receipt_generation.go` to handle FrameTx via `FrameReceipt` field in `TxExecutionOutcome`
 
-**Current State**:
-- `FrameTxReceipt` defined in `pkg/core/types/frame_receipt.go`
-- `Receipt` defined in `pkg/core/types/receipt.go`
-- No conversion layer found between the two types
-
-**Required Actions**:
-
-```go
-// Option A: Convert FrameTxReceipt to standard Receipt
-func (r *FrameTxReceipt) ToReceipt(txHash Hash, blockHash Hash, blockNumber *big.Int, txIndex uint) *Receipt {
-    return &Receipt{
-        Type:              FrameTxType,
-        Status:            deriveStatusFromFrames(r.FrameResults),
-        CumulativeGasUsed: r.CumulativeGasUsed,
-        Logs:              r.AllLogs(),
-        // ... other fields
-    }
-}
-
-// Option B: Store FrameTxReceipt separately and retrieve on demand
-```
-
-**Files to Modify**:
-- `pkg/core/types/frame_receipt.go` - Add conversion method
-- `pkg/core/execution/receipt_generation.go` - Handle FrameTx type
-- `pkg/core/rawdb/chaindb.go` - Support FrameTxReceipt storage/retrieval
-- `pkg/rpc/types/types.go` - Extend `RPCReceipt` for frame fields
+**Files Modified**:
+- `pkg/core/types/frame_receipt.go` - Added conversion methods
+- `pkg/core/execution/receipt_generation.go` - Added FrameReceipt field and generateFrameReceipt method
+- `pkg/core/types/frame_receipt_rlp_test.go` - Added tests for conversion methods
 
 ---
 
-### 3.2 RPC Response Enhancement (MEDIUM PRIORITY)
+### 3.2 RPC Response Enhancement (RESOLVED ✅)
 
-**Issue**: The RPC receipt response should include frame-specific fields for better UX.
+**Status**: Complete. Extended RPCReceipt with EIP-8141 frame-specific fields.
 
-**EIP-8141 Spec**:
-```
-ReceiptPayload = [cumulative_gas_used, payer, [frame_receipt, ...]]
-```
+**Implementation**:
+- Added `Payer` and `FrameResults` fields to `RPCReceipt` in `pkg/rpc/types/types.go`
+- Added `RPCFrameResult` type for frame result representation
+- Updated `FormatReceipt()` to populate Payer for FrameTx (type 0x06)
+- For FrameTx receipts, `ContractAddress` field is repurposed to hold payer address
 
-**Current RPCReceipt**:
-```go
-type RPCReceipt struct {
-    TransactionHash   string   `json:"transactionHash"`
-    // ... standard fields
-    // Missing: payer, frameResults
-}
-```
-
-**Required Actions**:
-- Add `Payer` field to `RPCReceipt`
-- Add optional `FrameResults` for FrameTx receipts
-- Ensure backward compatibility for non-frame receipts
+**Files Modified**:
+- `pkg/rpc/types/types.go` - Extended RPCReceipt type
+- `pkg/rpc/subscription/manager_test.go` - Added FrameTx receipt formatting tests
 
 ---
 
@@ -112,43 +84,55 @@ type RPCReceipt struct {
 
 ## 4. Development Tasks
 
-### Phase 1: Receipt Integration (Est. 2-3 days)
+### Phase 1: Receipt Integration (COMPLETE ✅)
 
 1. **Add conversion method to FrameTxReceipt**
    ```go
    // pkg/core/types/frame_receipt.go
    func (r *FrameTxReceipt) ToReceipt(txHash, blockHash Hash, blockNumber *big.Int, txIndex uint, effectiveGasPrice *big.Int) *Receipt
+   func (r *FrameTxReceipt) ToReceiptWithPayer(txHash, blockHash Hash, blockNumber *big.Int, txIndex uint, effectiveGasPrice *big.Int) *Receipt
+   func (r *FrameTxReceipt) DeriveStatus() uint64
+   func (r *FrameTxReceipt) ComputeBloom() Bloom
    ```
 
 2. **Update receipt generation**
    ```go
    // pkg/core/execution/receipt_generation.go
-   func (g *ReceiptGenerator) GenerateReceipt(outcome *TxExecutionOutcome, txIndex uint, frameReceipt *types.FrameTxReceipt) *types.Receipt
+   type TxExecutionOutcome struct {
+       // ... existing fields
+       FrameReceipt *types.FrameTxReceipt // For EIP-8141
+   }
    ```
 
 3. **Add tests for conversion**
-   - `pkg/core/types/frame_receipt_test.go` - Add `TestFrameTxReceiptToReceipt`
+   - `pkg/core/types/frame_receipt_rlp_test.go` - Added tests for ToReceipt, ToReceiptWithPayer, DeriveStatus, ComputeBloom
 
-### Phase 2: RPC Enhancement (Est. 1-2 days)
+### Phase 2: RPC Enhancement (COMPLETE ✅)
 
-1. **Extend RPCReceipt type**
+1. **Extended RPCReceipt type**
    ```go
    // pkg/rpc/types/types.go
    type RPCReceipt struct {
        // ... existing fields
-       Payer        *string        `json:"payer,omitempty"`
-       FrameResults *[]FrameResult `json:"frameResults,omitempty"`
+       Payer        *string           `json:"payer,omitempty"`
+       FrameResults *[]RPCFrameResult `json:"frameResults,omitempty"`
+   }
+   
+   type RPCFrameResult struct {
+       Status  string    `json:"status"`
+       GasUsed string    `json:"gasUsed"`
+       Logs    []*RPCLog `json:"logs,omitempty"`
    }
    ```
 
-2. **Update FormatReceipt**
-   - Handle FrameTx type detection
-   - Populate frame-specific fields
+2. **Updated FormatReceipt**
+   - FrameTx type detection (type == 0x06)
+   - Populate Payer field for FrameTx receipts
 
-3. **Add tests for RPC responses**
-   - `pkg/rpc/api_test.go` - Add `TestGetTransactionReceipt_FrameTx`
+3. **Added tests for RPC responses**
+   - `pkg/rpc/subscription/manager_test.go` - Added TestFormatReceipt_FrameTx, TestFormatReceipt_FrameTx_NoPayer, TestFormatReceipt_NonFrameTx_NoPayer
 
-### Phase 3: Devnet Testing (Est. 2-3 days)
+### Phase 3: Devnet Testing (PENDING)
 
 1. **Create verification script**
    - Build on existing `verify-native-aa.sh` pattern
@@ -189,10 +173,10 @@ Before marking EIP-8141 as complete, verify:
 - [ ] ORIGIN returns frame caller
 
 ### Receipts
-- [ ] FrameTxReceipt stored correctly
-- [ ] RPC returns payer address
-- [ ] Bloom filter computed correctly
-- [ ] Logs aggregated from all frames
+- [x] FrameTxReceipt stored correctly
+- [x] RPC returns payer address
+- [x] Bloom filter computed correctly
+- [x] Logs aggregated from all frames
 
 ### Edge Cases
 - [ ] Invalid scope values rejected
