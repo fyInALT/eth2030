@@ -1107,6 +1107,12 @@ func (pool *TxPool) senderOf(tx *types.Transaction) types.Address {
 		tx.SetSender(aatx.Sender)
 		return aatx.Sender
 	}
+	// EIP-8141: frame transactions embed the sender address directly.
+	if tx.Type() == types.FrameTxType {
+		sender := tx.FrameSender()
+		tx.SetSender(sender)
+		return sender
+	}
 	// Recover sender from signature using ecrecover.
 	sigHash := tx.SigningHash()
 	v, r, s := tx.RawSignatureValues()

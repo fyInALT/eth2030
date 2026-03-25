@@ -62,9 +62,12 @@ func TransactionToMessage(tx *types.Transaction) Message {
 		msg.To = &to
 	}
 	// EIP-8141: populate frame transaction fields.
+	// Frame txs embed the sender directly (no ECDSA recovery), so we must
+	// set msg.From here since tx.Sender() returns nil for unsigned frame txs.
 	if tx.Type() == types.FrameTxType {
 		msg.Frames = tx.Frames()
 		msg.FrameSender = tx.FrameSender()
+		msg.From = tx.FrameSender()
 	}
 	if tx.Value() != nil {
 		msg.Value = new(big.Int).Set(tx.Value())
