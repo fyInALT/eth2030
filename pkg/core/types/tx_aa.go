@@ -14,6 +14,7 @@ import (
 
 const (
 	// AATxType is the EIP-2718 envelope type for AA transactions.
+	// EIP-7701 defines AA_TX_TYPE as TBD, so we use 0x05 (next available type after SetCodeTxType=0x04).
 	AATxType byte = 0x05
 
 	// AABaseCost is the intrinsic gas cost of an AA transaction.

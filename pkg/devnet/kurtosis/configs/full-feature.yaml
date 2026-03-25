@@ -32,13 +32,13 @@ additional_services:
   - dora
   - spamoor
   - rakoon
-  - assertoor
+  - blockscout
+  - prometheus
+  - grafana
+  - checkpointz
 
 dora_params:
   image: "eth2030/dora:v0.0.1"
-
-assertoor_params:
-  run_stability_check: true
 
 spamoor_params:
   image: eth2030/spamoor:v0.0.1
