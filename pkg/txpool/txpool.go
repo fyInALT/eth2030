@@ -745,6 +745,11 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	// Balance check: sender must have enough for value + gas * gasPrice.
+	// EIP-8141: Frame transactions skip balance check — the payer is determined
+	// at APPROVE time during VERIFY frame execution and may differ from sender.
+	if tx.Type() == types.FrameTxType {
+		return nil
+	}
 	payer := pool.payerOf(tx)
 	balance := pool.state.GetBalance(payer)
 	if balance != nil {

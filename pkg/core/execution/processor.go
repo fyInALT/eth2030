@@ -1203,11 +1203,15 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	// Exception: accounts with EIP-7702 delegation designators (0xef0100 prefix)
 	// are allowed to send transactions since they are still EOAs that have
 	// delegated their code execution.
-	if codeHash := statedb.GetCodeHash(msg.From); codeHash != (types.Hash{}) && codeHash != types.EmptyCodeHash {
-		// Check if the sender has EIP-7702 delegated code, which is allowed.
-		if code := statedb.GetCode(msg.From); !types.HasDelegationPrefix(code) {
-			gp.AddGas(msg.GasLimit)
-			return nil, fmt.Errorf("sender not an EOA: address %v, codehash: %v", msg.From, codeHash)
+	// EIP-8141: Frame transactions allow smart contract senders (the whole point
+	// of account abstraction via VERIFY/APPROVE).
+	if msg.TxType != types.FrameTxType {
+		if codeHash := statedb.GetCodeHash(msg.From); codeHash != (types.Hash{}) && codeHash != types.EmptyCodeHash {
+			// Check if the sender has EIP-7702 delegated code, which is allowed.
+			if code := statedb.GetCode(msg.From); !types.HasDelegationPrefix(code) {
+				gp.AddGas(msg.GasLimit)
+				return nil, fmt.Errorf("sender not an EOA: address %v, codehash: %v", msg.From, codeHash)
+			}
 		}
 	}
 
@@ -1252,15 +1256,21 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 	}
 	totalCost := new(big.Int).Add(msg.Value, balanceGasCost)
 	totalCost.Add(totalCost, calldataGasCost)
-	balance := statedb.GetBalance(msg.From)
-	if balance.Cmp(totalCost) < 0 {
-		gp.AddGas(msg.GasLimit)
-		return nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientBalance, msg.From, balance, totalCost)
-	}
 
-	// Deduct gas cost + calldata gas cost from sender
-	deduction := new(big.Int).Add(gasCost, calldataGasCost)
-	statedb.SubBalance(msg.From, deduction)
+	// EIP-8141: Frame transactions collect fees after APPROVE opcode, not upfront.
+	// Skip balance check and gas deduction — the payer is determined at runtime
+	// via the APPROVE opcode and may differ from the sender.
+	if msg.TxType != types.FrameTxType {
+		balance := statedb.GetBalance(msg.From)
+		if balance.Cmp(totalCost) < 0 {
+			gp.AddGas(msg.GasLimit)
+			return nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientBalance, msg.From, balance, totalCost)
+		}
+
+		// Deduct gas cost + calldata gas cost from sender
+		deduction := new(big.Int).Add(gasCost, calldataGasCost)
+		statedb.SubBalance(msg.From, deduction)
+	}
 
 	isCreate := msg.To == nil
 
@@ -1565,11 +1575,12 @@ func applyMessage(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb
 			}
 
 			// EIP-8141: transfer gas cost from sender to payer for sponsored tx (GAP-1).
-			// The sender was pre-charged at line 875. If a different payer was
-			// approved, refund sender and charge payer instead.
-			if frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
-				statedb.AddBalance(msg.From, deduction)
-				statedb.SubBalance(frameCtx.Payer, deduction)
+			// For frame txs, gas deduction happens inside APPROVE (not upfront),
+			// so we only do the transfer if the sender was pre-charged (non-frame txs).
+			gasCostTransfer := new(big.Int).Add(gasCost, calldataGasCost)
+			if msg.TxType != types.FrameTxType && frameCtx.Payer != (types.Address{}) && frameCtx.Payer != msg.From {
+				statedb.AddBalance(msg.From, gasCostTransfer)
+				statedb.SubBalance(frameCtx.Payer, gasCostTransfer)
 				// AA-1.3: if the payer's balance went negative, they failed to cover
 				// gas — slash the paymaster.
 				if msg.Slasher != nil {
