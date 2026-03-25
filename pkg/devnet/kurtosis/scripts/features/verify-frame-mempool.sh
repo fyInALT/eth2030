@@ -130,5 +130,56 @@ else
   echo "  Metrics endpoint not available — skipping counter check"
 fi
 
+# --- Receipt verification for FrameTx (EIP-8141) ---
+
+echo ""
+echo "--- FrameTx receipt verification (EIP-8141 payer field) ---"
+if [ "$FRAME_TOTAL" -gt 0 ]; then
+  # Find a FrameTx and check its receipt
+  for i in $(seq 1 "$LATEST_DEC"); do
+    B_HEX=$(printf '0x%x' "$i")
+    BLOCK_TXS=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
+      -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$B_HEX\", true],\"id\":1}" \
+      | jq -r '.result.transactions')
+    FRAME_TX_HASH=$(echo "$BLOCK_TXS" | jq -r '.[] | select(.type == "0x6") | .hash' | head -1)
+    if [ -n "$FRAME_TX_HASH" ] && [ "$FRAME_TX_HASH" != "null" ]; then
+      echo "Found FrameTx in block $i: $FRAME_TX_HASH"
+      RECEIPT=$(curl -sf -X POST "$RPC_URL" -H "Content-Type: application/json" \
+        -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$FRAME_TX_HASH\"],\"id\":1}" \
+        | jq -r '.result')
+      if [ -n "$RECEIPT" ] && [ "$RECEIPT" != "null" ]; then
+        RX_TYPE=$(echo "$RECEIPT" | jq -r '.type // empty')
+        RX_STATUS=$(echo "$RECEIPT" | jq -r '.status // empty')
+        RX_GAS=$(echo "$RECEIPT" | jq -r '.gasUsed // empty')
+        RX_PAYER=$(echo "$RECEIPT" | jq -r '.payer // empty')
+        RX_CONTRACT=$(echo "$RECEIPT" | jq -r '.contractAddress // empty')
+        echo "  Receipt type: $RX_TYPE"
+        echo "  Receipt status: $RX_STATUS"
+        echo "  Receipt gasUsed: $RX_GAS"
+        echo "  Receipt payer: $RX_PAYER"
+        echo "  Receipt contractAddress: $RX_CONTRACT"
+        # Verify type is 0x6
+        if [ "$RX_TYPE" == "0x6" ]; then
+          echo "  PASS: Receipt type is correct (0x6 = FrameTx)"
+        else
+          echo "  WARN: Receipt type mismatch, expected 0x6, got $RX_TYPE"
+        fi
+        # Verify payer field is present for FrameTx
+        if [ -n "$RX_PAYER" ] && [ "$RX_PAYER" != "null" ]; then
+          echo "  PASS: Payer field is present in FrameTx receipt"
+        else
+          echo "  INFO: Payer field not present (may be zero address or not set)"
+        fi
+      else
+        echo "  WARN: Could not fetch receipt for FrameTx $FRAME_TX_HASH"
+      fi
+      break
+    fi
+  done
+else
+  echo "  No FrameTx transactions found in blocks — skipping receipt verification"
+  echo "  Use spamoor or manual tx submission to test FrameTx receipt fields"
+fi
+
 echo ""
 echo "PASS: Frame Mempool — chain advancing, txpool API healthy, EntryPoint accessible, frame tx type-0x6 recognized"

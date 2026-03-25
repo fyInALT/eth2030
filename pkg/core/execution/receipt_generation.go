@@ -88,12 +88,21 @@ type TxExecutionOutcome struct {
 
 	// TxType is the transaction envelope type (0=legacy, 2=EIP-1559, 3=blob).
 	TxType uint8
+
+	// FrameReceipt is set for EIP-8141 Frame transactions.
+	// When non-nil, this takes precedence over other fields for receipt generation.
+	FrameReceipt *types.FrameTxReceipt
 }
 
 // GenerateReceipt creates a receipt from the given execution outcome.
 // It updates cumulative gas counters and computes the bloom filter.
 // The txIndex is the position of the transaction within the block.
 func (g *ReceiptGenerator) GenerateReceipt(outcome *TxExecutionOutcome, txIndex uint) *types.Receipt {
+	// EIP-8141: Handle Frame transaction receipts specially.
+	if outcome.FrameReceipt != nil {
+		return g.generateFrameReceipt(outcome, txIndex)
+	}
+
 	// Update cumulative gas tracking.
 	g.cumulativeGas += outcome.GasUsed
 
@@ -140,6 +149,43 @@ func (g *ReceiptGenerator) GenerateReceipt(outcome *TxExecutionOutcome, txIndex 
 		receipt.CalldataGasUsed = outcome.CalldataGasUsed
 		receipt.CalldataGasPrice = outcome.CalldataGasPrice
 		g.cumulativeCalldataGas += outcome.CalldataGasUsed
+	}
+
+	g.receipts = append(g.receipts, receipt)
+	return receipt
+}
+
+// generateFrameReceipt creates a receipt from a Frame transaction outcome.
+// It uses the FrameTxReceipt.ToReceiptWithPayer conversion method.
+func (g *ReceiptGenerator) generateFrameReceipt(outcome *TxExecutionOutcome, txIndex uint) *types.Receipt {
+	frameReceipt := outcome.FrameReceipt
+
+	// Update cumulative gas tracking.
+	g.cumulativeGas += frameReceipt.TotalGasUsed()
+
+	// Convert FrameTxReceipt to standard Receipt.
+	receipt := frameReceipt.ToReceiptWithPayer(
+		outcome.TxHash,
+		types.Hash{}, // BlockHash set in FinalizeBlock
+		nil,          // BlockNumber set in FinalizeBlock
+		txIndex,
+		outcome.EffectiveGasPrice,
+	)
+
+	// Update cumulative gas on the receipt.
+	receipt.CumulativeGasUsed = g.cumulativeGas
+
+	// Compute bloom from all frame logs.
+	if g.config.ComputeBlooms && len(receipt.Logs) > 0 {
+		receipt.Bloom = types.LogsBloom(receipt.Logs)
+		g.blockBloom.Or(receipt.Bloom)
+	}
+
+	// EIP-4844: blob gas accounting for Frame transactions.
+	if g.config.TrackBlobGas && outcome.BlobGasUsed > 0 {
+		receipt.BlobGasUsed = outcome.BlobGasUsed
+		receipt.BlobGasPrice = outcome.BlobGasPrice
+		g.cumulativeBlobGas += outcome.BlobGasUsed
 	}
 
 	g.receipts = append(g.receipts, receipt)

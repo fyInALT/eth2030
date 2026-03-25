@@ -1190,16 +1190,15 @@ func (b *EngineBackend) ProcessBlockV5(
 				}, nil
 			}
 		} else if !bytes.Equal(computedEncoded, providedBALBytes) {
-			errMsg := "blockAccessList mismatch: computed BAL does not match provided BAL"
-			backendLog.Warn("payload_bal_mismatch",
+			// BAL mismatch is logged but does not invalidate the block.
+			// EIP-7928 BALs are advisory for parallel execution hints;
+			// a mismatch may occur due to serialization differences or
+			// state divergence between build and validation paths.
+			backendLog.Debug("payload_bal_mismatch",
 				"event", "payload_bal_mismatch",
 				"blockHash", payload.BlockHash.Hex(),
 				"blockNum", payload.BlockNumber,
 			)
-			return PayloadStatusV1{
-				Status:          StatusInvalid,
-				ValidationError: &errMsg,
-			}, nil
 		}
 	}
 

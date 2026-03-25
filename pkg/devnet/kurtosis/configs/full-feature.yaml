@@ -7,11 +7,11 @@ participants:
     cl_log_level: debug
     cl_image: eth2030cl:local
     # --subscribe-all-subnets ensures all nodes stay subscribed to all gossip topics.
-    # count: 3 forms a triangle gossip mesh — if any pair temporarily disconnects
-    # at the Fulu sync_committee deadline (slot 40 = epoch 1 slot 8), the third
-    # node provides an alternative path for attestation propagation, enabling
-    # reliable reconnection and finalization.
-    cl_extra_params: ["--subscribe-all-subnets"]
+    # --target-peers=2 prevents Lighthouse from dropping peers when it can't find
+    # enough DataColumn subnet peers (default target is 50, impossible with 3 nodes).
+    # --disable-peer-scoring prevents gossip scoring from penalizing peers that
+    # can't serve all 128 data columns, which causes peer drops in small devnets.
+    cl_extra_params: ["--subscribe-all-subnets", "--target-peers=2", "--disable-peer-scoring"]
     count: 3
 
 network_params:
@@ -33,6 +33,7 @@ additional_services:
   - spamoor
   - rakoon
   - assertoor
+  - blockscout
 
 dora_params:
   image: "eth2030/dora:v0.0.1"

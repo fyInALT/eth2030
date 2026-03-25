@@ -198,6 +198,18 @@ type RPCReceipt struct {
 	// EIP-4844 blob transaction fields (only present for blob txs).
 	BlobGasUsed  *string `json:"blobGasUsed,omitempty"`
 	BlobGasPrice *string `json:"blobGasPrice,omitempty"`
+
+	// EIP-8141 Frame transaction fields (only present for FrameTx type 0x06).
+	// Payer is the address that paid for the gas (repurposed ContractAddress for FrameTx).
+	Payer        *string          `json:"payer,omitempty"`
+	FrameResults *[]RPCFrameResult `json:"frameResults,omitempty"`
+}
+
+// RPCFrameResult represents a single frame's execution result in a FrameTx receipt.
+type RPCFrameResult struct {
+	Status  string    `json:"status"`
+	GasUsed string    `json:"gasUsed"`
+	Logs    []*RPCLog `json:"logs,omitempty"`
 }
 
 // RPCLog is the JSON representation of a contract log event.
@@ -779,6 +791,16 @@ func FormatReceipt(receipt *types.Receipt, tx *types.Transaction, blockTimestamp
 	if receipt.BlobGasPrice != nil {
 		bgp := EncodeBigInt(receipt.BlobGasPrice)
 		rpcReceipt.BlobGasPrice = &bgp
+	}
+
+	// EIP-8141 Frame transaction fields (type 0x06).
+	// For FrameTx, ContractAddress is repurposed to hold the payer address.
+	if receipt.Type == types.FrameTxType && !receipt.ContractAddress.IsZero() {
+		payer := EncodeAddress(receipt.ContractAddress)
+		rpcReceipt.Payer = &payer
+		// Note: FrameResults are not stored in the standard Receipt.
+		// To populate FrameResults, the caller would need to provide
+		// the original FrameTxReceipt separately.
 	}
 
 	return rpcReceipt

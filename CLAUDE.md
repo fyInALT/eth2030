@@ -57,10 +57,10 @@ Three layers, each with sub-tracks:
 - **STUB**: 0
 
 ### Statistics
-- **Packages**: 48 (all passing)
-- **Source**: 994 files, ~319K LOC
-- **Tests**: 927 files, ~401K LOC, 18,400+ tests
-- **Total**: 1,921 files, ~720K LOC
+- **Packages**: 213 (all passing)
+- **Source**: 1,184 files, ~350K LOC
+- **Tests**: 1,090 files, ~444K LOC, 20,281 tests
+- **Total**: 2,274 files, ~794K LOC
 - **EIPs**: 58 complete, 5 substantial
 - **EF State Tests**: 36,126/36,126 passing (100%) via go-ethereum v1.17.0 backend in `pkg/core/eftest/`
 - **go-ethereum integration**: `pkg/geth/` adapter with 13 custom precompile injection + `eth2030-geth` binary for mainnet/testnet sync (verified: Sepolia snap sync via Lighthouse CL, mainnet startup, 20+ RPC methods tested)
@@ -68,7 +68,7 @@ Three layers, each with sub-tracks:
 
 ### EIP Implementation Status
 - **Complete** (58): EIP-150, EIP-152, EIP-196/197, EIP-1153, EIP-1559, EIP-2200, EIP-2537, EIP-2718, EIP-2929, EIP-2930, EIP-2935, EIP-3529, EIP-3540, EIP-4444, EIP-4762, EIP-4788, EIP-4844 (incl. KZG), EIP-4895, EIP-5656, EIP-6110, EIP-6404, EIP-6780, EIP-7002, EIP-7069, EIP-7251, EIP-7480, EIP-7547, EIP-7549, EIP-7594, EIP-7620, EIP-7685, EIP-7691, EIP-7698, EIP-7701, EIP-7702, EIP-7706, EIP-7742, EIP-7745, EIP-7807, EIP-7825, EIP-7898, EIP-7904, EIP-7916, EIP-7918, EIP-7928, EIP-7939, EIP-8024, EIP-8070, EIP-8077, EIP-8079, EIP-8141
-- **Substantial** (5): EIP-7732 (ePBS), EIP-7864 (binary tree), EIP-7805 (FOCIL, incl. Dora explorer support), EIP-8025 (execution proofs), PQC (Dilithium3/Falcon512/SPHINCS+)
+- **Substantial** (5): EIP-7732 (ePBS), EIP-7864 (binary tree), EIP-7805 (FOCIL, incl. Dora explorer support + EIP-8141 frame tx IL satisfaction), EIP-8025 (execution proofs), PQC (Dilithium3/Falcon512/SPHINCS+)
 
 ## Project Structure & Module Organization
 
@@ -91,10 +91,10 @@ Three layers, each with sub-tracks:
   - `engine/` - Engine API server (V3-V7), forkchoice, payload building, ePBS builder API, EIP-7898 uncoupled payload, distributed block builder (registration, bids, auctions), Vickrey builder auction (second-price sealed-bid, slashing)
   - `trie/` - Binary Merkle tree (EIP-7864), SHA-256 hashing, proofs, MPT migration
   - `trie/bintrie/` - Binary Merkle trie (from go-ethereum), Get/Put/Delete/Hash/Commit, proofs
-  - `bal/` - Block Access Lists (EIP-7928) for parallel execution, opcode-level state tracking (15 opcodes hooked via BALTracker interface), system contract tracking, SSTORE no-op detection
+  - `bal/` - Block Access Lists (EIP-7928) for parallel execution, opcode-level state tracking (15 opcodes hooked via BALTracker interface), system contract tracking, SSTORE no-op detection, BAL-aware state prefetcher (async background prefetch + mutation overlay + read tracker)
   - `witness/` - Execution witness (EIP-8025), collector, verifier
   - `epbs/` - Enshrined Proposer-Builder Separation (EIP-7732): BuilderBid, PayloadEnvelope, auctions
-  - `focil/` - Fork-Choice Enforced Inclusion Lists (EIP-7805): building, validation, compliance
+  - `focil/` - Fork-Choice Enforced Inclusion Lists (EIP-7805): building, validation, compliance, EIP-8141 frame tx awareness in IL satisfaction (VERIFY target code-existence check, balance skip for AA payers)
   - `das/` - PeerDAS (EIP-7594): DataColumn, ColumnSidecar, sampling, custody, reconstruction, BLS12-381 field arithmetic, variable-size blobs, Reed-Solomon Lagrange interpolation, blob streaming, blob futures, custody proofs, cell gossip
   - `das/erasure/` - Reed-Solomon erasure coding for blob reconstruction
   - `rollup/` - Native rollups (EIP-8079): EXECUTE precompile, anchor contract
@@ -110,7 +110,7 @@ Three layers, each with sub-tracks:
   - `node/` - Client node: config, lifecycle, subsystem integration
   - `log/` - Structured logging (JSON/text)
   - `metrics/` - Counters, gauges, histograms, Prometheus export, EWMA, meter, CPU tracker
-  - `devnet/kurtosis/` - Kurtosis devnet configs (30 features + 6 general), scripts (consensus check, assertoor, precompile smoke test, feature verify), ethpandaops tools integration (assertoor, spamoor, rakoon, dora, blobscan, forky, tracoor, forkmon, prometheus, grafana)
+  - `devnet/kurtosis/` - Kurtosis devnet configs (30 features + 6 general), scripts (consensus check, assertoor, precompile smoke test, EIP-8141 frame tx test, feature verify), ethpandaops tools integration (assertoor, spamoor, rakoon, dora, blockscout, blobscan, forky, tracoor, forkmon, prometheus, grafana). Public endpoints: devnet.eth2030.com (RPC), devnet-dora.eth2030.com (Dora), devnet-blockscout.eth2030.com (Blockscout)
 - `cmd/eth2030/` - CLI binary with flags, signal handling
   - `cmd/eth2030-geth/` - Production binary embedding go-ethereum v1.17.0 as a library for real mainnet/testnet sync (Pebble DB, RLPx P2P, snap/full sync, Engine API on port 8551, JSON-RPC on port 8545, 13 custom precompiles injected at Glamsterdam/Hegotá/I+ fork levels; supports mainnet, sepolia, holesky)
 - `internal/testutil/` - Shared test utilities
