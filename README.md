@@ -19,15 +19,15 @@
 <p align="center">
   <a href="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml"><img src="https://github.com/jiayaoqijia/eth2030/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
   <a href="https://github.com/jiayaoqijia/eth2030/releases/latest"><img src="https://img.shields.io/github/v/release/jiayaoqijia/eth2030?label=Release&color=%234f46e5" alt="Release" /></a>
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go" alt="Go" />
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go" alt="Go" />
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Packages-48-blue?style=flat-square" alt="Packages" />
-  <img src="https://img.shields.io/badge/Tests-18%2C400%2B-blue?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Packages-213-blue?style=flat-square" alt="Packages" />
+  <img src="https://img.shields.io/badge/Tests-20%2C281-blue?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/EIPs-58%20supported-blue?style=flat-square" alt="EIPs supported (native + go-ethereum)" />
   <img src="https://img.shields.io/badge/EF%20State%20Tests-100%25%20(36%2C126)-brightgreen?style=flat-square" alt="EF Tests" />
-  <img src="https://img.shields.io/badge/LOC-720K-blue?style=flat-square" alt="LOC" />
+  <img src="https://img.shields.io/badge/LOC-794K-blue?style=flat-square" alt="LOC" />
 </p>
 
 <p align="center">
@@ -154,7 +154,16 @@ cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh full-feature
 
 **6 General Configs** — single-client, multi-client (cross-client consensus with upstream geth), stress-test, blob-test, eip7702-test, full-feature.
 
-See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full documentation (40 feature tests, 6 configs, 10 tools).
+**Additional Test Scripts:**
+- `test-frametx.sh` — EIP-8141 frame transaction test (deploys APPROVE contract, verifies opcodes)
+- `test-precompiles.sh` — Custom precompile smoke test
+
+**Public Devnet Endpoints** (when running):
+- **RPC**: https://devnet.eth2030.com
+- **Dora Explorer**: https://devnet-dora.eth2030.com
+- **Blockscout Explorer**: https://devnet-blockscout.eth2030.com
+
+See [pkg/devnet/kurtosis/README.md](pkg/devnet/kurtosis/README.md) for full documentation (40 feature tests, 6 configs, 10+ tools).
 
 ## Architecture
 
