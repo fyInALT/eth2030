@@ -1,5 +1,20 @@
 # Project Status
 
+## Full-Feature Devnet Bring-Up (2026-03-25)
+
+### Current Status: IN PROGRESS
+
+**Scope:** Build the local Lighthouse and ETH2030 images as needed, launch the Kurtosis `full-feature` devnet in the `eth2030-devnet` enclave, and verify block production plus basic EL/CL health.
+
+**Planned Verification:**
+- `cd ../lighthouse && docker build -t eth2030cl:local .`
+- `cd pkg && docker build -t eth2030:local .`
+- `cd pkg/devnet/kurtosis && ./scripts/cleanup.sh eth2030-devnet`
+- `cd pkg/devnet/kurtosis && ./scripts/run-devnet.sh full-feature`
+- `cast bn -r http://$(kurtosis port print eth2030-devnet el-1-geth-lighthouse rpc)`
+- `kurtosis service logs eth2030-devnet cl-1-lighthouse-geth 2>&1 | grep -E "verified|ERROR" | tail -20`
+- `kurtosis service logs eth2030-devnet el-1-geth-lighthouse 2>&1 | grep -E "WARN|ERROR" | tail -20`
+
 ## Inclusion List JSON Refactor (2026-03-21)
 
 ### Current Status: COMPLETE

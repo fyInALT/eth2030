@@ -43,6 +43,11 @@
 - [x] Run the affected tests and the full module test suite successfully.
 
 ## Ongoing
+- [ ] Build the local Lighthouse image `eth2030cl:local`.
+- [ ] Ensure the local EL image `eth2030:local` is available.
+- [ ] Clean up any existing `eth2030-devnet` enclave.
+- [ ] Launch `pkg/devnet/kurtosis` with the `full-feature` config.
+- [ ] Verify block production and inspect CL/EL error logs.
 - [x] Extend EVM formal core with jump-family opcodes (`JUMP`, `JUMPI`, `JUMPDEST`, `POP`).
 - [x] Expand compiler decoding for jump-family opcodes.
 - [x] Add execution and run-level correctness lemmas for the expanded opcodes.
