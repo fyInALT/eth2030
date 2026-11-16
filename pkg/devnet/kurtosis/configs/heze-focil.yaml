@@ -1,11 +1,17 @@
 participants:
   - el_type: geth
     el_image: eth2030:local
+    el_max_mem: 2048
+    cl_max_mem: 2048
+    vc_max_mem: 1024
     el_extra_params: ["--networkid=3151910", "--rpc.rate_limit=0", "--bootnodes="]
     cl_type: lighthouse
     cl_image: eth2030cl:local
   - el_type: geth
     el_image: eth2030:local
+    el_max_mem: 2048
+    cl_max_mem: 2048
+    vc_max_mem: 1024
     el_extra_params: ["--networkid=3151911", "--rpc.rate_limit=0", "--bootnodes="]
     cl_type: lighthouse
     cl_image: eth2030cl:local
