@@ -169,6 +169,8 @@ func (tx *Transaction) EncodeRLP() ([]byte, error) {
 		return encodeTypedTx(AATxType, inner)
 	case *FrameTx:
 		return EncodeFrameTx(inner)
+	case *FrameTx8141:
+		return EncodeFrameTx8141(inner)
 	case *PQTransaction:
 		return inner.EncodePQ()
 	case *LocalTx:
@@ -403,7 +405,7 @@ func decodeTypedTx(txType byte, payload []byte) (*Transaction, error) {
 	case AATxType:
 		return decodeAATxTyped(payload)
 	case FrameTxType:
-		return decodeFrameTxWrapped(payload)
+		return decodeFrameEnvelope(payload)
 	case PQTransactionType:
 		return decodePQFromPayload(payload)
 	case MultiDimFeeTxType:
@@ -704,6 +706,9 @@ func (tx *Transaction) SigningHash() Hash {
 		return t.signingHash(t.ChainID)
 	case *FrameTx:
 		return ComputeFrameSigHash(t)
+	case *FrameTx8141:
+		hash, _ := t.SigningHash()
+		return hash
 	case *PQTransaction:
 		return t.SigningHash()
 	default:
@@ -860,13 +865,4 @@ func encodeAuthListBytes(list []Authorization) []byte {
 		inner = append(inner, rlp.WrapList(item)...)
 	}
 	return rlp.WrapList(inner)
-}
-
-// decodeFrameTxWrapped decodes a FrameTx from RLP payload and wraps it in a Transaction.
-func decodeFrameTxWrapped(data []byte) (*Transaction, error) {
-	inner, err := DecodeFrameTx(data)
-	if err != nil {
-		return nil, err
-	}
-	return NewTransaction(inner), nil
 }

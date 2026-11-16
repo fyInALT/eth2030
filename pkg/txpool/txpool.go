@@ -538,6 +538,9 @@ func isDynamic(tx *types.Transaction) bool {
 
 // validateTx performs comprehensive validation of a transaction.
 func (pool *TxPool) validateTx(tx *types.Transaction) error {
+	if _, canonicalFrame := tx.Inner().(*types.FrameTx8141); canonicalFrame {
+		return types.ErrFrame8141ExecutionUnavailable
+	}
 	// BB-2.2: gate type-0x08 LocalTx behind --experimental-local-tx flag.
 	if tx.Type() == types.LocalTxType && !pool.config.AllowLocalTx {
 		return errors.New("local tx (type 0x08) not enabled; set --experimental-local-tx")

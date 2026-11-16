@@ -49,6 +49,9 @@ type Receipt struct {
 	// [frame_receipt, ...]]; FrameResults carries the per-frame outcomes.
 	Payer        Address
 	FrameResults []FrameResult
+
+	// Seven-field Frame receipts use the split dimensions in the consensus encoding.
+	FrameResults8141 []FrameResult8141
 }
 
 // NewReceipt creates a new receipt with the given status and cumulative gas.

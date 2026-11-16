@@ -211,9 +211,10 @@ type RPCReceipt struct {
 
 // RPCFrameResult represents a single frame's execution result in a FrameTx receipt.
 type RPCFrameResult struct {
-	Status  string    `json:"status"`
-	GasUsed string    `json:"gasUsed"`
-	Logs    []*RPCLog `json:"logs,omitempty"`
+	Status       string    `json:"status"`
+	GasUsed      string    `json:"gasUsed"`
+	StateGasUsed *string   `json:"stateGasUsed,omitempty"`
+	Logs         []*RPCLog `json:"logs,omitempty"`
 }
 
 // RPCLog is the JSON representation of a contract log event.
@@ -817,14 +818,35 @@ func FormatReceipt(receipt *types.Receipt, tx *types.Transaction, blockTimestamp
 		rpcReceipt.BlobGasPrice = &bgp
 	}
 
-	// EIP-8141 Frame transaction fields (type 0x06).
-	// For FrameTx, ContractAddress is repurposed to hold the payer address.
-	if receipt.Type == types.FrameTxType && !receipt.ContractAddress.IsZero() {
-		payer := EncodeAddress(receipt.ContractAddress)
-		rpcReceipt.Payer = &payer
-		// Note: FrameResults are not stored in the standard Receipt.
-		// To populate FrameResults, the caller would need to provide
-		// the original FrameTxReceipt separately.
+	if receipt.Type == types.FrameTxType {
+		switch {
+		case receipt.FrameResults8141 != nil:
+			payer := EncodeAddress(receipt.Payer)
+			rpcReceipt.Payer = &payer
+			frames := make([]RPCFrameResult, 0, len(receipt.FrameResults8141))
+			logIndex := 0
+			for _, result := range receipt.FrameResults8141 {
+				stateGas := EncodeUint64(result.GasUsed.State)
+				frame := RPCFrameResult{
+					Status:       EncodeUint64(result.Status),
+					GasUsed:      EncodeUint64(result.GasUsed.Execution),
+					StateGasUsed: &stateGas,
+				}
+				for _, log := range result.Logs {
+					if logIndex < len(rpcReceipt.Logs) && receipt.Logs[logIndex] == log {
+						frame.Logs = append(frame.Logs, rpcReceipt.Logs[logIndex])
+					} else {
+						frame.Logs = append(frame.Logs, FormatLog(log))
+					}
+					logIndex++
+				}
+				frames = append(frames, frame)
+			}
+			rpcReceipt.FrameResults = &frames
+		case !receipt.ContractAddress.IsZero():
+			payer := EncodeAddress(receipt.ContractAddress)
+			rpcReceipt.Payer = &payer
+		}
 	}
 
 	return rpcReceipt

@@ -583,6 +583,8 @@ func cacheTransactionSender(cfg *corconfig.ChainConfig, tx *types.Transaction) {
 		tx.SetSender(inner.Sender)
 	case *types.FrameTx:
 		tx.SetSender(inner.Sender)
+	case *types.FrameTx8141:
+		tx.SetSender(inner.Sender)
 	case *types.PQTransaction:
 		tx.SetSender(types.PQPubKeyToAddress(inner.PQPublicKey))
 	default:
@@ -812,6 +814,9 @@ func applyTransactionFull(config *corconfig.ChainConfig, getHash vm.GetHashFunc,
 // variants. tracker enables EIP-7928 BAL recording; slasher enables EIP-8141
 // paymaster slashing on bad gas settlement.
 func applyTransactionInternal(config *corconfig.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, tx *types.Transaction, gp *gaspool.GasPool, tracker vm.BALTracker, slasher corconfig.PaymasterSlasher) (*types.Receipt, uint64, error) {
+	if _, canonicalFrame := tx.Inner().(*types.FrameTx8141); canonicalFrame {
+		return nil, 0, types.ErrFrame8141ExecutionUnavailable
+	}
 	// EIP-2200 original storage is scoped to this transaction, not to the
 	// last disk/block commit. Builders and staged sync may execute many txs
 	// without a Commit between them.

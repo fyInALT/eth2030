@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/eth2030/eth2030/rlp"
+	gethrlp "github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -9,6 +10,9 @@ import (
 // [Status, CumulativeGasUsed, Bloom, Logs].
 // For typed receipts (Type > 0), the encoding is prefixed with the type byte.
 func (r *Receipt) EncodeRLP() ([]byte, error) {
+	if r.FrameResults8141 != nil {
+		return r.encodeFrame8141Receipt()
+	}
 	// Encode logs as a list of [Address, Topics, Data].
 	var logsPayload []byte
 	for _, log := range r.Logs {
@@ -84,6 +88,16 @@ func DecodeReceiptRLP(data []byte) (*Receipt, error) {
 	if len(data) > 0 && data[0] < 0x80 {
 		r.Type = data[0]
 		data = data[1:]
+	}
+
+	if r.Type == FrameTxType {
+		items, rest, err := gethrlp.SplitList(data)
+		if err == nil && len(rest) == 0 {
+			count, err := gethrlp.CountValues(items)
+			if err == nil && count == 3 {
+				return decodeFrame8141Receipt(data)
+			}
+		}
 	}
 
 	s := rlp.NewStreamFromBytes(data)
