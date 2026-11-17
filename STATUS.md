@@ -5,7 +5,17 @@
   waits for both Beacon APIs and ELs to agree on finality, and removes its
   test enclave on exit.
 - The controller unit tests and the native Track 4 independent Engine/RPC
-  test passed. Live finality and restart evidence is tracked separately.
+  test passed.
+- The pinned Fulu control finalized an identical execution block at beacon
+  slot 64 on both pairs. EL 2 reopened the original type-7 receipt, state
+  root and historical storage values 44 and zero. See the
+  [captured evidence](pkg/devnet/kurtosis/fixtures/track4-fulu-control.json).
+  Kurtosis removed the enclave and its owned containers and volumes, then
+  stopped its engine. The earlier too-short finality wait also cleaned up.
+- The upstream Spamoor Frame tests passed. ETH2030's base Frame RLP and
+  signing hash matched Spamoor at `f0f83695`, and the scalar nonce boundary
+  difference reproduced. The Go client's inclusion-list JSON cases passed
+  with its declared Go 1.25.2 toolchain. Service-level parity remains open.
 
 ## Track 4 integration with master (2026-11-16)
 

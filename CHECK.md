@@ -3,8 +3,8 @@
 ## Pinned devnet controls
 
 - [x] Pin the Fulu client, package, generator and six node memory limits.
-- [ ] Capture a canonical PQ transaction and verify its finalized receipt and historical state after restarting one EL.
-- [ ] Verify enclave removal after the control, including failure paths.
+- [x] Capture a canonical PQ transaction and verify its finalized receipt and historical state after restarting one EL.
+- [x] Verify enclave removal after the control, including failure paths.
 
 ## Roadmap Homepage Integration (2026-11-13)
 
