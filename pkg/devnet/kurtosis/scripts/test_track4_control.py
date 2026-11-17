@@ -37,5 +37,30 @@ class Track4ControlTests(unittest.TestCase):
         self.assertEqual(run.call_args_list[-1].args, ("kurtosis", "engine", "stop"))
 
 
+class GloasControlTests(unittest.TestCase):
+    def test_gloas_control_checks_slot_and_bal(self):
+        spec = importlib.util.spec_from_file_location(
+            "gloas_control", Path(__file__).with_name("verify-gloas-control.py"))
+        gloas = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gloas)
+        head = {"version": "gloas", "execution_optimistic": False,
+                "data": {"message": {"slot": "4"}}}
+        envelope = {"data": {"message": {"payload": {
+            "block_hash": "block", "state_root": "state", "block_number": "4"}}}}
+        replies = [head, head, head, head, {"data": {"root": "root"}},
+                   {"data": {"root": "root"}}, envelope, envelope]
+        header = {"hash": "block", "stateRoot": "state", "slotNumber": "0x4",
+                  "blockAccessListHash": "bal"}
+        with (patch.object(gloas.control, "endpoint", return_value="http://localhost"),
+              patch.object(gloas.control, "json_request", side_effect=replies),
+              patch.object(gloas.control, "rpc", side_effect=[header, header])):
+            self.assertEqual(gloas.verify("gloas", 5)["bal_hashes"], ["bal", "bal"])
+        with (patch.object(gloas.control, "endpoint", return_value="http://localhost"),
+              patch.object(gloas.control, "json_request", side_effect=replies),
+              patch.object(gloas.control, "rpc", side_effect=[header, {**header, "blockAccessListHash": "wrong"}])):
+            with self.assertRaisesRegex(RuntimeError, "BAL hashes disagree"):
+                gloas.verify("gloas", 5)
+
+
 if __name__ == "__main__":
     unittest.main()

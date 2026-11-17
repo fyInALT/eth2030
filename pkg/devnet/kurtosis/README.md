@@ -259,7 +259,11 @@ engine when it started that engine and the host has no other enclaves.
 `gloas-genesis.yaml` and `gloas-transition.yaml` are capped setup fixtures
 for the Gloas-at-genesis and scheduled transition scenarios. They use
 genesis generator 6.2.8. Build the paired ETH2030 EL and Lighthouse CL
-images from the recorded revisions before launching them.
+images from the recorded revisions before launching them. Use
+`./scripts/verify-gloas-control.py <enclave>` to verify the same envelope,
+execution header slot and BAL commitment on both pairs. This check covers
+self-build. The external builder, payment and data-availability acceptance
+cases are separate.
 
 ## Heze compulsory inclusion devnet
 
