@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	blockpkg "github.com/eth2030/eth2030/core/block"
 	"github.com/eth2030/eth2030/core/chain"
-
 	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gaspool"
 	"github.com/eth2030/eth2030/core/types"
@@ -87,8 +87,7 @@ func (b *EngineBackend) ForkchoiceUpdatedBogota(
 	}
 	if record == nil {
 		if head == nil || !bc.HasValidatedBlock(state.HeadBlockHash) {
-			result, err := b.ForkchoiceUpdatedV4(state, attrs)
-			return result, false, err
+			return b.requestForkchoiceSync(state), false, nil
 		}
 		return payload.ForkchoiceUpdatedResult{
 			PayloadStatus: payload.PayloadStatusV1{Status: engine.StatusSyncing},
@@ -97,6 +96,9 @@ func (b *EngineBackend) ForkchoiceUpdatedBogota(
 	if len(record.Block) > 0 {
 		status, err := b.completeBogotaPayload(state.HeadBlockHash, record)
 		if err != nil || status.Status != engine.StatusValid {
+			if status.Status == engine.StatusSyncing {
+				return b.requestForkchoiceSync(state), false, nil
+			}
 			return payload.ForkchoiceUpdatedResult{PayloadStatus: status}, false, err
 		}
 	}
@@ -123,9 +125,12 @@ func (b *EngineBackend) completeBogotaPayload(hash types.Hash, record *chain.Bog
 	}
 	bc := b.node.Blockchain()
 	if !bc.HasValidatedBlock(hash) {
+		if !bc.HasValidatedBlock(block.ParentHash()) {
+			return payload.PayloadStatusV1{Status: engine.StatusSyncing}, nil
+		}
 		if err := bc.InsertSyncedBlock(block); err != nil {
 			switch {
-			case errors.Is(err, chain.ErrStateNotFound):
+			case errors.Is(err, chain.ErrStateNotFound), errors.Is(err, blockpkg.ErrUnknownParent):
 				return payload.PayloadStatusV1{Status: engine.StatusSyncing}, nil
 			case errors.Is(err, chain.ErrStorageFailure):
 				return payload.PayloadStatusV1{}, err

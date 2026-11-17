@@ -15,6 +15,17 @@ import (
 	"github.com/eth2030/eth2030/engine/payload"
 )
 
+func (b *EngineBackend) requestForkchoiceSync(fcState payload.ForkchoiceStateV1) payload.ForkchoiceUpdatedResult {
+	if syncer, ok := b.node.(interface {
+		RequestExecutionSync(payload.ForkchoiceStateV1)
+	}); ok {
+		syncer.RequestExecutionSync(fcState)
+	}
+	return payload.ForkchoiceUpdatedResult{
+		PayloadStatus: payload.PayloadStatusV1{Status: engine.StatusSyncing},
+	}
+}
+
 // ForkchoiceUpdated processes a forkchoice state update from the consensus layer.
 func (b *EngineBackend) ForkchoiceUpdated(
 	fcState payload.ForkchoiceStateV1,
@@ -47,16 +58,8 @@ func (b *EngineBackend) forkchoiceUpdated(
 	b.fcuMu.Lock()
 	defer b.fcuMu.Unlock()
 	headBlock := bc.GetBlock(fcState.HeadBlockHash)
-	syncing := func() (payload.ForkchoiceUpdatedResult, error) {
-		if syncer, ok := b.node.(interface {
-			RequestExecutionSync(payload.ForkchoiceStateV1)
-		}); ok {
-			syncer.RequestExecutionSync(fcState)
-		}
-		return payload.ForkchoiceUpdatedResult{PayloadStatus: payload.PayloadStatusV1{Status: engine.StatusSyncing}}, nil
-	}
 	if headBlock == nil || !bc.HasValidatedBlock(fcState.HeadBlockHash) {
-		return syncing()
+		return b.requestForkchoiceSync(fcState), nil
 	}
 	var applyErr error
 	if coordinator, ok := b.node.(interface {
@@ -67,7 +70,7 @@ func (b *EngineBackend) forkchoiceUpdated(
 		applyErr = bc.ApplyForkchoice(fcState.HeadBlockHash, fcState.SafeBlockHash, fcState.FinalizedBlockHash)
 	}
 	if errors.Is(applyErr, chain.ErrStateNotFound) {
-		return syncing()
+		return b.requestForkchoiceSync(fcState), nil
 	}
 	if errors.Is(applyErr, chain.ErrStorageFailure) {
 		return payload.ForkchoiceUpdatedResult{}, applyErr

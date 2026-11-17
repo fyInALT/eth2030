@@ -3,14 +3,17 @@ package node
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/chain"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/engine/payload"
+	syncbeacon "github.com/eth2030/eth2030/sync/beacon"
 	"github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
@@ -173,7 +176,15 @@ func TestBogotaDeferredWireAcrossRestart(t *testing.T) {
 			t.Fatal("FCU did not execute and select the retained block")
 		}
 	}
-	selectAccepted(false)
+	var malformed struct{ PayloadStatus bogotaIntegrationStatus }
+	err = receiver.invoke("engine_forkchoiceUpdatedV5", &malformed, payload.ForkchoiceStateV1{HeadBlockHash: hash}, map[string]any{})
+	var rpcErr *track4RPCError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != -38003 {
+		t.Fatalf("malformed attributes after completing deferred validation: %v", err)
+	}
+	if receiverNode.Blockchain().CurrentBlock().Hash() != hash {
+		t.Fatal("malformed attributes prevented fork choice from completing a retained candidate")
+	}
 	restart()
 	selectAccepted(false)
 	satisfied := true
@@ -189,11 +200,16 @@ func TestBogotaDeferredWireAcrossRestart(t *testing.T) {
 	if err := syncedNode.Blockchain().InsertSyncedBlock(receiverNode.Blockchain().GetBlock(hash)); err != nil {
 		t.Fatal(err)
 	}
+	if err := syncedNode.applyExecutionTarget(syncbeacon.ExecutionTarget{Head: hash}); !errors.Is(err, chain.ErrStateNotFound) {
+		t.Fatalf("sync completion bypassed the missing Bogotá verdict: %v", err)
+	}
 	var unresolved struct{ PayloadStatus bogotaIntegrationStatus }
-	synced.call(t, "engine_forkchoiceUpdatedV5", &unresolved, payload.ForkchoiceStateV1{HeadBlockHash: hash}, nil)
-	assertStatus(unresolved.PayloadStatus, "SYNCING", nil)
-	if syncedNode.Blockchain().CurrentBlock().Hash() != canonical.ExecutionPayload.BlockHash {
-		t.Fatal("FCU selected a block with an unresolved list view")
+	for _, attrs := range []any{map[string]any{}, nil} {
+		synced.call(t, "engine_forkchoiceUpdatedV5", &unresolved, payload.ForkchoiceStateV1{HeadBlockHash: hash}, attrs)
+		assertStatus(unresolved.PayloadStatus, "SYNCING", nil)
+		if syncedNode.Blockchain().CurrentBlock().Hash() != canonical.ExecutionPayload.BlockHash {
+			t.Fatal("FCU selected a block with an unresolved list view")
+		}
 	}
 	assertStatus(newPayload(synced, list), "VALID", new(bool))
 	synced.call(t, "engine_forkchoiceUpdatedV5", &unresolved, payload.ForkchoiceStateV1{HeadBlockHash: hash}, nil)
@@ -201,4 +217,28 @@ func TestBogotaDeferredWireAcrossRestart(t *testing.T) {
 	if syncedNode.Blockchain().CurrentBlock().Hash() != hash {
 		t.Fatal("FCU did not select the block after receiving its list view")
 	}
+
+	// A retained record can outlive its execution data, for example after
+	// restoring the record to a database that has not synced the parent.
+	unsyncedNode := newTestNode(t, config())
+	unsynced := track4NodeRPC(t, unsyncedNode, token)
+	encoded, err := receiverNode.Blockchain().GetBlock(hash).EncodeRLP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unsyncedNode.Blockchain().WriteBogotaPayload(hash, &chain.BogotaPayload{
+		Number: accepted.ExecutionPayload.BlockNumber, Block: encoded, InclusionList: [][]byte{raw},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var waiting struct{ PayloadStatus bogotaIntegrationStatus }
+	unsynced.call(t, "engine_forkchoiceUpdatedV5", &waiting, payload.ForkchoiceStateV1{HeadBlockHash: hash}, nil)
+	assertStatus(waiting.PayloadStatus, "SYNCING", nil)
+	if waiting.PayloadStatus.LatestValidHash != nil {
+		t.Fatal("missing parent received a latest-valid hash")
+	}
+	importAmsterdam(unsynced, side, false)
+	unsynced.call(t, "engine_forkchoiceUpdatedV5", &unresolved, payload.ForkchoiceStateV1{HeadBlockHash: hash}, nil)
+	assertStatus(unresolved.PayloadStatus, "VALID", new(bool))
+
 }

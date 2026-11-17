@@ -117,39 +117,29 @@ func validateBogotaAttributes(raw json.RawMessage) error {
 func (api *EngineAPI) forkchoiceUpdatedBogota(
 	state ForkchoiceStateV1,
 	attrs *PayloadAttributesV4,
+	attributeErr error,
 ) (any, *jsonrpcError) {
+	if attrs != nil && (!api.isBogota(attrs.Timestamp) || !api.backend.IsAmsterdam(attrs.Timestamp)) {
+		attrs, attributeErr = nil, ErrUnsupportedFork
+	}
 	var result ForkchoiceUpdatedResult
+	var satisfied bool
 	var err error
 	if backend, ok := api.backend.(bogotaExecutionBackend); ok {
-		badFork := attrs != nil && (!api.isBogota(attrs.Timestamp) || !api.backend.IsAmsterdam(attrs.Timestamp))
-		if badFork {
-			attrs = nil
-		}
-		result, satisfied, err := backend.ForkchoiceUpdatedBogota(state, attrs)
-		if badFork {
-			result, err = forkchoiceAttributeError(result, err, ErrUnsupportedFork)
-		}
-		if err != nil {
-			return nil, engineErrorToRPC(err)
-		}
-		return bogotaForkchoiceResponse(result, satisfied), nil
-	}
-	if attrs != nil && (!api.isBogota(attrs.Timestamp) || !api.backend.IsAmsterdam(attrs.Timestamp)) {
-		result, err = api.backend.ForkchoiceUpdatedV4(state, nil)
-		result, err = forkchoiceAttributeError(result, err, ErrUnsupportedFork)
+		result, satisfied, err = backend.ForkchoiceUpdatedBogota(state, attrs)
 	} else {
 		result, err = api.backend.ForkchoiceUpdatedV4(state, attrs)
+		if err == nil && attributeErr == nil && result.PayloadStatus.Status == StatusValid {
+			satisfied = api.backend.(bogotaBackend).PayloadInclusionListSatisfied(state.HeadBlockHash)
+		}
+	}
+	if attributeErr != nil {
+		result, err = forkchoiceAttributeError(result, err, attributeErr)
 	}
 	if err != nil {
 		return nil, engineErrorToRPC(err)
 	}
-	return api.bogotaForkchoiceResult(state, result), nil
-}
-
-func (api *EngineAPI) bogotaForkchoiceResult(state ForkchoiceStateV1, result ForkchoiceUpdatedResult) any {
-	satisfied := result.PayloadStatus.Status == StatusValid &&
-		api.backend.(bogotaBackend).PayloadInclusionListSatisfied(state.HeadBlockHash)
-	return bogotaForkchoiceResponse(result, satisfied)
+	return bogotaForkchoiceResponse(result, satisfied), nil
 }
 
 func bogotaForkchoiceResponse(result ForkchoiceUpdatedResult, satisfied bool) any {

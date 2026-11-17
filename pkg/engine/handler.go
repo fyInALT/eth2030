@@ -546,12 +546,7 @@ func (api *EngineAPI) handleAmsterdamForkchoice(params []json.RawMessage, bogota
 	if len(params) >= 2 {
 		if _, native := api.backend.(bogotaBackend); bogota && native && string(params[1]) != "null" {
 			if err := validateBogotaAttributes(params[1]); err != nil {
-				result, applyErr := api.backend.ForkchoiceUpdatedV4(state, nil)
-				_, err = forkchoiceAttributeError(result, applyErr, ErrInvalidPayloadAttributes)
-				if err != nil {
-					return nil, engineErrorToRPC(err)
-				}
-				return api.bogotaForkchoiceResult(state, result), nil
+				return api.forkchoiceUpdatedBogota(state, nil, ErrInvalidPayloadAttributes)
 			}
 		}
 		attrs, err := parsePayloadAttributes(params[1])
@@ -566,7 +561,7 @@ func (api *EngineAPI) handleAmsterdamForkchoice(params []json.RawMessage, bogota
 
 	if bogota {
 		if _, native := api.backend.(bogotaBackend); native {
-			return api.forkchoiceUpdatedBogota(state, payloadAttributes)
+			return api.forkchoiceUpdatedBogota(state, payloadAttributes, nil)
 		}
 	}
 	result, err := api.ForkchoiceUpdatedV4(state, payloadAttributes)

@@ -1,3 +1,13 @@
+## Bogotá follow-up review
+
+- Malformed FCU V5 attributes now use the Bogotá fork-choice path.
+  Asynchronous execution sync also waits for an evaluated Bogotá list
+  view before publishing its head. Deferred FCU requests sync when an
+  accepted block's execution ancestry is unavailable.
+- Authenticated HTTP regressions cover malformed attributes for resolved
+  and unresolved heads and resumption after the staged block's parent
+  arrives. The affected Go packages, targeted race tests and native build passed.
+
 ## Native Bogotá deferred validation (2026-11-17)
 
 - The native Engine retains known off-canonical V6 blocks and their list

@@ -45,6 +45,21 @@ func (a *nodeDepsAdapter) SyncProgress() (bool, uint64, uint64, uint64) {
 }
 
 func (n *Node) applyExecutionTarget(target syncbeacon.ExecutionTarget) error {
+	head := n.blockchain.GetBlock(target.Head)
+	if head == nil {
+		return fmt.Errorf("%w: execution target is unknown", chain.ErrStateNotFound)
+	}
+	if n.blockchain.Config().IsHogota(head.Time()) {
+		view, err := n.blockchain.ReadBogotaPayload(target.Head)
+		if err != nil {
+			return fmt.Errorf("%w: read Bogotá list view: %w", chain.ErrStorageFailure, err)
+		}
+		// Restored execution data alone cannot establish the driving CL's
+		// view. This callback also runs after asynchronous execution sync.
+		if view == nil || len(view.Block) != 0 {
+			return fmt.Errorf("%w: Bogotá list view is unresolved", chain.ErrStateNotFound)
+		}
+	}
 	if err := n.blockchain.ApplyForkchoice(target.Head, target.Safe, target.Finalized); err != nil {
 		return err
 	}
