@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Pinned devnet controls
+
+- [x] Pin the Fulu client, package, generator and six node memory limits.
+- [ ] Capture a canonical PQ transaction and verify its finalized receipt and historical state after restarting one EL.
+- [ ] Verify enclave removal after the control, including failure paths.
+
 ## Roadmap Homepage Integration (2026-11-13)
 
 - [x] Promote the approved prototype to a detailed roadmap page and share its progress model with the homepage.

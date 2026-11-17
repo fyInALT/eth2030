@@ -583,6 +583,19 @@ func verifyTrack4LiveTransaction(t *testing.T, urls, beacons []string, chainID *
 	for _, url := range beacons {
 		track4BeaconPayload(t, url, genesisTime, ts, canonical.Hash, canonical.StateRoot, raw)
 	}
+	if value == 0 {
+		evidence, err := json.Marshal(map[string]any{
+			"transaction":      hash,
+			"block_hash":       canonical.Hash,
+			"state_root":       canonical.StateRoot,
+			"timestamp":        canonical.Timestamp,
+			"storage_contract": track4Contract,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("TRACK4_EVIDENCE %s", evidence)
+	}
 }
 
 func track4BeaconPayload(t *testing.T, url string, genesisTime, at uint64, hash, root types.Hash, raw []byte) {

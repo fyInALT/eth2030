@@ -5,6 +5,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$(cd "$HERE/../.." && pwd)"
 REF="${KURTOSIS_PACKAGE:-$PKG/../refs/ethereum-package}"
 ENCLAVE="${1:-eth2030-track4}"
+PROFILE="${2:-$HERE/configs/track4.yaml}"
 args=$(mktemp --suffix=.yaml)
 trap 'rm -f "$args"' EXIT
 
@@ -28,9 +29,11 @@ contracts=$(gzip -dc "$PKG/core/vm/testdata/eip8051_expanded.json.gz" | jq -ce '
 ')
 # Insert under network_params so the generated MPT genesis is shared.
 awk -v contracts="$contracts" '
-    /^additional_services:/ {
-        print "  additional_preloaded_contracts: " contracts
-    }
     { print }
-' "$HERE/configs/track4.yaml" > "$args"
+    /^network_params:[[:space:]]*$/ {
+        print "  additional_preloaded_contracts: " contracts
+        found++
+    }
+    END { if (found != 1) exit 1 }
+' "$PROFILE" > "$args"
 kurtosis run "$REF" --args-file "$args" --enclave "$ENCLAVE"

@@ -1,0 +1,22 @@
+participants:
+  - el_type: geth
+    el_image: eth2030:local
+    el_max_mem: 2048
+    cl_max_mem: 2048
+    vc_max_mem: 1024
+    el_extra_params: ["--rpc.rate_limit=0"]
+    cl_type: lighthouse
+    cl_image: eth2030cl:local
+    cl_extra_params: ["--subscribe-all-subnets", "--target-peers=1", "--disable-peer-scoring"]
+    count: 2
+network_params:
+  network: kurtosis
+  seconds_per_slot: 3
+  genesis_delay: 50
+  electra_fork_epoch: 0
+  fulu_fork_epoch: 0
+  gloas_fork_epoch: 4
+  num_validator_keys_per_node: 128
+ethereum_genesis_generator_params:
+  image: ethpandaops/ethereum-genesis-generator@sha256:e1ac93bb064fc00aacf5a6533b8a5a8d9eb1903350d24598a87d3ed186eb6b8a
+additional_services: []

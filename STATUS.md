@@ -1,3 +1,12 @@
+## Pinned devnet controls (2026-11-17)
+
+- Added digest-pinned Fulu and capped Gloas setup fixtures. The controller
+  records the same Track 4 transaction before and after an EL restart,
+  waits for both Beacon APIs and ELs to agree on finality, and removes its
+  test enclave on exit.
+- The controller unit tests and the native Track 4 independent Engine/RPC
+  test passed. Live finality and restart evidence is tracked separately.
+
 ## Track 4 integration with master (2026-11-16)
 
 - Track 4 block staging and canonical publication now use the shared execution validation and Engine forkchoice path. The block batch retains the binary overlay nodes and conversion cursor. Startup rebuilds missing validation markers for legacy canonical overlay history after replay and root checks.

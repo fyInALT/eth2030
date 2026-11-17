@@ -1,0 +1,22 @@
+# Two ETH2030 execution nodes with the private Track 4 genesis profile.
+participants:
+  - el_type: geth
+    el_image: eth2030:track4-profile
+    el_max_mem: 2048
+    el_extra_params: ["--override.iplus=0", "--rpc.rate_limit=0"]
+    cl_type: lighthouse
+    cl_image: sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1
+    cl_max_mem: 2048
+    vc_max_mem: 1024
+    cl_extra_params: ["--subscribe-all-subnets", "--target-peers=1", "--disable-peer-scoring"]
+    count: 2
+network_params:
+  network: kurtosis
+  seconds_per_slot: 6
+  genesis_delay: 35
+  electra_fork_epoch: 0
+  fulu_fork_epoch: 0
+  num_validator_keys_per_node: 128
+ethereum_genesis_generator_params:
+  image: ethpandaops/ethereum-genesis-generator@sha256:25e8a9903d1212344d19b1937331eeae1b0246cc6184b6f9aa4cc9d796e9b22c
+additional_services: []

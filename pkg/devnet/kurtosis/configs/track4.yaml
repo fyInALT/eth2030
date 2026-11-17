@@ -2,9 +2,12 @@
 participants:
   - el_type: geth
     el_image: eth2030:track4-profile
+    el_max_mem: 2048
     el_extra_params: ["--override.iplus=0", "--rpc.rate_limit=0"]
     cl_type: lighthouse
     cl_image: eth2030cl:local
+    cl_max_mem: 2048
+    vc_max_mem: 1024
     cl_extra_params: ["--subscribe-all-subnets", "--target-peers=1", "--disable-peer-scoring"]
     count: 2
 network_params:

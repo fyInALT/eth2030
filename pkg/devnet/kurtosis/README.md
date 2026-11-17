@@ -237,6 +237,30 @@ branches and reopens a verifier's FileDB to check persisted receipts and
 storage. The live profile has no production STARK, lattice, PQ committee or
 witness-gas provider configuration.
 
+## Pinned Fulu control
+
+From the Kurtosis directory, run the dedicated controller with the
+initialized ethereum-package checkout at `c4a8e15d`:
+
+```sh
+./scripts/run-track4-control.py --output /tmp/eth2030-fulu-control
+```
+
+Pass `--package` when the pinned package is in a different worktree. The
+control uses Lighthouse v8.3.3 and genesis generator 5.3.5 by digest,
+verifies the memory limits on the two EL/BN/VC pairs, and waits for both ELs
+and Beacon APIs to agree on the finalized execution block. It then stops
+and starts one EL using its existing data, resolves its current RPC address
+and reads the same PQ receipt and historical storage. The output directory
+holds `evidence.json` and the launch and transaction verifier logs.
+The controller removes its own enclave on exit and stops the Kurtosis
+engine when it started that engine and the host has no other enclaves.
+
+`gloas-genesis.yaml` and `gloas-transition.yaml` are capped setup fixtures
+for the Gloas-at-genesis and scheduled transition scenarios. They use
+genesis generator 6.2.8. Build the paired ETH2030 EL and Lighthouse CL
+images from the recorded revisions before launching them.
+
 ## Heze compulsory inclusion devnet
 
 Build the paired EL and Lighthouse development revisions with Bogotá Engine
