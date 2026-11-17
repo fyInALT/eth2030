@@ -1,3 +1,16 @@
+## Native Bogotá deferred validation (2026-11-17)
+
+- The native Engine retains known off-canonical V6 blocks and their list
+  input before returning ACCEPTED. FCU runs the existing execution path,
+  evaluates the retained view, and stores its independent verdict.
+- An authenticated HTTP integration test covers missing-parent SYNCING,
+  an altered header, two views of the same payload, restart between stage
+  and FCU, and restart after a negative verdict. A state-synced block with
+  no submitted view requires V6 reconciliation before selection.
+- Engine, backend and chain package tests passed. The deferred Bogotá and
+  Amsterdam HTTP restart tests passed with the race detector. The native
+  CLI compiled. The Lighthouse paired and independent-EL gates remain open.
+
 ## Track 4 integration with master (2026-11-16)
 
 - Track 4 block staging and canonical publication now use the shared execution validation and Engine forkchoice path. The block batch retains the binary overlay nodes and conversion cursor. Startup rebuilds missing validation markers for legacy canonical overlay history after replay and root checks.

@@ -249,7 +249,17 @@ func (api *EngineAPI) processAmsterdamPayload(
 	parentBeaconBlockRoot types.Hash,
 	executionRequests [][]byte,
 ) (PayloadStatusV1, error) {
+	return api.processAmsterdamPayloadWith(payload, expectedBlobVersionedHashes,
+		parentBeaconBlockRoot, executionRequests, api.backend.ProcessBlockV5)
+}
 
+func (api *EngineAPI) processAmsterdamPayloadWith(
+	payload ExecutionPayloadV5,
+	expectedBlobVersionedHashes []types.Hash,
+	parentBeaconBlockRoot types.Hash,
+	executionRequests [][]byte,
+	process func(*ExecutionPayloadV5, []types.Hash, types.Hash, [][]byte) (PayloadStatusV1, error),
+) (PayloadStatusV1, error) {
 	// EIP-4788: parentBeaconBlockRoot must be provided.
 	if parentBeaconBlockRoot == (types.Hash{}) {
 		return PayloadStatusV1{}, ErrInvalidParams
@@ -274,7 +284,7 @@ func (api *EngineAPI) processAmsterdamPayload(
 		}, nil
 	}
 
-	return api.backend.ProcessBlockV5(&payload, expectedBlobVersionedHashes, parentBeaconBlockRoot, executionRequests)
+	return process(&payload, expectedBlobVersionedHashes, parentBeaconBlockRoot, executionRequests)
 }
 
 // GetPayloadV6 retrieves a previously built payload for Amsterdam.

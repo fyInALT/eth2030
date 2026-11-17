@@ -13,6 +13,11 @@ type bogotaBackend interface {
 	PayloadInclusionListSatisfied(types.Hash) bool
 }
 
+type bogotaExecutionBackend interface {
+	ProcessBlockV6(*ExecutionPayloadV5, types.Hash, [][]byte, [][]byte) (PayloadStatusV1, bool, error)
+	ForkchoiceUpdatedBogota(ForkchoiceStateV1, *PayloadAttributesV4) (ForkchoiceUpdatedResult, bool, error)
+}
+
 type bogotaPayloadStatus struct {
 	Status                 string      `json:"status"`
 	LatestValidHash        *types.Hash `json:"latestValidHash"`
@@ -64,6 +69,19 @@ func (api *EngineAPI) handleNewPayloadV6(params []json.RawMessage) (any, *jsonrp
 	if !api.isBogota(p.Timestamp) || !api.backend.IsAmsterdam(p.Timestamp) {
 		return nil, engineErrorToRPC(ErrUnsupportedFork)
 	}
+	if backend, ok := api.backend.(bogotaExecutionBackend); ok {
+		var satisfied bool
+		status, err := api.processAmsterdamPayloadWith(p, hashes, parent, requests,
+			func(payload *ExecutionPayloadV5, _ []types.Hash, root types.Hash, requests [][]byte) (PayloadStatusV1, error) {
+				status, verdict, err := backend.ProcessBlockV6(payload, root, requests, transactions)
+				satisfied = verdict
+				return status, err
+			})
+		if err != nil {
+			return nil, engineErrorToRPC(err)
+		}
+		return payloadStatusV2(status, satisfied), nil
+	}
 	status, err := api.processAmsterdamPayload(p, hashes, parent, requests)
 	if err != nil {
 		return nil, engineErrorToRPC(err)
@@ -102,6 +120,20 @@ func (api *EngineAPI) forkchoiceUpdatedBogota(
 ) (any, *jsonrpcError) {
 	var result ForkchoiceUpdatedResult
 	var err error
+	if backend, ok := api.backend.(bogotaExecutionBackend); ok {
+		badFork := attrs != nil && (!api.isBogota(attrs.Timestamp) || !api.backend.IsAmsterdam(attrs.Timestamp))
+		if badFork {
+			attrs = nil
+		}
+		result, satisfied, err := backend.ForkchoiceUpdatedBogota(state, attrs)
+		if badFork {
+			result, err = forkchoiceAttributeError(result, err, ErrUnsupportedFork)
+		}
+		if err != nil {
+			return nil, engineErrorToRPC(err)
+		}
+		return bogotaForkchoiceResponse(result, satisfied), nil
+	}
 	if attrs != nil && (!api.isBogota(attrs.Timestamp) || !api.backend.IsAmsterdam(attrs.Timestamp)) {
 		result, err = api.backend.ForkchoiceUpdatedV4(state, nil)
 		result, err = forkchoiceAttributeError(result, err, ErrUnsupportedFork)
@@ -117,6 +149,10 @@ func (api *EngineAPI) forkchoiceUpdatedBogota(
 func (api *EngineAPI) bogotaForkchoiceResult(state ForkchoiceStateV1, result ForkchoiceUpdatedResult) any {
 	satisfied := result.PayloadStatus.Status == StatusValid &&
 		api.backend.(bogotaBackend).PayloadInclusionListSatisfied(state.HeadBlockHash)
+	return bogotaForkchoiceResponse(result, satisfied)
+}
+
+func bogotaForkchoiceResponse(result ForkchoiceUpdatedResult, satisfied bool) any {
 	return struct {
 		PayloadStatus bogotaPayloadStatus `json:"payloadStatus"`
 		PayloadID     *PayloadID          `json:"payloadId"`

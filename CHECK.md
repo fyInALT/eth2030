@@ -1,5 +1,12 @@
 # Lean4 Verification Check-list
 
+## Native Bogotá deferred validation
+
+- [x] Retain the exact V6 list and off-canonical block before returning ACCEPTED.
+- [x] Complete staged validation on FCU and keep the verdict across FileDB reopen.
+- [x] Check missing ancestry, hash validation, list replacement and unresolved synced views through Engine HTTP.
+- [ ] Verify the native path with Lighthouse and a compatible independent EL.
+
 ## Roadmap Homepage Integration (2026-11-13)
 
 - [x] Promote the approved prototype to a detailed roadmap page and share its progress model with the homepage.
