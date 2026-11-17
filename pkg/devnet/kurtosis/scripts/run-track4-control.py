@@ -23,6 +23,33 @@ def run(*args, timeout=30, **kwargs):
     return subprocess.check_output(args, text=True, timeout=timeout, **kwargs).strip()
 
 
+def run_job(args, log, timeout, env=None):
+    # The verifier and launcher both spawn children. Killing only the
+    # immediate shell on timeout can leave them talking to a removed enclave.
+    with subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT,
+                          env=env, start_new_session=True) as child:
+        try:
+            status = child.wait(timeout=timeout)
+        except BaseException:
+            try:
+                os.killpg(child.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait()
+            raise
+        if status:
+            raise subprocess.CalledProcessError(status, args)
+
+
 def endpoint(enclave, service, port):
     value = run("kurtosis", "port", "print", enclave, service, port)
     return value if value.startswith(("http://", "https://")) else f"http://{value}"
@@ -69,6 +96,8 @@ def finalized(rpcs, beacons, evidence):
     roots.update((p["block_hash"], p["state_root"]) for p in payloads)
     if len(roots) != 1:
         return None
+    if any(readback(url, evidence) is None for url in rpcs):
+        raise RuntimeError("transaction missing after both pairs reported finality")
     return {"execution_hash": heads[0]["hash"], "state_root": heads[0]["stateRoot"],
             "beacon_slot": blocks[0]["data"]["message"]["slot"]}
 
@@ -135,8 +164,7 @@ def verify(enclave, evidence, output):
         raise RuntimeError("beacon genesis disagrees")
     evidence["beacon_genesis"] = cl_genesis[0]
     with (output / "verifier.log").open("w") as log:
-        subprocess.run(["bash", str(SCRIPTS / "verify-track4.sh"), enclave],
-                       stdout=log, stderr=subprocess.STDOUT, check=True, timeout=240)
+        run_job(["bash", str(SCRIPTS / "verify-track4.sh"), enclave], log, timeout=240)
     markers = [line.split("TRACK4_EVIDENCE ", 1)[1] for line in
                (output / "verifier.log").read_text().splitlines() if "TRACK4_EVIDENCE " in line]
     if len(markers) != 1:
@@ -162,20 +190,33 @@ def verify(enclave, evidence, output):
         raise RuntimeError("restarted EL returned different historical data")
 
 
+def enclave_id(network):
+    return run("docker", "network", "inspect", network, "--format",
+               '{{index .Labels "com.kurtosistech.enclave-id"}}')
+
+
 def cleanup(enclave, evidence, was_running):
     network = f"kt-{enclave}"
-    if network in enclave_networks():
-        enclave_id = run("docker", "network", "inspect", network, "--format",
-                         '{{index .Labels "com.kurtosistech.enclave-id"}}')
-        run("kurtosis", "enclave", "rm", "-f", enclave, timeout=120)
-        label = f"label=com.kurtosistech.enclave-id={enclave_id}"
+    has_network = network in enclave_networks()
+    if has_network:
+        evidence["enclave_id"] = enclave_id(network)
+    owner = evidence.get("enclave_id")
+    if has_network or engine_running():
+        try:
+            run("kurtosis", "enclave", "rm", "-f", enclave, timeout=120)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            evidence["cleanup_error"] = str(exc)
+    if owner:
+        label = f"label=com.kurtosistech.enclave-id={owner}"
         evidence["remaining_containers"] = run("docker", "ps", "-aq", "--filter", label).splitlines()
         evidence["remaining_volumes"] = run("docker", "volume", "ls", "-q", "--filter", label).splitlines()
-    evidence["enclave_removed"] = network not in enclave_networks()
-    if not was_running and engine_running() and not enclave_networks():
+    remaining_networks = enclave_networks()
+    evidence["enclave_removed"] = (network not in remaining_networks
+                                   and not evidence.get("remaining_containers")
+                                   and not evidence.get("remaining_volumes"))
+    if not was_running and engine_running() and not remaining_networks:
         run("kurtosis", "engine", "stop", timeout=120)
-    if (not evidence["enclave_removed"] or evidence.get("remaining_containers")
-            or evidence.get("remaining_volumes")):
+    if not evidence["enclave_removed"]:
         raise RuntimeError(f"control enclave left Docker resources: {enclave}")
 
 
@@ -201,9 +242,9 @@ def main():
     evidence = {"enclave": enclave, "package": PACKAGE_REV, "source": run("git", "-C", str(REPO), "rev-parse", "HEAD")}
     try:
         with (args.output / "launch.log").open("w") as log:
-            subprocess.run(["bash", str(SCRIPTS / "run-track4.sh"), enclave, str(PROFILE)],
-                           env={**os.environ, "KURTOSIS_PACKAGE": str(package)}, stdout=log,
-                           stderr=subprocess.STDOUT, check=True, timeout=420)
+            run_job(["bash", str(SCRIPTS / "run-track4.sh"), enclave, str(PROFILE)],
+                    log, timeout=420, env={**os.environ, "KURTOSIS_PACKAGE": str(package)})
+        evidence["enclave_id"] = enclave_id(f"kt-{enclave}")
         evidence["nodes"] = collect_images(enclave)
         verify(enclave, evidence, args.output)
     finally:

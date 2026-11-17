@@ -1,3 +1,14 @@
+## Devnet control review follow-up
+
+- Timeout and interrupt handling kills the launcher or verifier process
+  group. Cleanup saves the enclave ID and verifies its Docker resources
+  even when the enclave network has disappeared.
+- The Fulu verifier checks the original transaction on both ELs after
+  finality. The Gloas verifier requires the self-build builder index and
+  binds each envelope to the beacon root and bid.
+- Six local tests passed, including an actual child-process timeout and
+  negative cases for an orphaned resource, lost receipt and external bid.
+
 ## Pinned devnet controls (2026-11-17)
 
 - Added digest-pinned Fulu and capped Gloas setup fixtures. The controller
