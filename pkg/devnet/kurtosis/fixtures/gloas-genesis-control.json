@@ -1,0 +1,51 @@
+{
+  "enclave": "eth2030-gloas-control-f65ade76",
+  "package": "c4a8e15d40f0965f3728f776d72f1954440ad96b",
+  "execution_source": "b7944602",
+  "consensus_source": "bc56927f",
+  "nodes": {
+    "vc-2-geth-lighthouse": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 1024000000
+    },
+    "vc-1-geth-lighthouse": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 1024000000
+    },
+    "cl-2-lighthouse-geth": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 2048000000
+    },
+    "cl-1-lighthouse-geth": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 2048000000
+    },
+    "el-2-geth-lighthouse": {
+      "image": "eth2030:bogota-deferred-control",
+      "image_id": "sha256:36a5d640c40b84a48a43dc8723067939e53697bfcc0ca59dbca99989235651af",
+      "memory": 2048000000
+    },
+    "el-1-geth-lighthouse": {
+      "image": "eth2030:bogota-deferred-control",
+      "image_id": "sha256:36a5d640c40b84a48a43dc8723067939e53697bfcc0ca59dbca99989235651af",
+      "memory": 2048000000
+    }
+  },
+  "result": {
+    "slot": 4,
+    "beacon_root": "0xd3138237b6f4106e4003e653e519cca446bd6663f4fec2b311ebb812bb962946",
+    "execution_hash": "0xe7891b522ae77806c579c9e04fe25833bb9a49bf5be380c4f660d6addabf9f68",
+    "state_root": "0x31a9c75973dacd3fedb91aedf50c5471ba1620c7947a207cab6c314bf4089c35",
+    "bal_hashes": [
+      "0x1be6e0a8d66e64a7f08e17a53bdc9d0592a415afdfbf27cd50d8325957586125",
+      "0x1be6e0a8d66e64a7f08e17a53bdc9d0592a415afdfbf27cd50d8325957586125"
+    ]
+  },
+  "remaining_containers": [],
+  "remaining_volumes": [],
+  "enclave_removed": true
+}

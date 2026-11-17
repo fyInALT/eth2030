@@ -5,6 +5,8 @@
 - [x] Pin the Fulu client, package, generator and six node memory limits.
 - [x] Capture a canonical PQ transaction and verify its finalized receipt and historical state after restarting one EL.
 - [x] Verify enclave removal after the control, including failure paths.
+- [x] Match self-built Gloas genesis envelopes, EL state and BAL on two capped pairs.
+- [ ] Verify scheduled Gloas, external builder payment, PTC and blob availability.
 
 ## Roadmap Homepage Integration (2026-11-13)
 

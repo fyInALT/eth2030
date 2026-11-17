@@ -12,6 +12,10 @@
   [captured evidence](pkg/devnet/kurtosis/fixtures/track4-fulu-control.json).
   Kurtosis removed the enclave and its owned containers and volumes, then
   stopped its engine. The earlier too-short finality wait also cleaned up.
+- The [Gloas genesis control](pkg/devnet/kurtosis/fixtures/gloas-genesis-control.json)
+  used Lighthouse `bc56927f` and ETH2030 `b7944602`. Both pairs agreed on
+  the beacon root, execution envelope, EL state root, slot and BAL hash
+  at slot 4. Its enclave and owned Docker resources were removed.
 - The upstream Spamoor Frame tests passed. ETH2030's base Frame RLP and
   signing hash matched Spamoor at `f0f83695`, and the scalar nonce boundary
   difference reproduced. The Go client's inclusion-list JSON cases passed
