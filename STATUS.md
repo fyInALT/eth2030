@@ -16,6 +16,11 @@
   used Lighthouse `bc56927f` and ETH2030 `b7944602`. Both pairs agreed on
   the beacon root, execution envelope, EL state root, slot and BAL hash
   at slot 4. Its enclave and owned Docker resources were removed.
+- The [Heze inclusion control](pkg/devnet/kurtosis/fixtures/heze-compulsory-inclusion-control.json)
+  ran the same merged CL and EL. With zero EL peers at the verifier checks,
+  EL 1 received the transaction, a signed slot 64 list carried it, and
+  EL 2's proposer included it at slot 65. Both pairs finalized the matching
+  receipt. No owned containers or data volumes remained after cleanup.
 - The upstream Spamoor Frame tests passed. ETH2030's base Frame RLP and
   signing hash matched Spamoor at `f0f83695`, and the scalar nonce boundary
   difference reproduced. The Go client's inclusion-list JSON cases passed

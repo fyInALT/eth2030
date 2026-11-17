@@ -1,0 +1,51 @@
+{
+  "enclave": "eth2030-heze-control-0ea2ecaa",
+  "package": "c4a8e15d40f0965f3728f776d72f1954440ad96b",
+  "execution_source": "b7944602",
+  "consensus_source": "bc56927f",
+  "nodes": {
+    "vc-1-geth-lighthouse": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 1024000000
+    },
+    "vc-2-geth-lighthouse": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 1024000000
+    },
+    "cl-2-lighthouse-geth": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 2048000000
+    },
+    "cl-1-lighthouse-geth": {
+      "image": "eth2030cl:merged-control-7666",
+      "image_id": "sha256:c72e1af95757ad858cf62d18cc3a314b67b9327191464f83276398cfd7183f4a",
+      "memory": 2048000000
+    },
+    "el-2-geth-lighthouse": {
+      "image": "eth2030:bogota-deferred-control",
+      "image_id": "sha256:36a5d640c40b84a48a43dc8723067939e53697bfcc0ca59dbca99989235651af",
+      "memory": 2048000000
+    },
+    "el-1-geth-lighthouse": {
+      "image": "eth2030:bogota-deferred-control",
+      "image_id": "sha256:36a5d640c40b84a48a43dc8723067939e53697bfcc0ca59dbca99989235651af",
+      "memory": 2048000000
+    }
+  },
+  "result": {
+    "list_slot": 64,
+    "proposal_slot": 65,
+    "proposer": 254,
+    "committee_el": 1,
+    "proposer_el": 2,
+    "transaction": "0x3f63b714570d896aeeb51fa3deb0b2252a0a203d5e04883b2119659e88bd0a84",
+    "block_hash": "0x5be0cb8ab40a0e3f63373cb5b5af86ec9edef0d9963c3fa21d7552450d25100e",
+    "finalized_on_both_pairs": true
+  },
+  "remaining_containers": [],
+  "remaining_volumes": [],
+  "enclave_removed": true
+}

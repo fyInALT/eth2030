@@ -6,6 +6,7 @@
 - [x] Capture a canonical PQ transaction and verify its finalized receipt and historical state after restarting one EL.
 - [x] Verify enclave removal after the control, including failure paths.
 - [x] Match self-built Gloas genesis envelopes, EL state and BAL on two capped pairs.
+- [x] Finalize ordinary Heze FOCIL inclusion with the merged CL and native Bogotá EL, then remove its enclave.
 - [ ] Verify scheduled Gloas, external builder payment, PTC and blob availability.
 
 ## Roadmap Homepage Integration (2026-11-13)
