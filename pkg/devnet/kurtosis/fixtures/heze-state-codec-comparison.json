@@ -1,0 +1,22 @@
+{
+  "lighthouse": "bc56927fdb0c31f908286ec39013e4452864dc18",
+  "go_client": "ceca3c2d06146198f111b88f437fdef595b492d9",
+  "go_version": "1.25.2",
+  "beacon_spec_sha256": "2ec02fc8086a5646d6da1cafbb63793c44f33afb96b9949a4863aa6c4116da33",
+  "states": {
+    "gloas": {
+      "slot": "32",
+      "state_root": "0x64203cf014878655c967b1bb90aef1fb9c0a35121715396f157e5d37106a7931",
+      "bytes": 3172957,
+      "sha256": "1cafe4d89d3937dd49289d003aa7a1e07a3fa6b78b2045a4054f3a262eb3ab19",
+      "decoded_slot": 32
+    },
+    "heze": {
+      "slot": "64",
+      "state_root": "0x05842a7e7fddf85c647f3b9af285b6fc8518f0ca1f47a32d5f0ce1d998f11b08",
+      "bytes": 3175263,
+      "sha256": "8cae1a3a22c04a2f0359b4b3202e9c56b09786a612a11f15fe15b1eb3873dd5e",
+      "error": "HistoricalRoots:o: incorrect offset: first offset 3134845 does not match expected 3134753"
+    }
+  }
+}

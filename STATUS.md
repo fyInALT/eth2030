@@ -20,6 +20,10 @@
   signing hash matched Spamoor at `f0f83695`, and the scalar nonce boundary
   difference reproduced. The Go client's inclusion-list JSON cases passed
   with its declared Go 1.25.2 toolchain. Service-level parity remains open.
+- A replay of actual BeaconState bytes with go-eth2-client `v0.1.11`
+  decoded Gloas slot 32, then rejected ETH2030 Heze slot 64 at the
+  HistoricalRoots offset. The [codec comparison](pkg/devnet/kurtosis/fixtures/heze-state-codec-comparison.json)
+  records the source pins and input roots and digests.
 
 ## Track 4 integration with master (2026-11-16)
 
