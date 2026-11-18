@@ -1,5 +1,11 @@
 # Lean4 Verification Check-list
 
+## Canonical system transition composed regression (2026-11-19)
+
+- [x] Compose reviews 65–82 and 84 in the isolated integration branch.
+- [x] Pass full/tagged tests, eleven affected race packages, vet and build.
+- [x] Record actual Node and independent system consumers; retain Gas draft and full-client/release gates.
+
 ## Canonical execution system transitions (2026-11-19)
 
 - [x] Read complete pinned EIPs 2935/4788 and the selected 8037 system-call margin; compare canonical SDK assets.

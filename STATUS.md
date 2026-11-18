@@ -1,3 +1,7 @@
+## Canonical system transition composed regression (2026-11-19)
+
+Reviews 65–82 and 84 compose at tested source `2f253d33`: all 212 Go packages, 27 tagged Core/EIP packages, eleven affected race packages, vet and build pass. Native system transition consumers qualify alongside snap/2 and eth/72. [Evidence](docs/verification/glamsterdam-system-integration-20261119.md). Gas draft 83 and complete CL/multiclient/resource/release qualification remain separate.
+
 ## Canonical execution system transition qualification (2026-11-19)
 
 [PR 84](https://github.com/alt-research/eth2030/pull/84) corrects the history address/8191 ring; shared actual-code pre-block callbacks now produce identical complete roots to unmodified SDK in deployed/missing/custom/revert scenarios. Native Node HTTP build/import/query/wrap/restart and exact runtime/genesis consumers pass. Seven owned profiles preserve existing allocations while preloading canonical code before roots. All 212 Go packages, 27 tagged Core/EIP packages, 11 affected race packages, vet/build and seven compiling detected mutations qualify this source. [Evidence](docs/verification/glamsterdam-system-transitions-20261119.md). Gas draft composition, live independent-client/devnet/resource and final release gates remain open.
