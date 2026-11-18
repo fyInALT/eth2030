@@ -9,7 +9,7 @@
 - [x] Qualify independent runtime/storage/root consumers, wrap/missing-slot/query bounds and native Node build/import/restart; preserve 8282/6110/7002/7251 coverage.
 - [x] Run full/tagged/affected race/vet/build and sensitive mutations; prepare a separate feature PR.
 
-- [ ] Publish the separate review and record composed qualification.
+- [x] Publish the separate review as PR 84; composed qualification is recorded independently.
 
 ## eth version 72 sparse blob relay (2026-11-19)
 
