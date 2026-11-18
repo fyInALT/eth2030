@@ -258,45 +258,8 @@ func (p *StateProcessor) ProcessWithBAL(block *types.Block, statedb state.StateD
 		preTracker = bal.NewTracker()
 	}
 
-	// EIP-4788: store the parent beacon block root in the beacon root contract.
-	if p.config != nil && p.config.IsCancun(header.Time) {
-		if balActive && header.ParentBeaconRoot != nil {
-			// Capture old values before the system call writes.
-			timestampIdx := header.Time % eips.BeaconHistoryBufferLength
-			rootIdx := timestampIdx + eips.BeaconHistoryBufferLength
-			tsSlot := eips.Uint64ToHash(timestampIdx)
-			rootSlot := eips.Uint64ToHash(rootIdx)
-			oldTsVal := statedb.GetState(eips.BeaconRootAddress, tsSlot)
-			oldRootVal := statedb.GetState(eips.BeaconRootAddress, rootSlot)
-
-			eips.ProcessBeaconBlockRoot(statedb, header)
-
-			// Record the storage changes.
-			newTsVal := eips.Uint64ToHash(header.Time)
-			preTracker.RecordStorageChange(eips.BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
-			preTracker.RecordStorageChange(eips.BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
-		} else {
-			eips.ProcessBeaconBlockRoot(statedb, header)
-		}
-	}
-
-	// EIP-2935: store parent block hash in history storage contract (Prague+).
-	if p.config != nil && p.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
-		if balActive {
-			parentNum := header.Number.Uint64() - 1
-			slotBig := new(big.Int).SetUint64(parentNum % eips.HistoryServeWindow)
-			var slotHash types.Hash
-			if slotBig.Sign() > 0 {
-				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
-			}
-			oldVal := statedb.GetState(eips.HistoryStorageAddress, slotHash)
-
-			eips.ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
-
-			preTracker.RecordStorageChange(eips.HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
-		} else {
-			eips.ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
-		}
+	if err := ApplyPreExecutionSystems(p.config, p.getHash, statedb, header, preTracker); err != nil {
+		return nil, err
 	}
 
 	// Merge pre-execution system contract accesses into the block BAL.

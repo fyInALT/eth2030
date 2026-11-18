@@ -1,0 +1,84 @@
+{
+  "date": "2026-11-19",
+  "branch": "fix/glamsterdam-system-transitions",
+  "tested_source_commit": "3355156e45b16f11eef2acea20931fd77ab70ab9",
+  "foundation_commit": "953825986838a7da854ed30ea64b7eaf06c4f6d3",
+  "eips_commit": "3db38a3725105cb67b8804ac3e147967113bc3ca",
+  "eip_blobs": {
+    "2935": "60fab81fff8126a0e0f019a3fa7439fdfafe9471",
+    "4788": "efcac43ef9aadd87dd4e0a2fbd14d5d1317eddf3"
+  },
+  "sdk": "go-ethereum v1.17.10",
+  "independent_scenario_roots": {
+    "deployed": "0x57ddf076fc319106e32f297077126d6f4fe28e58922ec48a953799696d2a4ddb",
+    "missing": "0xba833af158743d9de7b260304a633234f866e1d10a0153292d891c44f43997dd",
+    "custom": "0x1e3091e300f06f60aff39d888de1fe2a4f99ec6611d4bc374849d91600a58d02",
+    "revert": "0xa17ee0876f72d74429fc0af96319c82cd15424549bc74287892a57b755d2b942"
+  },
+  "checks": {
+    "full_go_packages": 212,
+    "tagged_core_eip_packages": 27,
+    "affected_race_packages": 11,
+    "affected_vet": "passed",
+    "local_build": "passed",
+    "affected_after_mutation": "passed"
+  },
+  "mutations": [
+    {
+      "name": "canonical-history-address",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-canonical-history-address.log"
+    },
+    {
+      "name": "history-reader-window",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-history-reader-window.log"
+    },
+    {
+      "name": "actual-runtime-execution",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-actual-runtime-execution.log"
+    },
+    {
+      "name": "system-caller",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-system-caller.log"
+    },
+    {
+      "name": "bal-reverted-write",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-bal-reverted-write.log"
+    },
+    {
+      "name": "no-runtime-injection",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-no-runtime-injection.log"
+    },
+    {
+      "name": "actual-builder-entry",
+      "detected": true,
+      "exit_code": 1,
+      "log": "/tmp/glamsterdam-system-mutation-actual-builder-entry.log"
+    }
+  ],
+  "genesis_profiles": {
+    "profiles": [
+      "pkg/devnet/kurtosis/configs/full-feature-eth2030.yaml",
+      "pkg/devnet/kurtosis/configs/heze-focil.yaml",
+      "pkg/devnet/kurtosis/configs/gloas-transition.yaml",
+      "pkg/devnet/kurtosis/configs/gloas-genesis.yaml",
+      "pkg/devnet/kurtosis/configs/full-feature.yaml",
+      "pkg/devnet/kurtosis/configs/frame-heze-control.yaml",
+      "pkg/devnet/kurtosis/configs/frame-paymaster-history.yaml"
+    ],
+    "existing_allocations_preserved": true,
+    "canonical_pre_root_assets": true
+  },
+  "release_qualified": false
+}

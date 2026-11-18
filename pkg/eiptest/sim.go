@@ -103,6 +103,17 @@ func newSim(o *simOptions) (*Sim, error) {
 			o.alloc[types.BuilderExitRequestAddress] = config.GenesisAccount{Nonce: 1, Code: eips.BuilderExitRuntime(), Storage: map[types.Hash]types.Hash{{}: inhibitor}}
 		}
 	}
+	// Owned fixtures install standard execution contracts before root creation.
+	if cfg.CancunTime != nil {
+		if _, exists := o.alloc[eips.BeaconRootAddress]; !exists {
+			o.alloc[eips.BeaconRootAddress] = config.GenesisAccount{Nonce: 1, Code: eips.BeaconRootsRuntime()}
+		}
+	}
+	if cfg.PragueTime != nil {
+		if _, exists := o.alloc[eips.HistoryStorageAddress]; !exists {
+			o.alloc[eips.HistoryStorageAddress] = config.GenesisAccount{Nonce: 1, Code: eips.HistoryStorageRuntime()}
+		}
+	}
 	baseFee := o.baseFee
 	if baseFee == nil {
 		baseFee = new(big.Int).Mul(big.NewInt(int64(DefaultBaseFeeGwei)), Gwei)

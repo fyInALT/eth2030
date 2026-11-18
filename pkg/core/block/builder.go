@@ -9,7 +9,6 @@ import (
 
 	"github.com/eth2030/eth2030/bal"
 	"github.com/eth2030/eth2030/core/config"
-	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/execution"
 	"github.com/eth2030/eth2030/core/gas"
 	"github.com/eth2030/eth2030/core/gaspool"
@@ -251,40 +250,9 @@ func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBl
 		preTracker = bal.NewTracker()
 	}
 
-	// EIP-4788: store the parent beacon block root before any user transactions.
-	if b.config != nil && b.config.IsCancun(header.Time) {
-		if balActive && header.ParentBeaconRoot != nil {
-			timestampIdx := header.Time % eips.BeaconHistoryBufferLength
-			rootIdx := timestampIdx + eips.BeaconHistoryBufferLength
-			tsSlot := eips.Uint64ToHash(timestampIdx)
-			rootSlot := eips.Uint64ToHash(rootIdx)
-			oldTsVal := statedb.GetState(eips.BeaconRootAddress, tsSlot)
-			oldRootVal := statedb.GetState(eips.BeaconRootAddress, rootSlot)
-			eips.ProcessBeaconBlockRoot(statedb, header)
-			newTsVal := eips.Uint64ToHash(header.Time)
-			preTracker.RecordStorageChange(eips.BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
-			preTracker.RecordStorageChange(eips.BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
-		} else {
-			eips.ProcessBeaconBlockRoot(statedb, header)
-		}
-	}
-
-	// EIP-2935: store parent block hash in history storage contract (Prague+).
 	pragueActive := b.config != nil && b.config.IsPrague(header.Time)
-	if pragueActive && header.Number.Uint64() > 0 {
-		if balActive {
-			parentNum := header.Number.Uint64() - 1
-			slotBig := new(big.Int).SetUint64(parentNum % eips.HistoryServeWindow)
-			var slotHash types.Hash
-			if slotBig.Sign() > 0 {
-				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
-			}
-			oldVal := statedb.GetState(eips.HistoryStorageAddress, slotHash)
-			eips.ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
-			preTracker.RecordStorageChange(eips.HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
-		} else {
-			eips.ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
-		}
+	if err := execution.ApplyPreExecutionSystems(b.config, getHash, statedb, header, preTracker); err != nil {
+		return nil, nil, err
 	}
 
 	// Merge pre-execution system contract accesses into the block BAL.
@@ -710,39 +678,8 @@ func (b *BlockBuilder) BuildBlockLegacy(parent *types.Header, txsByPrice []*type
 		preTrackerLegacy = bal.NewTracker()
 	}
 
-	// EIP-4788: store the parent beacon block root before any user transactions.
-	if b.config != nil && b.config.IsCancun(header.Time) {
-		if balActive && header.ParentBeaconRoot != nil {
-			timestampIdx := header.Time % eips.BeaconHistoryBufferLength
-			rootIdx := timestampIdx + eips.BeaconHistoryBufferLength
-			tsSlot := eips.Uint64ToHash(timestampIdx)
-			rootSlot := eips.Uint64ToHash(rootIdx)
-			oldTsVal := statedb.GetState(eips.BeaconRootAddress, tsSlot)
-			oldRootVal := statedb.GetState(eips.BeaconRootAddress, rootSlot)
-			eips.ProcessBeaconBlockRoot(statedb, header)
-			newTsVal := eips.Uint64ToHash(header.Time)
-			preTrackerLegacy.RecordStorageChange(eips.BeaconRootAddress, tsSlot, oldTsVal, newTsVal)
-			preTrackerLegacy.RecordStorageChange(eips.BeaconRootAddress, rootSlot, oldRootVal, *header.ParentBeaconRoot)
-		} else {
-			eips.ProcessBeaconBlockRoot(statedb, header)
-		}
-	}
-
-	// EIP-2935: store parent block hash in history storage contract (Prague+).
-	if b.config != nil && b.config.IsPrague(header.Time) && header.Number.Uint64() > 0 {
-		if balActive {
-			parentNum := header.Number.Uint64() - 1
-			slotBig := new(big.Int).SetUint64(parentNum % eips.HistoryServeWindow)
-			var slotHash types.Hash
-			if slotBig.Sign() > 0 {
-				slotBig.FillBytes(slotHash[32-len(slotBig.Bytes()):])
-			}
-			oldVal := statedb.GetState(eips.HistoryStorageAddress, slotHash)
-			eips.ProcessParentBlockHash(statedb, parentNum, header.ParentHash)
-			preTrackerLegacy.RecordStorageChange(eips.HistoryStorageAddress, slotHash, oldVal, header.ParentHash)
-		} else {
-			eips.ProcessParentBlockHash(statedb, header.Number.Uint64()-1, header.ParentHash)
-		}
+	if err := execution.ApplyPreExecutionSystems(b.config, getHash, statedb, header, preTrackerLegacy); err != nil {
+		return nil, nil, err
 	}
 
 	// Merge pre-execution system contract accesses into the block BAL.

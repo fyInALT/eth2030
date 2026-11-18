@@ -19,13 +19,13 @@ import (
 
 const (
 	// HistoryServeWindow is the number of historical block hashes stored.
-	// Per EIP-2935 (updated in Prague): 8192 slots.
-	HistoryServeWindow = 8192
+	// Per EIP-2935 (updated in Prague): 8191 slots.
+	HistoryServeWindow = 8191
 )
 
 // HistoryStorageAddress is the system contract address for EIP-2935.
 // This is the address specified in EIP-2935 for the history storage contract.
-var HistoryStorageAddress = types.HexToAddress("0x0F792be4B0c0cb4DAE440Ef133E90C0eCD48CCCC")
+var HistoryStorageAddress = types.HexToAddress("0x0000F90827F1C53a10cb7A02335B175320002935")
 
 // ProcessParentBlockHash stores the parent block hash in the history
 // storage contract as specified by EIP-2935. This should be called at the

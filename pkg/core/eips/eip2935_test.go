@@ -85,7 +85,7 @@ func TestHistoryStorageAddress(t *testing.T) {
 }
 
 func TestHistoryServeWindowConstant(t *testing.T) {
-	if HistoryServeWindow != 8192 {
-		t.Fatalf("HistoryServeWindow = %d, want 8192", HistoryServeWindow)
+	if HistoryServeWindow != 8191 {
+		t.Fatalf("HistoryServeWindow = %d, want 8191", HistoryServeWindow)
 	}
 }

@@ -9,13 +9,13 @@ import (
 	gethstate "github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethbal "github.com/ethereum/go-ethereum/core/types/bal"
 	gethvm "github.com/ethereum/go-ethereum/core/vm"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
 	eth2030cfg "github.com/eth2030/eth2030/core/config"
-	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/types"
 )
 
@@ -71,23 +71,21 @@ func (p *GethBlockProcessor) ProcessBlock(
 ) ([]*types.Receipt, types.Hash, error) {
 	header := block.Header()
 	blockCtx := MakeBlockContext(header, getHash)
-	if p.eth2030Cfg != nil {
-		// Match the native chain's system storage effects before comparing the
-		// independently executed transactions and their state commitments.
-		storage := gethSystemStorage{statedb}
-		if p.eth2030Cfg.IsCancun(header.Time) {
-			eips.ProcessBeaconBlockRoot(storage, header)
-		}
-		if p.eth2030Cfg.IsPrague(header.Time) && block.NumberU64() > 0 {
-			eips.ProcessParentBlockHash(storage, block.NumberU64()-1, header.ParentHash)
-		}
+	// Use unmodified SDK system transitions; never reproduce native storage
+	// shortcuts in the reference path or disable its empty-account rules.
+	blockCtx.CostPerStateByte = params.CostPerStateByte
+	systemEVM := p.MakeEVM(blockCtx, statedb, header.Number, header.Time)
+	collector := gethbal.NewConstructionBlockAccessList()
+	if p.config.IsCancun(header.Number, header.Time) && header.ParentBeaconRoot != nil {
+		gethcore.ProcessBeaconBlockRoot(ToGethHash(*header.ParentBeaconRoot), systemEVM, collector)
+	}
+	if p.config.IsPrague(header.Number, header.Time) && block.NumberU64() > 0 {
+		gethcore.ProcessParentBlockHash(ToGethHash(header.ParentHash), systemEVM, collector)
 	}
 
 	gasPool := gethcore.NewGasPool(header.GasLimit)
 	rules := p.config.Rules(header.Number, blockCtx.Random != nil, header.Time)
-	if p.eth2030Cfg != nil {
-		rules.IsEIP158 = false
-	}
+
 	// Match Geth's transaction boundary, including system-call effects before
 	// the first transaction. SetTxContext alone does not advance original storage.
 	statedb.Finalise(rules)
@@ -139,23 +137,14 @@ func (p *GethBlockProcessor) ProcessBlock(
 
 	if p.eth2030Cfg == nil {
 		TouchCoinbase(statedb, blockCtx.Coinbase)
-	} else {
-		// The native system rings use storage-only accounts. Preserve them
-		// when computing the root for the native/Geth differential probe.
-		rules.IsEIP158 = false
 	}
+
 	root, err := statedb.Commit(rules, header.Number.Uint64())
 	if err != nil {
 		return nil, types.Hash{}, fmt.Errorf("commit state: %w", err)
 	}
 
 	return receipts, FromGethHash(root), nil
-}
-
-type gethSystemStorage struct{ db *gethstate.StateDB }
-
-func (s gethSystemStorage) SetState(addr types.Address, slot, value types.Hash) {
-	s.db.SetState(ToGethAddress(addr), ToGethHash(slot), ToGethHash(value))
 }
 
 // applyTransaction converts an eth2030 transaction to a go-ethereum message

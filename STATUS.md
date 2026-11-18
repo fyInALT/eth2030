@@ -1,3 +1,8 @@
+## Canonical execution system transition qualification (2026-11-19)
+
+Correct history address/8191 ring and shared actual-code pre-block callbacks now produce identical complete roots to unmodified SDK in deployed/missing/custom/revert scenarios. Native Node HTTP build/import/query/wrap/restart and exact runtime/genesis consumers pass. Seven owned profiles preserve existing allocations while preloading canonical code before roots. All 212 Go packages, 27 tagged Core/EIP packages, 11 affected race packages, vet/build and seven compiling detected mutations qualify this source. [Evidence](docs/verification/glamsterdam-system-transitions-20261119.md). Gas draft composition, live independent-client/devnet/resource and final release gates remain open.
+
+
 ## Moving pivot proof binding composed regression (2026-11-19)
 
 Source `c0df6062` composes PR 81's unchanged-account exact-proof repair with reviews 65–82. All 212 Go packages, 27 tagged Core/EIP packages, affected snap/scheduler/Node race, vet and build pass. Seven encrypted Node pivot scenarios now cover unchanged pending storage and its damaged proof. The Gas draft remains separate; final cross-client/resource/release gates stay open. [Evidence](docs/verification/glamsterdam-snap2-binding-integration-20261119.md).

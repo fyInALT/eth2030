@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/eth2030/eth2030/core/eips"
 	"github.com/eth2030/eth2030/core/types"
 	"github.com/eth2030/eth2030/eiptest"
 )
@@ -19,7 +20,7 @@ func mustUnmarshal(t *testing.T, data []byte, v interface{}) {
 func snapshotStandardAccounts(t *testing.T, s *eiptest.Sim) map[types.Address]*eiptest.PreAccountView {
 	t.Helper()
 	return s.SnapshotAccounts(t, s.Alice().Address, s.Bob().Address, s.Charlie().Address,
-		s.Dave().Address, s.Erin().Address, s.Faythe().Address)
+		s.Dave().Address, s.Erin().Address, s.Faythe().Address, eips.HistoryStorageAddress, eips.BeaconRootAddress, types.BuilderDepositRequestAddress, types.BuilderExitRequestAddress)
 }
 
 func TestDiffProbe_TransferParity(t *testing.T) {

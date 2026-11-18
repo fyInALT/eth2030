@@ -120,30 +120,9 @@ func collectRequests(cfg *config.ChainConfig, getHash vm.GetHashFunc, statedb st
 }
 
 func callRequestQueue(cfg *config.ChainConfig, getHash vm.GetHashFunc, statedb state.StateDB, header *types.Header, address types.Address, tracker *bal.AccessTracker) ([]byte, error) {
-	const systemGasLimit = 30_000_000
-
-	statedb.ClearAccessList()
-	statedb.ClearTransientStorage()
-	statedb.SubRefund(statedb.GetRefund())
-	statedb.AddAddressToAccessList(address)
-	statedb.SetTxContext(types.Hash{}, 0)
-
-	blockContext := vm.BlockContext{
-		GetHash: getHash, BlockNumber: header.Number, Time: header.Time,
-		Coinbase: header.Coinbase, GasLimit: header.GasLimit, BaseFee: header.BaseFee,
-		PrevRandao: header.MixDigest,
-	}
-	txContext := vm.TxContext{Origin: types.SystemAddress, GasPrice: new(big.Int)}
-	evm := vm.NewEVMWithState(blockContext, txContext, vm.Config{}, statedb)
-	if _, err := ConfigureBlockEVM(cfg, header, evm); err != nil {
+	evm, err := newSystemEVM(cfg, getHash, statedb, header)
+	if err != nil {
 		return nil, err
 	}
-	if tracker != nil {
-		tracker.RecordAddressTouch(address)
-		evm.SetBALTracker(tracker, 0)
-	}
-	data, _, err := evm.Call(types.SystemAddress, address, nil, systemGasLimit, new(big.Int))
-	statedb.ClearTransientStorage()
-	statedb.SubRefund(statedb.GetRefund())
-	return data, err
+	return executeSystemCall(evm, statedb, address, nil, tracker)
 }

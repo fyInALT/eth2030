@@ -13,6 +13,7 @@ import (
 
 func TestEIP2935_IntegratedWithProcessor(t *testing.T) {
 	statedb := newBuilderRequestTestState()
+	eips.ApplyExecutionSystemGenesis(statedb)
 
 	// Fund a sender for the block.
 	sender := types.HexToAddress("0x1111")

@@ -555,11 +555,14 @@ func TestBinaryOverlayGenesisThroughEngine(t *testing.T) {
 	n := newTestNode(t, &cfg)
 	bc := n.Blockchain()
 	funded := types.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-	build := func(parent *types.Block, at uint64, beacon byte) *payload.ExecutionPayloadV4 {
+	build := func(parent *types.Block, at uint64, beacon byte, withdrawal *payload.Withdrawal) *payload.ExecutionPayloadV4 {
 		t.Helper()
 		attrs := new(payload.PayloadAttributesV4)
 		attrs.Timestamp = at
 		attrs.Withdrawals = []*payload.Withdrawal{}
+		if withdrawal != nil {
+			attrs.Withdrawals = append(attrs.Withdrawals, withdrawal)
+		}
 		attrs.ParentBeaconBlockRoot = types.Hash{31: beacon}
 		update, err := n.engBackend.ForkchoiceUpdatedV4(payload.ForkchoiceStateV1{HeadBlockHash: parent.Hash()}, attrs)
 		if err != nil || update.PayloadStatus.Status != engine.StatusValid || update.PayloadID == nil {
@@ -572,7 +575,7 @@ func TestBinaryOverlayGenesisThroughEngine(t *testing.T) {
 		return result.ExecutionPayload
 	}
 
-	first := build(bc.Genesis(), 1, 11)
+	first := build(bc.Genesis(), 1, 11, nil)
 	parent := bc.GetBlock(first.BlockHash)
 	if parent == nil || first.StateRoot != parent.Root() || first.StateRoot == bc.Genesis().Root() {
 		t.Fatal("Engine did not publish and import the overlay state root")
@@ -585,12 +588,12 @@ func TestBinaryOverlayGenesisThroughEngine(t *testing.T) {
 	if balance.Sign() == 0 {
 		t.Fatal("first child cannot read the frozen genesis balance")
 	}
-	converted := build(parent, 2, 12)
+	converted := build(parent, 2, 12, nil)
 	if converted.StateRoot == first.StateRoot {
 		t.Fatal("Engine did not apply the first conversion unit")
 	}
-	// Reconstruct the expected root from the two rounds of system writes
-	// and the one frozen account selected by the conversion stride.
+	// Missing system code performs no writes. Reconstruct the overlay root
+	// from the one frozen account selected by the conversion stride.
 	want := bintrie.NewWithHashFunc(bintrie.HashFunctionBlake3)
 	updateAccount := func(address types.Address) {
 		t.Helper()
@@ -599,25 +602,11 @@ func TestBinaryOverlayGenesisThroughEngine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	updateStorage := func(address types.Address, slot uint64, value types.Hash) {
-		t.Helper()
-		key := eips.Uint64ToHash(slot)
-		if err := want.UpdateStorage(address, key[:], value[:]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	updateAccount(eips.BeaconRootAddress)
-	updateAccount(eips.HistoryStorageAddress)
-	updateStorage(eips.BeaconRootAddress, 1, eips.Uint64ToHash(1))
-	updateStorage(eips.BeaconRootAddress, 1+eips.BeaconHistoryBufferLength, types.Hash{31: 11})
-	updateStorage(eips.HistoryStorageAddress, 0, bc.Genesis().Hash())
+
 	if first.StateRoot != want.Hash() {
 		t.Fatalf("first Engine root = %s, want %s", first.StateRoot, want.Hash())
 	}
 	updateAccount(funded)
-	updateStorage(eips.BeaconRootAddress, 2, eips.Uint64ToHash(2))
-	updateStorage(eips.BeaconRootAddress, 2+eips.BeaconHistoryBufferLength, types.Hash{31: 12})
-	updateStorage(eips.HistoryStorageAddress, 1, parent.Hash())
 	blk := bc.GetBlock(converted.BlockHash)
 	if blk == nil || blk.Root() != want.Hash() || converted.StateRoot != want.Hash() {
 		t.Fatalf("second Engine root = %s, want %s", converted.StateRoot, want.Hash())
@@ -627,7 +616,9 @@ func TestBinaryOverlayGenesisThroughEngine(t *testing.T) {
 		t.Fatalf("conversion changed the logical balance: %v", err)
 	}
 
-	other := build(parent, 2, 13)
+	// Missing beacon code cannot distinguish the state of two payloads.
+	// Use a real withdrawal difference to test independent overlay branches.
+	other := build(parent, 2, 13, &payload.Withdrawal{Address: funded, Amount: 1})
 	if other.BlockHash == converted.BlockHash || other.StateRoot == converted.StateRoot {
 		t.Fatal("competing payloads did not produce independent overlays")
 	}
