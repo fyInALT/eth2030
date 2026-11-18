@@ -72,7 +72,7 @@ func (j *TxJournal) Insert(tx *types.Transaction, local bool) error {
 		return ErrJournalClosed
 	}
 
-	rlpData, err := tx.EncodeRLP()
+	rlpData, err := types.EncodePooledTransaction(tx)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func Load(path string) ([]*types.Transaction, []JournalEntry, error) {
 			if err := json.Unmarshal(line, &entry); err != nil {
 				continue // skip corrupt entries
 			}
-			tx, err := types.DecodeTxRLP(entry.TxRLP)
+			tx, err := types.DecodePooledTransaction(entry.TxRLP)
 			if err != nil {
 				continue // skip undecodable transactions
 			}
@@ -190,7 +190,7 @@ func (j *TxJournal) Rotate(pending map[types.Address][]*types.Transaction) error
 	written := 0
 	for _, txs := range pending {
 		for _, tx := range txs {
-			rlpData, err := tx.EncodeRLP()
+			rlpData, err := types.EncodePooledTransaction(tx)
 			if err != nil {
 				continue
 			}

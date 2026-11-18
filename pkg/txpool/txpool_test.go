@@ -969,7 +969,7 @@ func TestValidateTx_BlobTx_MissingHashes(t *testing.T) {
 	// Blob tx with valid hashes should succeed.
 	hash := types.Hash{0x01}
 	tx3 := makeBlobTx(testSender, 0, 100, 200, 21000, []types.Hash{hash})
-	err = pool.AddLocal(tx3)
+	err = pool.AddLocal(withAuthenticatedBlobSidecar(t, tx3))
 	if err != nil {
 		t.Errorf("expected success for valid blob tx, got: %v", err)
 	}
@@ -1118,28 +1118,28 @@ func TestValidateTx_BlobTx_BlobFeeCapBelowBaseFee(t *testing.T) {
 
 	// Blob tx with blobFeeCap=100, below blobBaseFee=500: should fail.
 	txLow := makeBlobTxWithBlobFee(testSender, 0, 10, 200, 21000, 100, []types.Hash{hash})
-	err := pool.AddLocal(txLow)
+	err := pool.AddLocal(withAuthenticatedBlobSidecar(t, txLow))
 	if err != ErrBlobFeeCapBelowBaseFee {
 		t.Errorf("expected ErrBlobFeeCapBelowBaseFee, got: %v", err)
 	}
 
 	// Blob tx with blobFeeCap=499, just below: should fail.
 	txJust := makeBlobTxWithBlobFee(testSender, 0, 10, 200, 21000, 499, []types.Hash{hash})
-	err = pool.AddLocal(txJust)
+	err = pool.AddLocal(withAuthenticatedBlobSidecar(t, txJust))
 	if err != ErrBlobFeeCapBelowBaseFee {
 		t.Errorf("expected ErrBlobFeeCapBelowBaseFee for blobFeeCap=499, got: %v", err)
 	}
 
 	// Blob tx with blobFeeCap=500, equal to blobBaseFee: should succeed.
 	txEqual := makeBlobTxWithBlobFee(testSender, 0, 10, 200, 21000, 500, []types.Hash{hash})
-	err = pool.AddLocal(txEqual)
+	err = pool.AddLocal(withAuthenticatedBlobSidecar(t, txEqual))
 	if err != nil {
 		t.Errorf("expected success for blobFeeCap==blobBaseFee, got: %v", err)
 	}
 
 	// Blob tx with blobFeeCap=1000, above blobBaseFee: should succeed.
 	txAbove := makeBlobTxWithBlobFee(testSender, 1, 10, 200, 21000, 1000, []types.Hash{hash})
-	err = pool.AddLocal(txAbove)
+	err = pool.AddLocal(withAuthenticatedBlobSidecar(t, txAbove))
 	if err != nil {
 		t.Errorf("expected success for blobFeeCap>blobBaseFee, got: %v", err)
 	}
@@ -1156,7 +1156,7 @@ func TestValidateTx_BlobTx_NoBlobBaseFee(t *testing.T) {
 
 	// No blob base fee set, low blob fee cap should be fine.
 	tx := makeBlobTxWithBlobFee(testSender, 0, 10, 200, 21000, 1, []types.Hash{hash})
-	err := pool.AddLocal(tx)
+	err := pool.AddLocal(withAuthenticatedBlobSidecar(t, tx))
 	if err != nil {
 		t.Errorf("expected success without blobBaseFee, got: %v", err)
 	}
@@ -1503,7 +1503,7 @@ func TestSetBlobBaseFee(t *testing.T) {
 
 	// Initially no blob base fee, low blob fee cap should work.
 	txLow := makeBlobTxWithBlobFee(testSender, 0, 10, 200, 21000, 1, []types.Hash{hash})
-	err := pool.AddLocal(txLow)
+	err := pool.AddLocal(withAuthenticatedBlobSidecar(t, txLow))
 	if err != nil {
 		t.Errorf("expected success without blobBaseFee, got: %v", err)
 	}
@@ -1513,14 +1513,14 @@ func TestSetBlobBaseFee(t *testing.T) {
 
 	// Now a tx with blob fee cap 50 should be rejected.
 	txReject := makeBlobTxWithBlobFee(testSender, 1, 10, 200, 21000, 50, []types.Hash{hash})
-	err = pool.AddLocal(txReject)
+	err = pool.AddLocal(withAuthenticatedBlobSidecar(t, txReject))
 	if err != ErrBlobFeeCapBelowBaseFee {
 		t.Errorf("expected ErrBlobFeeCapBelowBaseFee after setting blob base fee, got: %v", err)
 	}
 
 	// A tx with blob fee cap 200 should succeed.
 	txOk := makeBlobTxWithBlobFee(testSender, 1, 10, 200, 21000, 200, []types.Hash{hash})
-	err = pool.AddLocal(txOk)
+	err = pool.AddLocal(withAuthenticatedBlobSidecar(t, txOk))
 	if err != nil {
 		t.Errorf("expected success with sufficient blob fee cap, got: %v", err)
 	}

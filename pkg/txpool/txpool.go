@@ -826,6 +826,15 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		if len(tx.BlobHashes()) == 0 {
 			return ErrBlobTxMissingHashes
 		}
+		if len(tx.BlobHashes()) > 6 {
+			return errors.New("blob transaction exceeds six blobs")
+		}
+		for _, hash := range tx.BlobHashes() {
+			if hash[0] != 1 {
+				return errors.New("invalid blob versioned hash prefix")
+			}
+		}
+
 		// EIP-4844: validate blob gas fee cap against the current blob base fee.
 		if pool.blobBaseFee != nil {
 			blobFeeCap := tx.BlobGasFeeCap()
@@ -869,6 +878,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction) error {
 		}
 	}
 
+	if tx.Type() == types.BlobTxType {
+		return validateOrdinaryBlobSidecar(tx)
+	}
 	return nil
 }
 
@@ -1321,7 +1333,7 @@ func (pool *TxPool) GetBlobsByVersionedHashes(hashes []types.Hash) []*BlobAndPro
 		blob       []byte
 		commitment []byte
 		proof      []byte
-		frame      bool
+		cellProofs bool
 	}
 	index := make(map[types.Hash]*entry)
 
@@ -1342,7 +1354,7 @@ func (pool *TxPool) GetBlobsByVersionedHashes(hashes []types.Hash) []*BlobAndPro
 					blob:       sc.Blobs[i],
 					commitment: sc.Commitments[i],
 					proof:      sc.Proofs[i],
-					frame:      isCanonicalFrame8141(tx),
+					cellProofs: isCanonicalFrame8141(tx) || sc.Version == 1,
 				}
 			}
 		}
@@ -1366,7 +1378,7 @@ func (pool *TxPool) GetBlobsByVersionedHashes(hashes []types.Hash) []*BlobAndPro
 						blob:       sc.Blobs[i],
 						commitment: sc.Commitments[i],
 						proof:      sc.Proofs[i],
-						frame:      isCanonicalFrame8141(tx),
+						cellProofs: isCanonicalFrame8141(tx) || sc.Version == 1,
 					}
 				}
 			}
@@ -1377,9 +1389,9 @@ func (pool *TxPool) GetBlobsByVersionedHashes(hashes []types.Hash) []*BlobAndPro
 	for i, h := range hashes {
 		if e, ok := index[h]; ok {
 			proof := e.proof
-			if e.frame {
+			if e.cellProofs {
 				var err error
-				proof, err = frameBlobProof8141(e.blob, e.commitment)
+				proof, err = fullBlobProof(e.blob, e.commitment)
 				if err != nil {
 					continue
 				}

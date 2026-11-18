@@ -21,6 +21,9 @@ const (
 // blob transaction (EIP-4844). Stored out-of-band alongside the tx so it does
 // not affect the signing hash or on-chain RLP encoding.
 type BlobSidecarData struct {
+	// Version is the ordinary type-3 pool wrapper: 0 is legacy, 1 is PeerDAS.
+	// Canonical Frame envelopes validate their separate wrapper version.
+	Version     byte
 	Blobs       [][]byte
 	Commitments [][]byte
 	Proofs      [][]byte

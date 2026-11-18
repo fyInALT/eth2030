@@ -146,39 +146,7 @@ func validateFrameBlobProofs8141(tx *types.Transaction) error {
 	if len(tx.BlobHashes()) == 0 {
 		return nil
 	}
-	kzg := bls.DefaultKZGBackend()
-	sidecar := tx.BlobSidecar()
-	for i, blob := range sidecar.Blobs {
-		if batch, ok := kzg.(interface {
-			VerifyBlobCellProofs([]byte, []byte, [][]byte) (bool, error)
-		}); ok {
-			valid, err := batch.VerifyBlobCellProofs(blob, sidecar.Commitments[i], sidecar.Proofs[i*types.FrameCellsPerBlob:(i+1)*types.FrameCellsPerBlob])
-			if err != nil {
-				return err
-			}
-			if !valid {
-				return errors.New("Frame blob has an invalid KZG cell-proof batch")
-			}
-			continue
-		}
-		cells, err := kzg.ComputeCells(blob)
-		if err != nil {
-			return err
-		}
-		if len(cells) != types.FrameCellsPerBlob {
-			return errors.New("invalid KZG extension cell count")
-		}
-		for j, cell := range cells {
-			valid, err := kzg.VerifyCellProof(sidecar.Commitments[i], cell[:], sidecar.Proofs[i*types.FrameCellsPerBlob+j], uint64(j))
-			if err != nil {
-				return err
-			}
-			if !valid {
-				return errors.New("Frame blob has an invalid KZG cell proof")
-			}
-		}
-	}
-	return nil
+	return verifyCellProofSidecar(tx.BlobSidecar())
 }
 
 func isCanonicalFrame8141(tx *types.Transaction) bool {
@@ -186,9 +154,9 @@ func isCanonicalFrame8141(tx *types.Transaction) bool {
 	return ok
 }
 
-func frameBlobProof8141(blob, commitment []byte) ([]byte, error) {
+func fullBlobProof(blob, commitment []byte) ([]byte, error) {
 	if len(commitment) != 48 {
-		return nil, errors.New("invalid Frame commitment")
+		return nil, errors.New("invalid blob commitment")
 	}
 	backend, err := bls.NewGoEthKZGBackend()
 	if err != nil {

@@ -526,8 +526,12 @@ func decodeBlobTxFull(data []byte) (*Transaction, *BlobSidecarData, error) {
 			if err1 := rlp.DecodeBytes(data, &v1); err1 != nil {
 				return nil, nil, fmt.Errorf("decode blob tx: %w", err)
 			}
+			if v1.Version != 1 {
+				return nil, nil, fmt.Errorf("unsupported blob wrapper version %d", v1.Version)
+			}
 			dec = v1.Tx
 			sidecar = &BlobSidecarData{
+				Version:     v1.Version,
 				Blobs:       v1.Blobs,
 				Commitments: v1.Commitments,
 				Proofs:      v1.Proofs,

@@ -420,7 +420,7 @@ func (b *BlockBuilder) BuildBlockWithResult(parent *types.Header, attrs *BuildBl
 	regularTxs, blobTxs := sortedTxLists(pendingTxs, header.BaseFee)
 	var validBlobTxs []*types.Transaction
 	for _, tx := range blobTxs {
-		if tx.BlobSidecar() != nil {
+		if types.HasFullBlobSidecar(tx) {
 			validBlobTxs = append(validBlobTxs, tx)
 		}
 	}

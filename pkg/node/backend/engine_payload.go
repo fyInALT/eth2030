@@ -3,7 +3,6 @@ package backend
 import (
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -135,48 +134,9 @@ func (b *EngineBackend) payloadResponse(id payload.PayloadID, p *pendingPayload)
 		"blockValue", blockValue,
 	)
 
-	blobsBundle := &payload.BlobsBundleV1{}
-	blobTxCount := 0
-	for _, tx := range blk.Transactions() {
-		if len(tx.BlobHashes()) == 0 {
-			continue
-		}
-		blobTxCount++
-		sc := tx.BlobSidecar()
-		if sc == nil {
-			slog.Debug("engine_getPayload: blob tx missing sidecar",
-				"txHash", tx.Hash(),
-				"blockNumber", blk.NumberU64(),
-			)
-			continue
-		}
-		blobsBundle.Commitments = append(blobsBundle.Commitments, sc.Commitments...)
-		if _, canonical := tx.Inner().(*types.FrameTx8141); canonical {
-			backend, err := bls.NewGoEthKZGBackend()
-			if err != nil {
-				return nil, err
-			}
-			for i, blob := range sc.Blobs {
-				if i >= len(sc.Commitments) || len(sc.Commitments[i]) != 48 {
-					return nil, errors.New("invalid canonical Frame blob commitment")
-				}
-				proof, err := backend.ComputeBlobProof(blob, [48]byte(sc.Commitments[i]))
-				if err != nil {
-					return nil, err
-				}
-				blobsBundle.Proofs = append(blobsBundle.Proofs, proof[:])
-			}
-		} else {
-			blobsBundle.Proofs = append(blobsBundle.Proofs, sc.Proofs...)
-		}
-		blobsBundle.Blobs = append(blobsBundle.Blobs, sc.Blobs...)
-	}
-	if blobTxCount > 0 {
-		slog.Debug("engine_getPayload: blobsBundle",
-			"blobTxCount", blobTxCount,
-			"blobCount", len(blobsBundle.Blobs),
-			"blockNumber", blk.NumberU64(),
-		)
+	blobsBundle, err := payload.BuildBlobsBundleV1(blk.Transactions())
+	if err != nil {
+		return nil, err
 	}
 
 	// Cache blobs for engine_getBlobsV2 (PeerDAS).
@@ -246,31 +206,11 @@ func (b *EngineBackend) GetPayloadV6ByID(id payload.PayloadID) (*payload.GetPayl
 	if err != nil {
 		return nil, err
 	}
-	var blobsBundleV2 *payload.BlobsBundleV2
-	if b1 := resp.BlobsBundle; b1 != nil && len(b1.Blobs) > 0 {
-		// Expand KZG proofs to cell proofs (128 per blob) for PeerDAS.
-		cellProofs, _ := expandBlobCellProofs(b1.Blobs, "GetPayloadV6ByID: ComputeCellsAndProofs failed")
-		blobsBundleV2 = &payload.BlobsBundleV2{
-			Commitments: b1.Commitments,
-			Proofs:      cellProofs,
-			Blobs:       b1.Blobs,
-		}
-		// Debug: print first proof bytes to verify non-zero
-		if len(cellProofs) > 0 && len(cellProofs[0]) >= 16 {
-			slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
-				"blobCount", len(b1.Blobs),
-				"cellProofs", len(cellProofs),
-				"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
-				"firstProofHex", fmt.Sprintf("%x", cellProofs[0][:16]),
-			)
-		} else {
-			slog.Debug("GetPayloadV6ByID: BlobsBundleV2",
-				"blobCount", len(b1.Blobs),
-				"cellProofs", len(cellProofs),
-				"expectedProofs", len(b1.Blobs)*bls.KZGCellsPerExtBlob,
-			)
-		}
+	blobsBundleV2, err := payload.BuildBlobsBundleV2(p.block.Transactions())
+	if err != nil {
+		return nil, err
 	}
+
 	var blockBAL *bal.BlockAccessList
 	if p.result != nil {
 		blockBAL = p.result.BlockAccessList
@@ -498,35 +438,6 @@ func encodeTxsRLP(txs []*types.Transaction) [][]byte {
 		encoded = append(encoded, raw)
 	}
 	return encoded
-}
-
-// expandBlobCellProofs expands each blob's KZG proof to 128 per-cell KZG proofs.
-// This is required by the Fulu/PeerDAS spec for BlobsBundleV2.
-func expandBlobCellProofs(blobs [][]byte, warnLabel string) ([][]byte, int) {
-	if len(blobs) == 0 {
-		return nil, 0
-	}
-
-	kzg := bls.DefaultKZGBackend()
-	proofs := make([][]byte, 0, len(blobs)*bls.KZGCellsPerExtBlob)
-	totalProofs := 0
-	for _, blob := range blobs {
-		_, cellProofs, err := kzg.ComputeCellsAndProofs(blob)
-		if err != nil {
-			slog.Warn(warnLabel, "err", err)
-			for range bls.KZGCellsPerExtBlob {
-				proofs = append(proofs, make([]byte, bls.KZGBytesPerProof))
-				totalProofs++
-			}
-			continue
-		}
-		for _, p := range cellProofs {
-			cp := p
-			proofs = append(proofs, cp[:])
-			totalProofs++
-		}
-	}
-	return proofs, totalProofs
 }
 
 // GetPayloadV7ByID retrieves a previously built payload for getPayloadV7.

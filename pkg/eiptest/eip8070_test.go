@@ -1,38 +1,46 @@
 package eiptest_test
 
 import (
+	"crypto/sha256"
+	"github.com/eth2030/eth2030/core/types"
+	"github.com/eth2030/eth2030/crypto/bls"
+	"github.com/eth2030/eth2030/eiptest"
 	"math/big"
 	"testing"
-
-	"github.com/eth2030/eth2030/core/types"
-	"github.com/eth2030/eth2030/eiptest"
 )
 
-// TestEIP8070_SparseBlobpoolAdmission verifies EIP-8070 admission semantics
-// observable at the pool surface: blob transactions with well-formed
-// version-0x01 hashes are admitted; malformed version bytes are rejected.
-func TestEIP8070_SparseBlobpoolAdmission(t *testing.T) {
+// This qualifies full-pool admission boundaries, not an implemented sparse relay.
+func TestEIP8070_FullDataAdmissionBoundary(t *testing.T) {
 	s := eiptest.New(t)
-	p := s.Pool()
+	pool := s.Pool()
 	alice := s.Alice()
-
-	// Well-formed blob hash (0x01 version) → admitted.
-	good := eiptest.UnsignedBlob(
-		alice.Address, s.Config().ChainID, s.Nonce(alice.Address),
-		s.Bob().Address, big.NewInt(1), 100_000,
-		big.NewInt(2_000_000_000), big.NewInt(1_000_000_000), big.NewInt(1_000_000_000),
-		[]types.Hash{eiptest.BlobHash(1)},
-	)
-	p.ExpectAccepted(t, good)
-
-	// Malformed blob hash version (0x02) → rejected at the pool boundary.
-	badHash := eiptest.BlobHash(1)
-	badHash[0] = 0x02
-	bad := eiptest.UnsignedBlob(
-		alice.Address, s.Config().ChainID, s.Nonce(alice.Address),
-		s.Bob().Address, big.NewInt(1), 100_000,
-		big.NewInt(2_000_000_000), big.NewInt(1_000_000_000), big.NewInt(1_000_000_000),
-		[]types.Hash{badHash},
-	)
-	p.ExpectRejected(t, bad, "")
+	makeTransaction := func(hash types.Hash) *types.Transaction {
+		return eiptest.UnsignedBlob(alice.Address, s.Config().ChainID, s.Nonce(alice.Address), s.Bob().Address, big.NewInt(1), 100000, big.NewInt(2000000000), big.NewInt(1000000000), big.NewInt(1000000000), []types.Hash{hash})
+	}
+	// Unauthenticated metadata must be staged separately by a future sparse manager.
+	pool.ExpectRejected(t, makeTransaction(eiptest.BlobHash(1)), "sidecar")
+	blob := make([]byte, 131072)
+	blob[31] = 1
+	backend := bls.DefaultKZGBackend()
+	commitment, err := backend.BlobToCommitment(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, proofs, err := backend.ComputeCellsAndProofs(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(commitment[:])
+	hash[0] = 1
+	valid := makeTransaction(types.Hash(hash))
+	sidecar := &types.BlobSidecarData{Version: 1, Blobs: [][]byte{blob}, Commitments: [][]byte{commitment[:]}}
+	for _, proof := range proofs {
+		value := proof
+		sidecar.Proofs = append(sidecar.Proofs, value[:])
+	}
+	valid.SetBlobSidecar(sidecar)
+	pool.ExpectAccepted(t, valid)
+	bad := types.Hash(hash)
+	bad[0] = 2
+	pool.ExpectRejected(t, makeTransaction(bad), "version")
 }

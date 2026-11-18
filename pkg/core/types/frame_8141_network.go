@@ -58,12 +58,15 @@ func ValidateFrameSidecar8141(tx *Transaction) error {
 	return nil
 }
 
-// EncodePooledTransaction uses the sidecar wrapper only for blob-bearing Frames.
+// EncodePooledTransaction preserves ordinary and canonical Frame blob sidecars.
 // Block bodies and hashes continue to use Transaction.EncodeRLP.
 func EncodePooledTransaction(tx *Transaction) ([]byte, error) {
 	plain, err := tx.EncodeRLP()
 	if err != nil {
 		return nil, err
+	}
+	if tx.Type() == BlobTxType && tx.BlobSidecar() != nil {
+		return encodePooledBlob(tx, plain)
 	}
 	if _, ok := tx.Inner().(*FrameTx8141); !ok || len(tx.BlobHashes()) == 0 {
 		return plain, nil
